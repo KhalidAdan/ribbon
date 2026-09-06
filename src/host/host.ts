@@ -54,8 +54,11 @@ export interface ScannedFile {
 }
 
 export interface ScanProgress {
+  /** Total files once the walk is complete; 0 while still walking. */
   walked: number;
   done: number;
+  /** Files discovered so far while the walk is still running. */
+  found?: number;
 }
 
 export interface ScanOutput {

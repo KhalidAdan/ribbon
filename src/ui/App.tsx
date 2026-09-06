@@ -73,7 +73,11 @@ function Ready() {
     return (
       <main className="flex h-full items-center justify-center px-6">
         <p className="text-base/7 text-neutral-500 tabular-nums sm:text-sm/6 dark:text-neutral-400">
-          {state.scanning && state.scanning.walked > 0 ? `Reading ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files…` : "Looking through your folder…"}
+          {state.scanning && state.scanning.walked > 0
+            ? `Reading ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files…`
+            : state.scanning?.found
+              ? `Found ${state.scanning.found.toLocaleString()} files so far…`
+              : "Looking through your folder…"}
         </p>
       </main>
     );

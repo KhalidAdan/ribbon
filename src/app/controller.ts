@@ -39,6 +39,8 @@ export interface ScanStatus {
   /** Files seen so far and files finished; both zero while walking. */
   walked: number;
   done: number;
+  /** Files discovered so far while the walk is still running. */
+  found?: number;
   /** True while a rescan runs behind an already visible library. */
   background: boolean;
 }

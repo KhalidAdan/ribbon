@@ -29,6 +29,15 @@ use walkdir::WalkDir;
 const AUDIO: &[&str] = &["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"];
 const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
 const ODIO_DIR: &str = ".odio";
+/// Block size for the caching reader used while reading tags.
+const READ_BLOCK: usize = 32 * 1024;
+/// Tag reading waits on I/O far more than it computes, and network shares
+/// reward concurrency, so the pool is much wider than the core count.
+const PROBE_THREADS: usize = 48;
+
+fn probe_pool() -> rayon::ThreadPool {
+    rayon::ThreadPoolBuilder::new().num_threads(PROBE_THREADS).thread_name(|i| format!("odio-probe-{i}")).build().expect("thread pool")
+}
 pub const PROGRESS_EVENT: &str = "odio://scan-progress";
 
 #[derive(Deserialize, Clone)]
@@ -68,6 +77,80 @@ pub struct ScanResult {
     pub elapsed_ms: u128,
 }
 
+/// A `Read + Seek` adapter that fetches fixed-size blocks from the inner
+/// file and never fetches the same block twice. Sequential parsing inside
+/// a block is free; a seek to somewhere already fetched is free; only new
+/// regions touch the file. Files are small in count of distinct regions
+/// (a header, maybe a trailer), so this is a handful of reads per file
+/// whether the file is local or on a share with 10 ms round trips.
+pub struct BlockReader<R: std::io::Read + std::io::Seek> {
+    inner: R,
+    len: u64,
+    pos: u64,
+    block: usize,
+    blocks: HashMap<u64, Vec<u8>>,
+}
+
+impl<R: std::io::Read + std::io::Seek> BlockReader<R> {
+    pub fn new(mut inner: R, block: usize) -> std::io::Result<Self> {
+        let len = inner.seek(std::io::SeekFrom::End(0))?;
+        Ok(Self { inner, len, pos: 0, block, blocks: HashMap::new() })
+    }
+
+    fn fetch(&mut self, index: u64) -> std::io::Result<&Vec<u8>> {
+        if !self.blocks.contains_key(&index) {
+            let start = index * self.block as u64;
+            let want = (self.len.saturating_sub(start)).min(self.block as u64) as usize;
+            let mut buf = vec![0u8; want];
+            self.inner.seek(std::io::SeekFrom::Start(start))?;
+            let mut filled = 0;
+            while filled < want {
+                let n = self.inner.read(&mut buf[filled..])?;
+                if n == 0 {
+                    break;
+                }
+                filled += n;
+            }
+            buf.truncate(filled);
+            self.blocks.insert(index, buf);
+        }
+        Ok(&self.blocks[&index])
+    }
+}
+
+impl<R: std::io::Read + std::io::Seek> std::io::Read for BlockReader<R> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        if self.pos >= self.len || out.is_empty() {
+            return Ok(0);
+        }
+        let index = self.pos / self.block as u64;
+        let offset = (self.pos - index * self.block as u64) as usize;
+        let block = self.fetch(index)?;
+        if offset >= block.len() {
+            return Ok(0);
+        }
+        let n = out.len().min(block.len() - offset);
+        out[..n].copy_from_slice(&block[offset..offset + n]);
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+impl<R: std::io::Read + std::io::Seek> std::io::Seek for BlockReader<R> {
+    fn seek(&mut self, from: std::io::SeekFrom) -> std::io::Result<u64> {
+        let target = match from {
+            std::io::SeekFrom::Start(p) => p as i128,
+            std::io::SeekFrom::End(d) => self.len as i128 + d as i128,
+            std::io::SeekFrom::Current(d) => self.pos as i128 + d as i128,
+        };
+        if target < 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "seek before start"));
+        }
+        self.pos = target as u64;
+        Ok(self.pos)
+    }
+}
+
 #[derive(Default)]
 pub struct Probed {
     pub duration_ms: u64,
@@ -96,8 +179,9 @@ fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-/// Walk the tree once. Hidden entries and `.odio` are skipped.
-pub fn walk(root: &Path) -> Vec<(PathBuf, String, u64, i64, &'static str)> {
+/// Walk the tree once. Hidden entries and `.odio` are skipped. `seen` is
+/// called every 500 files so a slow disk still shows movement.
+pub fn walk(root: &Path, mut seen: impl FnMut(usize)) -> Vec<(PathBuf, String, u64, i64, &'static str)> {
     let mut out = Vec::new();
     let iter = WalkDir::new(root).follow_links(false).into_iter().filter_entry(|e| {
         let name = e.file_name().to_string_lossy();
@@ -118,6 +202,9 @@ pub fn walk(root: &Path) -> Vec<(PathBuf, String, u64, i64, &'static str)> {
         let Ok(meta) = entry.metadata() else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
         out.push((entry.path().to_path_buf(), name, meta.len(), mtime_ms(&meta), kind));
+        if out.len() % 500 == 0 {
+            seen(out.len());
+        }
     }
     out
 }
@@ -233,7 +320,9 @@ pub fn probe(path: &Path) -> Probed {
     let Ok(probe) = Probe::open(path) else { return out };
     let Ok(probe) = probe.guess_file_type() else { return out };
     let file_type = probe.file_type();
-    let mut reader = probe.into_inner();
+    // Tag parsers issue many small reads and seeks. Over a network share
+    // each one is a round trip, so read in blocks and keep every block.
+    let Ok(mut reader) = BlockReader::new(probe.into_inner(), READ_BLOCK) else { return out };
     let opts = ParseOptions::new();
     match file_type {
         Some(FileType::Mpeg) => {
@@ -319,14 +408,18 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
     let started = std::time::Instant::now();
     let handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        let entries = walk(&root);
+        let walker = handle.clone();
+        let entries = walk(&root, move |n| {
+            let _ = walker.emit(PROGRESS_EVENT, serde_json::json!({ "walked": 0, "done": 0, "found": n }));
+        });
         let walked = entries.len();
         let known: HashMap<String, (u64, i64)> = known.into_iter().map(|k| (k.path, (k.size_bytes, k.mtime_ms))).collect();
         let done = AtomicUsize::new(0);
         let probed = AtomicUsize::new(0);
         let reused = AtomicUsize::new(0);
         let _ = handle.emit(PROGRESS_EVENT, serde_json::json!({ "walked": walked, "done": 0 }));
-        let files: Vec<ScannedFile> = entries
+        let pool = probe_pool();
+        let files: Vec<ScannedFile> = pool.install(|| entries
             .into_par_iter()
             .map(|(abs, name, size, mtime, kind)| {
                 let rel = rel_path(&root, &abs);
@@ -361,7 +454,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
                 }
                 file
             })
-            .collect();
+            .collect());
         ScanResult {
             files,
             walked,
@@ -409,6 +502,85 @@ pub async fn read_text_dir(dir: String) -> Result<Vec<TextFile>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Seek, SeekFrom};
+
+    /// Wraps a reader and logs every read and seek, to see what a parser
+    /// actually touches. Run with ODIO_TRACE=1 to print.
+    struct Tracing<R> {
+        inner: R,
+        pos: u64,
+        reads: usize,
+        seeks: usize,
+        bytes: u64,
+        log: Vec<String>,
+    }
+    impl<R: Read> Read for Tracing<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.inner.read(buf)?;
+            self.reads += 1;
+            self.bytes += n as u64;
+            self.log.push(format!("read {} @ {}", n, self.pos));
+            self.pos += n as u64;
+            Ok(n)
+        }
+    }
+    impl<R: Seek> Seek for Tracing<R> {
+        fn seek(&mut self, from: SeekFrom) -> std::io::Result<u64> {
+            let p = self.inner.seek(from)?;
+            self.seeks += 1;
+            self.log.push(format!("seek -> {p}"));
+            self.pos = p;
+            Ok(p)
+        }
+    }
+
+    #[test]
+    fn trace_parser_access_pattern() {
+        if std::env::var("ODIO_TRACE").is_err() {
+            return;
+        }
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        for name in ["Horus Rising/Chapter 10.m4a", "EgoIstheEnemy_ep6.mp3"] {
+            let path = repo.join("books").join(name);
+            let f = std::fs::File::open(&path).unwrap();
+            let len = f.metadata().unwrap().len();
+            let mut t = Tracing { inner: f, pos: 0, reads: 0, seeks: 0, bytes: 0, log: Vec::new() };
+            let opts = ParseOptions::new();
+            if name.ends_with(".mp3") {
+                let _ = MpegFile::read_from(&mut t, opts);
+            } else {
+                let _ = Mp4File::read_from(&mut t, opts);
+            }
+            eprintln!("{name}: len {len}, {} reads, {} seeks, {} bytes", t.reads, t.seeks, t.bytes);
+            let shown: Vec<&String> = t.log.iter().take(40).collect();
+            eprintln!("  first ops: {shown:?}");
+            if t.log.len() > 40 {
+                let tail: Vec<&String> = t.log.iter().rev().take(8).collect();
+                eprintln!("  last ops: {tail:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn block_reader_matches_plain_reads_across_boundaries_and_seeks() {
+        let data: Vec<u8> = (0..10_007u32).map(|i| (i % 251) as u8).collect();
+        let mut r = BlockReader::new(std::io::Cursor::new(data.clone()), 1000).unwrap();
+        let mut buf = vec![0u8; 2500];
+        r.seek(SeekFrom::Start(990)).unwrap();
+        r.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf[..], &data[990..3490]);
+        r.seek(SeekFrom::End(-7)).unwrap();
+        let mut tail = Vec::new();
+        r.read_to_end(&mut tail).unwrap();
+        assert_eq!(&tail[..], &data[10_000..]);
+        r.seek(SeekFrom::Start(0)).unwrap();
+        let mut all = Vec::new();
+        r.read_to_end(&mut all).unwrap();
+        assert_eq!(all, data);
+        assert_eq!(r.blocks.len(), 11, "every block fetched exactly once");
+        assert_eq!(r.seek(SeekFrom::Current(-5)).unwrap(), 10_002);
+        assert!(r.seek(SeekFrom::Current(-20_000)).is_err());
+    }
 
     /// Runs against the real library beside the repo when it exists,
     /// and against the hard-linked benchmark tree when that exists.
@@ -420,7 +592,7 @@ mod tests {
             eprintln!("no books folder; skipping");
             return;
         }
-        let entries = walk(&books);
+        let entries = walk(&books, |_| {});
         let audio: Vec<_> = entries.iter().filter(|e| e.4 == "audio").collect();
         assert!(audio.len() >= 23, "expected at least 23 audio files, got {}", audio.len());
         let horus = audio.iter().find(|e| e.1 == "Chapter 10.m4a").expect("Chapter 10.m4a");
@@ -440,13 +612,41 @@ mod tests {
         // fast scanner does not see it; the lazy ffprobe pass does.
         assert!(!entries.iter().any(|e| e.0.components().any(|c| c.as_os_str() == ODIO_DIR)));
 
+        // Point ODIO_SCAN_PATH at any folder (a network share, say) to time it.
+        if let Ok(extra) = std::env::var("ODIO_SCAN_PATH") {
+            let extra = PathBuf::from(extra);
+            let t = std::time::Instant::now();
+            let mut last = std::time::Instant::now();
+            let entries = walk(&extra, |n| {
+                eprintln!("  walk: {n} files, +{:?}", last.elapsed());
+                last = std::time::Instant::now();
+            });
+            let walked = t.elapsed();
+            let t = std::time::Instant::now();
+            let done = AtomicUsize::new(0);
+            let n = probe_pool().install(|| entries
+                .par_iter()
+                .filter(|e| e.4 == "audio")
+                .map(|e| {
+                    let p = probe(&e.0);
+                    let k = done.fetch_add(1, Ordering::Relaxed) + 1;
+                    if k % 100 == 0 {
+                        eprintln!("  probe: {k} files, {:?} so far", t.elapsed());
+                    }
+                    p
+                })
+                .filter(|p| p.duration_ms > 0)
+                .count());
+            eprintln!("extra: walked {} files in {:?}, probed {} audio files in {:?}", entries.len(), walked, n, t.elapsed());
+        }
+
         let bench = repo.parent().unwrap().join("odio-bench");
         if bench.is_dir() {
             let t = std::time::Instant::now();
-            let entries = walk(&bench);
+            let entries = walk(&bench, |_| {});
             let walked = t.elapsed();
             let t = std::time::Instant::now();
-            let n = entries.par_iter().filter(|e| e.4 == "audio").map(|e| probe(&e.0)).filter(|p| p.duration_ms > 0).count();
+            let n = probe_pool().install(|| entries.par_iter().filter(|e| e.4 == "audio").map(|e| probe(&e.0)).filter(|p| p.duration_ms > 0).count());
             eprintln!("bench: walked {} files in {:?}, probed {} audio files in {:?}", entries.len(), walked, n, t.elapsed());
             assert!(n > 20_000);
         }
