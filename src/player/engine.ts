@@ -305,6 +305,9 @@ export class PlayerEngine {
       this.webAudio = false;
       this.ctx = null;
       this.gainNode = null;
+      // Without CORS headers a crossorigin media fetch fails outright,
+      // so fall back to a plain (opaque) media load.
+      for (const el of this.els) el.removeAttribute("crossorigin");
     }
   }
 

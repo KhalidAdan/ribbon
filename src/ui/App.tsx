@@ -17,6 +17,7 @@ export function App() {
     void detectPlatform().then((platform) => {
       if (!live) return;
       created = new AppController(platform);
+      if (import.meta.env.DEV) (window as unknown as { __odio: AppController }).__odio = created;
       setController(created);
       void created.boot();
     });

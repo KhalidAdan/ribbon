@@ -51,7 +51,10 @@ the library root. All files are CSV. Nothing is binary or opaque.
 | `.odio/silence/<book>.csv`        | Silence ranges per file for gap shortening.          |
 | `.odio/bookmarks/<book>.csv`      | offset_ms, created_at, note, clip filename.          |
 | `.odio/settings/<book>.csv`       | Per-book speed and other listener choices.           |
-| `.odio/device.txt`                | This device's name. Written once.                    |
+
+The device name in a position row is the machine's hostname. It is not
+stored in the library because `.odio/` syncs, and a synced device name
+would be wrong on every other device.
 
 **Book id.** CRC-32 of the book's library-relative path plus total
 audio byte size, rendered as eight hex characters. Stable across
@@ -90,8 +93,12 @@ the engine raises the rate so the gap lasts a fixed short time, then
 restores the book speed. Gaps get shorter; nothing is cut.
 
 **Loudness.** ffmpeg's `ebur128` filter on import yields integrated
-LUFS. Gain is `target - measured`, clamped to plus or minus twelve
-decibels, applied through a GainNode. Target is minus eighteen LUFS.
+LUFS per file; a multi-file book gets a duration-weighted power mean.
+Gain is `target - measured`, reduced so the true peak stays under
+minus one dBTP, clamped to plus or minus twelve decibels, and applied
+through a GainNode. Target is minus eighteen LUFS. Twelve decibels
+covers the ten-decibel narrator spread the North Star describes; a book
+outside that range still gets the full twelve and is simply closer.
 
 **Resume.** On play after pause, rewind by a function of the gap:
 
@@ -162,6 +169,14 @@ Each step ends with its tests green and a commit.
 
 Ping the user to test after step 8 at the latest, earlier if steps 6
 and 7 produce something that plays.
+
+## Development harness
+
+The UI can run in an ordinary browser tab against a folder on the
+machine through a Vite plugin (`tools/vite-dev-library.ts`) and a
+matching browser Host. This is how the player was verified before the
+first Tauri launch. It is a harness, not a feature: the North Star says
+version one is not a server, and the plugin only exists in `vite dev`.
 
 ## Deliberate omissions in version one
 
