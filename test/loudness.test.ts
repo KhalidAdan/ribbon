@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { dbToLinear, gainDb, parseEbur128 } from "../src/core/loudness";
+
+const SUMMARY = `
+[Parsed_ebur128_0 @ 000001] Summary:
+
+  Integrated loudness:
+    I:         -23.4 LUFS
+    Threshold: -33.6 LUFS
+
+  Loudness range:
+    LRA:         4.1 LU
+    Threshold: -43.8 LUFS
+    LRA low:   -26.0 LUFS
+    LRA high:  -21.9 LUFS
+
+  True peak:
+    Peak:       -1.2 dBFS
+`;
+
+describe("parseEbur128", () => {
+  it("reads integrated loudness and true peak", () => {
+    expect(parseEbur128(SUMMARY)).toEqual({ integratedLufs: -23.4, truePeakDbtp: -1.2 });
+  });
+
+  it("returns null without a summary", () => {
+    expect(parseEbur128("nothing here")).toBeNull();
+    expect(parseEbur128("")).toBeNull();
+  });
+
+  it("tolerates a missing peak block", () => {
+    expect(parseEbur128("  I:  -20.0 LUFS\n")).toEqual({ integratedLufs: -20, truePeakDbtp: null });
+  });
+
+  it("treats -inf as silence", () => {
+    expect(parseEbur128("  I:  -inf LUFS\n  Peak: -inf dBFS")).toEqual({ integratedLufs: -70, truePeakDbtp: null });
+  });
+
+  it("uses the last summary when ffmpeg prints progress lines first", () => {
+    const noisy = "  I:  -50.0 LUFS\n" + SUMMARY;
+    expect(parseEbur128(noisy)?.integratedLufs).toBe(-23.4);
+  });
+});
+
+describe("gainDb", () => {
+  it("brings measured to target", () => {
+    expect(gainDb({ integratedLufs: -23.4, truePeakDbtp: -10 })).toBe(5.4);
+    expect(gainDb({ integratedLufs: -12, truePeakDbtp: -1 })).toBe(-6);
+  });
+
+  it("clamps to plus or minus 12", () => {
+    expect(gainDb({ integratedLufs: -40, truePeakDbtp: -30 })).toBe(12);
+    expect(gainDb({ integratedLufs: 0, truePeakDbtp: 0 })).toBe(-12);
+  });
+
+  it("respects the true-peak ceiling", () => {
+    // Wants +5.4 but only 0.2 dB of headroom.
+    expect(gainDb({ integratedLufs: -23.4, truePeakDbtp: -1.2 })).toBe(0.2);
+  });
+
+  it("is zero for a missing measurement", () => {
+    expect(gainDb(null)).toBe(0);
+  });
+
+  it("honours a custom target", () => {
+    expect(gainDb({ integratedLufs: -23, truePeakDbtp: null }, -16)).toBe(7);
+  });
+});
+
+describe("dbToLinear", () => {
+  it("converts", () => {
+    expect(dbToLinear(0)).toBe(1);
+    expect(dbToLinear(6.02)).toBeCloseTo(2, 2);
+    expect(dbToLinear(-6.02)).toBeCloseTo(0.5, 2);
+  });
+});
