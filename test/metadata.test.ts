@@ -58,8 +58,8 @@ describe("resolveMetadata", () => {
 
   it("lets a numbered folder name beat the album tag and supply the order", () => {
     const m = resolveMetadata([pr({ album: "Promethean Sun by Nick Kyme", artist: "Promethean Sun", album_artist: "Saul Reichlin" })], "1. Promethian Sun", "01 - Intro", "50. Born of Flame");
-    expect(m.title).toBe("Promethian Sun");
-    expect(m.rawTitle).toBe("Promethian Sun");
+    expect(m.title).toBe("1. Promethian Sun");
+    expect(m.rawTitle).toBe("1. Promethian Sun");
     expect(m.seriesIndex).toBe(1);
     expect(m.series).toBe("Born of Flame");
   });

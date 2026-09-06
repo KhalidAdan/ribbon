@@ -84,16 +84,18 @@ function mode(values: string[]): string {
  * Resolve a book's metadata from its files' tags and its folder.
  *
  * A numbered folder ("07. Legion") is a curated choice and wins: the
- * name becomes the title and the number the series order. Otherwise the
- * album tag wins, then the folder, then the file. `parentFolderName` is
- * the folder above the book when that is not the library root, and it
- * names the series when the tags do not.
+ * folder name is shown exactly as written, and its number becomes the
+ * series order. Someone who numbered their folders by hand chose that
+ * text; we do not tidy it. Otherwise the album tag wins, then the
+ * folder, then the file. `parentFolderName` is the folder above the
+ * book when that is not the library root, and it names the series when
+ * the tags do not.
  */
 export function resolveMetadata(probes: readonly ProbeResult[], folderName: string, fileTitleFallback: string, parentFolderName = ""): ResolvedMetadata {
   const tagSets = probes.map((p) => p.tags);
   const numbered = parseNumbered(folderName);
   const albumTitle = mode(tagSets.map((t) => first(t, "album"))) || (probes.length === 1 ? first(tagSets[0]!, "title") : "");
-  const rawTitle = numbered ? numbered.name : albumTitle || folderName || fileTitleFallback;
+  const rawTitle = numbered ? folderName.trim() : albumTitle || folderName || fileTitleFallback;
   const author = mode(tagSets.map((t) => first(t, "artist", "album_artist", "albumartist", "author")));
   const narrator = mode(tagSets.map((t) => first(t, "composer", "narrator", "performer")));
   const parent = parentFolderName ? (parseNumbered(parentFolderName)?.name ?? parentFolderName) : "";
@@ -103,7 +105,7 @@ export function resolveMetadata(probes: readonly ProbeResult[], folderName: stri
   const yearText = mode(tagSets.map((t) => first(t, "date", "year", "originaldate")));
   const yearMatch = yearText.match(/\d{4}/);
   return {
-    title: rawTitle.replace(UNABRIDGED, "").trim() || rawTitle,
+    title: numbered ? rawTitle : rawTitle.replace(UNABRIDGED, "").trim() || rawTitle,
     rawTitle,
     author,
     narrator,

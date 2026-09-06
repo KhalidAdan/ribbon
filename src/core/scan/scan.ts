@@ -284,12 +284,12 @@ async function readPreviousBooks(host: Host, root: string): Promise<Map<string, 
 function cachedMetadata(b: Book | undefined, folderName: string, parentFolderName = "") {
   const numbered = parseNumbered(folderName);
   const parent = parentFolderName ? (parseNumbered(parentFolderName)?.name ?? parentFolderName) : "";
+  const verbatim = folderName.trim();
   if (!b) {
-    const title = numbered ? numbered.name : folderName;
-    return { title, rawTitle: title, author: "", narrator: "", series: numbered ? parent : "", seriesIndex: numbered ? numbered.index : null, year: null };
+    return { title: verbatim, rawTitle: verbatim, author: "", narrator: "", series: numbered ? parent : "", seriesIndex: numbered ? numbered.index : null, year: null };
   }
   if (!numbered) return { title: b.title, rawTitle: b.rawTitle, author: b.author, narrator: b.narrator, series: b.series, seriesIndex: b.seriesIndex, year: b.year };
-  return { title: numbered.name, rawTitle: numbered.name, author: b.author, narrator: b.narrator, series: b.series || parent, seriesIndex: numbered.index, year: b.year };
+  return { title: verbatim, rawTitle: verbatim, author: b.author, narrator: b.narrator, series: b.series || parent, seriesIndex: numbered.index, year: b.year };
 }
 
 async function readCorrections(host: Host, root: string, id: string) {

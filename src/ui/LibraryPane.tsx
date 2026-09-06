@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import { useMemo } from "react";
 import type { ScannedBook } from "../core/scan/scan";
 import { formatDuration } from "../core/speed";
-import { natcompare } from "../core/natsort";
+import { compareBooks } from "../core/order";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
@@ -20,9 +20,7 @@ export function LibraryPane() {
     return [...state.books].sort((a, b) => {
       const d = listenedAt(b) - listenedAt(a);
       if (d !== 0) return d;
-      if (a.book.series !== b.book.series) return natcompare(a.book.series || a.book.title, b.book.series || b.book.title);
-      if (a.book.seriesIndex !== null && b.book.seriesIndex !== null && a.book.seriesIndex !== b.book.seriesIndex) return a.book.seriesIndex - b.book.seriesIndex;
-      return natcompare(a.book.title, b.book.title);
+      return compareBooks(a.book, b.book);
     });
   }, [state.books, state.positions]);
 
