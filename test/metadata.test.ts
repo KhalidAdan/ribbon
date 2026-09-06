@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderKeys, parseTrack, resolveMetadata } from "../src/core/scan/metadata";
+import { orderKeys, parseNumbered, parseTrack, resolveMetadata } from "../src/core/scan/metadata";
 import type { ProbeResult } from "../src/core/scan/probe";
 
 const pr = (tags: Record<string, string>): ProbeResult => ({ durationMs: 0, tags, hasCover: false, chapters: [], codec: "", sampleRate: 0, channels: 0 });
@@ -54,5 +54,42 @@ describe("resolveMetadata", () => {
 
   it("leaves year null without a date", () => {
     expect(resolveMetadata([pr({ date: "unknown" })], "", "").year).toBeNull();
+  });
+
+  it("lets a numbered folder name beat the album tag and supply the order", () => {
+    const m = resolveMetadata([pr({ album: "Promethean Sun by Nick Kyme", artist: "Promethean Sun", album_artist: "Saul Reichlin" })], "1. Promethian Sun", "01 - Intro", "50. Born of Flame");
+    expect(m.title).toBe("Promethian Sun");
+    expect(m.rawTitle).toBe("Promethian Sun");
+    expect(m.seriesIndex).toBe(1);
+    expect(m.series).toBe("Born of Flame");
+  });
+
+  it("keeps the album tag when the folder is not numbered", () => {
+    const m = resolveMetadata([pr({ album: "Legion (Unabridged)" })], "Legion by Dan Abnett", "", "Warhammer");
+    expect(m.title).toBe("Legion");
+    expect(m.series).toBe("");
+    expect(m.seriesIndex).toBeNull();
+  });
+
+  it("prefers a series tag over the parent folder", () => {
+    const m = resolveMetadata([pr({ series: "Horus Heresy", "series-part": "9" })], "07. Legion", "", "Books");
+    expect(m.series).toBe("Horus Heresy");
+    expect(m.seriesIndex).toBe(7);
+  });
+});
+
+describe("parseNumbered", () => {
+  it.each([
+    ["01. Horus Rising", 1, "Horus Rising"],
+    ["7 - Legion", 7, "Legion"],
+    ["07) Legion", 7, "Legion"],
+    ["2.5_The Novella", 2.5, "The Novella"],
+    ["12 Mechanicum", 12, "Mechanicum"],
+  ])("%s → %s, %s", (name, index, title) => {
+    expect(parseNumbered(name)).toEqual({ index, name: title });
+  });
+
+  it.each(["Horus Rising", "1984", "2001: A Space Odyssey", "", "  ", "3."])("rejects %s", (name) => {
+    expect(parseNumbered(name)).toBeNull();
   });
 });

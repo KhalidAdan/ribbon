@@ -29,6 +29,31 @@ export function orderKeys(tags: Record<string, string>): FileOrderKeys {
 }
 
 const UNABRIDGED = /\s*[([]\s*unabridged\s*[)\]]\s*$/i;
+/** "07. Legion", "07 - Legion", "7) Legion", "7.5_Legion": a curated order plus a name. */
+const NUMBERED = /^\s*(\d+(?:\.\d+)?)(?:(\s*[.\-_)]+\s*)|(\s+))(.+?)\s*$/;
+
+export interface NumberedName {
+  index: number;
+  name: string;
+}
+
+/**
+ * Split a numbered folder name into its order and its title, or null.
+ * A colon is never a separator ("2001: A Space Odyssey" is a title), and
+ * a four-digit number followed only by a space reads as a year.
+ */
+export function parseNumbered(folderName: string): NumberedName | null {
+  const m = folderName.match(NUMBERED);
+  if (!m) return null;
+  const digits = m[1]!;
+  const explicitSeparator = m[2] !== undefined;
+  const name = m[4] ?? "";
+  if (!name || name.startsWith(":")) return null;
+  if (!explicitSeparator && !digits.includes(".") && digits.length >= 4) return null;
+  const index = Number(digits);
+  if (!Number.isFinite(index)) return null;
+  return { index, name };
+}
 
 function first(tags: Record<string, string>, ...keys: string[]): string {
   for (const k of keys) {
@@ -55,14 +80,26 @@ function mode(values: string[]): string {
   return best;
 }
 
-export function resolveMetadata(probes: readonly ProbeResult[], folderName: string, fileTitleFallback: string): ResolvedMetadata {
+/**
+ * Resolve a book's metadata from its files' tags and its folder.
+ *
+ * A numbered folder ("07. Legion") is a curated choice and wins: the
+ * name becomes the title and the number the series order. Otherwise the
+ * album tag wins, then the folder, then the file. `parentFolderName` is
+ * the folder above the book when that is not the library root, and it
+ * names the series when the tags do not.
+ */
+export function resolveMetadata(probes: readonly ProbeResult[], folderName: string, fileTitleFallback: string, parentFolderName = ""): ResolvedMetadata {
   const tagSets = probes.map((p) => p.tags);
-  const rawTitle = mode(tagSets.map((t) => first(t, "album"))) || (probes.length === 1 ? first(tagSets[0]!, "title") : "") || folderName || fileTitleFallback;
+  const numbered = parseNumbered(folderName);
+  const albumTitle = mode(tagSets.map((t) => first(t, "album"))) || (probes.length === 1 ? first(tagSets[0]!, "title") : "");
+  const rawTitle = numbered ? numbered.name : albumTitle || folderName || fileTitleFallback;
   const author = mode(tagSets.map((t) => first(t, "artist", "album_artist", "albumartist", "author")));
   const narrator = mode(tagSets.map((t) => first(t, "composer", "narrator", "performer")));
-  const series = mode(tagSets.map((t) => first(t, "series", "mvnm", "grouping", "show")));
+  const parent = parentFolderName ? (parseNumbered(parentFolderName)?.name ?? parentFolderName) : "";
+  const series = mode(tagSets.map((t) => first(t, "series", "mvnm", "grouping", "show"))) || (numbered ? parent : "");
   const indexText = mode(tagSets.map((t) => first(t, "series-part", "series_part", "seriespart", "mvin", "part")));
-  const seriesIndex = indexText ? parseIndex(indexText) : null;
+  const seriesIndex = numbered ? numbered.index : indexText ? parseIndex(indexText) : null;
   const yearText = mode(tagSets.map((t) => first(t, "date", "year", "originaldate")));
   const yearMatch = yearText.match(/\d{4}/);
   return {

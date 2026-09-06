@@ -34,6 +34,10 @@ pub fn run() {
             // and a file under the app's log directory.
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
+                // lofty warns once per MP3 about estimating duration; not news.
+                .level_for("lofty", log::LevelFilter::Error)
+                .max_file_size(20 * 1024 * 1024)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepAll)
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
