@@ -1,4 +1,5 @@
-import { pipe, collect, flatMap, from } from "@culvert/stream";
+import { pipe, collect, flatMap, from, channel, tap, type Sink } from "@culvert/stream";
+import { coalesce } from "../stream";
 import type { Host, ScannedFile, ScanProgress } from "../../host/host";
 import type { AudioFile, Book, Chapter } from "../types";
 import { bookId } from "../bookid";
@@ -88,30 +89,52 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const recordsMs = lap();
   const known = [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
+  // The host pushes batches of files; a channel turns them into a source,
+  // and the pipeline folds them into the arrived set, rebuilds the shelf
+  // at most once per window, and hands each shelf to the caller.
   const arrived = new Map<string, ScannedFile>();
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let lastPublish = 0;
   let publishes = 0;
   let publishMs = 0;
-  const publish = () => {
-    timer = null;
-    const t = Date.now();
-    const books = buildBooks(host, root, [...arrived.values()], records, []);
-    opts.onBooks?.(books);
-    publishes++;
-    publishMs += Date.now() - t;
-    lastPublish = Date.now();
-  };
-  const onFiles = (files: ScannedFile[]) => {
-    for (const f of files) arrived.set(f.path, f);
-    if (!opts.onBooks || timer !== null) return;
-    timer = setTimeout(publish, Math.max(0, PUBLISH_INTERVAL_MS - (Date.now() - lastPublish)));
-  };
+  const [writer, batches] = channel<ScannedFile[]>();
+  let tail = Promise.resolve();
+  const onFiles = opts.onBooks
+    ? (files: ScannedFile[]) => {
+        tail = tail.then(() => writer.write(files)).catch(() => undefined);
+      }
+    : undefined;
+  const onBooks = opts.onBooks;
+  const publishing = onBooks
+    ? pipe(
+        batches,
+        tap((files) => {
+          for (const f of files) arrived.set(f.path, f);
+        }),
+        coalesce(PUBLISH_INTERVAL_MS),
+        rebuild(() => buildBooks(host, root, [...arrived.values()], records, [])),
+        deliver((books) => {
+          publishes++;
+          onBooks(books);
+        }),
+      )
+    : Promise.resolve();
+  const rebuildTimer = (t: number) => (publishMs += Date.now() - t);
 
   const out = await host.scan(root, known, opts.onProgress, onFiles);
-  if (timer !== null) clearTimeout(timer);
-  timer = null;
+  await tail;
+  await writer.close();
+  await publishing;
   const scanMs = lap();
+
+  function rebuild<T>(build: () => Promise<ScannedBook[]>) {
+    return async function* (windows: AsyncIterable<T>) {
+      for await (const _ of windows) {
+        const t = Date.now();
+        const books = await build();
+        rebuildTimer(t);
+        yield books;
+      }
+    };
+  }
 
   const stage = (text: string) => opts.onProgress?.({ walked: out.walked, done: out.walked, stage: text });
   const unreadable = out.files.filter((f) => f.kind === "audio" && f.fresh && f.durationMs <= 0).length;
@@ -120,7 +143,7 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const rescueMs = lap();
   stage("Organizing books…");
   const errors: ScanResult["errors"] = [];
-  const books = buildBooks(host, root, out.files, records, errors);
+  const books = await buildBooks(host, root, out.files, records, errors);
   const buildMs = lap();
 
   let saving: Promise<void> | null = null;
@@ -142,16 +165,27 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   };
 }
 
+/** A sink that hands every item to `fn`. */
+function deliver<T>(fn: (item: T) => void): Sink<T> {
+  return async (source) => {
+    for await (const item of source) fn(item);
+  };
+}
+
 /** Group a file list into books. Pure, apart from `errors` collecting the unreadable. */
-function buildBooks(host: Host, root: string, files: readonly ScannedFile[], records: Records, errors: ScanResult["errors"]): ScannedBook[] {
+function buildBooks(host: Host, root: string, files: readonly ScannedFile[], records: Records, errors: ScanResult["errors"]): Promise<ScannedBook[]> {
   const groups = groupBooks(files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })));
   const byPath = new Map(files.map((f) => [f.path, f]));
-  const out: ScannedBook[] = [];
-  for (const group of groups) {
-    const b = buildBook(group, byPath, records, errors);
-    if (b) out.push(b);
-  }
-  return out;
+  return pipe(
+    from(groups),
+    async function* (source) {
+      for await (const group of source) {
+        const b = buildBook(group, byPath, records, errors);
+        if (b) yield b;
+      }
+    },
+    collect(),
+  );
 }
 
 /**
@@ -549,15 +583,19 @@ export async function loadLibrary(host: Host, root: string): Promise<ScannedBook
   return assemble(books, files, new Map(chapterFiles.map((t) => [t.name, t.text])));
 }
 
-async function assemble(books: Book[], files: Map<string, AudioFile[]>, chaptersByName: Map<string, string>): Promise<ScannedBook[]> {
+function assemble(books: Book[], files: Map<string, AudioFile[]>, chaptersByName: Map<string, string>): Promise<ScannedBook[]> {
   const encoder = new TextEncoder();
-  const out: ScannedBook[] = [];
-  for (const book of books) {
-    const bookFiles = files.get(book.id) ?? [];
-    const text = chaptersByName.get(`${book.id}.csv`);
-    let chapters: Chapter[] = text ? await bytesToChapters(encoder.encode(text)) : [];
-    if (chapters.length === 0) chapters = buildChapters(bookFiles);
-    out.push({ book, files: bookFiles, chapters });
-  }
-  return out;
+  return pipe(
+    from(books),
+    async function* (source) {
+      for await (const book of source) {
+        const bookFiles = files.get(book.id) ?? [];
+        const text = chaptersByName.get(`${book.id}.csv`);
+        let chapters: Chapter[] = text ? await bytesToChapters(encoder.encode(text)) : [];
+        if (chapters.length === 0) chapters = buildChapters(bookFiles);
+        yield { book, files: bookFiles, chapters };
+      }
+    },
+    collect(),
+  );
 }

@@ -1,7 +1,9 @@
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import type { Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "./host";
 import { scanWithFfprobe } from "./scan-with-ffprobe";
 
@@ -49,6 +51,22 @@ export function nodeHost(): Host {
           resolve({ code, stdout: String(stdout), stderr: String(stderr ?? (err ? err.message : "")) });
         });
       });
+    },
+    stream(tool: Tool, args: string[], signal?: AbortSignal): Source<string> {
+      return (async function* () {
+        const child = spawn(tool, args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+        child.on("error", () => undefined);
+        const onAbort = () => child.kill();
+        signal?.addEventListener("abort", onAbort, { once: true });
+        const rl = createInterface({ input: child.stderr!, crlfDelay: Infinity });
+        try {
+          for await (const line of rl) yield line;
+        } finally {
+          signal?.removeEventListener("abort", onAbort);
+          rl.close();
+          if (child.exitCode === null) child.kill();
+        }
+      })();
     },
     join: (...parts: string[]) => path.join(...parts),
     async deviceName(): Promise<string> {

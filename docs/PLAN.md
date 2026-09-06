@@ -29,11 +29,18 @@ over plain data so they can be tested exhaustively without a window,
 a webview, or an audio device. The Host interface is the only seam to
 the outside, and it is small enough to fake in a test.
 
-**Culvert is the plumbing.** Library scan, loudness scan, silence scan,
-and every on-disk record are Culvert pipelines. Scans are
-`Source<FileEntry>` through `flatMap(probe, { concurrency })` into a
-collector. Records are CSV rows through `csvStringify` into a file.
-The `channel()` bridge turns ffmpeg stdout events into a pull source.
+**Culvert is the plumbing on the JavaScript side.** The Rust scanner
+owns the walk and the tag reads, because every file touched from the
+webview is a round trip; everything after that is Culvert. The scanner's
+batches arrive through a `channel()`, fold into the arrived set with
+`tap`, are coalesced to one rebuild per window, and each rebuilt shelf
+goes to the caller through a sink. The book builder and the record
+loader are `from(...)` through a generator into `collect()`. The
+loudness and silence scans are one pipeline per file over ffmpeg's
+stderr, live where the host can stream it: `tap` feeds the loudness
+fold while `silenceRanges` turns detector lines into ranges. Records are
+CSV rows through `csvStringify` into a file. The reference scanner is
+`Source<FileEntry>` through `flatMap(probe, { concurrency })`.
 
 ## Data model
 

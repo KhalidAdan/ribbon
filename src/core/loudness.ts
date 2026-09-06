@@ -1,4 +1,6 @@
+import { pipe, from, type Sink } from "@culvert/stream";
 import type { LoudnessMeasurement } from "./types";
+import { lines } from "./lines";
 
 /** EBU R128 integrated loudness the whole library is brought to. */
 export const TARGET_LUFS = -18;
@@ -8,28 +10,54 @@ export const PEAK_CEILING_DBTP = -1;
 export const MAX_GAIN_DB = 12;
 
 /**
- * Parse the summary block ffmpeg's ebur128 filter prints to stderr:
+ * Folds ffmpeg's ebur128 output a line at a time. The summary block at
+ * the end is what counts, and it looks like:
  *
  *   Integrated loudness:
  *     I:         -23.4 LUFS
  *   True peak:
  *     Peak:       -1.2 dBFS
+ *
+ * Progress lines carry `I:` too, but not at the start of the line, and
+ * in any case the last value seen wins, which is the summary's.
  */
-export function parseEbur128(stderr: string): LoudnessMeasurement | null {
-  const integrated = lastMatch(stderr, /^\s*I:\s*(-?[\d.]+|-inf)\s*LUFS/m);
-  if (integrated === null) return null;
-  const lufs = integrated === "-inf" ? -70 : Number(integrated);
-  if (!Number.isFinite(lufs)) return null;
-  const peak = lastMatch(stderr, /^\s*Peak:\s*(-?[\d.]+|-inf)\s*dBFS/m);
-  const truePeak = peak === null || peak === "-inf" ? null : Number(peak);
-  return { integratedLufs: lufs, truePeakDbtp: Number.isFinite(truePeak) ? truePeak : null };
+export interface Ebur128Fold {
+  feed(line: string): void;
+  result(): LoudnessMeasurement | null;
 }
 
-function lastMatch(text: string, re: RegExp): string | null {
-  const all = text.match(new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g"));
-  if (!all || all.length === 0) return null;
-  const m = all[all.length - 1]!.match(re);
-  return m?.[1] ?? null;
+export function ebur128Fold(): Ebur128Fold {
+  let integrated: string | null = null;
+  let peak: string | null = null;
+  return {
+    feed(line) {
+      const i = /^\s*I:\s*(-?[\d.]+|-inf)\s*LUFS/.exec(line);
+      if (i) integrated = i[1]!;
+      const p = /^\s*Peak:\s*(-?[\d.]+|-inf)\s*dBFS/.exec(line);
+      if (p) peak = p[1]!;
+    },
+    result() {
+      if (integrated === null) return null;
+      const lufs = integrated === "-inf" ? -70 : Number(integrated);
+      if (!Number.isFinite(lufs)) return null;
+      const truePeak = peak === null || peak === "-inf" ? null : Number(peak);
+      return { integratedLufs: lufs, truePeakDbtp: truePeak !== null && Number.isFinite(truePeak) ? truePeak : null };
+    },
+  };
+}
+
+/** A sink over stderr lines that yields the measurement, or null without a summary. */
+export function ebur128Summary(): Sink<string, LoudnessMeasurement | null> {
+  return async (source) => {
+    const fold = ebur128Fold();
+    for await (const line of source) fold.feed(line);
+    return fold.result();
+  };
+}
+
+/** The measurement in a finished stderr transcript. */
+export function parseEbur128(stderr: string): Promise<LoudnessMeasurement | null> {
+  return pipe(from(lines(stderr)), ebur128Summary());
 }
 
 /**

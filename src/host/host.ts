@@ -5,6 +5,7 @@
  * I/O.
  */
 
+import type { Source } from "@culvert/stream";
 import type { Chapter } from "../core/types";
 
 export interface DirEntry {
@@ -97,6 +98,13 @@ export interface Host {
   rename(from: string, to: string): Promise<void>;
   /** Run ffprobe or ffmpeg to completion. Never throws on non-zero exit. */
   run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult>;
+  /**
+   * Run a tool and stream its stderr as lines while it runs, so a
+   * parser can fold the output live and an abort ends the stream. ffmpeg
+   * reports everything on stderr. Optional: hosts without it are given
+   * the finished transcript from `run` instead.
+   */
+  stream?(tool: Tool, args: string[], signal?: AbortSignal): Source<string>;
   join(...parts: string[]): string;
   /** A stable, human-readable name for this machine. */
   deviceName(): Promise<string>;

@@ -3,6 +3,7 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { hostname } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { channel, type Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
 import { joinPath } from "./paths";
 import { log } from "../app/log";
@@ -68,6 +69,25 @@ export function tauriHost(): Host {
           })
           .catch((e: unknown) => resolve({ code: 127, stdout, stderr: String(e) }));
       });
+    },
+    stream(tool: Tool, args: string[], signal?: AbortSignal): Source<string> {
+      // The shell plugin pushes lines by event; the channel turns them into
+      // a pulled source with backpressure, one write in flight at a time.
+      const [writer, source] = channel<string>();
+      let tail = Promise.resolve();
+      const then = (step: () => Promise<void>) => {
+        tail = tail.then(step).catch(() => undefined);
+      };
+      const cmd = Command.create(tool, args, { encoding: "utf-8" });
+      cmd.stderr.on("data", (line: string) => then(() => writer.write(line)));
+      cmd.stdout.on("data", () => undefined);
+      cmd.on("error", () => then(() => writer.close()));
+      cmd.on("close", () => then(() => writer.close()));
+      cmd
+        .spawn()
+        .then((child) => signal?.addEventListener("abort", () => child.kill().catch(() => undefined), { once: true }))
+        .catch(() => then(() => writer.close()));
+      return source;
     },
     join: (...parts: string[]) => joinPath(parts),
     deviceName: async () => (await hostname()) ?? "this device",
