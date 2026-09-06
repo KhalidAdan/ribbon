@@ -1,4 +1,4 @@
-import type { Host } from "../host/host";
+import type { Host, ScanProgress } from "../host/host";
 import type { ScannedBook } from "../core/scan/scan";
 import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -35,6 +35,14 @@ export interface CurrentBook {
   corrections: Correction[];
 }
 
+export interface ScanStatus {
+  /** Files seen so far and files finished; both zero while walking. */
+  walked: number;
+  done: number;
+  /** True while a rescan runs behind an already visible library. */
+  background: boolean;
+}
+
 export interface AppState {
   phase: "boot" | "pick" | "loading" | "ready";
   root: string | null;
@@ -45,7 +53,9 @@ export interface AppState {
   sleep: { state: sleep.SleepState; gain: number; remainingMs: number | null };
   resumeOffer: { chapterStartMs: number; awayMs: number } | null;
   jobs: Record<string, JobStatus>;
-  scanning: { done: number; total: number } | null;
+  scanning: ScanStatus | null;
+  /** How long the last scan took, for the header. */
+  lastScanMs: number | null;
   error: string | null;
   /** Narrow layouts show one pane at a time. */
   pane: "library" | "player";
@@ -65,6 +75,7 @@ export class AppController {
   private lastWrite = 0;
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
+  private chapterProbe: AbortController | null = null;
 
   constructor(private readonly platform: Platform) {
     this.state = {
@@ -89,6 +100,7 @@ export class AppController {
       resumeOffer: null,
       jobs: {},
       scanning: null,
+      lastScanMs: null,
       error: null,
       pane: "library",
     };
@@ -129,33 +141,53 @@ export class AppController {
     await this.openLibrary(root);
   }
 
+  /**
+   * Open a library. If it has been scanned before, its records paint
+   * immediately and a rescan runs behind them. If not, the scan runs in
+   * the foreground with live counts.
+   */
   async openLibrary(root: string): Promise<void> {
     this.set({ phase: "loading", root, error: null, scanning: null });
     await this.platform.allowFolder(root);
     this.lib = new LibraryService(this.platform.host, root);
     this.jobs = new JobQueue(this.lib);
-    this.jobs.onStatus((s) => this.set({ jobs: { ...this.state.jobs, [`${s.bookId}:${s.kind}`]: s } }));
+    this.jobs.onStatus((s, result) => this.onJob(s, result));
     this.ensureEngine();
-    const books = await this.lib.open({
-      concurrency: 4,
-      onBook: (_b, i, total) => this.set({ scanning: { done: i + 1, total } }),
-    });
+
+    const cached = await this.lib.loadCached();
+    if (cached && cached.length > 0) {
+      const positions = await this.positionsFor(cached);
+      this.platform.saveRoot(root);
+      this.set({ phase: "ready", books: cached, positions, scanning: null });
+      void this.rescan(true);
+      return;
+    }
+    this.set({ scanning: { walked: 0, done: 0, background: false } });
+    await this.rescan(false);
     this.platform.saveRoot(root);
-    const positions = await this.loadPositions(books);
-    this.set({ phase: "ready", books, positions, scanning: null });
-    this.queueBackgroundJobs(books);
+    this.set({ phase: "ready" });
   }
 
-  async rescan(): Promise<void> {
-    if (!this.lib) return;
-    this.set({ scanning: { done: 0, total: 0 } });
+  async rescan(background = this.state.phase === "ready"): Promise<void> {
+    if (!this.lib || this.state.scanning?.background === false) return;
+    this.set({ scanning: { walked: 0, done: 0, background } });
+    const started = Date.now();
     try {
-      const books = await this.lib.rescan({ concurrency: 4, onBook: (_b, i, total) => this.set({ scanning: { done: i + 1, total } }) });
-      const positions = await this.loadPositions(books);
-      this.set({ books, positions, scanning: null });
-      this.queueBackgroundJobs(books);
+      const books = await this.lib.rescan({ onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }) });
+      const positions = await this.positionsFor(books);
+      // Keep the open book's live object if it still exists.
+      const cur = this.state.current;
+      const refreshed = cur ? books.find((b) => b.book.id === cur.book.book.id) : undefined;
+      this.set({
+        books,
+        positions,
+        scanning: null,
+        lastScanMs: Date.now() - started,
+        current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
+      });
     } catch (e) {
       this.set({ scanning: null, error: (e as Error).message });
+      if (!background) throw e;
     }
   }
 
@@ -165,27 +197,26 @@ export class AppController {
     this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library" });
   }
 
-  private async loadPositions(books: ScannedBook[]): Promise<Record<string, Position | null>> {
+  private async positionsFor(books: ScannedBook[]): Promise<Record<string, Position | null>> {
     const out: Record<string, Position | null> = {};
-    for (const b of books) out[b.book.id] = this.lib ? await this.lib.readPosition(b.book.id) : null;
+    const all = this.lib ? await this.lib.readAllPositions() : new Map<string, Position>();
+    for (const b of books) out[b.book.id] = all.get(b.book.id) ?? null;
     return out;
-  }
-
-  private queueBackgroundJobs(books: ScannedBook[]): void {
-    if (!this.lib || !this.jobs) return;
-    const lib = this.lib;
-    const jobs = this.jobs;
-    void (async () => {
-      for (const b of books) {
-        if (!(await lib.readLoudness(b.book.id))) jobs.enqueue(b, "loudness");
-        if (!(await lib.readSilence(b.book.id))) jobs.enqueue(b, "silence");
-      }
-    })();
   }
 
   coverUrl(book: ScannedBook): string | null {
     if (!this.lib || !book.book.cover) return null;
     return this.platform.fileUrl(this.lib.absPath(book.book.cover));
+  }
+
+  private onJob(s: JobStatus, result: { gainDb: number | null; silence: Map<number, SilenceRange[]> } | null): void {
+    this.set({ jobs: { ...this.state.jobs, [s.bookId]: s } });
+    const cur = this.state.current;
+    if (result && cur && cur.book.book.id === s.bookId) {
+      this.set({ current: { ...cur, loudnessGainDb: result.gainDb, silence: result.silence } });
+      if (result.gainDb !== null) this.engine?.setLoudnessGainDb(result.gainDb);
+      this.engine?.setSilence(result.silence);
+    }
   }
 
   // Playback ------------------------------------------------------------
@@ -219,6 +250,11 @@ export class AppController {
     }
   }
 
+  /**
+   * Open a book. Playback is ready as soon as the cached records are
+   * read; embedded chapter markers are probed behind it the first time
+   * and swapped in when they arrive.
+   */
   async openBook(book: ScannedBook): Promise<void> {
     if (!this.lib) return;
     const engine = this.ensureEngine();
@@ -230,14 +266,15 @@ export class AppController {
       engine.pause();
       await this.persistPosition();
     }
-    const [settings, bookmarks, loudness, silence, corrections, position] = await Promise.all([
+    this.chapterProbe?.abort();
+    const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
       this.lib.readSettings(book.book.id),
       this.lib.readBookmarks(book.book.id),
       this.lib.readLoudness(book.book.id),
       this.lib.readSilence(book.book.id),
       this.lib.readCorrections(book.book.id),
-      this.lib.readPosition(book.book.id),
     ]);
+    const position = this.state.positions[book.book.id] ?? (await this.lib.readPosition(book.book.id));
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, pane: "player", resumeOffer: null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
@@ -246,10 +283,22 @@ export class AppController {
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = position ? Date.parse(position.updatedAt) : null;
     this.refreshMediaMetadata();
-    if (this.jobs) {
-      if (!loudness) this.jobs.enqueue(book, "loudness", true);
-      if (!silence) this.jobs.enqueue(book, "silence", true);
-    }
+    if (this.jobs && (!loudness || !silence)) this.jobs.enqueue(book, true);
+    void this.probeChapters(book);
+  }
+
+  private async probeChapters(book: ScannedBook): Promise<void> {
+    if (!this.lib || book.files.every((f) => f.chaptersProbed)) return;
+    const abort = new AbortController();
+    this.chapterProbe = abort;
+    const updated = await this.lib.ensureChapters(book, abort.signal);
+    if (abort.signal.aborted || updated === book) return;
+    const cur = this.state.current;
+    if (!cur || cur.book.book.id !== book.book.id) return;
+    const books = this.state.books.map((b) => (b.book.id === updated.book.id ? updated : b));
+    this.set({ books, current: { ...cur, book: updated } });
+    this.engine?.setChapters(updated.chapters);
+    this.refreshMediaMetadata();
   }
 
   /** Play, applying the scaled resume rewind for the time we were away. */
@@ -446,10 +495,7 @@ export class AppController {
     const updated = await this.lib.writeCorrections(cur.book, corrections);
     const books = this.state.books.map((b) => (b.book.id === updated.book.id ? updated : b));
     this.set({ books, current: { ...cur, book: updated, corrections } });
-    if (this.engine) {
-      await this.engine.load({ id: updated.book.id, files: updated.files, chapters: updated.chapters, silence: cur.silence ?? undefined }, this.state.player.positionMs);
-      if (this.state.player.playing) await this.engine.play();
-    }
+    this.engine?.setChapters(updated.chapters);
   }
 
   // Navigation ----------------------------------------------------------
@@ -471,5 +517,6 @@ export class AppController {
     this.uninstallMedia?.();
     this.engine?.destroy();
     this.jobs?.cancelAll();
+    this.chapterProbe?.abort();
   }
 }

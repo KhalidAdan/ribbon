@@ -18,6 +18,8 @@ export interface AudioFile {
   hasCover: boolean;
   /** Embedded chapter markers, relative to this file. */
   chapters: Chapter[];
+  /** True once ffprobe has been asked for markers. Fast scans leave it false. */
+  chaptersProbed: boolean;
 }
 
 export interface Chapter {

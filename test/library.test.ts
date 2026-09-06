@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
 import { LibraryService } from "../src/app/library";
-import { measureLoudness, detectSilence } from "../src/app/jobs";
+import { analyzeBook } from "../src/app/jobs";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 import type { ScannedBook } from "../src/core/scan/scan";
 import { TARGET_LUFS } from "../src/core/loudness";
@@ -96,10 +96,10 @@ describe("loudness job", () => {
   it("brings quiet and loud books within 1 LU of each other", async () => {
     const quiet = find("quiet");
     const loud = find("loud");
-    const gq = await measureLoudness(lib, quiet);
-    const gl = await measureLoudness(lib, loud);
-    expect(gq).not.toBeNull();
-    expect(gl).not.toBeNull();
+    const gq = await analyzeBook(lib, quiet);
+    const gl = await analyzeBook(lib, loud);
+    expect(gq?.gainDb).not.toBeNull();
+    expect(gl?.gainDb).not.toBeNull();
     const rq = (await lib.readLoudness(quiet.book.id))!;
     const rl = (await lib.readLoudness(loud.book.id))!;
     expect(rq.measurement.integratedLufs).toBeLessThan(rl.measurement.integratedLufs - 10);
@@ -117,8 +117,8 @@ describe("loudness job", () => {
 describe("silence job", () => {
   it("finds the three gaps in the gaps fixture", async () => {
     const b = find("gaps");
-    const out = await detectSilence(lib, b);
-    const ranges = out!.get(0)!;
+    const out = await analyzeBook(lib, b);
+    const ranges = out!.silence.get(0)!;
     expect(ranges).toHaveLength(3);
     const lengths = ranges.map((r) => Math.round((r.endMs - r.startMs) / 100) / 10);
     expect(lengths[0]).toBeCloseTo(2, 0);

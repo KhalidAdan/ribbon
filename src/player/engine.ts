@@ -182,6 +182,19 @@ export class PlayerEngine {
     this.applyGain();
   }
 
+  /** Swap the chapter list without touching playback. */
+  setChapters(chapters: Chapter[]): void {
+    if (!this.book) return;
+    this.book = { ...this.book, chapters };
+    this.emit({ chapterIndex: chapterAt(chapters, this.positionMs()) });
+  }
+
+  /** Attach silence ranges once the analysis job finishes. */
+  setSilence(silence: Map<number, SilenceRange[]> | null): void {
+    if (!this.book) return;
+    this.book = { ...this.book, silence: silence ?? undefined };
+  }
+
   /** 0..1 multiplier from the sleep timer fade. */
   setSleepGain(gain: number): void {
     this.sleepGain = Math.max(0, Math.min(1, gain));

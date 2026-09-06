@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { promises as fs, createReadStream } from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
+import { nodeHost } from "../src/host/node";
 
 const MIME: Record<string, string> = {
   mp3: "audio/mpeg",
@@ -30,6 +31,7 @@ const MIME: Record<string, string> = {
 export function devLibrary(root: string | undefined): Plugin {
   const base = "/__odio";
   const absRoot = root ? path.resolve(root) : null;
+  const host = nodeHost();
 
   function inside(p: string): string {
     const abs = path.resolve(p);
@@ -121,6 +123,12 @@ export function devLibrary(root: string | undefined): Plugin {
             case "remove":
               await fs.rm(inside(String(args.path)), { recursive: true, force: true });
               return json(res, 200, true);
+            case "scan": {
+              const out = await host.scan(inside(String(args.root)), (args.known as { path: string; sizeBytes: number; mtimeMs: number }[]) ?? []);
+              return json(res, 200, out);
+            }
+            case "readTextDir":
+              return json(res, 200, await host.readTextDir(inside(String(args.dir ?? args.path))));
             case "run": {
               const tool = String(args.tool);
               if (tool !== "ffprobe" && tool !== "ffmpeg") return json(res, 400, { error: "bad tool" });

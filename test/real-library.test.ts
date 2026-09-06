@@ -7,7 +7,7 @@ const root = process.env.ODIO_BOOKS ? path.resolve(process.env.ODIO_BOOKS) : nul
 
 describe.skipIf(!root)("the user's real library", () => {
   it("scans Horus Rising and the loose MP3 correctly", async () => {
-    const r = await scanLibrary(nodeHost(), root!, { concurrency: 6 });
+    const r = await scanLibrary(nodeHost(), root!);
     expect(r.errors).toEqual([]);
     expect(r.books).toHaveLength(2);
 

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
-import { scanLibrary, loadLibrary, type ScanResult } from "../src/core/scan/scan";
+import { scanLibrary, loadLibrary, ensureChapters, type ScanResult } from "../src/core/scan/scan";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 import { locate } from "../src/core/timeline";
 
@@ -13,7 +13,7 @@ describe("scanLibrary over generated fixtures", () => {
 
   beforeAll(async () => {
     await fs.rm(path.join(FIXTURE_ROOT, ".odio"), { recursive: true, force: true });
-    result = await scanLibrary(host, FIXTURE_ROOT, { concurrency: 4 });
+    result = await scanLibrary(host, FIXTURE_ROOT);
   });
 
   const byPath = (p: string) => {
@@ -107,6 +107,34 @@ describe("scanLibrary over generated fixtures", () => {
     expect(loaded!.map((b) => b.book)).toEqual(result.books.map((b) => b.book));
     expect(loaded!.map((b) => b.files)).toEqual(result.books.map((b) => b.files));
     expect(loaded!.map((b) => b.chapters)).toEqual(result.books.map((b) => b.chapters));
+  });
+
+  it("marks every file as chapter-probed on the ffprobe path", () => {
+    for (const b of result.books) for (const f of b.files) expect(f.chaptersProbed).toBe(true);
+  });
+
+  it("ensureChapters is a no-op when everything is probed, and probes when not", async () => {
+    const b = byPath("single-m4b");
+    expect(await ensureChapters(host, FIXTURE_ROOT, b)).toBe(b);
+    const stripped = { ...b, files: b.files.map((f) => ({ ...f, chapters: [], chaptersProbed: false })), chapters: [] };
+    const probed = await ensureChapters(host, FIXTURE_ROOT, stripped);
+    expect(probed).not.toBe(stripped);
+    expect(probed.chapters.map((c) => c.title)).toEqual(["Opening", "Middle", "Closing"]);
+    expect(probed.files[0]!.chaptersProbed).toBe(true);
+    const reloaded = (await loadLibrary(host, FIXTURE_ROOT))!.find((x) => x.book.id === b.book.id)!;
+    expect(reloaded.files[0]!.chaptersProbed).toBe(true);
+    expect(reloaded.chapters.map((c) => c.title)).toEqual(["Opening", "Middle", "Closing"]);
+  });
+
+  it("ensureChapters recovers a cover the fast scanner missed", async () => {
+    const b = byPath("single-m4b");
+    await fs.rm(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`), { force: true });
+    const blind = { ...b, book: { ...b.book, cover: "" }, files: b.files.map((f) => ({ ...f, hasCover: false, chaptersProbed: false })) };
+    const fixed = await ensureChapters(host, FIXTURE_ROOT, blind);
+    expect(fixed.files[0]!.hasCover).toBe(true);
+    expect(fixed.book.cover).toBe(`.odio/covers/${b.book.id}.jpg`);
+    const st = await fs.stat(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`));
+    expect(st.size).toBeGreaterThan(500);
   });
 
   it("rescans incrementally without probing unchanged files", async () => {

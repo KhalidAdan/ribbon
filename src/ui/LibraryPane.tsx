@@ -34,7 +34,11 @@ export function LibraryPane() {
           <h1 className="text-xl font-semibold tracking-tight text-neutral-950 dark:text-white">Library</h1>
           <p className="truncate text-sm/6 text-neutral-500 dark:text-neutral-400" title={state.root ?? ""}>
             {folderName}
-            {state.scanning ? ` · scanning ${state.scanning.done} of ${state.scanning.total || "…"}` : ` · ${state.books.length} ${state.books.length === 1 ? "book" : "books"}`}
+            {state.scanning
+              ? state.scanning.walked > 0
+                ? ` · checking ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files`
+                : " · checking for changes"
+              : ` · ${state.books.length.toLocaleString()} ${state.books.length === 1 ? "book" : "books"}`}
           </p>
         </div>
         <Button icon size="sm" variant="ghost" aria-label="Rescan library" title="Rescan library" onClick={() => void c.rescan()} disabled={state.scanning !== null}>

@@ -1,7 +1,7 @@
 import type { Host } from "../host/host";
 import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
 import { ODIO_DIR } from "../core/scan/walk";
-import { scanLibrary, loadLibrary, type ScannedBook, type ScanOptions } from "../core/scan/scan";
+import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions } from "../core/scan/scan";
 import { mergePositions, nowIso, parsePositions, serializePosition } from "../core/position";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
@@ -34,13 +34,23 @@ export class LibraryService {
 
   /** The last scan if there is one, else a fresh scan. */
   async open(opts: ScanOptions = {}): Promise<ScannedBook[]> {
-    const cached = await loadLibrary(this.host, this.root);
+    const cached = await this.loadCached();
     if (cached && cached.length > 0) return cached;
     return (await scanLibrary(this.host, this.root, opts)).books;
   }
 
+  /** The last scan's records, without touching any audio file. Null when never scanned. */
+  loadCached(): Promise<ScannedBook[] | null> {
+    return loadLibrary(this.host, this.root);
+  }
+
   async rescan(opts: ScanOptions = {}): Promise<ScannedBook[]> {
     return (await scanLibrary(this.host, this.root, opts)).books;
+  }
+
+  /** Probe embedded chapter markers once per book, on first open. */
+  ensureChapters(book: ScannedBook, signal?: AbortSignal): Promise<ScannedBook> {
+    return ensureChapters(this.host, this.root, book, signal);
   }
 
   async deviceName(): Promise<string> {
@@ -69,6 +79,32 @@ export class LibraryService {
       }
     }
     return mergePositions(candidates, bookId);
+  }
+
+  /** Every book's merged position in one directory read. */
+  async readAllPositions(): Promise<Map<string, Position>> {
+    const out = new Map<string, Position>();
+    const files = await this.host.readTextDir(this.dir("positions"));
+    const encoder = new TextEncoder();
+    const byBook = new Map<string, Position[]>();
+    for (const f of files) {
+      if (!f.name.endsWith(".csv")) continue;
+      try {
+        const { positions } = await parsePositions(encoder.encode(f.text));
+        for (const p of positions) {
+          const list = byBook.get(p.bookId) ?? [];
+          list.push(p);
+          byBook.set(p.bookId, list);
+        }
+      } catch {
+        /* unreadable copy: ignore */
+      }
+    }
+    for (const [id, list] of byBook) {
+      const best = mergePositions(list, id);
+      if (best) out.set(id, best);
+    }
+    return out;
   }
 
   async writePosition(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {

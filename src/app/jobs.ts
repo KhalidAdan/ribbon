@@ -1,73 +1,79 @@
 import type { ScannedBook } from "../core/scan/scan";
 import type { SilenceRange } from "../core/types";
-import { combineLoudness, loudnessArgs, parseEbur128, type FileLoudness } from "../core/loudness";
-import { parseSilenceDetect, silenceArgs } from "../core/silence";
+import { combineLoudness, parseEbur128, type FileLoudness } from "../core/loudness";
+import { parseSilenceDetect, MIN_GAP_MS, NOISE_DB } from "../core/silence";
 import type { LibraryService } from "./library";
 
-/**
- * Measure a whole book with ffmpeg's ebur128 filter and record the
- * gain. One file at a time; a book is one job. Returns the gain in dB.
- */
-export async function measureLoudness(lib: LibraryService, book: ScannedBook, signal?: AbortSignal): Promise<number | null> {
-  const parts: FileLoudness[] = [];
-  for (const f of book.files) {
-    if (signal?.aborted) return null;
-    const r = await lib.host.run("ffmpeg", loudnessArgs(lib.absPath(f.path)), signal);
-    const m = parseEbur128(r.stderr);
-    if (m) parts.push({ ...m, durationMs: f.durationMs });
-  }
-  const combined = combineLoudness(parts);
-  if (!combined) return null;
-  return lib.writeLoudness(book.book.id, combined);
+/** One ffmpeg pass that measures loudness and finds silences together. */
+export function analyzeArgs(inputPath: string, noiseDb = NOISE_DB, minGapMs = MIN_GAP_MS): string[] {
+  return [
+    "-hide_banner",
+    "-nostats",
+    "-i",
+    inputPath,
+    "-filter_complex",
+    `[0:a]silencedetect=noise=${noiseDb}dB:d=${(minGapMs / 1000).toFixed(2)},ebur128=peak=true`,
+    "-f",
+    "null",
+    "-",
+  ];
 }
 
-/** Find every gap over a second in every file and record it. */
-export async function detectSilence(lib: LibraryService, book: ScannedBook, signal?: AbortSignal): Promise<Map<number, SilenceRange[]> | null> {
-  const out = new Map<number, SilenceRange[]>();
+export interface Analysis {
+  gainDb: number | null;
+  silence: Map<number, SilenceRange[]>;
+}
+
+/**
+ * Decode a whole book once, recording loudness and silence. This is the
+ * expensive job, so it runs only for books the listener opens.
+ */
+export async function analyzeBook(lib: LibraryService, book: ScannedBook, signal?: AbortSignal): Promise<Analysis | null> {
+  const parts: FileLoudness[] = [];
+  const silence = new Map<number, SilenceRange[]>();
   for (const [i, f] of book.files.entries()) {
     if (signal?.aborted) return null;
-    const r = await lib.host.run("ffmpeg", silenceArgs(lib.absPath(f.path)), signal);
+    const r = await lib.host.run("ffmpeg", analyzeArgs(lib.absPath(f.path)), signal);
+    const m = parseEbur128(r.stderr);
+    if (m) parts.push({ ...m, durationMs: f.durationMs });
     const ranges = parseSilenceDetect(r.stderr, f.durationMs);
-    if (ranges.length > 0) out.set(i, ranges);
+    if (ranges.length > 0) silence.set(i, ranges);
   }
-  await lib.writeSilence(book.book.id, out);
-  return out;
+  if (signal?.aborted) return null;
+  const combined = combineLoudness(parts);
+  const gainDb = combined ? await lib.writeLoudness(book.book.id, combined) : null;
+  await lib.writeSilence(book.book.id, silence);
+  return { gainDb, silence };
 }
-
-export type JobKind = "loudness" | "silence";
 
 export interface JobStatus {
   bookId: string;
-  kind: JobKind;
   state: "queued" | "running" | "done" | "failed";
 }
 
 /**
- * A single-lane queue for the slow scans. Books the user is listening
- * to can be pushed to the front. Never runs more than one ffmpeg.
+ * A single-lane queue for the slow analysis. Never runs more than one
+ * ffmpeg. The book being listened to goes to the front.
  */
 export class JobQueue {
-  private queue: { book: ScannedBook; kind: JobKind }[] = [];
-  private running: { bookId: string; kind: JobKind; abort: AbortController } | null = null;
-  private listeners = new Set<(s: JobStatus) => void>();
+  private queue: ScannedBook[] = [];
+  private running: { bookId: string; abort: AbortController } | null = null;
+  private listeners = new Set<(s: JobStatus, result: Analysis | null) => void>();
 
   constructor(private readonly lib: LibraryService) {}
 
-  onStatus(fn: (s: JobStatus) => void): () => void {
+  onStatus(fn: (s: JobStatus, result: Analysis | null) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
 
-  enqueue(book: ScannedBook, kind: JobKind, front = false): void {
+  enqueue(book: ScannedBook, front = false): void {
     const id = book.book.id;
-    if (this.running && this.running.bookId === id && this.running.kind === kind) return;
-    if (this.queue.some((j) => j.book.book.id === id && j.kind === kind)) {
-      if (front) this.queue = [{ book, kind }, ...this.queue.filter((j) => !(j.book.book.id === id && j.kind === kind))];
-      return;
-    }
-    if (front) this.queue.unshift({ book, kind });
-    else this.queue.push({ book, kind });
-    this.emit({ bookId: id, kind, state: "queued" });
+    if (this.running?.bookId === id) return;
+    this.queue = this.queue.filter((b) => b.book.id !== id);
+    if (front) this.queue.unshift(book);
+    else this.queue.push(book);
+    this.emit({ bookId: id, state: "queued" }, null);
     void this.pump();
   }
 
@@ -76,8 +82,8 @@ export class JobQueue {
     this.running?.abort.abort();
   }
 
-  private emit(s: JobStatus): void {
-    for (const l of this.listeners) l(s);
+  private emit(s: JobStatus, result: Analysis | null): void {
+    for (const l of this.listeners) l(s, result);
   }
 
   private async pump(): Promise<void> {
@@ -85,14 +91,13 @@ export class JobQueue {
     const next = this.queue.shift();
     if (!next) return;
     const abort = new AbortController();
-    this.running = { bookId: next.book.book.id, kind: next.kind, abort };
-    this.emit({ bookId: next.book.book.id, kind: next.kind, state: "running" });
+    this.running = { bookId: next.book.id, abort };
+    this.emit({ bookId: next.book.id, state: "running" }, null);
     try {
-      if (next.kind === "loudness") await measureLoudness(this.lib, next.book, abort.signal);
-      else await detectSilence(this.lib, next.book, abort.signal);
-      this.emit({ bookId: next.book.book.id, kind: next.kind, state: "done" });
+      const result = await analyzeBook(this.lib, next, abort.signal);
+      this.emit({ bookId: next.book.id, state: result ? "done" : "failed" }, result);
     } catch {
-      this.emit({ bookId: next.book.book.id, kind: next.kind, state: "failed" });
+      this.emit({ bookId: next.book.id, state: "failed" }, null);
     } finally {
       this.running = null;
       void this.pump();

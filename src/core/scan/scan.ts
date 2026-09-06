@@ -1,14 +1,13 @@
-import { pipe, collect, flatMap, from } from "@culvert/stream";
-import type { Host } from "../../host/host";
+import type { Host, ScannedFile, ScanProgress } from "../../host/host";
 import type { AudioFile, Book, Chapter } from "../types";
 import { bookId } from "../bookid";
 import { natcompare } from "../natsort";
-import { walk, type FileEntry, ODIO_DIR } from "./walk";
+import { ODIO_DIR } from "./walk";
 import { groupBooks, type BookGroup } from "./group";
-import { probe, type ProbeResult } from "./probe";
+import { probe } from "./probe";
 import { orderKeys, resolveMetadata } from "./metadata";
 import { buildChapters, applyCorrections, rowsToCorrections } from "./chapters";
-import { booksToBytes, bytesToBooks, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, isStale } from "./records";
+import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows } from "./records";
 import { bytesToRows, type Row } from "../csv";
 import { coverArgs } from "./cover";
 
@@ -19,14 +18,10 @@ export interface ScannedBook {
 }
 
 export interface ScanOptions {
-  /** Parallel ffprobe processes. Default 4. */
-  concurrency?: number;
   signal?: AbortSignal;
-  /** Called as each book finishes probing. */
-  onBook?: (book: ScannedBook, index: number, total: number) => void;
-  /** Called for each file that could not be probed. Scan continues. */
-  onError?: (relPath: string, error: unknown) => void;
-  /** Skip probing files whose size and mtime match `.odio/files.csv`. Default true. */
+  /** Live progress from the host scanner. */
+  onProgress?: (p: ScanProgress) => void;
+  /** Skip files whose size and mtime match `.odio/files.csv`. Default true. */
   incremental?: boolean;
   /** Write `.odio/*` records. Default true. */
   write?: boolean;
@@ -37,114 +32,100 @@ export interface ScanResult {
   errors: { path: string; message: string }[];
   probed: number;
   reused: number;
+  elapsedMs: number;
 }
 
 /**
- * Scan a library folder. Walk, group, probe (with concurrency), resolve,
- * write records. Everything but ffprobe is a pure function of the file
- * list, and ffprobe results are cached in files.csv keyed on size+mtime.
+ * Scan a library folder. The host walks and reads tags in one call;
+ * everything after that is a pure function of the file list. Chapter
+ * markers are not read here: they are probed lazily by `ensureChapters`
+ * the first time a book is opened, and cached in files.csv.
  */
 export async function scanLibrary(host: Host, root: string, opts: ScanOptions = {}): Promise<ScanResult> {
-  const concurrency = opts.concurrency ?? 4;
+  const started = Date.now();
   const incremental = opts.incremental ?? true;
   const errors: ScanResult["errors"] = [];
-  let probed = 0;
-  let reused = 0;
 
-  const entries = await pipe(walk(host, root), collect());
-  const groups = groupBooks(entries);
   const previous = incremental ? await readPreviousFiles(host, root) : new Map<string, AudioFile>();
-  const total = groups.length;
+  const known = [...previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  const out = await host.scan(root, known, opts.onProgress);
 
-  const scanned = await pipe(
-    from(groups),
-    flatMap(
-      (group: BookGroup) =>
-        (async function* () {
-          const result = await scanGroup(host, root, group, previous, {
-            ...(opts.signal ? { signal: opts.signal } : {}),
-            onProbe: () => probed++,
-            onReuse: () => reused++,
-            onError: (path, err) => {
-              errors.push({ path, message: err instanceof Error ? err.message : String(err) });
-              opts.onError?.(path, err);
-            },
-          });
-          if (result) yield result;
-        })(),
-      { concurrency },
-    ),
-    collect(),
+  const groups = groupBooks(
+    out.files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })),
   );
+  const byPath = new Map(out.files.map((f) => [f.path, f]));
+  const previousBooks = await readPreviousBooks(host, root);
 
-  // Preserve walk order regardless of which book finished probing first.
-  const order = new Map(groups.map((g, i) => [g.path, i]));
-  scanned.sort((a, b) => (order.get(a.book.path) ?? 0) - (order.get(b.book.path) ?? 0));
-  scanned.forEach((b, i) => opts.onBook?.(b, i, total));
+  const scanned: ScannedBook[] = [];
+  for (const group of groups) {
+    const b = await buildBook(host, root, group, byPath, previous, previousBooks, errors);
+    if (b) scanned.push(b);
+  }
 
   if (opts.write ?? true) {
     await writeRecords(host, root, scanned);
     await extractCovers(host, root, scanned, errors);
   }
-  return { books: scanned, errors, probed, reused };
+  return { books: scanned, errors, probed: out.probed, reused: out.reused, elapsedMs: Date.now() - started };
 }
 
-interface GroupCallbacks {
-  signal?: AbortSignal;
-  onProbe: () => void;
-  onReuse: () => void;
-  onError: (relPath: string, err: unknown) => void;
-}
-
-async function scanGroup(host: Host, root: string, group: BookGroup, previous: Map<string, AudioFile>, cb: GroupCallbacks): Promise<ScannedBook | null> {
-  const probes: { entry: FileEntry; result: ProbeResult | null; cached: AudioFile | null }[] = [];
+async function buildBook(
+  host: Host,
+  root: string,
+  group: BookGroup,
+  byPath: Map<string, ScannedFile>,
+  previous: Map<string, AudioFile>,
+  previousBooks: Map<string, Book>,
+  errors: ScanResult["errors"],
+): Promise<ScannedBook | null> {
+  const files: AudioFile[] = [];
+  const freshTags: Record<string, string>[] = [];
   for (const entry of group.audio) {
-    const cached = previous.get(entry.relPath);
-    if (cached && !isStale(cached, entry)) {
-      cb.onReuse();
-      probes.push({ entry, result: null, cached });
+    const s = byPath.get(entry.relPath);
+    if (!s) continue;
+    if (!s.fresh) {
+      const cached = previous.get(entry.relPath);
+      if (cached) {
+        files.push({ ...cached, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs });
+        continue;
+      }
+    }
+    if (s.durationMs <= 0 && Object.keys(s.tags).length === 0) {
+      errors.push({ path: entry.relPath, message: "could not read this file" });
       continue;
     }
-    try {
-      const result = await probe(host, entry.absPath, cb.signal);
-      cb.onProbe();
-      probes.push({ entry, result, cached: null });
-    } catch (err) {
-      cb.onError(entry.relPath, err);
-    }
-  }
-  if (probes.length === 0) return null;
-
-  const files: AudioFile[] = probes.map(({ entry, result, cached }) => {
-    if (cached) return { ...cached, path: entry.relPath };
-    const r = result!;
-    const keys = orderKeys(r.tags);
-    return {
+    const keys = orderKeys(s.tags);
+    freshTags.push(s.tags);
+    files.push({
       path: entry.relPath,
       order: 0,
-      durationMs: r.durationMs,
+      durationMs: s.durationMs,
       sizeBytes: entry.sizeBytes,
       mtimeMs: entry.mtimeMs,
-      title: r.tags.title ?? "",
+      title: s.tags.title ?? "",
       disc: keys.disc,
       track: keys.track,
-      hasCover: r.hasCover,
-      chapters: r.chapters,
-    };
-  });
-
+      hasCover: s.hasCover,
+      chapters: s.chapters,
+      chaptersProbed: s.chaptersKnown,
+    });
+  }
+  if (files.length === 0) return null;
   orderFiles(files);
 
-  const liveProbes = probes.filter((p) => p.result).map((p) => p.result!);
+  const isLooseRootFile = group.audio.length === 1 && group.covers.length === 0 && !group.path.includes("/");
   const meta =
-    liveProbes.length > 0
-      ? resolveMetadata(liveProbes, group.audio.length === 1 && group.covers.length === 0 && !group.path.includes("/") ? "" : group.name, group.name)
-      : await cachedMetadata(host, root, group);
+    freshTags.length > 0
+      ? resolveMetadata(
+          freshTags.map((tags) => ({ durationMs: 0, tags, hasCover: false, chapters: [], codec: "", sampleRate: 0, channels: 0 })),
+          isLooseRootFile ? "" : group.name,
+          group.name,
+        )
+      : cachedMetadata(previousBooks.get(group.path), group.name);
 
   const sizeBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
   const id = bookId(group.path, sizeBytes);
-
   const cover = group.covers[0]?.relPath ?? (files.find((f) => f.hasCover) ? `${ODIO_DIR}/covers/${id}.jpg` : "");
 
   let chapters = buildChapters(files);
@@ -169,7 +150,7 @@ async function scanGroup(host: Host, root: string, group: BookGroup, previous: M
   return { book, files, chapters };
 }
 
-/** Disc, then track, then natural filename. Files with no track sort after tagged ones only if all lack tags. */
+/** Disc, then track, then natural filename. Untracked files sort last only when some files are tracked. */
 export function orderFiles(files: AudioFile[]): void {
   const anyTrack = files.some((f) => f.track > 0);
   files.sort((a, b) => {
@@ -182,6 +163,50 @@ export function orderFiles(files: AudioFile[]): void {
     return natcompare(a.path, b.path);
   });
   files.forEach((f, i) => (f.order = i));
+}
+
+/**
+ * Read embedded chapter markers with ffprobe for any file of the book
+ * that has not been probed yet, then rebuild and persist the chapters.
+ * Returns the book unchanged when nothing was pending.
+ */
+export async function ensureChapters(host: Host, root: string, book: ScannedBook, signal?: AbortSignal): Promise<ScannedBook> {
+  const pending = book.files.filter((f) => !f.chaptersProbed);
+  if (pending.length === 0) return book;
+  const files = book.files.map((f) => ({ ...f }));
+  let changed = false;
+  for (const f of files) {
+    if (f.chaptersProbed) continue;
+    if (signal?.aborted) return book;
+    try {
+      const r = await probe(host, host.join(root, ...f.path.split("/")), signal);
+      f.chapters = r.chapters;
+      if (r.durationMs > 0 && Math.abs(r.durationMs - f.durationMs) > 2000) f.durationMs = r.durationMs;
+      // ffprobe sees pictures the tag reader can miss (second ID3 tags, odd containers).
+      if (r.hasCover) f.hasCover = true;
+      f.chaptersProbed = true;
+      changed = true;
+    } catch {
+      // Leave it unprobed; the inferred chapter stands.
+    }
+  }
+  if (!changed) return book;
+  const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
+  let chapters = buildChapters(files);
+  const corrections = await readCorrections(host, root, book.book.id);
+  if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
+  let cover = book.book.cover;
+  if (!cover && files.some((f) => f.hasCover)) {
+    const errors: ScanResult["errors"] = [];
+    const candidate = `${ODIO_DIR}/covers/${book.book.id}.jpg`;
+    await extractCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters }], errors);
+    if (errors.length === 0 && (await host.exists(host.join(root, ODIO_DIR, "covers", `${book.book.id}.jpg`)))) cover = candidate;
+  }
+  const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters };
+  await updateFileRows(host, root, updated);
+  await host.mkdir(host.join(root, ODIO_DIR, "chapters"));
+  await host.writeFile(host.join(root, ODIO_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
+  return updated;
 }
 
 async function readPreviousFiles(host: Host, root: string): Promise<Map<string, AudioFile>> {
@@ -197,17 +222,21 @@ async function readPreviousFiles(host: Host, root: string): Promise<Map<string, 
   return out;
 }
 
-async function cachedMetadata(host: Host, root: string, group: BookGroup) {
+async function readPreviousBooks(host: Host, root: string): Promise<Map<string, Book>> {
+  const out = new Map<string, Book>();
   const path = host.join(root, ODIO_DIR, "library.csv");
-  const fallback = { title: group.name, rawTitle: group.name, author: "", narrator: "", series: "", seriesIndex: null, year: null };
-  if (!(await host.exists(path))) return fallback;
+  if (!(await host.exists(path))) return out;
   try {
-    const books = await bytesToBooks(await host.readFile(path));
-    const b = books.find((x) => x.path === group.path);
-    return b ? { title: b.title, rawTitle: b.rawTitle, author: b.author, narrator: b.narrator, series: b.series, seriesIndex: b.seriesIndex, year: b.year } : fallback;
+    for (const b of await bytesToBooks(await host.readFile(path))) out.set(b.path, b);
   } catch {
-    return fallback;
+    /* ignore */
   }
+  return out;
+}
+
+function cachedMetadata(b: Book | undefined, folderName: string) {
+  if (!b) return { title: folderName, rawTitle: folderName, author: "", narrator: "", series: "", seriesIndex: null, year: null };
+  return { title: b.title, rawTitle: b.rawTitle, author: b.author, narrator: b.narrator, series: b.series, seriesIndex: b.seriesIndex, year: b.year };
 }
 
 async function readCorrections(host: Host, root: string, id: string) {
@@ -223,13 +252,29 @@ async function readCorrections(host: Host, root: string, id: string) {
 
 async function writeRecords(host: Host, root: string, books: readonly ScannedBook[]): Promise<void> {
   const dir = host.join(root, ODIO_DIR);
-  await host.mkdir(host.join(dir, "chapters"));
+  await host.mkdir(dir);
   await host.writeFile(host.join(dir, "library.csv"), await booksToBytes(books.map((b) => b.book)));
   const fileRows: Row[] = [];
   for (const b of books) fileRows.push(...filesToRows(b.book.id, b.files));
   await host.writeFile(host.join(dir, "files.csv"), await filesToBytes(fileRows));
-  for (const b of books) {
-    await host.writeFile(host.join(dir, "chapters", `${b.book.id}.csv`), await chaptersToBytes(b.chapters));
+}
+
+/** Rewrite files.csv and library.csv with one book's rows replaced. */
+async function updateFileRows(host: Host, root: string, book: ScannedBook): Promise<void> {
+  const path = host.join(root, ODIO_DIR, "files.csv");
+  const byBook = (await host.exists(path)) ? await bytesToFiles(await host.readFile(path)) : new Map<string, AudioFile[]>();
+  byBook.set(book.book.id, book.files);
+  const rows: Row[] = [];
+  for (const [id, files] of byBook) rows.push(...filesToRows(id, files));
+  await host.writeFile(path, await filesToBytes(rows));
+  const libPath = host.join(root, ODIO_DIR, "library.csv");
+  if (await host.exists(libPath)) {
+    const books = await bytesToBooks(await host.readFile(libPath));
+    const i = books.findIndex((b) => b.id === book.book.id);
+    if (i >= 0) {
+      books[i] = book.book;
+      await host.writeFile(libPath, await booksToBytes(books));
+    }
   }
 }
 
@@ -258,7 +303,10 @@ function lastLine(text: string): string {
   return lines[lines.length - 1] || "ffmpeg failed";
 }
 
-/** Load the last scan without touching ffprobe. */
+/**
+ * Load the last scan without touching the audio files: library.csv,
+ * files.csv, and the chapters folder in one call each. No per-book I/O.
+ */
 export async function loadLibrary(host: Host, root: string): Promise<ScannedBook[] | null> {
   const dir = host.join(root, ODIO_DIR);
   const libPath = host.join(dir, "library.csv");
@@ -266,15 +314,13 @@ export async function loadLibrary(host: Host, root: string): Promise<ScannedBook
   const books = await bytesToBooks(await host.readFile(libPath));
   const filesPath = host.join(dir, "files.csv");
   const files = (await host.exists(filesPath)) ? await bytesToFiles(await host.readFile(filesPath)) : new Map<string, AudioFile[]>();
+  const chapterFiles = new Map((await host.readTextDir(host.join(dir, "chapters"))).map((t) => [t.name, t.text]));
+  const encoder = new TextEncoder();
   const out: ScannedBook[] = [];
   for (const book of books) {
     const bookFiles = files.get(book.id) ?? [];
-    const chPath = host.join(dir, "chapters", `${book.id}.csv`);
-    let chapters: Chapter[] = [];
-    if (await host.exists(chPath)) {
-      const { bytesToChapters } = await import("./records");
-      chapters = await bytesToChapters(await host.readFile(chPath));
-    }
+    const text = chapterFiles.get(`${book.id}.csv`);
+    let chapters: Chapter[] = text ? await bytesToChapters(encoder.encode(text)) : [];
     if (chapters.length === 0) chapters = buildChapters(bookFiles);
     out.push({ book, files: bookFiles, chapters });
   }

@@ -123,28 +123,49 @@ beside the bookmark row so it survives the book being moved.
 
 ## Scan pipeline
 
-1. Walk the library folder. Emit every file with size and mtime.
-2. Group into books. A folder with audio files is one book. An audio
-   file with no book folder is a one-file book. Files inside a book are
-   ordered by disc tag, then track tag, then natural filename sort.
-3. Probe every audio file with `ffprobe -print_format json`. Extract
-   duration, tags, chapters, and whether a cover stream exists.
-   Concurrency four.
-4. Resolve book metadata: title from album tag, author from artist or
-   album_artist, narrator from composer, series and index from the
-   `series` and `series-part` tags or the `mvnm` and `mvin` iTunes atoms,
-   year from date. Fall back to folder name for the title.
-5. Resolve cover: `cover.jpg` or `folder.jpg` in the folder, else the
-   first file with an attached picture, extracted once to `.odio/covers`.
-6. Build chapters. Embedded markers win. Otherwise one chapter per
-   file named by the file's title tag, else the filename.
-7. Overlay `corrections/<book>.csv`.
-8. Write `library.csv`, `files.csv`, `chapters/<book>.csv`.
-9. Queue loudness and silence scans for books without them, lowest
-   priority, one at a time.
+The rule is that a library you have opened before paints before you can
+blink, and a library you have never opened paints in seconds even when
+it is tens of thousands of files.
 
-Rescans are incremental. A file whose size and mtime match `files.csv`
-is not probed again.
+**Opening.** If `.odio/library.csv` exists, the app reads it, reads
+`files.csv`, reads every position file in one call, and shows the
+library. That is three round trips regardless of size. A rescan then
+runs behind the visible list and swaps in whatever changed.
+
+**Scanning.** One Rust command does the whole walk and tag read and
+returns one result. It skips hidden folders and `.odio`, and it skips
+reading tags for any file whose size and mtime match the last scan. For
+the rest it reads the container's own tag block with lofty, in
+parallel across cores: ID3v2 frames for MP3, the `ilst` atom for M4A
+and M4B, Vorbis comments for FLAC, Opus, and Ogg. It reads format-
+specific tags rather than a generic view so keys like `series`,
+`series-part`, `narrator`, and iTunes freeform atoms survive. No
+process is spawned. The webview gets progress events every 250 files.
+
+Then, in TypeScript, the pure part: group files into books, order by
+disc, track, and natural filename, resolve metadata, infer chapters,
+overlay corrections, write the records.
+
+**Chapter markers are lazy.** The tag reader does not parse chapter
+atoms. The first time a book is opened, ffprobe runs on its files in
+the background, the chapter list is swapped in when it returns, and
+the result is cached in `files.csv` so it never runs again. Playback
+starts immediately with chapters inferred from file boundaries.
+
+**Loudness and silence are lazy too, and one pass.** Nothing is decoded
+until a book is opened. Then a single ffmpeg run with `silencedetect`
+chained into `ebur128` produces both records, one book at a time,
+listening book first.
+
+**Covers.** `cover.jpg` or `folder.jpg` beside the book wins. Otherwise
+the first file with an attached picture is extracted once to
+`.odio/covers`.
+
+**The reference scanner.** Node and the browser harness implement the
+same Host contract with the directory walk and ffprobe. It is slow and
+exact, reads chapter markers up front, and is what the test suite runs
+against. The Rust scanner has its own test that reads the real files
+beside the repo and prints timings for the benchmark tree.
 
 ## Order of work
 

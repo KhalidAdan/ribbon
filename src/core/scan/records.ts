@@ -17,7 +17,7 @@ export const LIBRARY_HEADERS = [
   "file_count",
 ];
 
-export const FILE_HEADERS = ["book_id", "order", "path", "duration_ms", "size_bytes", "mtime_ms", "title", "disc", "track", "has_cover", "chapters"];
+export const FILE_HEADERS = ["book_id", "order", "path", "duration_ms", "size_bytes", "mtime_ms", "title", "disc", "track", "has_cover", "chapters", "probed"];
 
 export const CHAPTER_HEADERS = ["index", "start_ms", "end_ms", "title"];
 
@@ -114,6 +114,7 @@ export function filesToRows(bookId: string, files: readonly AudioFile[]): Row[] 
     track: String(f.track),
     has_cover: f.hasCover ? "1" : "0",
     chapters: packChapters(f.chapters),
+    probed: f.chaptersProbed ? "1" : "0",
   }));
 }
 
@@ -138,6 +139,7 @@ export async function bytesToFiles(bytes: Uint8Array): Promise<Map<string, Audio
       track: int(r.track),
       hasCover: bool(r.has_cover),
       chapters: unpackChapters(r.chapters),
+      chaptersProbed: bool(r.probed),
     });
     out.set(r.book_id, list);
   }

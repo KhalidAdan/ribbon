@@ -1,4 +1,4 @@
-import type { DirEntry, FileStat, Host, RunResult, Tool } from "./host";
+import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
 
 /**
  * Development-only Host that talks to the Vite plugin in
@@ -30,6 +30,11 @@ export function browserHost(base = "/__odio"): Host {
     run: (tool: Tool, args: string[]) => call<RunResult>("run", { tool, args }),
     join: (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "/"),
     deviceName: async () => "browser-dev",
+    async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+      onProgress?.({ walked: 0, done: 0 });
+      return call<ScanOutput>("scan", { root, known });
+    },
+    readTextDir: (dir) => call<TextFile[]>("readTextDir", { dir }),
   };
 }
 

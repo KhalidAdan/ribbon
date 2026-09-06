@@ -2,12 +2,15 @@ import { readDir, stat, exists, readFile, writeFile, mkdir, remove, rename } fro
 import { Command } from "@tauri-apps/plugin-shell";
 import { hostname } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import type { DirEntry, FileStat, Host, RunResult, Tool } from "./host";
+import { listen } from "@tauri-apps/api/event";
+import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
+
+const PROGRESS_EVENT = "odio://scan-progress";
 
 /**
- * Tauri implementation of Host over plugin-fs and plugin-shell. Every
- * path must be inside a library folder that `allowLibrary` has opened;
- * the Rust side refuses anything else.
+ * Tauri implementation of Host over plugin-fs, plugin-shell, and the
+ * Rust scan commands. Every path must be inside a library folder that
+ * `allowLibrary` has opened; the Rust side refuses anything else.
  */
 export function tauriHost(): Host {
   return {
@@ -51,6 +54,16 @@ export function tauriHost(): Host {
     },
     join: (...parts: string[]) => joinPath(parts),
     deviceName: async () => (await hostname()) ?? "this device",
+    async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+      const unlisten = onProgress ? await listen<ScanProgress>(PROGRESS_EVENT, (e) => onProgress(e.payload)) : null;
+      try {
+        const r = await invoke<Omit<ScanOutput, "files"> & { files: (Omit<ScanOutput["files"][number], "chapters"> & { chapters?: undefined })[] }>("scan_library", { root, known });
+        return { ...r, files: r.files.map((f) => ({ ...f, chapters: [] })) };
+      } finally {
+        unlisten?.();
+      }
+    },
+    readTextDir: (dir: string) => invoke<TextFile[]>("read_text_dir", { dir }),
   };
 }
 

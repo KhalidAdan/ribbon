@@ -1,3 +1,5 @@
+mod scan;
+
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 
@@ -26,7 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
-        .invoke_handler(tauri::generate_handler![allow_library])
+        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::read_text_dir])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

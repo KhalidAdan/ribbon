@@ -13,6 +13,7 @@ const file = (path: string, durationMs: number, over: Partial<AudioFile> = {}): 
   track: 0,
   hasCover: false,
   chapters: [],
+  chaptersProbed: true,
   ...over,
 });
 

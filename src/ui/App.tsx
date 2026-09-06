@@ -73,7 +73,7 @@ function Ready() {
     return (
       <main className="flex h-full items-center justify-center px-6">
         <p className="text-base/7 text-neutral-500 tabular-nums sm:text-sm/6 dark:text-neutral-400">
-          {state.scanning && state.scanning.total > 0 ? `Scanning ${state.scanning.done} of ${state.scanning.total} books…` : "Opening your library…"}
+          {state.scanning && state.scanning.walked > 0 ? `Reading ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files…` : "Looking through your folder…"}
         </p>
       </main>
     );

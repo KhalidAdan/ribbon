@@ -225,10 +225,36 @@ Run with `ODIO_BOOKS=books`. Asserts against the user's folder:
 
 ## Rust cases
 
+Run with `cargo test --release` in `src-tauri`.
+
+- The walk skips `.odio` and hidden entries and classifies audio and
+  image files by extension.
+- Probing `Horus Rising/Chapter 10.m4a` yields the title, artist,
+  album, track `10`, a duration over one second, and an attached
+  picture, all from the `ilst` atom.
+- Probing the seven-hour MP3 yields a duration over an hour, a title,
+  and an attached picture, from ID3v2.
+- When `E:\CODE\odio-bench` exists (1,000 hard-linked books, 23,000
+  files), the test prints walk and probe timings. Target: under five
+  seconds warm for the full probe.
 - Reading a path outside the library scope is rejected.
 - ffprobe spawn with a missing binary returns a typed error.
 - The asset protocol serves a range request with the right
   `Content-Range`.
+
+## Load-path cases (`core/scan/scan.ts`, `app/controller.ts`)
+
+- A library with records paints from `library.csv` and `files.csv`
+  before any audio file is touched.
+- Positions for every book come from one `readTextDir` call.
+- A rescan behind a visible library preserves the open book's live
+  chapter list.
+- The ffprobe reference scanner returns files in walk order regardless
+  of which probe finished first.
+- `ensureChapters` is a no-op when every file is marked probed, probes
+  only unprobed files otherwise, persists the `probed` flag, and the
+  result survives `loadLibrary`.
+- Files the scanner could not read are reported as errors, not books.
 
 ## Manual checklist before pinging the user
 

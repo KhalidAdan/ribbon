@@ -2,11 +2,12 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import type { DirEntry, FileStat, Host, RunResult, Tool } from "./host";
+import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "./host";
+import { scanWithFfprobe } from "./scan-with-ffprobe";
 
 /** Node implementation of Host. Used by tests and the CLI. */
 export function nodeHost(): Host {
-  return {
+  const host: Host = {
     async readDir(dir: string): Promise<DirEntry[]> {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       return entries.map((e) => ({ name: e.name, isDir: e.isDirectory(), isFile: e.isFile() }));
@@ -50,5 +51,27 @@ export function nodeHost(): Host {
     async deviceName(): Promise<string> {
       return os.hostname();
     },
+    scan: (root, known, onProgress) => scanWithFfprobe(host, root, known, onProgress),
+    async readTextDir(dir: string): Promise<TextFile[]> {
+      let names: string[];
+      try {
+        names = await fs.readdir(dir);
+      } catch {
+        return [];
+      }
+      const out: TextFile[] = [];
+      for (const name of names) {
+        const p = path.join(dir, name);
+        try {
+          const s = await fs.stat(p);
+          if (!s.isFile() || s.size > 1_048_576) continue;
+          out.push({ name, text: await fs.readFile(p, "utf8") });
+        } catch {
+          /* skip */
+        }
+      }
+      return out;
+    },
   };
+  return host;
 }
