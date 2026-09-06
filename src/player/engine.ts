@@ -5,6 +5,9 @@ import { clampSpeed } from "../core/speed";
 import { findRange, gapRate } from "../core/silence";
 import { dbToLinear } from "../core/loudness";
 
+/** How often the position clock and the gap-skipping check run. */
+const TICK_MS = 200;
+
 export interface EngineBook {
   id: string;
   files: AudioFile[];
@@ -58,7 +61,11 @@ export class PlayerEngine {
   private gainNode: GainNode | null = null;
   private sources = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
   private webAudio: boolean | null = null;
-  private raf = 0;
+  /** Position clock. A timer, not requestAnimationFrame, so it keeps
+   *  running while the window is hidden or minimized. */
+  private ticker: ReturnType<typeof setInterval> | null = null;
+  /** Book offset at which playback pauses itself, for previews. */
+  private stopAtMs: number | null = null;
   private state: EngineState = {
     bookId: null,
     positionMs: 0,
@@ -146,8 +153,14 @@ export class PlayerEngine {
     }
   }
 
+  /** Pause automatically once the position reaches `ms`. Null clears it. */
+  setStopAt(ms: number | null): void {
+    this.stopAtMs = ms;
+  }
+
   pause(): void {
     this.wantPlaying = false;
+    this.stopAtMs = null;
     this.activeEl.pause();
     this.stopLoop();
     this.emit({ playing: false, positionMs: this.positionMs() });
@@ -325,21 +338,25 @@ export class PlayerEngine {
   }
 
   private startLoop(): void {
-    if (this.raf) return;
+    if (this.ticker !== null) return;
     const step = () => {
-      this.raf = requestAnimationFrame(step);
       if (!this.book) return;
       this.applyRate();
       const pos = this.positionMs();
+      if (this.stopAtMs !== null && pos >= this.stopAtMs) {
+        this.pause();
+        return;
+      }
       const ch = chapterAt(this.book.chapters, pos);
       if (pos !== this.state.positionMs || ch !== this.state.chapterIndex) this.emit({ positionMs: pos, chapterIndex: ch });
     };
-    this.raf = requestAnimationFrame(step);
+    this.ticker = setInterval(step, TICK_MS);
+    step();
   }
 
   private stopLoop(): void {
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    if (this.ticker !== null) clearInterval(this.ticker);
+    this.ticker = null;
   }
 
   private emit(patch: Partial<EngineState>): void {

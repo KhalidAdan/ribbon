@@ -7,6 +7,7 @@ import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
 import { snapSpeed } from "../core/speed";
+import { clipRange } from "../core/bookmarks";
 import { chapterAt } from "../core/scan/chapters";
 import * as sleep from "../core/sleep";
 import type { Correction } from "../core/scan/chapters";
@@ -55,6 +56,8 @@ export interface AppState {
   player: EngineState;
   sleep: { state: sleep.SleepState; gain: number; remainingMs: number | null };
   resumeOffer: { chapterStartMs: number; awayMs: number } | null;
+  /** The bookmark whose lead-in is playing through the main player. */
+  previewing: number | null;
   jobs: Record<string, JobStatus>;
   scanning: ScanStatus | null;
   /** Files the last scan could not read. */
@@ -115,6 +118,7 @@ export class AppController {
       },
       sleep: { state: sleep.IDLE, gain: 1, remainingMs: null },
       resumeOffer: null,
+      previewing: null,
       jobs: {},
       scanning: null,
       scanErrors: [],
@@ -277,6 +281,11 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
+    if (this.state.previewing !== null && prev.playing && !player.playing) {
+      this.set({ previewing: null });
+      this.pausedAt = Date.now();
+      void this.persistPosition();
+    }
     if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition();
     if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
     if (player.playing !== prev.playing || Math.abs(player.positionMs - prev.positionMs) > 900) {
@@ -341,6 +350,8 @@ export class AppController {
     const engine = this.engine;
     const cur = this.state.current;
     if (!engine || !cur) return;
+    engine.setStopAt(null);
+    if (this.state.previewing !== null) this.set({ previewing: null });
     const now = Date.now();
     const gap = this.pausedAt === null ? 0 : Math.max(0, now - this.pausedAt);
     const pos = engine.positionMs();
@@ -358,6 +369,7 @@ export class AppController {
     if (!this.engine) return;
     this.engine.pause();
     this.pausedAt = Date.now();
+    this.set({ previewing: null });
     void this.persistPosition();
   }
 
@@ -368,8 +380,9 @@ export class AppController {
 
   seek(positionMs: number): void {
     if (!this.engine) return;
+    this.engine.setStopAt(null);
     this.engine.seek(positionMs);
-    this.set({ resumeOffer: null });
+    this.set({ resumeOffer: null, previewing: null });
     void this.persistPosition();
   }
 
@@ -510,9 +523,29 @@ export class AppController {
     this.set({ current: { ...this.state.current!, bookmarks } });
   }
 
+  /**
+   * Hear the thirty seconds before a bookmark, through the one player:
+   * seek back, play, and stop at the mark. No second audio element.
+   */
+  async previewBookmark(bm: Bookmark): Promise<void> {
+    const cur = this.state.current;
+    if (!cur || !this.engine || cur.book.book.id !== bm.bookId) return;
+    if (this.state.previewing === bm.offsetMs) {
+      this.pause();
+      return;
+    }
+    const { startMs } = clipRange(bm.offsetMs);
+    this.engine.seek(startMs);
+    this.engine.setStopAt(bm.offsetMs);
+    this.pausedAt = null;
+    this.set({ previewing: bm.offsetMs, resumeOffer: null });
+    await this.engine.play();
+  }
+
   async removeBookmark(offsetMs: number): Promise<void> {
     const cur = this.state.current;
     if (!cur || !this.lib) return;
+    if (this.state.previewing === offsetMs) this.pause();
     await this.lib.removeBookmark(cur.book.book.id, offsetMs);
     this.set({ current: { ...this.state.current!, bookmarks: cur.bookmarks.filter((b) => b.offsetMs !== offsetMs) } });
   }
