@@ -63,6 +63,17 @@ export interface AppState {
   pane: "library" | "player";
 }
 
+/** Tauri rejects with plain strings; everything else with Errors. */
+function describe(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
 const SKIP_BACK_MS = 30_000;
 const SKIP_FORWARD_MS = 30_000;
 const POSITION_WRITE_INTERVAL_MS = 5_000;
@@ -131,7 +142,7 @@ export class AppController {
         await this.openLibrary(remembered);
         return;
       } catch (e) {
-        this.set({ error: `Could not open ${remembered}: ${(e as Error).message}` });
+        this.set({ scanning: null, error: `Could not open ${remembered}: ${describe(e)}` });
       }
     }
     this.set({ phase: "pick" });
@@ -140,7 +151,11 @@ export class AppController {
   async pickLibrary(): Promise<void> {
     const root = await this.platform.pickFolder();
     if (!root) return;
-    await this.openLibrary(root);
+    try {
+      await this.openLibrary(root);
+    } catch (e) {
+      this.set({ phase: "pick", scanning: null, error: `Could not open ${root}: ${describe(e)}` });
+    }
   }
 
   /**
@@ -188,7 +203,7 @@ export class AppController {
         current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
       });
     } catch (e) {
-      this.set({ scanning: null, error: (e as Error).message });
+      this.set({ scanning: null, error: describe(e) });
       if (!background) throw e;
     }
   }

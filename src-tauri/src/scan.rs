@@ -74,7 +74,7 @@ pub struct ScanResult {
     pub walked: usize,
     pub probed: usize,
     pub reused: usize,
-    pub elapsed_ms: u128,
+    pub elapsed_ms: u64,
 }
 
 /// A `Read + Seek` adapter that fetches fixed-size blocks from the inner
@@ -402,7 +402,9 @@ pub fn probe(path: &Path) -> Probed {
 #[tauri::command]
 pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -> Result<ScanResult, String> {
     let root = PathBuf::from(&root);
+    log::info!("scan_library: start {} ({} known files)", root.display(), known.len());
     if !root.is_dir() {
+        log::warn!("scan_library: not a directory: {}", root.display());
         return Err(format!("not a directory: {}", root.display()));
     }
     let started = std::time::Instant::now();
@@ -413,6 +415,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
             let _ = walker.emit(PROGRESS_EVENT, serde_json::json!({ "walked": 0, "done": 0, "found": n }));
         });
         let walked = entries.len();
+        log::info!("scan_library: walked {} files in {:?}", walked, started.elapsed());
         let known: HashMap<String, (u64, i64)> = known.into_iter().map(|k| (k.path, (k.size_bytes, k.mtime_ms))).collect();
         let done = AtomicUsize::new(0);
         let probed = AtomicUsize::new(0);
@@ -464,9 +467,13 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
         }
     })
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        log::error!("scan_library: worker failed: {e}");
+        e.to_string()
+    })?;
     let mut result = result;
-    result.elapsed_ms = started.elapsed().as_millis();
+    result.elapsed_ms = started.elapsed().as_millis() as u64;
+    log::info!("scan_library: {} files, {} probed, {} reused in {} ms", result.walked, result.probed, result.reused, result.elapsed_ms);
     let _ = app.emit(PROGRESS_EVENT, serde_json::json!({ "walked": result.walked, "done": result.walked }));
     Ok(result)
 }

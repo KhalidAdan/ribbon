@@ -4,6 +4,7 @@ import { hostname } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
+import { joinPath } from "./paths";
 
 const PROGRESS_EVENT = "odio://scan-progress";
 
@@ -55,33 +56,22 @@ export function tauriHost(): Host {
     join: (...parts: string[]) => joinPath(parts),
     deviceName: async () => (await hostname()) ?? "this device",
     async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+      console.info("odio: scan starting", root, known.length, "known");
       const unlisten = onProgress ? await listen<ScanProgress>(PROGRESS_EVENT, (e) => onProgress(e.payload)) : null;
+      console.info("odio: listening for progress");
       try {
         const r = await invoke<Omit<ScanOutput, "files"> & { files: (Omit<ScanOutput["files"][number], "chapters"> & { chapters?: undefined })[] }>("scan_library", { root, known });
+        console.info("odio: scan returned", r.walked, "files in", r.elapsedMs, "ms");
         return { ...r, files: r.files.map((f) => ({ ...f, chapters: [] })) };
+      } catch (e) {
+        console.error("odio: scan failed", e);
+        throw e;
       } finally {
         unlisten?.();
       }
     },
     readTextDir: (dir: string) => invoke<TextFile[]>("read_text_dir", { dir }),
   };
-}
-
-const WINDOWS = /^[A-Za-z]:[\\/]/;
-
-/** Synchronous join with the separator the root already uses. */
-export function joinPath(parts: readonly string[]): string {
-  const first = parts.find((p) => p.length > 0) ?? "";
-  const sep = WINDOWS.test(first) || first.includes("\\") ? "\\" : "/";
-  const out: string[] = [];
-  parts.forEach((p, i) => {
-    if (!p) return;
-    let s = p.replace(/[\\/]+/g, sep);
-    if (i > 0) s = s.replace(new RegExp(`^\\${sep}+`), "");
-    s = s.replace(new RegExp(`\\${sep}+$`), "");
-    if (s) out.push(s);
-  });
-  return out.join(sep);
 }
 
 /** Widen the scoped filesystem and asset protocol to a library folder. */
