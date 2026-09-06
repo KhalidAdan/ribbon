@@ -10,7 +10,7 @@ export interface EngineBook {
   files: AudioFile[];
   chapters: Chapter[];
   /** Silence ranges per file index, file-relative. Optional. */
-  silence?: Map<number, SilenceRange[]>;
+  silence?: Map<number, SilenceRange[]> | undefined;
 }
 
 export interface EngineState {
@@ -210,10 +210,10 @@ export class PlayerEngine {
     const file = this.book?.files[index];
     if (!file) return;
     el.src = this.opts.resolveUrl(file.path);
-    el.currentTime = offsetMs / 1000;
     el.playbackRate = this.speed;
-    el.load();
-    // currentTime set before metadata is honoured by Chromium, but be safe.
+    // Setting src starts the load; a seek before metadata is queued by
+    // Chromium, but re-apply on loadedmetadata in case it was dropped.
+    el.currentTime = offsetMs / 1000;
     if (offsetMs > 0) {
       const fix = () => {
         if (Math.abs(el.currentTime * 1000 - offsetMs) > 500) el.currentTime = offsetMs / 1000;

@@ -22,7 +22,6 @@
     "fs:allow-stat",
     "fs:allow-open",
     "fs:allow-read",
-    "fs:allow-close",
     "fs:allow-seek",
     "fs:allow-size",
     {
