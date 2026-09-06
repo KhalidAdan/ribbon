@@ -16,6 +16,8 @@ export interface AudioFile {
   disc: number;
   track: number;
   hasCover: boolean;
+  /** Library-relative path of a cover image extracted from this file, or empty. */
+  coverFile: string;
   /** Embedded chapter markers, relative to this file. */
   chapters: Chapter[];
   /** True once ffprobe has been asked for markers. Fast scans leave it false. */

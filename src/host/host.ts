@@ -48,6 +48,9 @@ export interface ScannedFile {
   /** Lower-cased tag names. */
   tags: Record<string, string>;
   hasCover: boolean;
+  /** Library-relative path of a cover image the scanner wrote out of the
+   *  file's tag, or empty when it did not. */
+  cover: string;
   /** True when embedded chapter markers were actually read. */
   chaptersKnown: boolean;
   chapters: Chapter[];
@@ -59,6 +62,8 @@ export interface ScanProgress {
   done: number;
   /** Files discovered so far while the walk is still running. */
   found?: number;
+  /** What is happening after the tag read, for the progress line. */
+  stage?: string;
 }
 
 export interface ScanOutput {

@@ -7,11 +7,13 @@ import type { ScanStatus } from "../app/controller";
 export function ScanProgress({ status }: { status: ScanStatus }) {
   const walking = status.walked === 0;
   const fraction = walking ? 0 : Math.min(1, status.done / status.walked);
-  const label = walking
-    ? status.found
-      ? `Found ${status.found.toLocaleString()} files so far…`
-      : "Looking through your folder…"
-    : `Reading ${status.done.toLocaleString()} of ${status.walked.toLocaleString()} files…`;
+  const label = status.stage
+    ? status.stage
+    : walking
+      ? status.found
+        ? `Found ${status.found.toLocaleString()} files so far…`
+        : "Looking through your folder…"
+      : `Reading ${status.done.toLocaleString()} of ${status.walked.toLocaleString()} files…`;
   const rows = walking ? 5 : Math.max(3, Math.min(12, Math.ceil(status.walked / 20)));
 
   return (

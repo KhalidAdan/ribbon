@@ -63,6 +63,9 @@ pub struct ScannedFile {
     pub duration_ms: u64,
     pub tags: HashMap<String, String>,
     pub has_cover: bool,
+    /// Library-relative path of the cover image this scan wrote out of
+    /// the file's own tag, or None. No ffmpeg involved.
+    pub cover: Option<String>,
     /// This scanner never reads chapter markers; ffprobe does, lazily.
     pub chapters_known: bool,
 }
@@ -156,6 +159,42 @@ pub struct Probed {
     pub duration_ms: u64,
     pub tags: HashMap<String, String>,
     pub has_cover: bool,
+    /// The first embedded picture: bytes and a file extension.
+    pub picture: Option<(Vec<u8>, &'static str)>,
+}
+
+fn picture_ext(p: &lofty::picture::Picture) -> &'static str {
+    match p.mime_type() {
+        Some(lofty::picture::MimeType::Png) => "png",
+        Some(lofty::picture::MimeType::Jpeg) => "jpg",
+        Some(lofty::picture::MimeType::Gif) => "gif",
+        Some(lofty::picture::MimeType::Bmp) => "bmp",
+        _ => {
+            let d = p.data();
+            if d.len() > 8 && d[..8] == [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A] {
+                "png"
+            } else {
+                "jpg"
+            }
+        }
+    }
+}
+
+fn keep_picture(out: &mut Probed, p: &lofty::picture::Picture) {
+    out.has_cover = true;
+    if out.picture.is_none() && !p.data().is_empty() {
+        out.picture = Some((p.data().to_vec(), picture_ext(p)));
+    }
+}
+
+/// FNV-1a over the relative path: a stable, short cover file name.
+fn path_hash(rel: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in rel.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
 }
 
 fn ext_of(p: &Path) -> String {
@@ -244,7 +283,7 @@ fn read_id3(tag: &Id3v2Tag, out: &mut Probed) {
                 }
             }
             Frame::UserText(u) => put(&mut out.tags, &u.description, &u.content),
-            Frame::Picture(_) => out.has_cover = true,
+            Frame::Picture(p) => keep_picture(out, &p.picture),
             _ => {}
         }
     }
@@ -275,6 +314,11 @@ fn read_ilst(ilst: &Ilst, out: &mut Probed) {
             AtomIdent::Fourcc(fourcc) => {
                 let s: String = fourcc.iter().map(|b| *b as char).collect();
                 if s == "covr" {
+                    for data in atom.data() {
+                        if let AtomData::Picture(p) = data {
+                            keep_picture(out, p);
+                        }
+                    }
                     out.has_cover = true;
                     continue;
                 }
@@ -287,7 +331,7 @@ fn read_ilst(ilst: &Ilst, out: &mut Probed) {
             match data {
                 AtomData::UTF8(s) | AtomData::UTF16(s) => put(&mut out.tags, &key, s),
                 AtomData::SignedInteger(i) => put(&mut out.tags, &key, &i.to_string()),
-                AtomData::Picture(_) => out.has_cover = true,
+                AtomData::Picture(p) => keep_picture(out, p),
                 _ => {}
             }
         }
@@ -308,8 +352,8 @@ fn read_vorbis(vc: &VorbisComments, out: &mut Probed) {
         }
         put(&mut out.tags, k, v);
     }
-    if !vc.pictures().is_empty() {
-        out.has_cover = true;
+    for (p, _) in vc.pictures() {
+        keep_picture(out, p);
     }
 }
 
@@ -349,8 +393,8 @@ pub fn probe(path: &Path) -> Probed {
                 if let Some(t) = f.vorbis_comments() {
                     read_vorbis(t, &mut out);
                 }
-                if !f.pictures().is_empty() {
-                    out.has_cover = true;
+                for (p, _) in f.pictures() {
+                    keep_picture(&mut out, p);
                 }
             }
         }
@@ -371,8 +415,8 @@ pub fn probe(path: &Path) -> Probed {
             if let Ok(tagged) = lofty::read_from_path(path) {
                 out.duration_ms = tagged.properties().duration().as_millis() as u64;
                 for tag in tagged.tags() {
-                    if !tag.pictures().is_empty() {
-                        out.has_cover = true;
+                    for p in tag.pictures() {
+                        keep_picture(&mut out, p);
                     }
                     for item in tag.items() {
                         let key = match item.key() {
@@ -422,6 +466,8 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
         let done = AtomicUsize::new(0);
         let probed = AtomicUsize::new(0);
         let reused = AtomicUsize::new(0);
+        let covers_dir = root.join(ODIO_DIR).join("covers");
+        let _ = std::fs::create_dir_all(&covers_dir);
         let _ = handle.emit(PROGRESS_EVENT, serde_json::json!({ "walked": walked, "done": 0 }));
         let pool = probe_pool();
         let files: Vec<ScannedFile> = pool.install(|| entries
@@ -438,6 +484,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
                     duration_ms: 0,
                     tags: HashMap::new(),
                     has_cover: false,
+                    cover: None,
                     chapters_known: false,
                 };
                 if kind == "audio" {
@@ -450,6 +497,14 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
                         file.duration_ms = p.duration_ms;
                         file.tags = p.tags;
                         file.has_cover = p.has_cover;
+                        if let Some((bytes, ext)) = p.picture {
+                            let name = format!("{}.{}", path_hash(&rel), ext);
+                            let target = covers_dir.join(&name);
+                            let ok = target.is_file() || std::fs::write(&target, &bytes).is_ok();
+                            if ok {
+                                file.cover = Some(format!("{ODIO_DIR}/covers/{name}"));
+                            }
+                        }
                         probed.fetch_add(1, Ordering::Relaxed);
                     }
                 }
@@ -633,6 +688,9 @@ mod tests {
         assert_eq!(p.tags.get("album").map(String::as_str), Some("Horus Rising (Unabridged)"));
         assert_eq!(p.tags.get("track").map(String::as_str), Some("10"));
         assert!(p.has_cover, "expected an attached picture");
+        let (bytes, ext) = p.picture.as_ref().expect("picture bytes");
+        assert!(bytes.len() > 1000, "picture is {} bytes", bytes.len());
+        assert_eq!(*ext, "jpg");
 
         let mp3 = audio.iter().find(|e| e.1.ends_with(".mp3")).expect("an mp3");
         let m = probe(&mp3.0);

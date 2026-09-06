@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
-import { scanLibrary, loadLibrary, ensureChapters, type ScanResult } from "../src/core/scan/scan";
+import { scanLibrary, loadLibrary, ensureChapters, extractMissingCovers, type ScanResult } from "../src/core/scan/scan";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 import { locate } from "../src/core/timeline";
 
@@ -48,8 +48,11 @@ describe("scanLibrary over generated fixtures", () => {
     expect(b.book.cover).toBe(`.odio/covers/${b.book.id}.jpg`);
   });
 
-  it("extracts the embedded cover to .odio/covers as a JPEG", async () => {
+  it("extracts the embedded cover to .odio/covers as a JPEG, after the scan", async () => {
     const b = byPath("single-m4b");
+    const done = await extractMissingCovers(host, FIXTURE_ROOT, result.books);
+    expect(done.map((x) => x.book.path)).toContain("single-m4b");
+    expect(await extractMissingCovers(host, FIXTURE_ROOT, result.books)).toEqual([]);
     const bytes = await fs.readFile(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`));
     expect(bytes.length).toBeGreaterThan(500);
     expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
@@ -129,7 +132,7 @@ describe("scanLibrary over generated fixtures", () => {
   it("ensureChapters recovers a cover the fast scanner missed", async () => {
     const b = byPath("single-m4b");
     await fs.rm(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`), { force: true });
-    const blind = { ...b, book: { ...b.book, cover: "" }, files: b.files.map((f) => ({ ...f, hasCover: false, chaptersProbed: false })) };
+    const blind = { ...b, book: { ...b.book, cover: "" }, files: b.files.map((f) => ({ ...f, hasCover: false, coverFile: "", chaptersProbed: false })) };
     const fixed = await ensureChapters(host, FIXTURE_ROOT, blind);
     expect(fixed.files[0]!.hasCover).toBe(true);
     expect(fixed.book.cover).toBe(`.odio/covers/${b.book.id}.jpg`);
@@ -145,7 +148,7 @@ describe("scanLibrary over generated fixtures", () => {
       async scan(root: string, known: Parameters<typeof host.scan>[1], onProgress?: Parameters<typeof host.scan>[2]) {
         const out = await host.scan(root, known, onProgress);
         for (const f of out.files) {
-          if (f.path === "loose.mp3") Object.assign(f, { fresh: true, durationMs: 0, tags: {}, hasCover: false, chapters: [], chaptersKnown: false });
+          if (f.path === "loose.mp3") Object.assign(f, { fresh: true, durationMs: 0, tags: {}, hasCover: false, cover: "", chapters: [], chaptersKnown: false });
         }
         return out;
       },

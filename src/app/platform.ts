@@ -30,8 +30,11 @@ export async function detectPlatform(): Promise<Platform> {
     const [{ tauriHost, allowLibrary, fileUrl }, dialog] = await Promise.all([import("../host/tauri"), import("@tauri-apps/plugin-dialog")]);
     return {
       host: tauriHost(),
-      async pickFolder() {
-        const picked = await dialog.open({ directory: true, multiple: false, title: "Choose your audiobook folder" });
+      async pickFolder(near) {
+        // Open one level up so the current library is a folder you can
+        // see and click, not a folder you are already inside.
+        const parent = near ? near.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]+$/, "") : undefined;
+        const picked = await dialog.open({ directory: true, multiple: false, title: "Choose your audiobook folder", ...(parent ? { defaultPath: parent } : {}) });
         log.info("picked", picked);
         return typeof picked === "string" ? picked : null;
       },

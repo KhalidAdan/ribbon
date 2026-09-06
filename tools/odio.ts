@@ -6,7 +6,7 @@
  */
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
-import { scanLibrary, loadLibrary } from "../src/core/scan/scan";
+import { scanLibrary, loadLibrary, extractMissingCovers } from "../src/core/scan/scan";
 import { formatDuration } from "../src/core/speed";
 
 async function main(argv: string[]): Promise<number> {
@@ -27,6 +27,8 @@ async function main(argv: string[]): Promise<number> {
     });
     for (const b of r.books) console.log(`${b.book.id}  ${b.book.title}  by ${b.book.author || "?"}  ${b.files.length} files  ${formatDuration(b.book.durationMs)}`);
     for (const e of r.errors) console.error(`  ! ${e.path}: ${e.message}`);
+    const covers = await extractMissingCovers(host, root, r.books);
+    if (covers.length > 0) console.log(`${covers.length} covers extracted with ffmpeg`);
     console.log(`${r.books.length} books, ${r.probed} probed, ${r.reused} reused, ${r.rescued} rescued, ${r.errors.length} errors, ${Date.now() - started} ms`);
     return r.errors.length > 0 ? 1 : 0;
   }

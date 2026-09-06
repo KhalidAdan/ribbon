@@ -52,7 +52,11 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const previous = incremental ? await readPreviousFiles(host, root) : new Map<string, AudioFile>();
   const known = [...previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
   const out = await host.scan(root, known, opts.onProgress);
+  const stage = (text: string) => opts.onProgress?.({ walked: out.walked, done: out.walked, stage: text });
+  const unreadable = out.files.filter((f) => f.kind === "audio" && f.fresh && f.durationMs <= 0).length;
+  if (unreadable > 0) stage(`Checking ${unreadable.toLocaleString()} ${unreadable === 1 ? "file" : "files"} the tag reader could not read…`);
   const rescued = await rescueUnreadable(host, root, out.files, opts.signal);
+  stage("Organizing books…");
 
   const groups = groupBooks(
     out.files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })),
@@ -67,10 +71,42 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   }
 
   if (opts.write ?? true) {
+    stage("Saving the library…");
     await writeRecords(host, root, scanned);
-    await extractCovers(host, root, scanned, errors);
   }
   return { books: scanned, errors, probed: out.probed, reused: out.reused, rescued, elapsedMs: Date.now() - started };
+}
+
+/**
+ * Covers that still need ffmpeg: books with a picture in a file but no
+ * cover image yet. Runs after the library is on screen, one book at a
+ * time, and reports each book as its cover lands. Returns the books that
+ * changed.
+ */
+export async function extractMissingCovers(
+  host: Host,
+  root: string,
+  books: readonly ScannedBook[],
+  onCover?: (book: ScannedBook) => void,
+  signal?: AbortSignal,
+): Promise<ScannedBook[]> {
+  const prefix = `${ODIO_DIR}/covers/`;
+  const changed: ScannedBook[] = [];
+  for (const b of books) {
+    if (signal?.aborted) break;
+    if (!b.book.cover.startsWith(prefix)) continue;
+    const abs = host.join(root, ...b.book.cover.split("/"));
+    if (await host.exists(abs)) continue;
+    const src = b.files.find((f) => f.hasCover);
+    if (!src) continue;
+    await host.mkdir(host.join(root, ODIO_DIR, "covers"));
+    const r = await host.run("ffmpeg", coverArgs(host.join(root, ...src.path.split("/")), abs), signal);
+    if (r.code === 0) {
+      changed.push(b);
+      onCover?.(b);
+    }
+  }
+  return changed;
 }
 
 /**
@@ -146,6 +182,7 @@ async function buildBook(
       disc: keys.disc,
       track: keys.track,
       hasCover: s.hasCover,
+      coverFile: s.cover,
       chapters: s.chapters,
       chaptersProbed: s.chaptersKnown,
     });
@@ -168,7 +205,7 @@ async function buildBook(
   const sizeBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
   const id = bookId(group.path, sizeBytes);
-  const cover = group.covers[0]?.relPath ?? (files.find((f) => f.hasCover) ? `${ODIO_DIR}/covers/${id}.jpg` : "");
+  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (files.find((f) => f.hasCover) ? `${ODIO_DIR}/covers/${id}.jpg` : "");
 
   let chapters = buildChapters(files);
   const corrections = await readCorrections(host, root, id);
@@ -239,10 +276,9 @@ export async function ensureChapters(host: Host, root: string, book: ScannedBook
   if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
   let cover = book.book.cover;
   if (!cover && files.some((f) => f.hasCover)) {
-    const errors: ScanResult["errors"] = [];
     const candidate = `${ODIO_DIR}/covers/${book.book.id}.jpg`;
-    await extractCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters }], errors);
-    if (errors.length === 0 && (await host.exists(host.join(root, ODIO_DIR, "covers", `${book.book.id}.jpg`)))) cover = candidate;
+    const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters }], undefined, signal);
+    if (done.length > 0) cover = candidate;
   }
   const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters };
   await updateFileRows(host, root, updated);
@@ -329,31 +365,6 @@ async function updateFileRows(host: Host, root: string, book: ScannedBook): Prom
       await host.writeFile(libPath, await booksToBytes(books));
     }
   }
-}
-
-/** Pull embedded cover art out to `.odio/covers/<id>.jpg` once per book. */
-async function extractCovers(host: Host, root: string, books: readonly ScannedBook[], errors: ScanResult["errors"]): Promise<void> {
-  const prefix = `${ODIO_DIR}/covers/`;
-  const dir = host.join(root, ODIO_DIR, "covers");
-  let made = false;
-  for (const b of books) {
-    if (!b.book.cover.startsWith(prefix)) continue;
-    const out = host.join(root, ODIO_DIR, "covers", `${b.book.id}.jpg`);
-    if (await host.exists(out)) continue;
-    const src = b.files.find((f) => f.hasCover);
-    if (!src) continue;
-    if (!made) {
-      await host.mkdir(dir);
-      made = true;
-    }
-    const r = await host.run("ffmpeg", coverArgs(host.join(root, ...src.path.split("/")), out));
-    if (r.code !== 0) errors.push({ path: src.path, message: `cover: ${lastLine(r.stderr)}` });
-  }
-}
-
-function lastLine(text: string): string {
-  const lines = text.trim().split(/\r?\n/);
-  return lines[lines.length - 1] || "ffmpeg failed";
 }
 
 /**

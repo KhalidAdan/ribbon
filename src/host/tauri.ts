@@ -61,9 +61,9 @@ export function tauriHost(): Host {
       const unlisten = onProgress ? await listen<ScanProgress>(PROGRESS_EVENT, (e) => onProgress(e.payload)) : null;
       log.info("listening for progress");
       try {
-        const r = await invoke<Omit<ScanOutput, "files"> & { files: (Omit<ScanOutput["files"][number], "chapters"> & { chapters?: undefined })[] }>("scan_library", { root, known });
+        const r = await invoke<Omit<ScanOutput, "files"> & { files: (Omit<ScanOutput["files"][number], "chapters" | "cover"> & { cover: string | null })[] }>("scan_library", { root, known });
         log.info("scan returned", r.walked, "files in", r.elapsedMs, "ms");
-        return { ...r, files: r.files.map((f) => ({ ...f, chapters: [] })) };
+        return { ...r, files: r.files.map((f) => ({ ...f, cover: f.cover ?? "", chapters: [] })) };
       } catch (e) {
         log.error("scan failed", e);
         throw e;

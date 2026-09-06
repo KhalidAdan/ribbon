@@ -1,5 +1,5 @@
 import type { Host, ScanProgress } from "../host/host";
-import type { ScannedBook } from "../core/scan/scan";
+import { extractMissingCovers, type ScannedBook } from "../core/scan/scan";
 import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
@@ -15,8 +15,8 @@ import { log } from "./log";
 
 export interface Platform {
   host: Host;
-  /** Ask the user for a library folder. Null when cancelled. */
-  pickFolder(): Promise<string | null>;
+  /** Ask the user for a library folder, opening near `near`. Null when cancelled. */
+  pickFolder(near?: string | null): Promise<string | null>;
   /** Grant access to a folder before any read. */
   allowFolder(path: string): Promise<void>;
   /** Streamable URL for an absolute path. */
@@ -43,6 +43,8 @@ export interface ScanStatus {
   done: number;
   /** Files discovered so far while the walk is still running. */
   found?: number;
+  /** What is happening after the tag read. */
+  stage?: string;
   /** True while a rescan runs behind an already visible library. */
   background: boolean;
 }
@@ -67,6 +69,16 @@ export interface AppState {
   error: string | null;
   /** Narrow layouts show one pane at a time. */
   pane: "library" | "player";
+}
+
+/**
+ * The folder picker opens inside the last library, where `.odio` is the
+ * first thing to click. Choosing it means the library it belongs to.
+ */
+export function libraryRootOf(picked: string): string {
+  const trimmed = picked.replace(/[\\/]+$/, "");
+  const m = trimmed.match(/^(.*)[\\/]\.odio$/i);
+  return m && m[1] ? m[1] : trimmed;
 }
 
 /** Tauri rejects with plain strings; everything else with Errors. */
@@ -158,7 +170,7 @@ export class AppController {
   }
 
   async pickLibrary(): Promise<void> {
-    const root = await this.platform.pickFolder();
+    const root = await this.platform.pickFolder(this.state.root ?? this.platform.loadRoot());
     if (!root) return;
     try {
       await this.openLibrary(root);
@@ -172,7 +184,9 @@ export class AppController {
    * immediately and a rescan runs behind them. If not, the scan runs in
    * the foreground with live counts.
    */
-  async openLibrary(root: string): Promise<void> {
+  async openLibrary(pickedRoot: string): Promise<void> {
+    const root = libraryRootOf(pickedRoot);
+    if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     log.info("open library", root);
     this.set({ phase: "loading", root, error: null, scanning: null });
     await this.platform.allowFolder(root);
@@ -219,6 +233,7 @@ export class AppController {
         lastScanMs: Date.now() - started,
         current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
       });
+      void this.fetchCovers(books);
     } catch (e) {
       log.error("scan failed:", describe(e));
       this.set({ scanning: null, error: describe(e) });
@@ -226,6 +241,18 @@ export class AppController {
     } finally {
       this.scanInFlight = false;
     }
+  }
+
+  private coverJob: AbortController | null = null;
+
+  /** Covers ffmpeg still has to cut, after the library is visible. */
+  private async fetchCovers(books: ScannedBook[]): Promise<void> {
+    if (!this.lib) return;
+    this.coverJob?.abort();
+    const abort = new AbortController();
+    this.coverJob = abort;
+    const done = await extractMissingCovers(this.lib.host, this.lib.root, books, () => this.set({ books: [...this.state.books] }), abort.signal);
+    if (done.length > 0) log.info("covers extracted:", done.length);
   }
 
   forgetLibrary(): void {
@@ -586,5 +613,6 @@ export class AppController {
     this.engine?.destroy();
     this.jobs?.cancelAll();
     this.chapterProbe?.abort();
+    this.coverJob?.abort();
   }
 }

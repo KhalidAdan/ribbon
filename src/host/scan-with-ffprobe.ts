@@ -40,6 +40,7 @@ export async function scanWithFfprobe(host: Host, root: string, known: KnownFile
             durationMs: 0,
             tags: {},
             hasCover: false,
+            cover: "",
             chaptersKnown: false,
             chapters: [],
           };

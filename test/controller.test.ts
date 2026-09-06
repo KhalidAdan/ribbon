@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
-import { AppController, type Platform } from "../src/app/controller";
+import { AppController, libraryRootOf, type Platform } from "../src/app/controller";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 
 /** The controller against real fixtures, with no window and no audio. */
@@ -65,11 +65,29 @@ describe("AppController.openLibrary", () => {
     expect(phases).toEqual(["loading", "ready"]);
   });
 
+  it("treats a picked .odio folder as the library it belongs to", async () => {
+    const c = new AppController(platform(path.join(FIXTURE_ROOT, ".odio")));
+    await c.pickLibrary();
+    expect(c.getState().phase).toBe("ready");
+    expect(c.getState().root).toBe(FIXTURE_ROOT);
+    expect(c.getState().books.length).toBe(11);
+  });
+
   it("reports a bad folder as an error on the pick screen, not a hang", async () => {
     const c = new AppController(platform(path.join(FIXTURE_ROOT, "does-not-exist")));
     await c.pickLibrary();
     expect(c.getState().phase).toBe("pick");
     expect(c.getState().error).toMatch(/Could not open/);
     expect(c.getState().scanning).toBeNull();
+  });
+});
+
+describe("libraryRootOf", () => {
+  it("strips a trailing .odio in either slash style", () => {
+    expect(libraryRootOf("\\\\nas\\media\\Books\\.odio")).toBe("\\\\nas\\media\\Books");
+    expect(libraryRootOf("E:\\books\\.odio\\")).toBe("E:\\books");
+    expect(libraryRootOf("/home/k/books/.odio")).toBe("/home/k/books");
+    expect(libraryRootOf("E:\\books")).toBe("E:\\books");
+    expect(libraryRootOf("E:\\books\\.odious")).toBe("E:\\books\\.odious");
   });
 });

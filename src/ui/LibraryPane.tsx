@@ -34,9 +34,11 @@ export function LibraryPane() {
           <p className="truncate text-sm/6 text-neutral-500 dark:text-neutral-400" title={state.root ?? ""}>
             {folderName}
             {state.scanning
-              ? state.scanning.walked > 0
-                ? ` · checking ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files`
-                : " · checking for changes"
+              ? state.scanning.stage
+                ? ` · ${state.scanning.stage.replace(/…$/, "").toLowerCase()}`
+                : state.scanning.walked > 0
+                  ? ` · checking ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files`
+                  : " · checking for changes"
               : ` · ${state.books.length.toLocaleString()} ${state.books.length === 1 ? "book" : "books"}`}
           </p>
         </div>
