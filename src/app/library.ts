@@ -135,18 +135,47 @@ export class LibraryService {
     return out;
   }
 
-  /** The positions as the mirror last saw them, for the first paint. Empty without a mirror. */
-  async readMirroredPositions(): Promise<Map<string, Position>> {
-    const out = new Map<string, Position>();
+  /** What the local mirror holds beyond the records: positions for the first paint, and covers. */
+  async readMirrorExtras(): Promise<{ positions: Map<string, Position>; coversDir: string | null; covers: Set<string> }> {
+    const positions = new Map<string, Position>();
     const mirror = await this.host.recordsMirror?.read(this.root).catch(() => null);
-    if (!mirror?.positions) return out;
-    try {
-      const { positions } = await parsePositions(new TextEncoder().encode(mirror.positions));
-      for (const p of positions) out.set(p.bookId, p);
-    } catch {
-      /* ignore */
+    if (!mirror) return { positions, coversDir: null, covers: new Set() };
+    if (mirror.positions) {
+      try {
+        for (const p of (await parsePositions(new TextEncoder().encode(mirror.positions))).positions) positions.set(p.bookId, p);
+      } catch {
+        /* ignore */
+      }
     }
-    return out;
+    return { positions, coversDir: this.host.join(mirror.dir, "covers"), covers: new Set(mirror.covers) };
+  }
+
+  /** The mirror's cover file name for a book: its id plus the cover's extension. */
+  static mirrorCoverName(book: ScannedBook): string | null {
+    const cover = book.book.cover;
+    if (!cover) return null;
+    const dot = cover.lastIndexOf(".");
+    const ext = dot > cover.lastIndexOf("/") ? cover.slice(dot + 1).toLowerCase() : "jpg";
+    return `${book.book.id}.${ext}`;
+  }
+
+  /**
+   * Copy every book's cover into the local mirror, so the shelf never
+   * loads a picture across the network. Returns the names now present.
+   */
+  async mirrorCovers(books: readonly ScannedBook[]): Promise<Set<string>> {
+    const mirror = this.host.recordsMirror;
+    if (!mirror) return new Set();
+    const wanted: { name: string; src: string }[] = [];
+    for (const b of books) {
+      const name = LibraryService.mirrorCoverName(b);
+      if (name && !b.pending) wanted.push({ name, src: this.absPath(b.book.cover) });
+    }
+    try {
+      return new Set(await mirror.covers(this.root, wanted));
+    } catch {
+      return new Set();
+    }
   }
 
   async writePosition(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {

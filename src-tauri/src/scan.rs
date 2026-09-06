@@ -661,17 +661,34 @@ fn fnv(s: &str) -> String {
     format!("{h:016x}")
 }
 
+/// Where every library's mirror lives. Allowed for the asset protocol
+/// at startup, so covers served from here never touch the share.
+pub fn mirror_base(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("mirror"))
+}
+
 fn mirror_dir(app: &AppHandle, root: &str) -> Result<PathBuf, String> {
-    let base = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
-    Ok(base.join("mirror").join(fnv(&root.replace('\\', "/").trim_end_matches('/').to_lowercase())))
+    Ok(mirror_base(app)?.join(fnv(&root.replace('\\', "/").trim_end_matches('/').to_lowercase())))
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Mirror {
+    /// This library's mirror folder, absolute, so the web side can point
+    /// the asset protocol at `covers/<name>` inside it.
+    pub dir: String,
     pub library: String,
     pub files: String,
     /// The merged positions as last read from the share, or None.
     pub positions: Option<String>,
+    /// File names present under `covers/`.
+    pub covers: Vec<String>,
+}
+
+fn list_covers(dir: &Path) -> Vec<String> {
+    std::fs::read_dir(dir.join("covers"))
+        .map(|rd| rd.flatten().filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false)).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default()
 }
 
 /// The local copy of a library's records, kept beside the app so a warm
@@ -686,7 +703,7 @@ pub async fn mirror_read(app: AppHandle, root: String) -> Result<Option<Mirror>,
         let files = std::fs::read_to_string(dir.join("files.csv")).ok();
         let positions = std::fs::read_to_string(dir.join("positions.csv")).ok();
         Ok(match (library, files) {
-            (Some(library), Some(files)) => Some(Mirror { library, files, positions }),
+            (Some(library), Some(files)) => Some(Mirror { dir: dir.display().to_string(), library, files, positions, covers: list_covers(&dir) }),
             _ => None,
         })
     })
@@ -695,6 +712,43 @@ pub async fn mirror_read(app: AppHandle, root: String) -> Result<Option<Mirror>,
 }
 
 /// Write whichever of the mirror's files are given.
+#[derive(Deserialize)]
+pub struct CoverToMirror {
+    /// File name to keep it under, `<book id>.<ext>`.
+    pub name: String,
+    /// Absolute path of the cover beside the books or in `.ribbon/covers`.
+    pub src: String,
+}
+
+/// Copy covers into the mirror, a few at a time, skipping any already
+/// there. Returns every cover name now present. Serving covers from the
+/// share through the asset protocol blocks the app's main thread for
+/// each read, which on a slow volume stalls everything else the webview
+/// is waiting for; a local copy costs nothing to serve.
+#[tauri::command]
+pub async fn mirror_covers(app: AppHandle, root: String, covers: Vec<CoverToMirror>) -> Result<Vec<String>, String> {
+    let dir = mirror_dir(&app, &root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let target_dir = dir.join("covers");
+        std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+        let existing = list_covers(&dir);
+        let todo: Vec<CoverToMirror> = covers.into_iter().filter(|c| !existing.contains(&c.name) && !c.name.contains(['/', '\\'])).collect();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build().map_err(|e| e.to_string())?;
+        pool.install(|| {
+            todo.par_iter().for_each(|c| {
+                let target = target_dir.join(&c.name);
+                let tmp = target_dir.join(format!("{}.tmp", c.name));
+                if std::fs::copy(&c.src, &tmp).is_ok() && std::fs::rename(&tmp, &target).is_err() {
+                    let _ = std::fs::remove_file(&tmp);
+                }
+            })
+        });
+        Ok(list_covers(&dir))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn mirror_write(app: AppHandle, root: String, library: Option<String>, files: Option<String>, positions: Option<String>) -> Result<(), String> {
     let dir = mirror_dir(&app, &root)?;

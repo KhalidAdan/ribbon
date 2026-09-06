@@ -8,9 +8,10 @@ interface Props {
 
 /** Cover art with a quiet fallback: the first letters of the title. */
 export function Cover({ url, title, className }: Props) {
-  const initials = title
-    .split(/\s+/)
-    .filter(Boolean)
+  // Words that start with a letter, so "07. Legion" reads L, not 0L.
+  const words = title.split(/\s+/).filter(Boolean);
+  const lettered = words.filter((w) => /^\p{L}/u.test(w));
+  const initials = (lettered.length > 0 ? lettered : words)
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");

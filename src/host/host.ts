@@ -130,7 +130,9 @@ export interface Host {
    * only what to paint first. Optional.
    */
   recordsMirror?: {
-    read(root: string): Promise<{ library: string; files: string; positions: string | null } | null>;
+    read(root: string): Promise<{ dir: string; library: string; files: string; positions: string | null; covers: string[] } | null>;
     write(root: string, parts: { library?: string; files?: string; positions?: string }): Promise<void>;
+    /** Copy covers in (skipping ones already there); resolves to every cover name present. */
+    covers(root: string, covers: { name: string; src: string }[]): Promise<string[]>;
   };
 }

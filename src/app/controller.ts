@@ -74,6 +74,8 @@ export interface AppState {
    * network volume is several round trips, so the shelf paints first.
    */
   assetsReady: boolean;
+  /** Bumped when the set of locally mirrored covers changes. */
+  coverVersion: number;
   error: string | null;
   /** Narrow layouts show one pane at a time. */
   pane: "library" | "player";
@@ -126,6 +128,9 @@ export class AppController {
   private saving: Promise<void> = Promise.resolve();
   /** process uptime minus performance.now(), learned once at boot. */
   private clockOffset: number | null = null;
+  /** Covers copied into the local mirror, and where they are. */
+  private mirrorCovers = new Set<string>();
+  private mirrorCoversDir: string | null = null;
 
   constructor(private readonly platform: Platform) {
     this.state = {
@@ -154,6 +159,7 @@ export class AppController {
       scanErrors: [],
       lastScanMs: null,
       assetsReady: false,
+      coverVersion: 0,
       error: null,
       pane: "library",
     };
@@ -214,6 +220,8 @@ export class AppController {
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     log.info("open library", root);
     this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false });
+    this.mirrorCovers = new Set();
+    this.mirrorCoversDir = null;
     const marks: string[] = [];
     let last = performance.now();
     const mark = (what: string) => {
@@ -248,10 +256,12 @@ export class AppController {
     }
     log.info("cached records:", cached ? `${cached.length} books` : "none");
     if (cached && cached.length > 0) {
-      const mirrored = await lib.readMirroredPositions();
+      const extras = await lib.readMirrorExtras();
+      this.mirrorCovers = extras.covers;
+      this.mirrorCoversDir = extras.coversDir;
       mark("positions");
       this.platform.saveRoot(root);
-      this.set({ phase: "ready", books: cached, positions: positionsRecord(cached, mirrored), scanning: null });
+      this.set({ phase: "ready", books: cached, positions: positionsRecord(cached, extras.positions), scanning: null, coverVersion: this.state.coverVersion + 1 });
       mark("render");
       this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
       // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
@@ -340,7 +350,7 @@ export class AppController {
         () => log.info("records saved in", Date.now() - saveStarted, "ms"),
         (e: unknown) => log.warn("could not save records:", describe(e)),
       );
-      void this.fetchCovers(books);
+      void this.fetchCovers(books).then(() => this.mirrorCoversFor(books));
     } catch (e) {
       log.error("scan failed:", describe(e));
       this.set({ scanning: null, error: describe(e) });
@@ -383,9 +393,28 @@ export class AppController {
     return positionsRecord(books, all);
   }
 
-  /** The cover's URL, or null until the host can serve the library's files. */
+  /** Copy covers into the local mirror once the shelf is settled, then show them from there. */
+  private async mirrorCoversFor(books: ScannedBook[]): Promise<void> {
+    const lib = this.lib;
+    if (!lib || !lib.host.recordsMirror) return;
+    const present = await lib.mirrorCovers(books);
+    if (this.lib !== lib) return;
+    if (!this.mirrorCoversDir) this.mirrorCoversDir = (await lib.readMirrorExtras()).coversDir;
+    this.mirrorCovers = present;
+    this.set({ coverVersion: this.state.coverVersion + 1 });
+  }
+
+  /**
+   * The cover's URL. From the local mirror when it has a copy; otherwise
+   * from the library, but only once files may be served and no scan is
+   * running, because a read across the network stalls the host's main
+   * thread and a scan keeps the volume busy. Null means show initials.
+   */
   coverUrl(book: ScannedBook): string | null {
-    if (!this.lib || !book.book.cover || !this.state.assetsReady) return null;
+    if (!this.lib || !book.book.cover) return null;
+    const name = LibraryService.mirrorCoverName(book);
+    if (name && this.mirrorCoversDir && this.mirrorCovers.has(name)) return this.platform.fileUrl(this.lib.host.join(this.mirrorCoversDir, name));
+    if (!this.state.assetsReady || this.state.scanning) return null;
     return this.platform.fileUrl(this.lib.absPath(book.book.cover));
   }
 

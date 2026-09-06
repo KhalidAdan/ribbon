@@ -48,7 +48,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
-        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::extract_cover, scan::read_text_dir, scan::write_text_files, scan::mirror_read, scan::mirror_write, uptime_ms, env_library])
+        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::extract_cover, scan::read_text_dir, scan::write_text_files, scan::mirror_read, scan::mirror_write, scan::mirror_covers, uptime_ms, env_library])
         .plugin(
             // Always on, in every build: the terminal, the webview console,
             // and a file under the app's log directory.
@@ -68,6 +68,13 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_log_dir().map(|p| p.display().to_string()).unwrap_or_default();
             log::info!("ribbon starting; log directory {dir}");
+            // Covers are served from the local mirror; a local path canonicalises in microseconds.
+            if let Ok(base) = scan::mirror_base(app.handle()) {
+                let _ = std::fs::create_dir_all(&base);
+                if let Err(e) = app.asset_protocol_scope().allow_directory(&base, true) {
+                    log::warn!("could not allow the mirror folder for assets: {e}");
+                }
+            }
             let _ = app.get_webview_window("main");
             Ok(())
         })
