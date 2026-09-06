@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dbToLinear, gainDb, parseEbur128 } from "../src/core/loudness";
+import { combineLoudness, dbToLinear, gainDb, parseEbur128 } from "../src/core/loudness";
 
 const SUMMARY = `
 [Parsed_ebur128_0 @ 000001] Summary:
@@ -72,5 +72,26 @@ describe("dbToLinear", () => {
     expect(dbToLinear(0)).toBe(1);
     expect(dbToLinear(6.02)).toBeCloseTo(2, 2);
     expect(dbToLinear(-6.02)).toBeCloseTo(0.5, 2);
+  });
+});
+
+describe("combineLoudness", () => {
+  it("returns the value for one file", () => {
+    expect(combineLoudness([{ integratedLufs: -20, truePeakDbtp: -2, durationMs: 1000 }])).toEqual({ integratedLufs: -20, truePeakDbtp: -2 });
+  });
+
+  it("weights by duration in the power domain", () => {
+    const r = combineLoudness([
+      { integratedLufs: -20, truePeakDbtp: -3, durationMs: 1000 },
+      { integratedLufs: -30, truePeakDbtp: -1, durationMs: 1000 },
+    ]);
+    // Power mean of -20 and -30 is about -22.6, not the arithmetic -25.
+    expect(r?.integratedLufs).toBeCloseTo(-22.59, 1);
+    expect(r?.truePeakDbtp).toBe(-1);
+  });
+
+  it("ignores zero-length parts and returns null for nothing", () => {
+    expect(combineLoudness([{ integratedLufs: -20, truePeakDbtp: null, durationMs: 0 }])).toBeNull();
+    expect(combineLoudness([])).toBeNull();
   });
 });

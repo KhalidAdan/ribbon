@@ -10,6 +10,7 @@ import { orderKeys, resolveMetadata } from "./metadata";
 import { buildChapters, applyCorrections, rowsToCorrections } from "./chapters";
 import { booksToBytes, bytesToBooks, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, isStale } from "./records";
 import { bytesToRows, type Row } from "../csv";
+import { coverArgs } from "./cover";
 
 export interface ScannedBook {
   book: Book;
@@ -81,7 +82,10 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   scanned.sort((a, b) => (order.get(a.book.path) ?? 0) - (order.get(b.book.path) ?? 0));
   scanned.forEach((b, i) => opts.onBook?.(b, i, total));
 
-  if (opts.write ?? true) await writeRecords(host, root, scanned);
+  if (opts.write ?? true) {
+    await writeRecords(host, root, scanned);
+    await extractCovers(host, root, scanned, errors);
+  }
   return { books: scanned, errors, probed, reused };
 }
 
@@ -227,6 +231,31 @@ async function writeRecords(host: Host, root: string, books: readonly ScannedBoo
   for (const b of books) {
     await host.writeFile(host.join(dir, "chapters", `${b.book.id}.csv`), await chaptersToBytes(b.chapters));
   }
+}
+
+/** Pull embedded cover art out to `.odio/covers/<id>.jpg` once per book. */
+async function extractCovers(host: Host, root: string, books: readonly ScannedBook[], errors: ScanResult["errors"]): Promise<void> {
+  const prefix = `${ODIO_DIR}/covers/`;
+  const dir = host.join(root, ODIO_DIR, "covers");
+  let made = false;
+  for (const b of books) {
+    if (!b.book.cover.startsWith(prefix)) continue;
+    const out = host.join(root, ODIO_DIR, "covers", `${b.book.id}.jpg`);
+    if (await host.exists(out)) continue;
+    const src = b.files.find((f) => f.hasCover);
+    if (!src) continue;
+    if (!made) {
+      await host.mkdir(dir);
+      made = true;
+    }
+    const r = await host.run("ffmpeg", coverArgs(host.join(root, ...src.path.split("/")), out));
+    if (r.code !== 0) errors.push({ path: src.path, message: `cover: ${lastLine(r.stderr)}` });
+  }
+}
+
+function lastLine(text: string): string {
+  const lines = text.trim().split(/\r?\n/);
+  return lines[lines.length - 1] || "ffmpeg failed";
 }
 
 /** Load the last scan without touching ffprobe. */

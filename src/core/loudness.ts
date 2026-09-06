@@ -55,3 +55,28 @@ export function dbToLinear(db: number): number {
 export function loudnessArgs(inputPath: string): string[] {
   return ["-hide_banner", "-nostats", "-i", inputPath, "-filter_complex", "ebur128=peak=true", "-f", "null", "-"];
 }
+
+export interface FileLoudness extends LoudnessMeasurement {
+  durationMs: number;
+}
+
+/**
+ * One measurement for a multi-file book: a duration-weighted power mean
+ * of the per-file integrated loudness, and the loudest true peak.
+ */
+export function combineLoudness(parts: readonly FileLoudness[]): LoudnessMeasurement | null {
+  let energy = 0;
+  let weight = 0;
+  let peak: number | null = null;
+  for (const p of parts) {
+    const w = Math.max(0, p.durationMs);
+    if (w === 0) continue;
+    energy += w * Math.pow(10, p.integratedLufs / 10);
+    weight += w;
+    if (p.truePeakDbtp !== null && (peak === null || p.truePeakDbtp > peak)) peak = p.truePeakDbtp;
+  }
+  if (weight === 0) return null;
+  return { integratedLufs: Number((10 * Math.log10(energy / weight)).toFixed(2)), truePeakDbtp: peak };
+}
+
+export const LOUDNESS_HEADERS = ["book_id", "integrated_lufs", "true_peak_dbtp", "gain_db"];

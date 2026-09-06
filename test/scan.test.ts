@@ -48,6 +48,13 @@ describe("scanLibrary over generated fixtures", () => {
     expect(b.book.cover).toBe(`.odio/covers/${b.book.id}.jpg`);
   });
 
+  it("extracts the embedded cover to .odio/covers as a JPEG", async () => {
+    const b = byPath("single-m4b");
+    const bytes = await fs.readFile(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`));
+    expect(bytes.length).toBeGreaterThan(500);
+    expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
+  });
+
   it("orders multi-mp3 by track tag, not filename, and strips Unabridged", () => {
     const b = byPath("multi-mp3");
     expect(b.book.title).toBe("The Multi Book");

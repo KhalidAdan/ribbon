@@ -8,7 +8,7 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const FIXTURE_VERSION = "8";
+export const FIXTURE_VERSION = "9";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const FIXTURE_ROOT = path.resolve(here, "..", "test", "fixtures", "generated");
 
@@ -153,8 +153,8 @@ export async function makeFixtures(root = FIXTURE_ROOT): Promise<string> {
   // 5. Quiet and loud versions of the same tone.
   await mk("quiet");
   await mk("loud");
-  await mp3(at("quiet", "quiet.mp3"), 4, { album: "Quiet Book" }, -27);
-  await mp3(at("loud", "loud.mp3"), 4, { album: "Loud Book" }, -7);
+  await mp3(at("quiet", "quiet.mp3"), 4, { album: "Quiet Book" }, -6);
+  await mp3(at("loud", "loud.mp3"), 4, { album: "Loud Book" }, 12);
 
   // 6. A file with three silences of 2, 3, and 5 seconds.
   await mk("gaps");
