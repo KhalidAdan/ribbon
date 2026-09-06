@@ -1,7 +1,7 @@
 /**
  * Vite plugin: expose one library folder to the browser during
  * development so the UI can be driven end to end without Tauri.
- * Enabled only when ODIO_DEV_LIBRARY points at a folder.
+ * Enabled only when RIBBON_DEV_LIBRARY points at a folder.
  */
 import type { Plugin } from "vite";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -29,7 +29,7 @@ const MIME: Record<string, string> = {
 };
 
 export function devLibrary(root: string | undefined): Plugin {
-  const base = "/__odio";
+  const base = "/__ribbon";
   const absRoot = root ? path.resolve(root) : null;
   const host = nodeHost();
 
@@ -52,7 +52,7 @@ export function devLibrary(root: string | undefined): Plugin {
   }
 
   return {
-    name: "odio-dev-library",
+    name: "ribbon-dev-library",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://localhost");
@@ -60,7 +60,7 @@ export function devLibrary(root: string | undefined): Plugin {
         const op = url.pathname.slice(base.length + 1);
         try {
           if (op === "root") return json(res, 200, { root: absRoot });
-          if (!absRoot) return json(res, 404, { error: "ODIO_DEV_LIBRARY not set" });
+          if (!absRoot) return json(res, 404, { error: "RIBBON_DEV_LIBRARY not set" });
 
           if (op === "file") {
             const p = inside(url.searchParams.get("path") ?? "");
@@ -122,6 +122,9 @@ export function devLibrary(root: string | undefined): Plugin {
               return json(res, 200, true);
             case "remove":
               await fs.rm(inside(String(args.path)), { recursive: true, force: true });
+              return json(res, 200, true);
+            case "rename":
+              await fs.rename(inside(String(args.from)), inside(String(args.to)));
               return json(res, 200, true);
             case "scan": {
               const out = await host.scan(inside(String(args.root)), (args.known as { path: string; sizeBytes: number; mtimeMs: number }[]) ?? []);

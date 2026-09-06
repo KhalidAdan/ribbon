@@ -3,13 +3,13 @@ import { joinPath } from "../src/host/paths";
 
 describe("joinPath", () => {
   it("joins drive paths with backslashes", () => {
-    expect(joinPath(["E:\\CODE\\odio\\books", "Horus Rising", "Chapter 1.m4a"])).toBe("E:\\CODE\\odio\\books\\Horus Rising\\Chapter 1.m4a");
-    expect(joinPath(["E:\\books\\", "\\.odio\\", "library.csv"])).toBe("E:\\books\\.odio\\library.csv");
+    expect(joinPath(["E:\\CODE\\ribbon\\books", "Horus Rising", "Chapter 1.m4a"])).toBe("E:\\CODE\\ribbon\\books\\Horus Rising\\Chapter 1.m4a");
+    expect(joinPath(["E:\\books\\", "\\.ribbon\\", "library.csv"])).toBe("E:\\books\\.ribbon\\library.csv");
   });
 
   it("keeps the leading double backslash of a network share", () => {
     const root = "\\\\100.90.125.11\\media\\AUDIO BOOKS\\Warhammer 40K - The Horus Heresy";
-    expect(joinPath([root, ".odio", "library.csv"])).toBe(root + "\\.odio\\library.csv");
+    expect(joinPath([root, ".ribbon", "library.csv"])).toBe(root + "\\.ribbon\\library.csv");
     expect(joinPath([root])).toBe(root);
     expect(joinPath([root + "\\", "Book", "01.mp3"])).toBe(root + "\\Book\\01.mp3");
   });

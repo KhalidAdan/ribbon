@@ -14,7 +14,9 @@ export interface FileEntry {
 
 export const AUDIO_EXTENSIONS = new Set(["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"]);
 export const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
-export const ODIO_DIR = ".odio";
+export const RIBBON_DIR = ".ribbon";
+/** The records folder name before the rename. Migrated on open. */
+export const LEGACY_DIR = ".odio";
 
 export function extension(name: string): string {
   const i = name.lastIndexOf(".");
@@ -31,7 +33,7 @@ export function isImage(name: string): boolean {
 
 /**
  * Depth-first walk of the library as a pull source. Hidden entries and
- * the .odio folder are skipped. Directory order is by name so two runs
+ * the .ribbon folder are skipped. Directory order is by name so two runs
  * over the same tree emit the same sequence.
  */
 export function walk(host: Host, root: string): Source<FileEntry> {
@@ -49,7 +51,7 @@ export function walk(host: Host, root: string): Source<FileEntry> {
       entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       const dirs: string[] = [];
       for (const e of entries) {
-        if (e.name.startsWith(".") || e.name === ODIO_DIR) continue;
+        if (e.name.startsWith(".") || e.name === RIBBON_DIR || e.name === LEGACY_DIR) continue;
         const childRel = rel === "" ? e.name : `${rel}/${e.name}`;
         if (e.isDir) {
           dirs.push(childRel);

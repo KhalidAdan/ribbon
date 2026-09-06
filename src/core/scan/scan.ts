@@ -3,7 +3,7 @@ import type { Host, ScannedFile, ScanProgress } from "../../host/host";
 import type { AudioFile, Book, Chapter } from "../types";
 import { bookId } from "../bookid";
 import { natcompare } from "../natsort";
-import { ODIO_DIR } from "./walk";
+import { RIBBON_DIR } from "./walk";
 import { groupBooks, type BookGroup } from "./group";
 import { probe } from "./probe";
 import { orderKeys, parseNumbered, resolveMetadata } from "./metadata";
@@ -22,9 +22,9 @@ export interface ScanOptions {
   signal?: AbortSignal;
   /** Live progress from the host scanner. */
   onProgress?: (p: ScanProgress) => void;
-  /** Skip files whose size and mtime match `.odio/files.csv`. Default true. */
+  /** Skip files whose size and mtime match `.ribbon/files.csv`. Default true. */
   incremental?: boolean;
-  /** Write `.odio/*` records. Default true. */
+  /** Write `.ribbon/*` records. Default true. */
   write?: boolean;
 }
 
@@ -90,7 +90,7 @@ export async function extractMissingCovers(
   onCover?: (book: ScannedBook) => void,
   signal?: AbortSignal,
 ): Promise<ScannedBook[]> {
-  const prefix = `${ODIO_DIR}/covers/`;
+  const prefix = `${RIBBON_DIR}/covers/`;
   const changed: ScannedBook[] = [];
   for (const b of books) {
     if (signal?.aborted) break;
@@ -99,7 +99,7 @@ export async function extractMissingCovers(
     if (await host.exists(abs)) continue;
     const src = b.files.find((f) => f.hasCover);
     if (!src) continue;
-    await host.mkdir(host.join(root, ODIO_DIR, "covers"));
+    await host.mkdir(host.join(root, RIBBON_DIR, "covers"));
     const r = await host.run("ffmpeg", coverArgs(host.join(root, ...src.path.split("/")), abs), signal);
     if (r.code === 0) {
       changed.push(b);
@@ -205,7 +205,7 @@ async function buildBook(
   const sizeBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
   const id = bookId(group.path, sizeBytes);
-  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (files.find((f) => f.hasCover) ? `${ODIO_DIR}/covers/${id}.jpg` : "");
+  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (files.find((f) => f.hasCover) ? `${RIBBON_DIR}/covers/${id}.jpg` : "");
 
   let chapters = buildChapters(files);
   const corrections = await readCorrections(host, root, id);
@@ -276,20 +276,20 @@ export async function ensureChapters(host: Host, root: string, book: ScannedBook
   if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
   let cover = book.book.cover;
   if (!cover && files.some((f) => f.hasCover)) {
-    const candidate = `${ODIO_DIR}/covers/${book.book.id}.jpg`;
+    const candidate = `${RIBBON_DIR}/covers/${book.book.id}.jpg`;
     const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters }], undefined, signal);
     if (done.length > 0) cover = candidate;
   }
   const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters };
   await updateFileRows(host, root, updated);
-  await host.mkdir(host.join(root, ODIO_DIR, "chapters"));
-  await host.writeFile(host.join(root, ODIO_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
+  await host.mkdir(host.join(root, RIBBON_DIR, "chapters"));
+  await host.writeFile(host.join(root, RIBBON_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
   return updated;
 }
 
 async function readPreviousFiles(host: Host, root: string): Promise<Map<string, AudioFile>> {
   const out = new Map<string, AudioFile>();
-  const path = host.join(root, ODIO_DIR, "files.csv");
+  const path = host.join(root, RIBBON_DIR, "files.csv");
   if (!(await host.exists(path))) return out;
   try {
     const byBook = await bytesToFiles(await host.readFile(path));
@@ -302,7 +302,7 @@ async function readPreviousFiles(host: Host, root: string): Promise<Map<string, 
 
 async function readPreviousBooks(host: Host, root: string): Promise<Map<string, Book>> {
   const out = new Map<string, Book>();
-  const path = host.join(root, ODIO_DIR, "library.csv");
+  const path = host.join(root, RIBBON_DIR, "library.csv");
   if (!(await host.exists(path))) return out;
   try {
     for (const b of await bytesToBooks(await host.readFile(path))) out.set(b.path, b);
@@ -329,7 +329,7 @@ function cachedMetadata(b: Book | undefined, folderName: string, parentFolderNam
 }
 
 async function readCorrections(host: Host, root: string, id: string) {
-  const path = host.join(root, ODIO_DIR, "corrections", `${id}.csv`);
+  const path = host.join(root, RIBBON_DIR, "corrections", `${id}.csv`);
   if (!(await host.exists(path))) return [];
   try {
     const { rows } = await bytesToRows(await host.readFile(path));
@@ -340,7 +340,7 @@ async function readCorrections(host: Host, root: string, id: string) {
 }
 
 async function writeRecords(host: Host, root: string, books: readonly ScannedBook[]): Promise<void> {
-  const dir = host.join(root, ODIO_DIR);
+  const dir = host.join(root, RIBBON_DIR);
   await host.mkdir(dir);
   await host.writeFile(host.join(dir, "library.csv"), await booksToBytes(books.map((b) => b.book)));
   const fileRows: Row[] = [];
@@ -350,13 +350,13 @@ async function writeRecords(host: Host, root: string, books: readonly ScannedBoo
 
 /** Rewrite files.csv and library.csv with one book's rows replaced. */
 async function updateFileRows(host: Host, root: string, book: ScannedBook): Promise<void> {
-  const path = host.join(root, ODIO_DIR, "files.csv");
+  const path = host.join(root, RIBBON_DIR, "files.csv");
   const byBook = (await host.exists(path)) ? await bytesToFiles(await host.readFile(path)) : new Map<string, AudioFile[]>();
   byBook.set(book.book.id, book.files);
   const rows: Row[] = [];
   for (const [id, files] of byBook) rows.push(...filesToRows(id, files));
   await host.writeFile(path, await filesToBytes(rows));
-  const libPath = host.join(root, ODIO_DIR, "library.csv");
+  const libPath = host.join(root, RIBBON_DIR, "library.csv");
   if (await host.exists(libPath)) {
     const books = await bytesToBooks(await host.readFile(libPath));
     const i = books.findIndex((b) => b.id === book.book.id);
@@ -372,7 +372,7 @@ async function updateFileRows(host: Host, root: string, book: ScannedBook): Prom
  * files.csv, and the chapters folder in one call each. No per-book I/O.
  */
 export async function loadLibrary(host: Host, root: string): Promise<ScannedBook[] | null> {
-  const dir = host.join(root, ODIO_DIR);
+  const dir = host.join(root, RIBBON_DIR);
   const libPath = host.join(dir, "library.csv");
   if (!(await host.exists(libPath))) return null;
   const books = await bytesToBooks(await host.readFile(libPath));

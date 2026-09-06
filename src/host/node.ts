@@ -38,6 +38,9 @@ export function nodeHost(): Host {
     async remove(p: string): Promise<void> {
       await fs.rm(p, { force: true, recursive: true });
     },
+    async rename(from: string, to: string): Promise<void> {
+      await fs.rename(from, to);
+    },
     run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult> {
       return new Promise((resolve) => {
         const opts = { maxBuffer: 64 * 1024 * 1024, windowsHide: true, ...(signal ? { signal } : {}) };

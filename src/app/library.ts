@@ -1,6 +1,6 @@
 import type { Host } from "../host/host";
 import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
-import { ODIO_DIR } from "../core/scan/walk";
+import { RIBBON_DIR, LEGACY_DIR } from "../core/scan/walk";
 import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
 import { mergePositions, nowIso, parsePositions, serializePosition } from "../core/position";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
@@ -12,7 +12,7 @@ import { locate } from "../core/timeline";
 
 /**
  * Everything the UI needs from a library folder, over a Host. Each
- * durable fact is one small CSV in `.odio/`. No caching beyond the
+ * durable fact is one small CSV in `.ribbon/`. No caching beyond the
  * device name: the files are the state.
  */
 export class LibraryService {
@@ -29,7 +29,19 @@ export class LibraryService {
   }
 
   private dir(...parts: string[]): string {
-    return this.host.join(this.root, ODIO_DIR, ...parts);
+    return this.host.join(this.root, RIBBON_DIR, ...parts);
+  }
+
+  /**
+   * Libraries recorded under the old folder name keep their positions,
+   * bookmarks, and corrections: the folder is renamed once, in place.
+   */
+  async migrateLegacyRecords(): Promise<boolean> {
+    const legacy = this.host.join(this.root, LEGACY_DIR);
+    const current = this.host.join(this.root, RIBBON_DIR);
+    if (!(await this.host.exists(legacy)) || (await this.host.exists(current))) return false;
+    await this.host.rename(legacy, current);
+    return true;
   }
 
   /** The last scan if there is one, else a fresh scan. */

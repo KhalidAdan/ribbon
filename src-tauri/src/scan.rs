@@ -28,7 +28,8 @@ use walkdir::WalkDir;
 
 const AUDIO: &[&str] = &["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"];
 const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
-const ODIO_DIR: &str = ".odio";
+const RIBBON_DIR: &str = ".ribbon";
+const LEGACY_DIR: &str = ".odio";
 /// Block size for the caching reader used while reading tags.
 const READ_BLOCK: usize = 32 * 1024;
 /// Tag reading waits on I/O far more than it computes, and network shares
@@ -36,9 +37,9 @@ const READ_BLOCK: usize = 32 * 1024;
 const PROBE_THREADS: usize = 48;
 
 fn probe_pool() -> rayon::ThreadPool {
-    rayon::ThreadPoolBuilder::new().num_threads(PROBE_THREADS).thread_name(|i| format!("odio-probe-{i}")).build().expect("thread pool")
+    rayon::ThreadPoolBuilder::new().num_threads(PROBE_THREADS).thread_name(|i| format!("ribbon-probe-{i}")).build().expect("thread pool")
 }
-pub const PROGRESS_EVENT: &str = "odio://scan-progress";
+pub const PROGRESS_EVENT: &str = "ribbon://scan-progress";
 
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -218,13 +219,13 @@ fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
         .unwrap_or(0)
 }
 
-/// Walk the tree once. Hidden entries and `.odio` are skipped. `seen` is
+/// Walk the tree once. Hidden entries and `.ribbon` are skipped. `seen` is
 /// called every 500 files so a slow disk still shows movement.
 pub fn walk(root: &Path, mut seen: impl FnMut(usize)) -> Vec<(PathBuf, String, u64, i64, &'static str)> {
     let mut out = Vec::new();
     let iter = WalkDir::new(root).follow_links(false).into_iter().filter_entry(|e| {
         let name = e.file_name().to_string_lossy();
-        !(e.depth() > 0 && (name.starts_with('.') || name == ODIO_DIR))
+        !(e.depth() > 0 && (name.starts_with('.') || name == RIBBON_DIR || name == LEGACY_DIR))
     });
     for entry in iter.flatten() {
         if !entry.file_type().is_file() {
@@ -466,7 +467,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
         let done = AtomicUsize::new(0);
         let probed = AtomicUsize::new(0);
         let reused = AtomicUsize::new(0);
-        let covers_dir = root.join(ODIO_DIR).join("covers");
+        let covers_dir = root.join(RIBBON_DIR).join("covers");
         let _ = std::fs::create_dir_all(&covers_dir);
         let _ = handle.emit(PROGRESS_EVENT, serde_json::json!({ "walked": walked, "done": 0 }));
         let pool = probe_pool();
@@ -502,7 +503,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>) -
                             let target = covers_dir.join(&name);
                             let ok = target.is_file() || std::fs::write(&target, &bytes).is_ok();
                             if ok {
-                                file.cover = Some(format!("{ODIO_DIR}/covers/{name}"));
+                                file.cover = Some(format!("{RIBBON_DIR}/covers/{name}"));
                             }
                         }
                         probed.fetch_add(1, Ordering::Relaxed);
@@ -569,7 +570,7 @@ mod tests {
     use std::io::{Read, Seek, SeekFrom};
 
     /// Wraps a reader and logs every read and seek, to see what a parser
-    /// actually touches. Run with ODIO_TRACE=1 to print.
+    /// actually touches. Run with RIBBON_TRACE=1 to print.
     struct Tracing<R> {
         inner: R,
         pos: u64,
@@ -600,7 +601,7 @@ mod tests {
 
     #[test]
     fn trace_parser_access_pattern() {
-        if std::env::var("ODIO_TRACE").is_err() {
+        if std::env::var("RIBBON_TRACE").is_err() {
             return;
         }
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
@@ -625,10 +626,10 @@ mod tests {
         }
     }
 
-    /// Explain why one file fails: ODIO_WHY=<path>.
+    /// Explain why one file fails: RIBBON_WHY=<path>.
     #[test]
     fn why_does_this_file_fail() {
-        let Ok(path) = std::env::var("ODIO_WHY") else { return };
+        let Ok(path) = std::env::var("RIBBON_WHY") else { return };
         let path = PathBuf::from(path);
         for (label, opts) in [
             ("default", ParseOptions::new()),
@@ -698,10 +699,10 @@ mod tests {
         assert!(m.tags.contains_key("title"));
         // This file keeps its picture outside the first ID3v2 tag, so the
         // fast scanner does not see it; the lazy ffprobe pass does.
-        assert!(!entries.iter().any(|e| e.0.components().any(|c| c.as_os_str() == ODIO_DIR)));
+        assert!(!entries.iter().any(|e| e.0.components().any(|c| c.as_os_str() == RIBBON_DIR || c.as_os_str() == LEGACY_DIR)));
 
-        // Point ODIO_SCAN_PATH at any folder (a network share, say) to time it.
-        if let Ok(extra) = std::env::var("ODIO_SCAN_PATH") {
+        // Point RIBBON_SCAN_PATH at any folder (a network share, say) to time it.
+        if let Ok(extra) = std::env::var("RIBBON_SCAN_PATH") {
             let extra = PathBuf::from(extra);
             let t = std::time::Instant::now();
             let mut last = std::time::Instant::now();
@@ -729,7 +730,7 @@ mod tests {
             eprintln!("extra: walked {} files in {:?}, probed {} of {} audio files in {:?} ({} unreadable)", entries.len(), walked, n, audio, t.elapsed(), audio - n);
         }
 
-        let bench = repo.parent().unwrap().join("odio-bench");
+        let bench = repo.parent().unwrap().join("ribbon-bench");
         if bench.is_dir() {
             let t = std::time::Instant::now();
             let entries = walk(&bench, |_| {});

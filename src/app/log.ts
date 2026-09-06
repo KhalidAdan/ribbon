@@ -24,15 +24,15 @@ function render(args: unknown[]): string {
 
 export const log = {
   info(...args: unknown[]): void {
-    console.info("odio:", ...args);
+    console.info("ribbon:", ...args);
     forward?.("info", render(args));
   },
   warn(...args: unknown[]): void {
-    console.warn("odio:", ...args);
+    console.warn("ribbon:", ...args);
     forward?.("warn", render(args));
   },
   error(...args: unknown[]): void {
-    console.error("odio:", ...args);
+    console.error("ribbon:", ...args);
     forward?.("error", render(args));
   },
 };

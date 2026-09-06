@@ -88,6 +88,8 @@ export interface Host {
   writeFile(path: string, data: Uint8Array): Promise<void>;
   mkdir(path: string): Promise<void>;
   remove(path: string): Promise<void>;
+  /** Move a file or folder within the same volume. */
+  rename(from: string, to: string): Promise<void>;
   /** Run ffprobe or ffmpeg to completion. Never throws on non-zero exit. */
   run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult>;
   join(...parts: string[]): string;

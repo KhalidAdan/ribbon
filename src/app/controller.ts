@@ -72,12 +72,12 @@ export interface AppState {
 }
 
 /**
- * The folder picker opens inside the last library, where `.odio` is the
+ * The folder picker opens inside the last library, where `.ribbon` is the
  * first thing to click. Choosing it means the library it belongs to.
  */
 export function libraryRootOf(picked: string): string {
   const trimmed = picked.replace(/[\\/]+$/, "");
-  const m = trimmed.match(/^(.*)[\\/]\.odio$/i);
+  const m = trimmed.match(/^(.*)[\\/]\.ribbon$/i);
   return m && m[1] ? m[1] : trimmed;
 }
 
@@ -191,6 +191,7 @@ export class AppController {
     this.set({ phase: "loading", root, error: null, scanning: null });
     await this.platform.allowFolder(root);
     this.lib = new LibraryService(this.platform.host, root);
+    if (await this.lib.migrateLegacyRecords()) log.info("moved records from .odio to .ribbon");
     this.jobs = new JobQueue(this.lib);
     this.jobs.onStatus((s, result) => this.onJob(s, result));
     this.ensureEngine();
@@ -579,7 +580,7 @@ export class AppController {
 
   bookmarkClipUrl(bm: Bookmark): string | null {
     if (!this.lib || !bm.clip) return null;
-    return this.platform.fileUrl(this.lib.host.join(this.lib.root, ".odio", "bookmarks", ...bm.clip.split("/")));
+    return this.platform.fileUrl(this.lib.host.join(this.lib.root, ".ribbon", "bookmarks", ...bm.clip.split("/")));
   }
 
   // Chapter corrections -------------------------------------------------

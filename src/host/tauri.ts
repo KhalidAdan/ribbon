@@ -7,7 +7,7 @@ import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanPr
 import { joinPath } from "./paths";
 import { log } from "../app/log";
 
-const PROGRESS_EVENT = "odio://scan-progress";
+const PROGRESS_EVENT = "ribbon://scan-progress";
 
 /**
  * Tauri implementation of Host over plugin-fs, plugin-shell, and the
@@ -37,6 +37,7 @@ export function tauriHost(): Host {
     async remove(p: string): Promise<void> {
       if (await exists(p)) await remove(p, { recursive: true });
     },
+    rename: (from: string, to: string) => rename(from, to),
     run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult> {
       return new Promise((resolve) => {
         const cmd = Command.create(tool, args, { encoding: "utf-8" });

@@ -27,6 +27,7 @@ async function settle(c: AppController, until: () => boolean, ms = 60_000): Prom
 
 describe("AppController.openLibrary", () => {
   beforeAll(async () => {
+    await fs.rm(path.join(FIXTURE_ROOT, ".ribbon"), { recursive: true, force: true });
     await fs.rm(path.join(FIXTURE_ROOT, ".odio"), { recursive: true, force: true });
     await fs.rm(path.join(FIXTURE_ROOT, "does-not-exist"), { recursive: true, force: true });
   });
@@ -65,12 +66,27 @@ describe("AppController.openLibrary", () => {
     expect(phases).toEqual(["loading", "ready"]);
   });
 
-  it("treats a picked .odio folder as the library it belongs to", async () => {
-    const c = new AppController(platform(path.join(FIXTURE_ROOT, ".odio")));
+  it("treats a picked .ribbon folder as the library it belongs to", async () => {
+    const c = new AppController(platform(path.join(FIXTURE_ROOT, ".ribbon")));
     await c.pickLibrary();
     expect(c.getState().phase).toBe("ready");
     expect(c.getState().root).toBe(FIXTURE_ROOT);
     expect(c.getState().books.length).toBe(11);
+  });
+
+  it("renames a legacy .odio records folder to .ribbon and keeps its contents", async () => {
+    const current = path.join(FIXTURE_ROOT, ".ribbon");
+    const legacy = path.join(FIXTURE_ROOT, ".odio");
+    await fs.rm(legacy, { recursive: true, force: true });
+    await fs.rename(current, legacy);
+    await fs.writeFile(path.join(legacy, "marker.txt"), "kept");
+    const c = new AppController(platform(FIXTURE_ROOT));
+    await c.openLibrary(FIXTURE_ROOT);
+    expect(c.getState().phase).toBe("ready");
+    expect(c.getState().books.length).toBe(11);
+    expect(await fs.readFile(path.join(current, "marker.txt"), "utf8")).toBe("kept");
+    await expect(fs.stat(legacy)).rejects.toThrow();
+    await settle(c, () => c.getState().scanning === null && c.getState().lastScanMs !== null);
   });
 
   it("reports a bad folder as an error on the pick screen, not a hang", async () => {
@@ -83,11 +99,11 @@ describe("AppController.openLibrary", () => {
 });
 
 describe("libraryRootOf", () => {
-  it("strips a trailing .odio in either slash style", () => {
-    expect(libraryRootOf("\\\\nas\\media\\Books\\.odio")).toBe("\\\\nas\\media\\Books");
-    expect(libraryRootOf("E:\\books\\.odio\\")).toBe("E:\\books");
-    expect(libraryRootOf("/home/k/books/.odio")).toBe("/home/k/books");
+  it("strips a trailing .ribbon in either slash style", () => {
+    expect(libraryRootOf("\\\\nas\\media\\Books\\.ribbon")).toBe("\\\\nas\\media\\Books");
+    expect(libraryRootOf("E:\\books\\.ribbon\\")).toBe("E:\\books");
+    expect(libraryRootOf("/home/k/books/.ribbon")).toBe("/home/k/books");
     expect(libraryRootOf("E:\\books")).toBe("E:\\books");
-    expect(libraryRootOf("E:\\books\\.odious")).toBe("E:\\books\\.odious");
+    expect(libraryRootOf("E:\\books\\.ribbonus")).toBe("E:\\books\\.ribbonus");
   });
 });

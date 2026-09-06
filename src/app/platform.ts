@@ -2,7 +2,7 @@ import type { Platform } from "./controller";
 import { browserFileUrl, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
-const ROOT_KEY = "odio.libraryRoot";
+const ROOT_KEY = "ribbon.libraryRoot";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;

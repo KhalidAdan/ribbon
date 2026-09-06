@@ -41,13 +41,13 @@ pub fn run() {
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("odio".into()) }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("ribbon".into()) }),
                 ])
                 .build(),
         )
         .setup(|app| {
             let dir = app.path().app_log_dir().map(|p| p.display().to_string()).unwrap_or_default();
-            log::info!("odio starting; log directory {dir}");
+            log::info!("ribbon starting; log directory {dir}");
             let _ = app.get_webview_window("main");
             Ok(())
         })

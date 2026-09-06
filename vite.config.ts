@@ -7,7 +7,7 @@ import { devLibrary } from "./tools/vite-dev-library";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), devLibrary(process.env.ODIO_DEV_LIBRARY ?? (existsSync("books") ? "books" : undefined))],
+  plugins: [react(), tailwindcss(), devLibrary(process.env.RIBBON_DEV_LIBRARY ?? (existsSync("books") ? "books" : undefined))],
   clearScreen: false,
   server: {
     port: 1420,
