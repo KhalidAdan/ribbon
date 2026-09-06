@@ -137,6 +137,28 @@ describe("scanLibrary over generated fixtures", () => {
     expect(st.size).toBeGreaterThan(500);
   });
 
+  it("rescues files the fast reader could not read by falling back to ffprobe", async () => {
+    // A host whose scanner returns one file unread (duration 0, no tags), as
+    // the Rust reader does for headers it rejects.
+    const lying = {
+      ...host,
+      async scan(root: string, known: Parameters<typeof host.scan>[1], onProgress?: Parameters<typeof host.scan>[2]) {
+        const out = await host.scan(root, known, onProgress);
+        for (const f of out.files) {
+          if (f.path === "loose.mp3") Object.assign(f, { fresh: true, durationMs: 0, tags: {}, hasCover: false, chapters: [], chaptersKnown: false });
+        }
+        return out;
+      },
+    };
+    const r = await scanLibrary(lying, FIXTURE_ROOT, { incremental: false, write: false });
+    expect(r.rescued).toBe(1);
+    expect(r.errors).toEqual([]);
+    const loose = r.books.find((b) => b.book.path === "loose.mp3")!;
+    expect(loose.book.title).toBe("Loose Episode");
+    expect(loose.files[0]!.durationMs).toBeGreaterThan(2500);
+    expect(loose.files[0]!.chaptersProbed).toBe(true);
+  });
+
   it("rescans incrementally without probing unchanged files", async () => {
     const again = await scanLibrary(host, FIXTURE_ROOT);
     expect(again.probed).toBe(0);

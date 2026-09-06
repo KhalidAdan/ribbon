@@ -27,7 +27,7 @@ async function main(argv: string[]): Promise<number> {
     });
     for (const b of r.books) console.log(`${b.book.id}  ${b.book.title}  by ${b.book.author || "?"}  ${b.files.length} files  ${formatDuration(b.book.durationMs)}`);
     for (const e of r.errors) console.error(`  ! ${e.path}: ${e.message}`);
-    console.log(`${r.books.length} books, ${r.probed} probed, ${r.reused} reused, ${r.errors.length} errors, ${Date.now() - started} ms`);
+    console.log(`${r.books.length} books, ${r.probed} probed, ${r.reused} reused, ${r.rescued} rescued, ${r.errors.length} errors, ${Date.now() - started} ms`);
     return r.errors.length > 0 ? 1 : 0;
   }
 

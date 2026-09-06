@@ -201,7 +201,7 @@ export class AppController {
     try {
       const result = await this.lib.rescanDetailed({ onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }) });
       const books = result.books;
-      log.info("scan done:", books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.errors.length, "errors,", result.elapsedMs, "ms");
+      log.info("scan done:", books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.rescued, "rescued by ffprobe,", result.errors.length, "errors,", result.elapsedMs, "ms");
       for (const e of result.errors) log.warn("scan:", e.path, e.message);
       const positions = await this.positionsFor(books);
       // Keep the open book's live object if it still exists.

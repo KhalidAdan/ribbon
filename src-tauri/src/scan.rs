@@ -323,7 +323,9 @@ pub fn probe(path: &Path) -> Probed {
     // Tag parsers issue many small reads and seeks. Over a network share
     // each one is a round trip, so read in blocks and keep every block.
     let Ok(mut reader) = BlockReader::new(probe.into_inner(), READ_BLOCK) else { return out };
-    let opts = ParseOptions::new();
+    // Relaxed, like ffmpeg: a malformed frame is skipped, not fatal. The
+    // strict default rejected whole books with ordinary ID3v2.3 tags.
+    let opts = ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed);
     match file_type {
         Some(FileType::Mpeg) => {
             if let Ok(f) = MpegFile::read_from(&mut reader, opts) {
@@ -568,6 +570,27 @@ mod tests {
         }
     }
 
+    /// Explain why one file fails: ODIO_WHY=<path>.
+    #[test]
+    fn why_does_this_file_fail() {
+        let Ok(path) = std::env::var("ODIO_WHY") else { return };
+        let path = PathBuf::from(path);
+        for (label, opts) in [
+            ("default", ParseOptions::new()),
+            ("relaxed", ParseOptions::new().parsing_mode(lofty::config::ParsingMode::Relaxed)),
+            ("no-properties", ParseOptions::new().read_properties(false)),
+        ] {
+            let f = std::fs::File::open(&path).unwrap();
+            let mut r = BlockReader::new(f, READ_BLOCK).unwrap();
+            match MpegFile::read_from(&mut r, opts) {
+                Ok(m) => eprintln!("{label}: ok, duration {:?}, id3v2 {}", m.properties().duration(), m.id3v2().map(|t| t.len()).unwrap_or(0)),
+                Err(e) => eprintln!("{label}: error: {e}"),
+            }
+        }
+        let p = probe(&path);
+        eprintln!("probe(): duration {} ms, {} tags, cover {}", p.duration_ms, p.tags.len(), p.has_cover);
+    }
+
     #[test]
     fn block_reader_matches_plain_reads_across_boundaries_and_seeks() {
         let data: Vec<u8> = (0..10_007u32).map(|i| (i % 251) as u8).collect();
@@ -644,7 +667,8 @@ mod tests {
                 })
                 .filter(|p| p.duration_ms > 0)
                 .count());
-            eprintln!("extra: walked {} files in {:?}, probed {} audio files in {:?}", entries.len(), walked, n, t.elapsed());
+            let audio = entries.iter().filter(|e| e.4 == "audio").count();
+            eprintln!("extra: walked {} files in {:?}, probed {} of {} audio files in {:?} ({} unreadable)", entries.len(), walked, n, audio, t.elapsed(), audio - n);
         }
 
         let bench = repo.parent().unwrap().join("odio-bench");

@@ -1,3 +1,4 @@
+import { pipe, collect, flatMap, from } from "@culvert/stream";
 import type { Host, ScannedFile, ScanProgress } from "../../host/host";
 import type { AudioFile, Book, Chapter } from "../types";
 import { bookId } from "../bookid";
@@ -32,6 +33,8 @@ export interface ScanResult {
   errors: { path: string; message: string }[];
   probed: number;
   reused: number;
+  /** Files the fast reader rejected that ffprobe then read. */
+  rescued: number;
   elapsedMs: number;
 }
 
@@ -49,6 +52,7 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const previous = incremental ? await readPreviousFiles(host, root) : new Map<string, AudioFile>();
   const known = [...previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
   const out = await host.scan(root, known, opts.onProgress);
+  const rescued = await rescueUnreadable(host, root, out.files, opts.signal);
 
   const groups = groupBooks(
     out.files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })),
@@ -66,7 +70,43 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
     await writeRecords(host, root, scanned);
     await extractCovers(host, root, scanned, errors);
   }
-  return { books: scanned, errors, probed: out.probed, reused: out.reused, elapsedMs: Date.now() - started };
+  return { books: scanned, errors, probed: out.probed, reused: out.reused, rescued, elapsedMs: Date.now() - started };
+}
+
+/**
+ * The fast tag reader is strict; ffmpeg is not. Any fresh audio file it
+ * could not read gets one ffprobe pass here, eight at a time, so a book
+ * with an odd header is still a book. Returns how many were rescued.
+ */
+async function rescueUnreadable(host: Host, root: string, files: ScannedFile[], signal?: AbortSignal): Promise<number> {
+  const failed = files.filter((f) => f.kind === "audio" && f.fresh && f.durationMs <= 0);
+  if (failed.length === 0) return 0;
+  const results = await pipe(
+    from(failed),
+    flatMap(
+      (f: ScannedFile) =>
+        (async function* () {
+          try {
+            const r = await probe(host, host.join(root, ...f.path.split("/")), signal);
+            if (r.durationMs > 0) {
+              f.durationMs = r.durationMs;
+              f.tags = { ...r.tags, ...f.tags };
+              f.hasCover = f.hasCover || r.hasCover;
+              f.chapters = r.chapters;
+              f.chaptersKnown = true;
+              yield true;
+              return;
+            }
+          } catch {
+            /* still unreadable: the caller reports it */
+          }
+          yield false;
+        })(),
+      { concurrency: 8 },
+    ),
+    collect(),
+  );
+  return results.filter(Boolean).length;
 }
 
 async function buildBook(
