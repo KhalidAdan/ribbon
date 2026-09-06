@@ -28,6 +28,7 @@ async function settle(c: AppController, until: () => boolean, ms = 60_000): Prom
 describe("AppController.openLibrary", () => {
   beforeAll(async () => {
     await fs.rm(path.join(FIXTURE_ROOT, ".odio"), { recursive: true, force: true });
+    await fs.rm(path.join(FIXTURE_ROOT, "does-not-exist"), { recursive: true, force: true });
   });
 
   it("scans a never-seen folder in the foreground and ends ready with books", async () => {
