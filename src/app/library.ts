@@ -1,7 +1,7 @@
 import type { Host } from "../host/host";
 import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
 import { ODIO_DIR } from "../core/scan/walk";
-import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions } from "../core/scan/scan";
+import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
 import { mergePositions, nowIso, parsePositions, serializePosition } from "../core/position";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
@@ -46,6 +46,11 @@ export class LibraryService {
 
   async rescan(opts: ScanOptions = {}): Promise<ScannedBook[]> {
     return (await scanLibrary(this.host, this.root, opts)).books;
+  }
+
+  /** A scan with its error list and timings. */
+  rescanDetailed(opts: ScanOptions = {}): Promise<ScanResult> {
+    return scanLibrary(this.host, this.root, opts);
   }
 
   /** Probe embedded chapter markers once per book, on first open. */

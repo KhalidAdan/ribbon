@@ -1,5 +1,6 @@
 import type { Platform } from "./controller";
 import { browserFileUrl, browserHost, browserLibraryRoot } from "../host/browser";
+import { log } from "./log";
 
 const ROOT_KEY = "odio.libraryRoot";
 
@@ -31,7 +32,7 @@ export async function detectPlatform(): Promise<Platform> {
       host: tauriHost(),
       async pickFolder() {
         const picked = await dialog.open({ directory: true, multiple: false, title: "Choose your audiobook folder" });
-        console.info("odio: picked", picked);
+        log.info("picked", picked);
         return typeof picked === "string" ? picked : null;
       },
       allowFolder: allowLibrary,

@@ -29,14 +29,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::read_text_dir])
+        .plugin(
+            // Always on, in every build: the terminal, the webview console,
+            // and a file under the app's log directory.
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("odio".into()) }),
+                ])
+                .build(),
+        )
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            let dir = app.path().app_log_dir().map(|p| p.display().to_string()).unwrap_or_default();
+            log::info!("odio starting; log directory {dir}");
             let _ = app.get_webview_window("main");
             Ok(())
         })

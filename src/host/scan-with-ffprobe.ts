@@ -10,6 +10,13 @@ import { probe } from "../core/scan/probe";
  */
 export async function scanWithFfprobe(host: Host, root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void, concurrency = 8): Promise<ScanOutput> {
   const started = Date.now();
+  let rootStat;
+  try {
+    rootStat = await host.stat(root);
+  } catch {
+    throw new Error(`not a directory: ${root}`);
+  }
+  if (!rootStat.isDir) throw new Error(`not a directory: ${root}`);
   const entries = await pipe(walk(host, root), collect());
   const knownMap = new Map(known.map((k) => [k.path, k]));
   let probed = 0;

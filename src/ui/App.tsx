@@ -2,11 +2,13 @@ import { clsx } from "clsx";
 import { useEffect, useState } from "react";
 import { AppController } from "../app/controller";
 import { detectPlatform } from "../app/platform";
+import { attachTauriLog, log } from "../app/log";
 import { ControllerContext, useAppState, useController } from "./store";
 import { PickLibrary } from "./PickLibrary";
 import { LibraryPane } from "./LibraryPane";
 import { PlayerPane } from "./PlayerPane";
 import { useKeys } from "./useKeys";
+import { ScanProgress } from "./ScanProgress";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
@@ -14,8 +16,10 @@ export function App() {
   useEffect(() => {
     let live = true;
     let created: AppController | null = null;
-    void detectPlatform().then((platform) => {
+    void detectPlatform().then(async (platform) => {
       if (!live) return;
+      await attachTauriLog();
+      log.info("web side up");
       created = new AppController(platform);
       if (import.meta.env.DEV) (window as unknown as { __odio: AppController }).__odio = created;
       setController(created);
@@ -71,14 +75,16 @@ function Ready() {
   if (state.phase === "pick") return <PickLibrary />;
   if (state.phase === "loading") {
     return (
-      <main className="flex h-full items-center justify-center px-6">
-        <p className="text-base/7 text-neutral-500 tabular-nums sm:text-sm/6 dark:text-neutral-400">
-          {state.scanning && state.scanning.walked > 0
-            ? `Reading ${state.scanning.done.toLocaleString()} of ${state.scanning.walked.toLocaleString()} files…`
-            : state.scanning?.found
-              ? `Found ${state.scanning.found.toLocaleString()} files so far…`
-              : "Looking through your folder…"}
-        </p>
+      <main className="flex h-full">
+        <div className="h-full w-full shrink-0 pt-6 lg:w-80 lg:border-r lg:border-neutral-950/10 dark:lg:border-white/10">
+          <h1 className="px-4 pb-3 text-xl font-semibold tracking-tight text-neutral-950 sm:px-5 dark:text-white">Library</h1>
+          {state.scanning ? (
+            <ScanProgress status={state.scanning} />
+          ) : (
+            <p className="px-4 text-base/7 text-neutral-500 sm:px-5 sm:text-sm/6 dark:text-neutral-400">Opening your library…</p>
+          )}
+        </div>
+        <div className="hidden min-w-0 flex-1 lg:block" />
       </main>
     );
   }

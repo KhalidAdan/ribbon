@@ -10,6 +10,7 @@ import { snapSpeed } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
 import * as sleep from "../core/sleep";
 import type { Correction } from "../core/scan/chapters";
+import { log } from "./log";
 
 export interface Platform {
   host: Host;
@@ -56,6 +57,8 @@ export interface AppState {
   resumeOffer: { chapterStartMs: number; awayMs: number } | null;
   jobs: Record<string, JobStatus>;
   scanning: ScanStatus | null;
+  /** Files the last scan could not read. */
+  scanErrors: { path: string; message: string }[];
   /** How long the last scan took, for the header. */
   lastScanMs: number | null;
   error: string | null;
@@ -89,6 +92,7 @@ export class AppController {
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
   private chapterProbe: AbortController | null = null;
+  private scanInFlight = false;
 
   constructor(private readonly platform: Platform) {
     this.state = {
@@ -113,6 +117,7 @@ export class AppController {
       resumeOffer: null,
       jobs: {},
       scanning: null,
+      scanErrors: [],
       lastScanMs: null,
       error: null,
       pane: "library",
@@ -164,6 +169,7 @@ export class AppController {
    * the foreground with live counts.
    */
   async openLibrary(root: string): Promise<void> {
+    log.info("open library", root);
     this.set({ phase: "loading", root, error: null, scanning: null });
     await this.platform.allowFolder(root);
     this.lib = new LibraryService(this.platform.host, root);
@@ -172,6 +178,7 @@ export class AppController {
     this.ensureEngine();
 
     const cached = await this.lib.loadCached();
+    log.info("cached records:", cached ? `${cached.length} books` : "none");
     if (cached && cached.length > 0) {
       const positions = await this.positionsFor(cached);
       this.platform.saveRoot(root);
@@ -186,11 +193,16 @@ export class AppController {
   }
 
   async rescan(background = this.state.phase === "ready"): Promise<void> {
-    if (!this.lib || this.state.scanning?.background === false) return;
-    this.set({ scanning: { walked: 0, done: 0, background } });
+    if (!this.lib || this.scanInFlight) return;
+    this.scanInFlight = true;
+    this.set({ scanning: { walked: 0, done: 0, background }, scanErrors: [] });
     const started = Date.now();
+    log.info("scan start", this.state.root, background ? "(background)" : "(foreground)");
     try {
-      const books = await this.lib.rescan({ onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }) });
+      const result = await this.lib.rescanDetailed({ onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }) });
+      const books = result.books;
+      log.info("scan done:", books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.errors.length, "errors,", result.elapsedMs, "ms");
+      for (const e of result.errors) log.warn("scan:", e.path, e.message);
       const positions = await this.positionsFor(books);
       // Keep the open book's live object if it still exists.
       const cur = this.state.current;
@@ -199,12 +211,16 @@ export class AppController {
         books,
         positions,
         scanning: null,
+        scanErrors: result.errors,
         lastScanMs: Date.now() - started,
         current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
       });
     } catch (e) {
+      log.error("scan failed:", describe(e));
       this.set({ scanning: null, error: describe(e) });
       if (!background) throw e;
+    } finally {
+      this.scanInFlight = false;
     }
   }
 
@@ -238,8 +254,9 @@ export class AppController {
 
   // Playback ------------------------------------------------------------
 
-  private ensureEngine(): PlayerEngine {
+  private ensureEngine(): PlayerEngine | null {
     if (this.engine) return this.engine;
+    if (typeof Audio === "undefined") return null;
     this.engine = new PlayerEngine({
       resolveUrl: (rel) => this.platform.fileUrl(this.lib!.absPath(rel)),
       onState: (player) => this.onPlayerState(player),
@@ -275,6 +292,7 @@ export class AppController {
   async openBook(book: ScannedBook): Promise<void> {
     if (!this.lib) return;
     const engine = this.ensureEngine();
+    if (!engine) return;
     if (this.state.current?.book.book.id === book.book.id) {
       this.set({ pane: "player" });
       return;

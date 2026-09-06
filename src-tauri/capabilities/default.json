@@ -2,9 +2,12 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Odio main window: scoped filesystem, ffmpeg via shell, folder picker, device name.",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
+    "log:default",
     "core:window:allow-set-title",
     "dialog:allow-open",
     "os:allow-hostname",
@@ -26,7 +29,14 @@
     "fs:allow-size",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "$APPDATA/**" }, { "path": "$APPCONFIG/**" }]
+      "allow": [
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$APPCONFIG/**"
+        }
+      ]
     },
     {
       "identifier": "shell:allow-execute",

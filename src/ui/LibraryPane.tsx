@@ -7,6 +7,7 @@ import { natcompare } from "../core/natsort";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
+import { ScanProgress } from "./ScanProgress";
 
 export function LibraryPane() {
   const state = useAppState();
@@ -49,7 +50,14 @@ export function LibraryPane() {
         </Button>
       </header>
 
-      {sorted.length === 0 ? (
+      {state.scanErrors.length > 0 && (
+        <p className="px-4 pb-2 text-sm/5 text-neutral-500 sm:px-5 dark:text-neutral-400" title={state.scanErrors.map((e) => `${e.path}: ${e.message}`).join("\n")}>
+          {state.scanErrors.length.toLocaleString()} {state.scanErrors.length === 1 ? "file" : "files"} could not be read. Details are in the log.
+        </p>
+      )}
+      {sorted.length === 0 && state.scanning ? (
+        <ScanProgress status={state.scanning} />
+      ) : sorted.length === 0 ? (
         <div className="px-5 py-10 text-center">
           <p className="text-base/7 text-neutral-500 sm:text-sm/6 dark:text-neutral-400">No audiobooks found in this folder.</p>
         </div>
