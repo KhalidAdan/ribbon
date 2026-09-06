@@ -105,7 +105,7 @@ function BookRow({ book, active }: { book: ScannedBook; active: boolean }) {
               <div className="h-full w-(--progress) rounded-full bg-amber-500 dark:bg-amber-400" style={{ "--progress": `${(fraction * 100).toFixed(1)}%` } as React.CSSProperties} />
             </div>
             <span className="shrink-0 text-xs/4 text-neutral-500 tabular-nums dark:text-neutral-400">
-              {finished ? "Finished" : started ? `${formatDuration(remaining)} left` : formatDuration(book.book.durationMs)}
+              {book.pending ? "Reading…" : finished ? "Finished" : started ? `${formatDuration(remaining)} left` : formatDuration(book.book.durationMs)}
             </span>
           </div>
         </div>

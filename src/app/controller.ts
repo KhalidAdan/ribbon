@@ -211,18 +211,48 @@ export class AppController {
     this.set({ phase: "ready" });
   }
 
+  /**
+   * Scan the library. Books appear as the scan streams them: the shelf
+   * paints from folder names as soon as the walk is done, then fills in
+   * authors, then durations, and the complete list lands last.
+   */
   async rescan(background = this.state.phase === "ready"): Promise<void> {
     if (!this.lib || this.scanInFlight) return;
+    const lib = this.lib;
     this.scanInFlight = true;
     this.set({ scanning: { walked: 0, done: 0, background }, scanErrors: [] });
     const started = Date.now();
     log.info("scan start", this.state.root, background ? "(background)" : "(foreground)");
+    // Positions are one directory read; start it now and apply it to
+    // every set of books that comes through.
+    let positions: Map<string, Position> | null = null;
+    const positionsReady = lib
+      .readAllPositions()
+      .catch(() => new Map<string, Position>())
+      .then((m) => (positions = m));
+    const positionsOf = (books: ScannedBook[]): Record<string, Position | null> => {
+      const out: Record<string, Position | null> = {};
+      for (const b of books) out[b.book.id] = positions?.get(b.book.id) ?? this.state.positions[b.book.id] ?? null;
+      return out;
+    };
+    let painted = false;
     try {
-      const result = await this.lib.rescanDetailed({ onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }) });
+      const result = await lib.rescanDetailed({
+        onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }),
+        onBooks: (books: ScannedBook[]) => {
+          if (books.length === 0) return;
+          if (!painted) {
+            painted = true;
+            log.info("first paint:", books.length, "books,", Date.now() - started, "ms after scan start");
+          }
+          this.set({ books, positions: positionsOf(books), ...(this.state.phase === "loading" ? { phase: "ready" as const } : {}) });
+        },
+      });
       const books = result.books;
       log.info("scan done:", books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.rescued, "rescued by ffprobe,", result.errors.length, "errors,", result.elapsedMs, "ms");
       for (const e of result.errors) log.warn("scan:", e.path, e.message);
-      const positions = await this.positionsFor(books);
+      await positionsReady;
+      const positions = positionsOf(books);
       // Keep the open book's live object if it still exists.
       const cur = this.state.current;
       const refreshed = cur ? books.find((b) => b.book.id === cur.book.book.id) : undefined;

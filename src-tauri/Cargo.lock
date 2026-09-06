@@ -2800,7 +2800,6 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-os",
  "tauri-plugin-shell",
- "walkdir",
 ]
 
 [[package]]

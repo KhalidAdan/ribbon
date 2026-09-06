@@ -1,4 +1,5 @@
 mod scan;
+mod tags;
 
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
@@ -28,7 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
-        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::read_text_dir])
+        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::extract_cover, scan::read_text_dir])
         .plugin(
             // Always on, in every build: the terminal, the webview console,
             // and a file under the app's log directory.

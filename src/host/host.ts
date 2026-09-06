@@ -1,7 +1,7 @@
 /**
  * The only seam between core and the outside world. Node implements it
  * for tests and the CLI; Tauri implements it over plugin-fs, plugin-shell
- * and two Rust commands. Core never imports anything else that touches
+ * and a few Rust commands. Core never imports anything else that touches
  * I/O.
  */
 
@@ -44,6 +44,11 @@ export interface ScannedFile {
   mtimeMs: number;
   /** True when tags were read on this pass; false means "unchanged, reuse". */
   fresh: boolean;
+  /**
+   * True while the file has been found but not yet read. Appears only in
+   * streamed batches; a scan's final result has no pending files.
+   */
+  pending: boolean;
   durationMs: number;
   /** Lower-cased tag names. */
   tags: Record<string, string>;
@@ -98,9 +103,18 @@ export interface Host {
   /**
    * Walk a library and read tags from every audio file not in `known`,
    * in one call. Implementations are free to do this in parallel and
-   * without ffprobe.
+   * without ffprobe. `onFiles` receives files as they are found and as
+   * they are read: first the whole walk with unread audio marked
+   * pending, then finished files, each replacing its pending entry.
    */
-  scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput>;
+  scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void, onFiles?: (files: ScannedFile[]) => void): Promise<ScanOutput>;
   /** Every small text file in a directory, in one call. */
   readTextDir(dir: string): Promise<TextFile[]>;
+  /**
+   * Copy the picture embedded in an audio file to `target`, reading only
+   * the picture bytes. Resolves false when there is none the host can
+   * find; the caller may then try ffmpeg. Optional: hosts without a
+   * native tag reader leave it out.
+   */
+  extractCover?(src: string, target: string): Promise<boolean>;
 }

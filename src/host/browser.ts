@@ -32,6 +32,7 @@ export function browserHost(base = "/__ribbon"): Host {
     join: (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "/"),
     deviceName: async () => "browser-dev",
     async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+      // The dev server scans in one request; nothing streams back.
       onProgress?.({ walked: 0, done: 0 });
       return call<ScanOutput>("scan", { root, known });
     },

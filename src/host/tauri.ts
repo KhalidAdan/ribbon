@@ -1,13 +1,22 @@
 import { readDir, stat, exists, readFile, writeFile, mkdir, remove, rename } from "@tauri-apps/plugin-fs";
 import { Command } from "@tauri-apps/plugin-shell";
 import { hostname } from "@tauri-apps/plugin-os";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
+import { invoke, convertFileSrc, Channel } from "@tauri-apps/api/core";
+import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
 import { joinPath } from "./paths";
 import { log } from "../app/log";
 
-const PROGRESS_EVENT = "ribbon://scan-progress";
+/** What the Rust scanner sends: no chapters, cover as null when absent. */
+type RawFile = Omit<ScannedFile, "chapters" | "cover"> & { cover: string | null };
+interface RawBatch {
+  files: RawFile[];
+  walked: number;
+  done: number;
+}
+
+function fromRaw(f: RawFile): ScannedFile {
+  return { ...f, cover: f.cover ?? "", chapters: [] };
+}
 
 /**
  * Tauri implementation of Host over plugin-fs, plugin-shell, and the
@@ -57,22 +66,24 @@ export function tauriHost(): Host {
     },
     join: (...parts: string[]) => joinPath(parts),
     deviceName: async () => (await hostname()) ?? "this device",
-    async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+    async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void, onFiles?: (files: ScannedFile[]) => void): Promise<ScanOutput> {
       log.info("scan starting", root, known.length, "known");
-      const unlisten = onProgress ? await listen<ScanProgress>(PROGRESS_EVENT, (e) => onProgress(e.payload)) : null;
-      log.info("listening for progress");
+      const onBatch = new Channel<RawBatch>();
+      onBatch.onmessage = (b) => {
+        onProgress?.({ walked: b.walked, done: b.done });
+        if (b.files.length > 0) onFiles?.(b.files.map(fromRaw));
+      };
       try {
-        const r = await invoke<Omit<ScanOutput, "files"> & { files: (Omit<ScanOutput["files"][number], "chapters" | "cover"> & { cover: string | null })[] }>("scan_library", { root, known });
+        const r = await invoke<Omit<ScanOutput, "files"> & { files: RawFile[] }>("scan_library", { root, known, onBatch });
         log.info("scan returned", r.walked, "files in", r.elapsedMs, "ms");
-        return { ...r, files: r.files.map((f) => ({ ...f, cover: f.cover ?? "", chapters: [] })) };
+        return { ...r, files: r.files.map(fromRaw) };
       } catch (e) {
         log.error("scan failed", e);
         throw e;
-      } finally {
-        unlisten?.();
       }
     },
     readTextDir: (dir: string) => invoke<TextFile[]>("read_text_dir", { dir }),
+    extractCover: (src: string, target: string) => invoke<boolean>("extract_cover", { src, target }),
   };
 }
 

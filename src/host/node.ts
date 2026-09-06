@@ -54,7 +54,7 @@ export function nodeHost(): Host {
     async deviceName(): Promise<string> {
       return os.hostname();
     },
-    scan: (root, known, onProgress) => scanWithFfprobe(host, root, known, onProgress),
+    scan: (root, known, onProgress, onFiles) => scanWithFfprobe(host, root, known, onProgress, onFiles),
     async readTextDir(dir: string): Promise<TextFile[]> {
       let names: string[];
       try {
