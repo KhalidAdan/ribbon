@@ -26,6 +26,8 @@ export interface Platform {
   saveRoot(root: string | null): void;
   /** A root to open automatically without picking (dev harness). */
   defaultRoot?: () => Promise<string | null>;
+  /** Milliseconds since the host process started, when the host knows. */
+  uptimeMs?: () => Promise<number>;
 }
 
 export interface CurrentBook {
@@ -66,6 +68,12 @@ export interface AppState {
   scanErrors: { path: string; message: string }[];
   /** How long the last scan took, for the header. */
   lastScanMs: number | null;
+  /**
+   * True once the host will serve files from the library: covers and
+   * audio. Granting that access canonicalises the folder, which on a
+   * network volume is several round trips, so the shelf paints first.
+   */
+  assetsReady: boolean;
   error: string | null;
   /** Narrow layouts show one pane at a time. */
   pane: "library" | "player";
@@ -92,6 +100,12 @@ function describe(e: unknown): string {
   }
 }
 
+function positionsRecord(books: readonly ScannedBook[], all: Map<string, Position>): Record<string, Position | null> {
+  const out: Record<string, Position | null> = {};
+  for (const b of books) out[b.book.id] = all.get(b.book.id) ?? null;
+  return out;
+}
+
 const SKIP_BACK_MS = 30_000;
 const SKIP_FORWARD_MS = 30_000;
 const POSITION_WRITE_INTERVAL_MS = 5_000;
@@ -108,6 +122,10 @@ export class AppController {
   private uninstallMedia: (() => void) | null = null;
   private chapterProbe: AbortController | null = null;
   private scanInFlight = false;
+  /** The last scan's record write, which the shelf does not wait for. */
+  private saving: Promise<void> = Promise.resolve();
+  /** process uptime minus performance.now(), learned once at boot. */
+  private clockOffset: number | null = null;
 
   constructor(private readonly platform: Platform) {
     this.state = {
@@ -135,6 +153,7 @@ export class AppController {
       scanning: null,
       scanErrors: [],
       lastScanMs: null,
+      assetsReady: false,
       error: null,
       pane: "library",
     };
@@ -157,6 +176,11 @@ export class AppController {
   // Lifecycle -----------------------------------------------------------
 
   async boot(): Promise<void> {
+    const asked = performance.now();
+    void this.platform.uptimeMs?.().then((ms) => {
+      this.clockOffset = ms - asked;
+      log.info(`web side booted ${Math.round(ms)} ms after process start`);
+    });
     const remembered = this.platform.loadRoot() ?? (await this.platform.defaultRoot?.()) ?? null;
     if (remembered) {
       try {
@@ -181,34 +205,69 @@ export class AppController {
 
   /**
    * Open a library. If it has been scanned before, its records paint
-   * immediately and a rescan runs behind them. If not, the scan runs in
-   * the foreground with live counts.
+   * immediately and a rescan runs behind them; nothing before that paint
+   * waits on the share when the local mirror has a copy. If not, the
+   * scan runs in the foreground with live counts.
    */
   async openLibrary(pickedRoot: string): Promise<void> {
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     log.info("open library", root);
-    this.set({ phase: "loading", root, error: null, scanning: null });
-    await this.platform.allowFolder(root);
-    this.lib = new LibraryService(this.platform.host, root);
-    if (await this.lib.migrateLegacyRecords()) log.info("moved records from .odio to .ribbon");
-    this.jobs = new JobQueue(this.lib);
+    this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false });
+    const marks: string[] = [];
+    let last = performance.now();
+    const mark = (what: string) => {
+      const now = performance.now();
+      marks.push(`${what} ${Math.round(now - last)}`);
+      last = now;
+    };
+    // Access to the folder's files is granted while the shelf paints from
+    // the local mirror; covers appear the moment it lands.
+    const allowed = this.platform.allowFolder(root).then(() => {
+      mark("allow");
+      if (this.state.root === root) this.set({ assetsReady: true });
+    });
+    const lib = new LibraryService(this.platform.host, root);
+    this.lib = lib;
+    this.jobs = new JobQueue(lib);
     this.jobs.onStatus((s, result) => this.onJob(s, result));
     this.ensureEngine();
 
-    const cached = await this.lib.loadCached();
+    let migrated = false;
+    const migrate = async () => {
+      if (migrated) return;
+      migrated = true;
+      if (await lib.migrateLegacyRecords()) log.info("moved records from .odio to .ribbon");
+    };
+    let cached = await lib.loadCached();
+    mark("records");
+    if (!cached || cached.length === 0) {
+      await migrate();
+      cached = await lib.loadCached();
+      mark("migrate+records");
+    }
     log.info("cached records:", cached ? `${cached.length} books` : "none");
     if (cached && cached.length > 0) {
-      const positions = await this.positionsFor(cached);
+      const mirrored = await lib.readMirroredPositions();
+      mark("positions");
       this.platform.saveRoot(root);
-      this.set({ phase: "ready", books: cached, positions, scanning: null });
+      this.set({ phase: "ready", books: cached, positions: positionsRecord(cached, mirrored), scanning: null });
+      mark("render");
+      this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
+      // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
+      await allowed;
+      await migrate();
+      const positions = await this.positionsFor(cached);
+      if (this.lib === lib) this.set({ positions });
       void this.rescan(true);
       return;
     }
     this.set({ scanning: { walked: 0, done: 0, background: false } });
+    await allowed;
     await this.rescan(false);
     this.platform.saveRoot(root);
     this.set({ phase: "ready" });
+    await this.saving;
   }
 
   /**
@@ -236,20 +295,32 @@ export class AppController {
       return out;
     };
     let painted = false;
+    let lastTick = 0;
     try {
       const result = await lib.rescanDetailed({
-        onProgress: (p: ScanProgress) => this.set({ scanning: { ...p, background } }),
+        write: false,
+        onProgress: (p: ScanProgress) => {
+          // Batches can land many times a second; the header need not.
+          const now = Date.now();
+          const final = p.stage !== undefined || (p.walked > 0 && p.done >= p.walked);
+          if (!final && now - lastTick < 100) return;
+          lastTick = now;
+          this.set({ scanning: { ...p, background } });
+        },
         onBooks: (books: ScannedBook[]) => {
           if (books.length === 0) return;
           if (!painted) {
             painted = true;
             log.info("first paint:", books.length, "books,", Date.now() - started, "ms after scan start");
+            this.logPainted("from the walk");
           }
           this.set({ books, positions: positionsOf(books), ...(this.state.phase === "loading" ? { phase: "ready" as const } : {}) });
         },
       });
       const books = result.books;
       log.info("scan done:", books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.rescued, "rescued by ffprobe,", result.errors.length, "errors,", result.elapsedMs, "ms");
+      const t = result.timings;
+      log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
       for (const e of result.errors) log.warn("scan:", e.path, e.message);
       await positionsReady;
       const positions = positionsOf(books);
@@ -264,6 +335,11 @@ export class AppController {
         lastScanMs: Date.now() - started,
         current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
       });
+      const saveStarted = Date.now();
+      this.saving = result.save().then(
+        () => log.info("records saved in", Date.now() - saveStarted, "ms"),
+        (e: unknown) => log.warn("could not save records:", describe(e)),
+      );
       void this.fetchCovers(books);
     } catch (e) {
       log.error("scan failed:", describe(e));
@@ -286,21 +362,30 @@ export class AppController {
     if (done.length > 0) log.info("covers extracted:", done.length);
   }
 
+  /** How long the listener waited from launch to a shelf, when the host can say. */
+  private logPainted(how: string, detail = ""): void {
+    if (this.clockOffset === null) return;
+    const offset = this.clockOffset;
+    // Let the frame that shows the shelf go out first.
+    requestAnimationFrame(() => {
+      log.info(`shelf painted ${how}: ${Math.round(performance.now() + offset)} ms after process start (window ${document.visibilityState})${detail}`);
+    });
+  }
+
   forgetLibrary(): void {
     this.engine?.pause();
     this.platform.saveRoot(null);
-    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library" });
+    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", assetsReady: false });
   }
 
   private async positionsFor(books: ScannedBook[]): Promise<Record<string, Position | null>> {
-    const out: Record<string, Position | null> = {};
     const all = this.lib ? await this.lib.readAllPositions() : new Map<string, Position>();
-    for (const b of books) out[b.book.id] = all.get(b.book.id) ?? null;
-    return out;
+    return positionsRecord(books, all);
   }
 
+  /** The cover's URL, or null until the host can serve the library's files. */
   coverUrl(book: ScannedBook): string | null {
-    if (!this.lib || !book.book.cover) return null;
+    if (!this.lib || !book.book.cover || !this.state.assetsReady) return null;
     return this.platform.fileUrl(this.lib.absPath(book.book.cover));
   }
 
@@ -393,6 +478,9 @@ export class AppController {
     if (!this.lib || book.files.every((f) => f.chaptersProbed)) return;
     const abort = new AbortController();
     this.chapterProbe = abort;
+    // The chapter probe rewrites files.csv; let the scan's own write land first.
+    await this.saving;
+    if (abort.signal.aborted) return;
     const updated = await this.lib.ensureChapters(book, abort.signal);
     if (abort.signal.aborted || updated === book) return;
     const cur = this.state.current;

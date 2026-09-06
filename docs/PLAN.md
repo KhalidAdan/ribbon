@@ -127,24 +127,47 @@ The rule is that a library you have opened before paints before you can
 blink, and a library you have never opened paints in seconds even when
 it is tens of thousands of files.
 
-**Opening.** If `.ribbon/library.csv` exists, the app reads it, reads
-`files.csv`, reads every position file in one call, and shows the
-library. That is three round trips regardless of size. A rescan then
-runs behind the visible list and swaps in whatever changed.
+**Opening.** The app keeps a local mirror of `library.csv`,
+`files.csv`, and the merged positions under its own data folder. A
+library opened before paints from the mirror without touching the
+volume the books live on: about 0.9 s from double-click on a
+production build, of which 0.7 s is WebView2 starting. Access to the
+folder's files is granted while that paints, so covers follow a moment
+later. Then the share: the legacy records folder, positions written by
+other devices, and a rescan behind the visible list that swaps in
+whatever changed. The records beside the books stay the truth; the
+mirror is only what to paint first.
 
-**Scanning.** One Rust command does the whole walk and tag read and
-returns one result. It skips hidden folders and `.ribbon`, and it skips
-reading tags for any file whose size and mtime match the last scan. For
-the rest it reads the container's own tag block with lofty, in
-parallel across cores: ID3v2 frames for MP3, the `ilst` atom for M4A
-and M4B, Vorbis comments for FLAC, Opus, and Ogg. It reads format-
-specific tags rather than a generic view so keys like `series`,
-`series-part`, `narrator`, and iTunes freeform atoms survive. No
-process is spawned. The webview gets progress events every 250 files.
+**Scanning.** One Rust command walks the folder (sibling directories in
+parallel, one listing per directory and nothing per file on Windows)
+and streams results back as events. The first batch is the whole walk
+with unread audio marked pending, so the shelf paints from folder names
+and folder art about 0.3 s after the scan starts. Then the first file of
+each folder, which carries the book's author and series, then the rest.
+Files whose size and mtime match the last scan are not read at all.
+
+Tags come from minimal readers in `tags.rs` over a lazy positional
+reader: ID3v2 frames and the first MPEG frame header for MP3, `mvhd`
+and `udta/meta/ilst` for M4A and M4B, the ASF header for WMA. They fetch
+8 KB at a time and seek past pictures and sample tables, so a file
+costs two reads and about 16 KB instead of its whole tag (100 to 700 KB
+of cover art per MP3, a 200 KB `moov` per M4A). lofty is the fallback
+for other containers and for anything the minimal readers reject, and
+is checked against them over every local file in a test; ffprobe
+rescues whatever is left. No process is spawned on the fast path.
+
+The Samba server, not the link, is the limit: about 1.8 ms per open
+serialised when its caches are warm, 27 ms cold, so the count of files
+touched before the first paint is what matters and the full pass over
+1,485 files bottoms out near 3 s. Batches are large (200 files or
+250 ms) because every batch is a script the webview evaluates.
 
 Then, in TypeScript, the pure part: group files into books, order by
 disc, track, and natural filename, resolve metadata, infer chapters,
-overlay corrections, write the records.
+overlay corrections. It runs on whatever has arrived a few times a
+second while the scan streams, and once more at the end. Records are
+read once up front (no per-book existence checks) and written only
+when they changed, after the result is on screen.
 
 **Chapter markers are lazy.** The tag reader does not parse chapter
 atoms. The first time a book is opened, ffprobe runs on its files in
@@ -159,7 +182,10 @@ listening book first.
 
 **Covers.** `cover.jpg` or `folder.jpg` beside the book wins. Otherwise
 the first file with an attached picture is extracted once to
-`.ribbon/covers`.
+`.ribbon/covers`, after the library is on screen, by copying the
+picture bytes straight out of the tag; ffmpeg is the fallback. The scan
+itself never writes covers: doing that per file was uploading the
+library's cover art back to the share.
 
 **The reference scanner.** Node and the browser harness implement the
 same Host contract with the directory walk and ffprobe. It is slow and

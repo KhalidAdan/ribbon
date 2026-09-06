@@ -117,4 +117,20 @@ export interface Host {
    * native tag reader leave it out.
    */
   extractCover?(src: string, target: string): Promise<boolean>;
+  /**
+   * Write several small text files in one call, each atomically (temp
+   * file and rename) with parent folders created. Optional: hosts
+   * without it get one `writeFile` per file.
+   */
+  writeTextFiles?(files: { path: string; text: string }[]): Promise<void>;
+  /**
+   * A local copy of a library's records (library.csv and files.csv as
+   * text), kept beside the app so opening a library never waits on a
+   * slow volume. The records beside the books remain the truth; this is
+   * only what to paint first. Optional.
+   */
+  recordsMirror?: {
+    read(root: string): Promise<{ library: string; files: string; positions: string | null } | null>;
+    write(root: string, parts: { library?: string; files?: string; positions?: string }): Promise<void>;
+  };
 }

@@ -27,7 +27,7 @@ function saveRoot(root: string | null): void {
 
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl }, dialog] = await Promise.all([import("../host/tauri"), import("@tauri-apps/plugin-dialog")]);
+    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary }, dialog] = await Promise.all([import("../host/tauri"), import("@tauri-apps/plugin-dialog")]);
     return {
       host: tauriHost(),
       async pickFolder(near) {
@@ -42,6 +42,8 @@ export async function detectPlatform(): Promise<Platform> {
       fileUrl,
       loadRoot,
       saveRoot,
+      defaultRoot: envLibrary,
+      uptimeMs,
     };
   }
   // Development harness: the Vite plugin serves one folder from this machine.

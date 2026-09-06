@@ -16,7 +16,10 @@ npm run tauri:dev          # the desktop app
 ```
 
 On first launch, choose a folder of audiobooks. Ribbon scans it, writes
-its records to `<folder>/.ribbon/`, and opens the library.
+its records to `<folder>/.ribbon/`, and opens the library. The shelf is
+on screen from folder names before a single tag is read; durations fill
+in behind it. Launch with a folder as the argument, or set
+`RIBBON_LIBRARY`, to open it without the picker.
 
 ## Develop in a browser
 

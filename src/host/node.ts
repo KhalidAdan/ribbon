@@ -55,6 +55,12 @@ export function nodeHost(): Host {
       return os.hostname();
     },
     scan: (root, known, onProgress, onFiles) => scanWithFfprobe(host, root, known, onProgress, onFiles),
+    async writeTextFiles(files) {
+      for (const f of files) {
+        await fs.mkdir(path.dirname(f.path), { recursive: true });
+        await host.writeFile(f.path, new TextEncoder().encode(f.text));
+      }
+    },
     async readTextDir(dir: string): Promise<TextFile[]> {
       let names: string[];
       try {

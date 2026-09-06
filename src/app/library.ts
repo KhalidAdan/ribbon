@@ -2,7 +2,7 @@ import type { Host } from "../host/host";
 import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
 import { RIBBON_DIR, LEGACY_DIR } from "../core/scan/walk";
 import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
-import { mergePositions, nowIso, parsePositions, serializePosition } from "../core/position";
+import { mergePositions, nowIso, parsePositions, serializePosition, serializePositions } from "../core/position";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../core/scan/chapters";
@@ -98,9 +98,12 @@ export class LibraryService {
     return mergePositions(candidates, bookId);
   }
 
-  /** Every book's merged position in one directory read. */
+  /**
+   * Every book's merged position in one directory read. The result is
+   * also copied to the local mirror, where the next open reads it before
+   * the share has answered.
+   */
   async readAllPositions(): Promise<Map<string, Position>> {
-    const out = new Map<string, Position>();
     const files = await this.host.readTextDir(this.dir("positions"));
     const encoder = new TextEncoder();
     const byBook = new Map<string, Position[]>();
@@ -117,9 +120,31 @@ export class LibraryService {
         /* unreadable copy: ignore */
       }
     }
+    const out = new Map<string, Position>();
     for (const [id, list] of byBook) {
       const best = mergePositions(list, id);
       if (best) out.set(id, best);
+    }
+    if (this.host.recordsMirror) {
+      try {
+        await this.host.recordsMirror.write(this.root, { positions: new TextDecoder().decode(await serializePositions([...out.values()])) });
+      } catch {
+        /* the mirror is a convenience */
+      }
+    }
+    return out;
+  }
+
+  /** The positions as the mirror last saw them, for the first paint. Empty without a mirror. */
+  async readMirroredPositions(): Promise<Map<string, Position>> {
+    const out = new Map<string, Position>();
+    const mirror = await this.host.recordsMirror?.read(this.root).catch(() => null);
+    if (!mirror?.positions) return out;
+    try {
+      const { positions } = await parsePositions(new TextEncoder().encode(mirror.positions));
+      for (const p of positions) out.set(p.bookId, p);
+    } catch {
+      /* ignore */
     }
     return out;
   }

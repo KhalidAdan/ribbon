@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
-use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, Manager};
 
 const AUDIO: &[&str] = &["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"];
 const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
@@ -43,8 +43,21 @@ fn probe_pool() -> rayon::ThreadPool {
     rayon::ThreadPoolBuilder::new().num_threads(PROBE_THREADS).thread_name(|i| format!("ribbon-probe-{i}")).build().expect("thread pool")
 }
 /// Files per streamed batch, and the longest a finished file waits.
-const BATCH_FILES: usize = 64;
-const BATCH_WAIT: Duration = Duration::from_millis(80);
+/// Every batch is a script the webview must evaluate, at a few tens of
+/// milliseconds each, so fewer and larger beats many and small.
+const BATCH_FILES: usize = 200;
+const BATCH_WAIT: Duration = Duration::from_millis(250);
+/// The tag keys the web side reads. Everything else stays in Rust so
+/// the batches carry only what the shelf needs.
+const KEEP_TAGS: &[&str] = &[
+    "title", "artist", "album", "album_artist", "albumartist", "author", "composer", "narrator", "performer", "series", "series-part", "series_part",
+    "seriespart", "mvnm", "mvin", "grouping", "show", "part", "date", "year", "originaldate", "track", "tracknumber", "disc", "discnumber", "disk",
+];
+/// Scan batches go to the webview as events. Events ride the same
+/// ordered script queue as the command's reply, and on WebView2 that is
+/// several times faster than the fetch path a large `Channel` message
+/// takes, where forty batches were still in flight when the scan ended.
+pub const BATCH_EVENT: &str = "ribbon://scan-batch";
 
 /// Smallest read per fetch, overridable for benchmarks with RIBBON_MIN_READ.
 fn min_read() -> usize {
@@ -65,7 +78,6 @@ pub struct KnownFile {
 pub struct ScannedFile {
     /// Library-relative, forward slashes.
     pub path: String,
-    pub name: String,
     pub kind: &'static str,
     pub size_bytes: u64,
     pub mtime_ms: i64,
@@ -86,10 +98,10 @@ pub struct ScannedFile {
     pub chapters_known: bool,
 }
 
+/// What the command itself returns. The files went out in batches.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanResult {
-    pub files: Vec<ScannedFile>,
+pub struct ScanSummary {
     pub walked: usize,
     pub probed: usize,
     pub reused: usize,
@@ -444,27 +456,39 @@ pub fn probe(path: &Path, len: Option<u64>) -> (Probed, bool) {
 }
 
 /// One streamed step of a scan: files found or finished since the last
-/// batch, with the running counts for a progress line.
+/// batch, with the running counts for a progress line. `token` is the
+/// caller's, so a listener can ignore batches from another scan.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanBatch {
+    pub token: String,
     pub files: Vec<ScannedFile>,
     pub walked: usize,
     pub done: usize,
+    /// Milliseconds after the scan started that this batch was sent.
+    pub sent_ms: u64,
 }
 
-/// Collects finished files and sends them down the channel in batches,
-/// so the library fills in as it is read instead of all at the end.
+/// Collects finished files and emits them in batches, so the library
+/// fills in as it is read instead of all at the end.
 struct Batcher<'a> {
-    chan: &'a Channel<ScanBatch>,
+    app: &'a AppHandle,
+    token: &'a str,
     walked: usize,
     done: &'a AtomicUsize,
     buf: Mutex<(Vec<ScannedFile>, Instant)>,
+    started: Instant,
+    sent: AtomicUsize,
 }
 
 impl<'a> Batcher<'a> {
     fn send(&self, files: Vec<ScannedFile>) {
-        let _ = self.chan.send(ScanBatch { files, walked: self.walked, done: self.done.load(Ordering::Relaxed) });
+        let n = self.sent.fetch_add(1, Ordering::Relaxed) + 1;
+        log::debug!("scan_library: batch {n} ({} files) at {:?}", files.len(), self.started.elapsed());
+        let batch = ScanBatch { token: self.token.to_string(), files, walked: self.walked, done: self.done.load(Ordering::Relaxed), sent_ms: self.started.elapsed().as_millis() as u64 };
+        if let Err(e) = self.app.emit(BATCH_EVENT, batch) {
+            log::warn!("scan_library: could not emit batch {n}: {e}");
+        }
     }
 
     fn push(&self, file: ScannedFile) {
@@ -503,13 +527,15 @@ fn parent_of(rel: &str) -> &str {
 /// size and mtime; matching files are returned without tags so the
 /// caller reuses its cache.
 ///
-/// Results stream down `on_batch` as they happen: first every file the
-/// walk found, with unread audio marked pending, so the caller can put
-/// the books on screen from folder names alone; then the first file of
-/// each folder, which carries the book's author and series; then
-/// everything else. The returned result is the complete list.
+/// Results stream out as `BATCH_EVENT` events tagged with `token`: first
+/// every file the walk found, with unread audio marked pending, so the
+/// caller can put the books on screen from folder names alone; then the
+/// first file of each folder, which carries the book's author and
+/// series; then everything else. Every file is sent exactly once in its
+/// final form, so the batches together are the complete list and the
+/// command's reply is only a summary.
 #[tauri::command]
-pub async fn scan_library(root: String, known: Vec<KnownFile>, on_batch: Channel<ScanBatch>) -> Result<ScanResult, String> {
+pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, token: String) -> Result<ScanSummary, String> {
     let root = PathBuf::from(&root);
     log::info!("scan_library: start {} ({} known files)", root.display(), known.len());
     if !root.is_dir() {
@@ -532,7 +558,6 @@ pub async fn scan_library(root: String, known: Vec<KnownFile>, on_batch: Channel
             let rel = rel_path(&root, &e.abs);
             let mut file = ScannedFile {
                 path: rel.clone(),
-                name: e.name.clone(),
                 kind: e.kind,
                 size_bytes: e.size,
                 mtime_ms: e.mtime_ms,
@@ -556,7 +581,7 @@ pub async fn scan_library(root: String, known: Vec<KnownFile>, on_batch: Channel
             files.push(file);
         }
         let done = AtomicUsize::new(walked - to_probe.len());
-        let batcher = Batcher { chan: &on_batch, walked, done: &done, buf: Mutex::new((Vec::new(), Instant::now())) };
+        let batcher = Batcher { app: &app, token: &token, walked, done: &done, buf: Mutex::new((Vec::new(), Instant::now())), started, sent: AtomicUsize::new(0) };
         batcher.send(files.clone());
 
         // The first unread file of each folder goes first: it names the
@@ -566,39 +591,25 @@ pub async fn scan_library(root: String, known: Vec<KnownFile>, on_batch: Channel
         let (firsts, rest): (Vec<usize>, Vec<usize>) = to_probe.into_iter().partition(|&i| seen_dirs.insert(parent_of(&files[i].path).to_string()));
         let fallbacks = AtomicUsize::new(0);
         let probed = firsts.len() + rest.len();
-        let mut read: Vec<(usize, Probed)> = Vec::with_capacity(probed);
         for pass in [firsts, rest] {
-            let out: Vec<(usize, Probed)> = pool.install(|| pass
-                .into_par_iter()
-                .map(|i| {
-                    let e = &entries[i];
-                    let (p, fell_back) = probe(&e.abs, Some(e.size));
-                    if fell_back {
-                        fallbacks.fetch_add(1, Ordering::Relaxed);
-                    }
-                    done.fetch_add(1, Ordering::Relaxed);
-                    let mut file = files[i].clone();
-                    file.fresh = true;
-                    file.pending = false;
-                    file.duration_ms = p.duration_ms;
-                    file.tags = p.tags.clone();
-                    file.has_cover = p.has_cover;
-                    batcher.push(file);
-                    (i, p)
-                })
-                .collect());
-            read.extend(out);
+            pool.install(|| pass.into_par_iter().for_each(|i| {
+                let e = &entries[i];
+                let (p, fell_back) = probe(&e.abs, Some(e.size));
+                if fell_back {
+                    fallbacks.fetch_add(1, Ordering::Relaxed);
+                }
+                done.fetch_add(1, Ordering::Relaxed);
+                let mut file = files[i].clone();
+                file.fresh = true;
+                file.pending = false;
+                file.duration_ms = p.duration_ms;
+                file.tags = p.tags.into_iter().filter(|(k, _)| KEEP_TAGS.contains(&k.as_str())).collect();
+                file.has_cover = p.has_cover;
+                batcher.push(file);
+            }));
         }
         batcher.flush();
-        for (i, p) in read {
-            let file = &mut files[i];
-            file.fresh = true;
-            file.pending = false;
-            file.duration_ms = p.duration_ms;
-            file.tags = p.tags;
-            file.has_cover = p.has_cover;
-        }
-        ScanResult { files, walked, probed, reused, fallbacks: fallbacks.load(Ordering::Relaxed), elapsed_ms: 0 }
+        ScanSummary { walked, probed, reused, fallbacks: fallbacks.load(Ordering::Relaxed), elapsed_ms: 0 }
     })
     .await
     .map_err(|e| {
@@ -632,6 +643,95 @@ pub async fn extract_cover(src: String, target: String) -> Result<bool, String> 
 pub struct TextFile {
     pub name: String,
     pub text: String,
+}
+
+#[derive(Deserialize)]
+pub struct TextFileAt {
+    pub path: String,
+    pub text: String,
+}
+
+/// FNV-1a over a string: a short, stable folder name for a library.
+fn fnv(s: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+fn mirror_dir(app: &AppHandle, root: &str) -> Result<PathBuf, String> {
+    let base = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    Ok(base.join("mirror").join(fnv(&root.replace('\\', "/").trim_end_matches('/').to_lowercase())))
+}
+
+#[derive(Serialize)]
+pub struct Mirror {
+    pub library: String,
+    pub files: String,
+    /// The merged positions as last read from the share, or None.
+    pub positions: Option<String>,
+}
+
+/// The local copy of a library's records, kept beside the app so a warm
+/// open paints without touching the share. The share's records stay the
+/// truth: the background rescan reads them and replaces this within a
+/// second. None when the library has no mirror yet.
+#[tauri::command]
+pub async fn mirror_read(app: AppHandle, root: String) -> Result<Option<Mirror>, String> {
+    let dir = mirror_dir(&app, &root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let library = std::fs::read_to_string(dir.join("library.csv")).ok();
+        let files = std::fs::read_to_string(dir.join("files.csv")).ok();
+        let positions = std::fs::read_to_string(dir.join("positions.csv")).ok();
+        Ok(match (library, files) {
+            (Some(library), Some(files)) => Some(Mirror { library, files, positions }),
+            _ => None,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Write whichever of the mirror's files are given.
+#[tauri::command]
+pub async fn mirror_write(app: AppHandle, root: String, library: Option<String>, files: Option<String>, positions: Option<String>) -> Result<(), String> {
+    let dir = mirror_dir(&app, &root)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let parts = [("library.csv", library), ("files.csv", files), ("positions.csv", positions)];
+        for (name, text) in parts.into_iter().filter_map(|(n, t)| t.map(|t| (n, t))) {
+            let target = dir.join(name);
+            let tmp = dir.join(format!("{name}.tmp"));
+            std::fs::write(&tmp, text.as_bytes()).map_err(|e| e.to_string())?;
+            std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Write several small text files, each through a sibling temp file and
+/// a rename, creating parent folders as needed. One IPC call for all of
+/// them, and no chatter with the webview per write.
+#[tauri::command]
+pub async fn write_text_files(files: Vec<TextFileAt>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        for f in files {
+            let target = PathBuf::from(&f.path);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+            }
+            let tmp = target.with_extension(format!("{}.tmp", std::process::id()));
+            std::fs::write(&tmp, f.text.as_bytes()).map_err(|e| format!("{}: {e}", tmp.display()))?;
+            std::fs::rename(&tmp, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Every small text file in a directory, in one round trip. Used for

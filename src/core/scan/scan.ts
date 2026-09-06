@@ -45,10 +45,18 @@ export interface ScanResult {
   /** Files the fast reader rejected that ffprobe then read. */
   rescued: number;
   elapsedMs: number;
+  /**
+   * Write the records. Already done when the scan ran with `write` on;
+   * with it off, the caller decides when, so the shelf need not wait for
+   * a slow share to accept two files.
+   */
+  save: () => Promise<void>;
+  /** Where the time went, for the log. */
+  timings: { recordsMs: number; scanMs: number; rescueMs: number; buildMs: number; writeMs: number; publishes: number; publishMs: number };
 }
 
 /** How often, at most, the streamed books are rebuilt and published. */
-const PUBLISH_INTERVAL_MS = 80;
+const PUBLISH_INTERVAL_MS = 120;
 
 /** Everything on disk from the last scan, read once up front. */
 interface Records {
@@ -69,16 +77,30 @@ interface Records {
  */
 export async function scanLibrary(host: Host, root: string, opts: ScanOptions = {}): Promise<ScanResult> {
   const started = Date.now();
+  let mark = started;
+  const lap = () => {
+    const now = Date.now();
+    const ms = now - mark;
+    mark = now;
+    return ms;
+  };
   const records = await readRecords(host, root, opts.incremental ?? true);
+  const recordsMs = lap();
   const known = [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   const arrived = new Map<string, ScannedFile>();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastPublish = 0;
+  let publishes = 0;
+  let publishMs = 0;
   const publish = () => {
     timer = null;
+    const t = Date.now();
+    const books = buildBooks(host, root, [...arrived.values()], records, []);
+    opts.onBooks?.(books);
+    publishes++;
+    publishMs += Date.now() - t;
     lastPublish = Date.now();
-    opts.onBooks?.(buildBooks(host, root, [...arrived.values()], records, []));
   };
   const onFiles = (files: ScannedFile[]) => {
     for (const f of files) arrived.set(f.path, f);
@@ -89,20 +111,35 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const out = await host.scan(root, known, opts.onProgress, onFiles);
   if (timer !== null) clearTimeout(timer);
   timer = null;
+  const scanMs = lap();
 
   const stage = (text: string) => opts.onProgress?.({ walked: out.walked, done: out.walked, stage: text });
   const unreadable = out.files.filter((f) => f.kind === "audio" && f.fresh && f.durationMs <= 0).length;
   if (unreadable > 0) stage(`Checking ${unreadable.toLocaleString()} ${unreadable === 1 ? "file" : "files"} the tag reader could not read…`);
   const rescued = await rescueUnreadable(host, root, out.files, opts.signal);
+  const rescueMs = lap();
   stage("Organizing books…");
   const errors: ScanResult["errors"] = [];
   const books = buildBooks(host, root, out.files, records, errors);
+  const buildMs = lap();
 
+  let saving: Promise<void> | null = null;
+  const save = () => (saving ??= writeRecords(host, root, books, records));
   if (opts.write ?? true) {
     stage("Saving the library…");
-    await writeRecords(host, root, books, records);
+    await save();
   }
-  return { books, errors, probed: out.probed, reused: out.reused, rescued, elapsedMs: Date.now() - started };
+  const writeMs = lap();
+  return {
+    books,
+    errors,
+    probed: out.probed,
+    reused: out.reused,
+    rescued,
+    elapsedMs: Date.now() - started,
+    save,
+    timings: { recordsMs, scanMs, rescueMs, buildMs, writeMs, publishes, publishMs },
+  };
 }
 
 /** Group a file list into books. Pure, apart from `errors` collecting the unreadable. */
@@ -437,10 +474,33 @@ async function writeRecords(host: Host, root: string, books: readonly ScannedBoo
   const files = await filesToBytes(fileRows);
   const writeLibrary = !sameBytes(records.libraryCsv, library);
   const writeFiles = !sameBytes(records.filesCsv, files);
-  if (!writeLibrary && !writeFiles) return;
-  await host.mkdir(dir);
-  if (writeLibrary) await host.writeFile(host.join(dir, "library.csv"), library);
-  if (writeFiles) await host.writeFile(host.join(dir, "files.csv"), files);
+  if (!writeLibrary && !writeFiles) {
+    await mirrorRecords(host, root, library, files);
+    return;
+  }
+  if (host.writeTextFiles) {
+    const decoder = new TextDecoder();
+    const batch: { path: string; text: string }[] = [];
+    if (writeLibrary) batch.push({ path: host.join(dir, "library.csv"), text: decoder.decode(library) });
+    if (writeFiles) batch.push({ path: host.join(dir, "files.csv"), text: decoder.decode(files) });
+    await host.writeTextFiles(batch);
+  } else {
+    await host.mkdir(dir);
+    if (writeLibrary) await host.writeFile(host.join(dir, "library.csv"), library);
+    if (writeFiles) await host.writeFile(host.join(dir, "files.csv"), files);
+  }
+  await mirrorRecords(host, root, library, files);
+}
+
+/** Keep the local mirror current. Best effort: a failure changes nothing. */
+async function mirrorRecords(host: Host, root: string, library: Uint8Array, files: Uint8Array): Promise<void> {
+  if (!host.recordsMirror) return;
+  try {
+    const decoder = new TextDecoder();
+    await host.recordsMirror.write(root, { library: decoder.decode(library), files: decoder.decode(files) });
+  } catch {
+    /* the mirror is a convenience */
+  }
 }
 
 /** Rewrite files.csv and library.csv with one book's rows replaced. */
@@ -465,10 +525,18 @@ async function updateFileRows(host: Host, root: string, book: ScannedBook): Prom
 }
 
 /**
- * Load the last scan without touching the audio files: library.csv,
- * files.csv, and the chapters folder, all read at once. No per-book I/O.
+ * Load the last scan without touching the audio files. The local mirror
+ * is tried first, because it answers in a millisecond where a network
+ * volume takes hundreds; otherwise library.csv, files.csv and the
+ * chapters folder come from beside the books, all read at once. No
+ * per-book I/O either way.
  */
 export async function loadLibrary(host: Host, root: string): Promise<ScannedBook[] | null> {
+  const mirror = await host.recordsMirror?.read(root).catch(() => null);
+  if (mirror) {
+    const encoder = new TextEncoder();
+    return assemble(await bytesToBooks(encoder.encode(mirror.library)), await bytesToFiles(encoder.encode(mirror.files)), new Map());
+  }
   const dir = host.join(root, RIBBON_DIR);
   const [lib, filesCsv, chapterFiles] = await Promise.all([
     readIfExists(host, host.join(dir, "library.csv")),
@@ -478,7 +546,10 @@ export async function loadLibrary(host: Host, root: string): Promise<ScannedBook
   if (!lib) return null;
   const books = await bytesToBooks(lib);
   const files = filesCsv ? await bytesToFiles(filesCsv) : new Map<string, AudioFile[]>();
-  const chaptersByName = new Map(chapterFiles.map((t) => [t.name, t.text]));
+  return assemble(books, files, new Map(chapterFiles.map((t) => [t.name, t.text])));
+}
+
+async function assemble(books: Book[], files: Map<string, AudioFile[]>, chaptersByName: Map<string, string>): Promise<ScannedBook[]> {
   const encoder = new TextEncoder();
   const out: ScannedBook[] = [];
   for (const book of books) {
