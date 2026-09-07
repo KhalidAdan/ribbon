@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { channel, type Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
 import { joinPath } from "./paths";
+import type { SourceEntry } from "../core/sources";
 import { log } from "../app/log";
 
 const BATCH_EVENT = "ribbon://scan-batch";
@@ -171,6 +172,15 @@ export function rememberLibrary(root: string): Promise<void> {
 
 export function forgetLibrary(root: string): Promise<void> {
   return invoke<void>("forget_library", { root });
+}
+
+/** The folders the library is populated from, in the order they were added. */
+export function sourcesRead(): Promise<SourceEntry[]> {
+  return invoke<SourceEntry[]>("sources_read");
+}
+
+export function sourcesWrite(sources: SourceEntry[]): Promise<void> {
+  return invoke<void>("sources_write", { sources });
 }
 
 export function revealHome(): Promise<void> {

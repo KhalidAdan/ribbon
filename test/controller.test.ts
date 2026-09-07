@@ -1,8 +1,11 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
 import { AppController, libraryRootOf, type Platform } from "../src/app/controller";
+import { memorySources } from "../src/app/platform";
+import { sourceId } from "../src/core/sources";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 
 /** The controller against real fixtures, with no window and no audio. */
@@ -12,9 +15,7 @@ function platform(root: string): Platform {
     pickFolder: async () => root,
     allowFolder: async () => undefined,
     fileUrl: (p) => `file:///${p}`,
-    loadRoot: async () => null,
-    saveRoot: async () => undefined,
-    forgetRoot: async () => undefined,
+    sources: memorySources(),
   };
 }
 
@@ -26,7 +27,7 @@ async function settle(c: AppController, until: () => boolean, ms = 60_000): Prom
   }
 }
 
-describe("AppController.openLibrary", () => {
+describe("AppController sources", () => {
   beforeAll(async () => {
     await fs.rm(path.join(FIXTURE_ROOT, ".ribbon"), { recursive: true, force: true });
     await fs.rm(path.join(FIXTURE_ROOT, ".odio"), { recursive: true, force: true });
@@ -58,7 +59,7 @@ describe("AppController.openLibrary", () => {
       const p = c.getState().phase;
       if (phases[phases.length - 1] !== p) phases.push(p);
     });
-    await c.openLibrary(FIXTURE_ROOT);
+    await c.addSource(FIXTURE_ROOT);
     expect(c.getState().phase).toBe("ready");
     expect(c.getState().books.length).toBe(11);
     // The background rescan is still running or just finished.
@@ -71,7 +72,7 @@ describe("AppController.openLibrary", () => {
     const c = new AppController(platform(path.join(FIXTURE_ROOT, ".ribbon")));
     await c.pickLibrary();
     expect(c.getState().phase).toBe("ready");
-    expect(c.getState().root).toBe(FIXTURE_ROOT);
+    expect(c.getState().sources.map((s) => s.root)).toEqual([FIXTURE_ROOT]);
     expect(c.getState().books.length).toBe(11);
   });
 
@@ -82,7 +83,7 @@ describe("AppController.openLibrary", () => {
     await fs.rename(current, legacy);
     await fs.writeFile(path.join(legacy, "marker.txt"), "kept");
     const c = new AppController(platform(FIXTURE_ROOT));
-    await c.openLibrary(FIXTURE_ROOT);
+    await c.addSource(FIXTURE_ROOT);
     expect(c.getState().phase).toBe("ready");
     expect(c.getState().books.length).toBe(11);
     expect(await fs.readFile(path.join(current, "marker.txt"), "utf8")).toBe("kept");
@@ -96,6 +97,78 @@ describe("AppController.openLibrary", () => {
     expect(c.getState().phase).toBe("pick");
     expect(c.getState().error).toMatch(/Could not open/);
     expect(c.getState().scanning).toBeNull();
+  });
+});
+
+describe("AppController with two sources", () => {
+  const second = path.join(os.tmpdir(), `ribbon-second-source-${process.pid}`);
+
+  beforeAll(async () => {
+    await fs.rm(second, { recursive: true, force: true });
+    await fs.mkdir(second, { recursive: true });
+    await fs.cp(path.join(FIXTURE_ROOT, "single-m4b"), path.join(second, "Another Single"), { recursive: true });
+  });
+
+  afterAll(async () => {
+    await fs.rm(second, { recursive: true, force: true });
+  });
+
+  it("shelves the books of every folder, tagged with their source, and remembers the folders", async () => {
+    const p = platform(FIXTURE_ROOT);
+    const c = new AppController(p);
+    await c.addSource(FIXTURE_ROOT);
+    await c.addSource(second);
+    await settle(c, () => c.getState().scanning === null && c.getState().sourceStatus[sourceId(second)]?.lastScanMs !== null);
+    const s = c.getState();
+    expect(s.phase).toBe("ready");
+    expect(s.sources.map((x) => x.name)).toEqual(["generated", path.basename(second)]);
+    expect(s.books.length).toBe(12);
+    expect(s.books.filter((b) => b.source === sourceId(second)).map((b) => b.book.path)).toEqual(["Another Single"]);
+    expect(s.books.filter((b) => b.source === sourceId(FIXTURE_ROOT)).length).toBe(11);
+    expect(await p.sources.load()).toEqual(s.sources.map((x) => ({ root: x.root, addedAt: x.addedAt })));
+    // Adding a folder again only checks it for changes.
+    await c.addSource(second);
+    expect(c.getState().sources.length).toBe(2);
+    expect(c.getState().books.length).toBe(12);
+  });
+
+  it("reopens every remembered folder at boot, with the folder given at launch added once", async () => {
+    const p = platform(FIXTURE_ROOT);
+    await p.sources.save([{ root: FIXTURE_ROOT, addedAt: "2026-09-07T00:00:00Z" }]);
+    p.defaultRoot = async () => second;
+    const c = new AppController(p);
+    await c.boot();
+    await settle(c, () => c.getState().scanning === null && c.getState().books.length === 12);
+    expect(c.getState().phase).toBe("ready");
+    expect(c.getState().sources.map((x) => x.root)).toEqual([FIXTURE_ROOT, second]);
+    expect((await p.sources.load()).length).toBe(2);
+  });
+
+  it("removes a folder from the shelf without touching it on disk", async () => {
+    const p = platform(FIXTURE_ROOT);
+    const c = new AppController(p);
+    await c.addSource(FIXTURE_ROOT);
+    await c.addSource(second);
+    await settle(c, () => c.getState().scanning === null);
+    await c.removeSource(sourceId(second));
+    const s = c.getState();
+    expect(s.phase).toBe("ready");
+    expect(s.sources.map((x) => x.root)).toEqual([FIXTURE_ROOT]);
+    expect(s.books.length).toBe(11);
+    expect(await p.sources.load()).toEqual([{ root: FIXTURE_ROOT, addedAt: s.sources[0]!.addedAt }]);
+    expect((await fs.stat(path.join(second, ".ribbon", "library.csv"))).isFile()).toBe(true);
+    await c.removeSource(sourceId(FIXTURE_ROOT));
+    expect(c.getState().phase).toBe("pick");
+    expect(c.getState().books).toEqual([]);
+  });
+
+  it("boots to the first screen with the error when the only folder is gone", async () => {
+    const p = platform(FIXTURE_ROOT);
+    await p.sources.save([{ root: path.join(FIXTURE_ROOT, "does-not-exist"), addedAt: "2026-09-07T00:00:00Z" }]);
+    const c = new AppController(p);
+    await c.boot();
+    expect(c.getState().phase).toBe("pick");
+    expect(c.getState().error).toMatch(/Could not open/);
   });
 });
 

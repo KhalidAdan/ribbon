@@ -62,6 +62,8 @@ pub fn run() {
             home::home_info,
             home::remember_library,
             home::forget_library,
+            home::sources_read,
+            home::sources_write,
             home::reveal_home,
             home::reset_home,
             home::app_settings_read,

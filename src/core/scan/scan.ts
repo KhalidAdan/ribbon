@@ -19,6 +19,8 @@ export interface ScannedBook {
   chapters: Chapter[];
   /** Files found but not yet read. Absent once the book is complete. */
   pending?: number;
+  /** The id of the source folder the book came from; set by the app, not the scan. */
+  source?: string;
 }
 
 export interface ScanOptions {

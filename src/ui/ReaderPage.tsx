@@ -26,7 +26,7 @@ export function ReaderPage() {
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
   const [drawer, setDrawer] = useState<"chapters" | null>(null);
 
-  const series = useMemo(() => (book ? c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null : null), [c, book, state.books, state.root]);
+  const series = useMemo(() => (book ? c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null : null), [c, book, state.books, state.sources]);
   const record = series ? state.series[series.key] : undefined;
   const orderedIds = useMemo(() => (series ? orderBySeries(series.bookIds, (id) => id, record ? [record] : []) : []), [series, record]);
   const hidden = useMemo(() => hiddenBookIds(record ? [record] : []), [record]);

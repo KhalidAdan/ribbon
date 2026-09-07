@@ -70,9 +70,11 @@ export interface JobStatus {
 export class JobQueue {
   private queue: ScannedBook[] = [];
   private running: { bookId: string; abort: AbortController } | null = null;
+  private runningBook: ScannedBook | null = null;
   private listeners = new Set<(s: JobStatus, result: Analysis | null) => void>();
 
-  constructor(private readonly lib: LibraryService) {}
+  /** `libFor` says which library a book's records live in; null when the book's source is gone. */
+  constructor(private readonly libFor: (book: ScannedBook) => LibraryService | null) {}
 
   onStatus(fn: (s: JobStatus, result: Analysis | null) => void): () => void {
     this.listeners.add(fn);
@@ -94,6 +96,12 @@ export class JobQueue {
     this.running?.abort.abort();
   }
 
+  /** Drop the queued books that match, and stop the running one if it does. */
+  cancelWhere(pred: (book: ScannedBook) => boolean): void {
+    this.queue = this.queue.filter((b) => !pred(b));
+    if (this.running && this.runningBook && pred(this.runningBook)) this.running.abort.abort();
+  }
+
   private emit(s: JobStatus, result: Analysis | null): void {
     for (const l of this.listeners) l(s, result);
   }
@@ -104,14 +112,17 @@ export class JobQueue {
     if (!next) return;
     const abort = new AbortController();
     this.running = { bookId: next.book.id, abort };
+    this.runningBook = next;
     this.emit({ bookId: next.book.id, state: "running" }, null);
     try {
-      const result = await analyzeBook(this.lib, next, abort.signal);
+      const lib = this.libFor(next);
+      const result = lib ? await analyzeBook(lib, next, abort.signal) : null;
       this.emit({ bookId: next.book.id, state: result ? "done" : "failed" }, result);
     } catch {
       this.emit({ bookId: next.book.id, state: "failed" }, null);
     } finally {
       this.running = null;
+      this.runningBook = null;
       void this.pump();
     }
   }

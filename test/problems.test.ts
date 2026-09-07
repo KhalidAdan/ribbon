@@ -20,4 +20,16 @@ describe("problems record", () => {
     expect(groups.map((g) => g.folder)).toEqual(["Book B", ""]);
     expect(groups[0]!.problems).toHaveLength(2);
   });
+
+  it("keeps the same folder name in two sources apart", () => {
+    const groups = groupProblems([
+      { path: "Book B/03.mp3", message: "x", at: "", source: "a" },
+      { path: "Book B/01.mp3", message: "x", at: "", source: "b" },
+      { path: "Book B/02.mp3", message: "x", at: "", source: "a" },
+    ]);
+    expect(groups.map((g) => [g.source, g.folder, g.problems.length])).toEqual([
+      ["a", "Book B", 2],
+      ["b", "Book B", 1],
+    ]);
+  });
 });

@@ -37,6 +37,29 @@ fn registry_path() -> PathBuf {
     home_dir().join("libraries.tsv")
 }
 
+fn sources_path() -> PathBuf {
+    home_dir().join("sources.tsv")
+}
+
+/// Lines of `stamp<TAB>path`; blank paths are skipped.
+fn parse_tsv(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .filter_map(|line| {
+            let (stamp, path) = line.split_once('\t')?;
+            (!path.trim().is_empty()).then(|| (stamp.trim().to_string(), path.trim().to_string()))
+        })
+        .collect()
+}
+
+fn write_tsv(file: PathBuf, rows: impl Iterator<Item = (String, String)>) -> Result<(), String> {
+    let dir = home_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let body: String = rows.map(|(stamp, path)| format!("{stamp}\t{path}\n")).collect();
+    let tmp = file.with_extension("tsv.tmp");
+    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, file).map_err(|e| e.to_string())
+}
+
 /// A library opened on this machine. Tab-separated on disk: paths hold
 /// commas and quotes, never tabs or newlines.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -49,21 +72,48 @@ pub struct LibraryEntry {
 
 fn read_registry() -> Vec<LibraryEntry> {
     let Ok(text) = std::fs::read_to_string(registry_path()) else { return Vec::new() };
-    text.lines()
-        .filter_map(|line| {
-            let (last_opened, root) = line.split_once('\t')?;
-            (!root.trim().is_empty()).then(|| LibraryEntry { root: root.trim().to_string(), last_opened: last_opened.trim().to_string() })
-        })
-        .collect()
+    parse_tsv(&text).into_iter().map(|(last_opened, root)| LibraryEntry { root, last_opened }).collect()
 }
 
 fn write_registry(entries: &[LibraryEntry]) -> Result<(), String> {
-    let dir = home_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let body: String = entries.iter().map(|e| format!("{}\t{}\n", e.last_opened, e.root)).collect();
-    let tmp = dir.join("libraries.tsv.tmp");
-    std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, registry_path()).map_err(|e| e.to_string())
+    write_tsv(registry_path(), entries.iter().map(|e| (e.last_opened.clone(), e.root.clone())))
+}
+
+/// A folder the library is populated from. The books stay in place;
+/// Ribbon reads them there and keeps its records beside them.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceEntry {
+    pub root: String,
+    /// ISO 8601.
+    pub added_at: String,
+}
+
+fn read_sources_file() -> Option<Vec<SourceEntry>> {
+    let text = std::fs::read_to_string(sources_path()).ok()?;
+    Some(parse_tsv(&text).into_iter().map(|(added_at, root)| SourceEntry { root, added_at }).collect())
+}
+
+/// The library's sources, in the order they were added. The first time
+/// this build runs, the folder an older build opened most recently
+/// becomes the first source, so nothing is lost across the change.
+#[tauri::command]
+pub fn sources_read() -> Vec<SourceEntry> {
+    if let Some(list) = read_sources_file() {
+        return list;
+    }
+    let seeded: Vec<SourceEntry> = home_info().libraries.into_iter().take(1).map(|e| SourceEntry { root: e.root, added_at: e.last_opened }).collect();
+    if !seeded.is_empty() {
+        if let Err(e) = sources_write(seeded.clone()) {
+            log::warn!("could not write the sources file: {e}");
+        }
+    }
+    seeded
+}
+
+#[tauri::command]
+pub fn sources_write(sources: Vec<SourceEntry>) -> Result<(), String> {
+    write_tsv(sources_path(), sources.into_iter().map(|s| (s.added_at, s.root)))
 }
 
 #[derive(Serialize)]
@@ -139,9 +189,10 @@ pub fn reset_home() -> Result<(), String> {
     if mirror.is_dir() {
         std::fs::remove_dir_all(&mirror).map_err(|e| e.to_string())?;
     }
-    let reg = registry_path();
-    if reg.is_file() {
-        std::fs::remove_file(&reg).map_err(|e| e.to_string())?;
+    for file in [registry_path(), sources_path()] {
+        if file.is_file() {
+            std::fs::remove_file(&file).map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -180,6 +231,12 @@ mod tests {
         assert_eq!(t.len(), 20, "{t}");
         assert!(t.starts_with("20"));
         assert!(t.ends_with('Z'));
+    }
+
+    #[test]
+    fn tsv_rows_keep_the_path_after_the_first_tab() {
+        let rows = parse_tsv("2026-01-01T00:00:00Z\t\\\\nas\\media\\Books\n\n2026-01-02T00:00:00Z\t\nbad line\n2026-01-03T00:00:00Z\tE:\\a\tb\n");
+        assert_eq!(rows, vec![("2026-01-01T00:00:00Z".to_string(), "\\\\nas\\media\\Books".to_string()), ("2026-01-03T00:00:00Z".to_string(), "E:\\a\tb".to_string())]);
     }
 
     #[test]
