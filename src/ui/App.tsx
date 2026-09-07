@@ -8,6 +8,7 @@ import { PickLibrary } from "./PickLibrary";
 import { LibraryPane } from "./LibraryPane";
 import { PlayerPane } from "./PlayerPane";
 import { SettingsPane } from "./SettingsPane";
+import { SeriesSetup } from "./SeriesSetup";
 import { useKeys } from "./useKeys";
 import { ScanProgress } from "./ScanProgress";
 
@@ -94,12 +95,14 @@ function Ready() {
     return (
       <main className="h-full">
         <SettingsPane />
+        <SeriesSetup />
       </main>
     );
   }
 
   return (
     <main className="flex h-full">
+      <SeriesSetup />
       <div className={clsx("h-full w-full shrink-0 lg:w-80 lg:border-r lg:border-neutral-950/10 dark:lg:border-white/10", state.pane === "player" && "max-lg:hidden")}>
         <LibraryPane />
       </div>

@@ -9,6 +9,7 @@ import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, 
 import { bytesToRows, rowsToBytes, num, int } from "../core/csv";
 import { LOUDNESS_HEADERS, gainDb } from "../core/loudness";
 import { bytesToProblems, problemsToBytes, type Problem } from "../core/problems";
+import { bytesToSeries, seriesToBytes, type SeriesRecord } from "../core/series";
 import { locate } from "../core/timeline";
 
 /**
@@ -206,6 +207,29 @@ export class LibraryService {
     }
     await this.host.mkdir(this.dir());
     await this.host.writeFile(path, await problemsToBytes(list));
+  }
+
+  // Series -------------------------------------------------------------
+
+  /** Every series decision beside the books, by key, in one directory read. */
+  async readSeries(): Promise<Map<string, SeriesRecord>> {
+    const out = new Map<string, SeriesRecord>();
+    const encoder = new TextEncoder();
+    for (const f of await this.host.readTextDir(this.dir("series"))) {
+      if (!f.name.endsWith(".csv")) continue;
+      try {
+        const r = await bytesToSeries(f.name.slice(0, -4), encoder.encode(f.text));
+        if (r) out.set(r.key, r);
+      } catch {
+        /* ignore */
+      }
+    }
+    return out;
+  }
+
+  async writeSeries(record: SeriesRecord): Promise<void> {
+    await this.host.mkdir(this.dir("series"));
+    await this.host.writeFile(this.dir("series", `${record.key}.csv`), await seriesToBytes(record));
   }
 
   // Settings -----------------------------------------------------------

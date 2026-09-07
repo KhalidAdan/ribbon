@@ -4,7 +4,22 @@
     {
       "name": "ribbon-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 1420
+    },
+    {
+      "name": "ribbon-web-series",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--mode",
+        "series"
+      ],
       "port": 1420
     }
   ]

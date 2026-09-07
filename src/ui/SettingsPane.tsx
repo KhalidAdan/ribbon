@@ -1,4 +1,5 @@
 import { ArrowPathIcon, ChevronLeftIcon, FolderOpenIcon } from "@heroicons/react/16/solid";
+import { useMemo } from "react";
 import { groupProblems } from "../core/problems";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
@@ -13,6 +14,7 @@ export function SettingsPane() {
   const state = useAppState();
   const c = useController();
   const groups = groupProblems(state.problems);
+  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.root]);
   const bookFor = (folder: string) => state.books.find((b) => b.book.path === folder) ?? null;
 
   return (
@@ -85,6 +87,34 @@ export function SettingsPane() {
                           </li>
                         ))}
                       </ul>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Section>
+
+          <Section
+            title="Series"
+            description={series.length === 0 ? "No series found. Numbered folders or a series tag make one." : "Which books belong, in what order, and which to leave off the shelf. Nothing is deleted."}
+          >
+            {series.length > 0 && (
+              <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
+                {series.map((g) => {
+                  const record = state.series[g.key];
+                  const left = record ? record.choices.filter((ch) => !ch.included).length : 0;
+                  return (
+                    <li key={g.key} className="flex items-center justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{g.name}</p>
+                        <p className="text-sm/5 text-neutral-500 dark:text-neutral-400">
+                          {g.bookIds.length} books
+                          {record ? ` · ${left === 0 ? "all on the shelf" : `${left} left off`} · set up ${new Date(record.decidedAt).toLocaleDateString(undefined, { dateStyle: "medium" })}` : " · not set up"}
+                        </p>
+                      </div>
+                      <Button size="sm" onClick={() => c.openSeriesSetup(g.key)} className="shrink-0">
+                        {record ? "Change" : "Set up"}
+                      </Button>
                     </li>
                   );
                 })}
