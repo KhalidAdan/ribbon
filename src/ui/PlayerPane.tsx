@@ -1,4 +1,4 @@
-import { BackwardIcon, BookmarkIcon, ChevronLeftIcon, ForwardIcon, ListBulletIcon, PauseIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { BackwardIcon, BookmarkIcon, ChevronDownIcon, ForwardIcon, ListBulletIcon, PauseIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
@@ -12,12 +12,14 @@ import { SleepControl } from "./SleepControl";
 import { ChapterList } from "./ChapterList";
 import { BookmarkList } from "./BookmarkList";
 import { ResumeOffer } from "./ResumeOffer";
+import { SkipIcon } from "./PlayerBar";
 
 export function PlayerPane() {
   const state = useAppState();
   const c = useController();
   const cur = state.current;
-  const [drawer, setDrawer] = useState<"chapters" | "bookmarks" | "speed" | null>(null);
+  const drawer = state.playerDrawer;
+  const setDrawer = (d: typeof drawer) => c.setPlayerDrawer(d);
   const [noteOpen, setNoteOpen] = useState(false);
   const [moreAbout, setMoreAbout] = useState(false);
 
@@ -44,11 +46,11 @@ export function PlayerPane() {
 
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Player">
-      <div className="flex items-center gap-2 px-3 pt-3 lg:hidden">
-        <Button icon size="sm" variant="ghost" aria-label="Back to library" onClick={() => c.showLibrary()}>
-          <ChevronLeftIcon className="size-4 fill-current" />
+      <div className="flex items-center gap-2 px-3 pt-3">
+        <Button icon size="sm" variant="ghost" aria-label="Back to the shelf" onClick={() => c.collapsePlayer()}>
+          <ChevronDownIcon className="size-4 fill-current" />
         </Button>
-        <p className="min-w-0 flex-1 truncate text-sm/6 text-neutral-500 dark:text-neutral-400">Library</p>
+        <p className="min-w-0 flex-1 truncate text-sm/6 text-neutral-500 dark:text-neutral-400">Now playing</p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -177,16 +179,6 @@ export function PlayerPane() {
         {drawer === "bookmarks" ? <BookmarkList /> : <ChapterList />}
       </Drawer>
     </section>
-  );
-}
-
-/** Skip-to-chapter glyph: a bar and a triangle, mirrored for back. */
-function SkipIcon({ direction }: { direction: "back" | "forward" }) {
-  return (
-    <svg viewBox="0 0 16 16" className={clsx("size-4 fill-current", direction === "back" && "-scale-x-100")} aria-hidden="true">
-      <path d="M3 3.5a1 1 0 0 1 1.6-.8l6 4.5a1 1 0 0 1 0 1.6l-6 4.5A1 1 0 0 1 3 12.5v-9Z" />
-      <path d="M12 3a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0V4a1 1 0 0 1 1-1Z" />
-    </svg>
   );
 }
 

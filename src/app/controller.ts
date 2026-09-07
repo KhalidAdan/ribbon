@@ -106,8 +106,12 @@ export interface AppState {
   /** Bumped when the set of locally mirrored covers changes. */
   coverVersion: number;
   error: string | null;
-  /** Narrow layouts show one pane at a time; settings takes the whole window. */
-  pane: "library" | "player" | "settings";
+  /** What fills the window above the player bar. */
+  pane: "library" | "settings";
+  /** The full player is open over everything. */
+  playerExpanded: boolean;
+  /** Which drawer the full player shows, if any. */
+  playerDrawer: "chapters" | "bookmarks" | "speed" | null;
 }
 
 /**
@@ -200,6 +204,8 @@ export class AppController {
       coverVersion: 0,
       error: null,
       pane: "library",
+      playerExpanded: false,
+      playerDrawer: null,
     };
   }
 
@@ -439,7 +445,7 @@ export class AppController {
   forgetLibrary(): void {
     this.engine?.pause();
     if (this.state.root) void this.platform.forgetRoot(this.state.root).catch(() => undefined);
-    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", assetsReady: false });
+    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false });
   }
 
   private async positionsFor(books: ScannedBook[]): Promise<Record<string, Position | null>> {
@@ -529,7 +535,7 @@ export class AppController {
     const engine = this.ensureEngine();
     if (!engine) return;
     if (this.state.current?.book.book.id === book.book.id) {
-      this.set({ pane: "player" });
+      this.expandPlayer();
       return;
     }
     if (this.state.player.playing) {
@@ -546,7 +552,7 @@ export class AppController {
     ]);
     const position = this.state.positions[book.book.id] ?? (await this.lib.readPosition(book.book.id));
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
-    this.set({ current, pane: "player", resumeOffer: null });
+    this.set({ current, playerExpanded: true, playerDrawer: null, resumeOffer: null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     engine.setSpeed(settings.speed);
@@ -808,7 +814,21 @@ export class AppController {
   // Navigation ----------------------------------------------------------
 
   showLibrary(): void {
-    this.set({ pane: "library" });
+    this.set({ pane: "library", playerExpanded: false });
+  }
+
+  /** Open the full player over the shelf, optionally straight onto one of its drawers. */
+  expandPlayer(drawer: AppState["playerDrawer"] = null): void {
+    if (!this.state.current) return;
+    this.set({ playerExpanded: true, playerDrawer: drawer });
+  }
+
+  collapsePlayer(): void {
+    this.set({ playerExpanded: false, playerDrawer: null });
+  }
+
+  setPlayerDrawer(drawer: AppState["playerDrawer"]): void {
+    this.set({ playerDrawer: drawer });
   }
 
   showSettings(): void {
@@ -828,7 +848,7 @@ export class AppController {
     if (!this.platform.home) return;
     if (!(await this.platform.home.reset())) return;
     this.engine?.pause();
-    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", assetsReady: false, series: {}, problems: [] });
+    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [] });
   }
 
   // Series ----------------------------------------------------------------
@@ -923,7 +943,7 @@ export class AppController {
   }
 
   showPlayer(): void {
-    if (this.state.current) this.set({ pane: "player" });
+    this.expandPlayer();
   }
 
   clearError(): void {
