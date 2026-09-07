@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 const AUDIO: &[&str] = &["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"];
 const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
@@ -203,6 +203,7 @@ fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
 }
 
 /// One file found by the walk.
+#[allow(dead_code)]
 pub struct Entry {
     pub abs: PathBuf,
     pub name: String,
@@ -661,14 +662,9 @@ fn fnv(s: &str) -> String {
     format!("{h:016x}")
 }
 
-/// Where every library's mirror lives. Allowed for the asset protocol
-/// at startup, so covers served from here never touch the share.
-pub fn mirror_base(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().app_local_data_dir().map_err(|e| e.to_string())?.join("mirror"))
-}
-
-fn mirror_dir(app: &AppHandle, root: &str) -> Result<PathBuf, String> {
-    Ok(mirror_base(app)?.join(fnv(&root.replace('\\', "/").trim_end_matches('/').to_lowercase())))
+/// This library's mirror folder inside the Ribbon folder.
+fn mirror_dir(root: &str) -> PathBuf {
+    crate::home::mirror_base().join(fnv(&root.replace('\\', "/").trim_end_matches('/').to_lowercase()))
 }
 
 #[derive(Serialize)]
@@ -696,8 +692,8 @@ fn list_covers(dir: &Path) -> Vec<String> {
 /// truth: the background rescan reads them and replaces this within a
 /// second. None when the library has no mirror yet.
 #[tauri::command]
-pub async fn mirror_read(app: AppHandle, root: String) -> Result<Option<Mirror>, String> {
-    let dir = mirror_dir(&app, &root)?;
+pub async fn mirror_read(root: String) -> Result<Option<Mirror>, String> {
+    let dir = mirror_dir(&root);
     tauri::async_runtime::spawn_blocking(move || {
         let library = std::fs::read_to_string(dir.join("library.csv")).ok();
         let files = std::fs::read_to_string(dir.join("files.csv")).ok();
@@ -726,8 +722,8 @@ pub struct CoverToMirror {
 /// each read, which on a slow volume stalls everything else the webview
 /// is waiting for; a local copy costs nothing to serve.
 #[tauri::command]
-pub async fn mirror_covers(app: AppHandle, root: String, covers: Vec<CoverToMirror>) -> Result<Vec<String>, String> {
-    let dir = mirror_dir(&app, &root)?;
+pub async fn mirror_covers(root: String, covers: Vec<CoverToMirror>) -> Result<Vec<String>, String> {
+    let dir = mirror_dir(&root);
     tauri::async_runtime::spawn_blocking(move || {
         let target_dir = dir.join("covers");
         std::fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
@@ -750,8 +746,8 @@ pub async fn mirror_covers(app: AppHandle, root: String, covers: Vec<CoverToMirr
 }
 
 #[tauri::command]
-pub async fn mirror_write(app: AppHandle, root: String, library: Option<String>, files: Option<String>, positions: Option<String>) -> Result<(), String> {
-    let dir = mirror_dir(&app, &root)?;
+pub async fn mirror_write(root: String, library: Option<String>, files: Option<String>, positions: Option<String>) -> Result<(), String> {
+    let dir = mirror_dir(&root);
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let parts = [("library.csv", library), ("files.csv", files), ("positions.csv", positions)];

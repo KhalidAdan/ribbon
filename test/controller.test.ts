@@ -12,8 +12,9 @@ function platform(root: string): Platform {
     pickFolder: async () => root,
     allowFolder: async () => undefined,
     fileUrl: (p) => `file:///${p}`,
-    loadRoot: () => null,
-    saveRoot: () => undefined,
+    loadRoot: async () => null,
+    saveRoot: async () => undefined,
+    forgetRoot: async () => undefined,
   };
 }
 

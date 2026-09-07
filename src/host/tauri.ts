@@ -153,3 +153,30 @@ export function uptimeMs(): Promise<number> {
 export function envLibrary(): Promise<string | null> {
   return invoke<string | null>("env_library");
 }
+
+export interface HomeInfo {
+  path: string;
+  /** Libraries opened on this machine, most recent first. */
+  libraries: { root: string; lastOpened: string }[];
+}
+
+/** The Ribbon folder and the registry of libraries in it. */
+export function homeInfo(): Promise<HomeInfo> {
+  return invoke<HomeInfo>("home_info");
+}
+
+export function rememberLibrary(root: string): Promise<void> {
+  return invoke<void>("remember_library", { root });
+}
+
+export function forgetLibrary(root: string): Promise<void> {
+  return invoke<void>("forget_library", { root });
+}
+
+export function revealHome(): Promise<void> {
+  return invoke<void>("reveal_home");
+}
+
+export function resetHome(): Promise<void> {
+  return invoke<void>("reset_home");
+}
