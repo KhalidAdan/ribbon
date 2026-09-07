@@ -288,13 +288,41 @@ async function rescueUnreadable(host: Host, root: string, files: ScannedFile[], 
   return results.filter(Boolean).length;
 }
 
+/** Which part of an anthology a file belongs to, 0-based, or -1. */
+function partIndexOf(group: BookGroup, relPath: string): number {
+  return group.parts ? group.parts.findIndex((p) => relPath.startsWith(p.path + "/")) : -1;
+}
+
+/** The most common non-empty value, ties to the first seen. */
+function commonest(values: readonly string[]): string {
+  const counts = new Map<string, number>();
+  let best = "";
+  let bestCount = 0;
+  for (const v of values) {
+    if (!v) continue;
+    const c = (counts.get(v) ?? 0) + 1;
+    counts.set(v, c);
+    if (c > bestCount) {
+      best = v;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
 function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: Records, errors: ScanResult["errors"]): ScannedBook | null {
   const files: AudioFile[] = [];
   const freshTags: Record<string, string>[] = [];
   let pending = 0;
+  // An anthology's parts name their chapters: the part's album tag when
+  // its files agree, else the part folder's name without its number.
+  const partTitles = (group.parts ?? []).map((p) => commonest(p.audio.map((a) => byPath.get(a.relPath)?.tags.album ?? "")) || p.name);
+  // Files read on an earlier pass carry no tags here; the part's own book record from that pass has its author.
+  const partAuthors = (group.parts ?? []).map((p) => commonest(p.audio.map((a) => byPath.get(a.relPath)?.tags.artist ?? byPath.get(a.relPath)?.tags.album_artist ?? "")) || records.previousBooks.get(p.path)?.author || "");
   for (const entry of group.audio) {
     const s = byPath.get(entry.relPath);
     if (!s) continue;
+    const part = partIndexOf(group, entry.relPath);
     if (!s.fresh && !s.pending) {
       const cached = records.previous.get(entry.relPath);
       if (cached) {
@@ -313,14 +341,16 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     }
     const keys = orderKeys(s.tags);
     freshTags.push(s.tags);
+    const ownTitle = s.tags.title ?? "";
     files.push({
       path: entry.relPath,
       order: 0,
       durationMs: s.durationMs,
       sizeBytes: entry.sizeBytes,
       mtimeMs: entry.mtimeMs,
-      title: s.tags.title ?? "",
-      disc: keys.disc,
+      // Parts play in order and read as "Part: chapter" in the chapter list.
+      title: part >= 0 ? `${partTitles[part]}: ${ownTitle || stemOf(entry.relPath)}` : ownTitle,
+      disc: part >= 0 ? part + 1 : keys.disc,
       track: keys.track,
       hasCover: s.hasCover,
       coverFile: s.cover,
@@ -345,6 +375,11 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
           isLooseRootFile ? "" : parentName,
         )
       : cachedMetadata(records.previousBooks.get(group.path), group.name, isLooseRootFile ? "" : parentName);
+
+  // An anthology by several hands is by "Various"; by one hand, by that hand.
+  const distinctAuthors = new Set(partAuthors.filter(Boolean));
+  if (group.parts && distinctAuthors.size > 1) meta.author = "Various";
+  else if (group.parts && distinctAuthors.size === 1 && !meta.author) meta.author = [...distinctAuthors][0]!;
 
   const sizeBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
@@ -371,6 +406,12 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     fileCount: files.length,
   };
   return pending > 0 ? { book, files, chapters, pending } : { book, files, chapters };
+}
+
+function stemOf(relPath: string): string {
+  const base = relPath.slice(relPath.lastIndexOf("/") + 1);
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
 }
 
 /** Disc, then track, then natural filename. Untracked files sort last only when some files are tracked. */

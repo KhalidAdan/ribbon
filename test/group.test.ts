@@ -54,4 +54,45 @@ describe("groupBooks", () => {
     const g = groupBooks([f("a.mp3"), f("b.mp3")]);
     expect(g).toHaveLength(2);
   });
+
+  describe("anthologies", () => {
+    const primarchs = [
+      f("20. The Primarchs/02 Feat of Iron/01.mp3"),
+      f("20. The Primarchs/01 The Reflection Crackd/01.mp3"),
+      f("20. The Primarchs/01 The Reflection Crackd/02.mp3"),
+      f("20. The Primarchs/01 The Reflection Crackd/cover.jpg"),
+      f("21. Fear to Tread/01.mp3"),
+    ];
+
+    it("folds a numbered folder of numbered subfolders into one book with parts", () => {
+      const g = groupBooks(primarchs);
+      expect(g.map((x) => x.path)).toEqual(["20. The Primarchs", "21. Fear to Tread"]);
+      const a = g[0]!;
+      expect(a.name).toBe("20. The Primarchs");
+      expect(a.parts!.map((p) => p.name)).toEqual(["The Reflection Crackd", "Feat of Iron"]);
+      expect(a.audio.map((x) => x.relPath)).toEqual(["20. The Primarchs/01 The Reflection Crackd/01.mp3", "20. The Primarchs/01 The Reflection Crackd/02.mp3", "20. The Primarchs/02 Feat of Iron/01.mp3"]);
+      expect(a.covers[0]!.relPath).toBe("20. The Primarchs/01 The Reflection Crackd/cover.jpg");
+    });
+
+    it("prefers the anthology folder's own cover", () => {
+      const g = groupBooks([...primarchs, f("20. The Primarchs/cover.jpg")]);
+      expect(g[0]!.covers[0]!.relPath).toBe("20. The Primarchs/cover.jpg");
+    });
+
+    it("never folds the library root, and needs the folder itself to be numbered", () => {
+      expect(groupBooks([f("01. A/x.mp3"), f("02. B/x.mp3")]).map((x) => x.path)).toEqual(["01. A", "02. B"]);
+      expect(groupBooks([f("Extras/1. A/x.mp3"), f("Extras/2. B/x.mp3")]).map((x) => x.path)).toEqual(["Extras/1. A", "Extras/2. B"]);
+    });
+
+    it("leaves a numbered folder alone when it has audio of its own or an unnumbered child", () => {
+      expect(groupBooks([f("20. X/intro.mp3"), f("20. X/01 A/x.mp3")]).map((x) => x.path)).toEqual(["20. X/intro.mp3", "20. X/01 A"]);
+      expect(groupBooks([f("20. X/01 A/x.mp3"), f("20. X/Bonus/x.mp3")]).map((x) => x.path)).toEqual(["20. X/01 A", "20. X/Bonus"]);
+    });
+
+    it("takes the outermost anthology when they nest", () => {
+      const g = groupBooks([f("5. Outer/1. Inner/1. Deep/x.mp3"), f("5. Outer/2. Other/x.mp3")]);
+      expect(g.map((x) => x.path)).toEqual(["5. Outer"]);
+      expect(g[0]!.parts!.map((p) => p.name)).toEqual(["Inner", "Other"]);
+    });
+  });
 });
