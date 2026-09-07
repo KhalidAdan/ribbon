@@ -39,6 +39,9 @@ describe("parseSearch and matchWork", () => {
     const c = parseSearch({ docs: [search.docs[1]] });
     expect(matchWork(c, "Horus Rising", "Dan Abnett")?.key).toBe("/works/OL2W");
     expect(matchWork(parseSearch({ docs: [{ key: "/works/OL9W", title: "Horus Rising Again", author_name: ["Dan Abnett"] }] }), "Horus Rising", "Dan Abnett")).toBeNull();
+    // An exact title wins over a noted one whatever the database's order.
+    const both = parseSearch({ docs: [{ key: "/works/OL8W", title: "Horus Rising      Warhammer Novels", author_name: ["Dan Abnett"] }, search.docs[0]] });
+    expect(matchWork(both, "Horus Rising", "Dan Abnett")?.key).toBe("/works/OL1W");
   });
 
   it("accepts a title that trails off into series notes when the author confirms it", () => {
