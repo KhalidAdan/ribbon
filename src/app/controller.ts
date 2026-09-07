@@ -3,6 +3,8 @@ import { extractMissingCovers, type ScannedBook } from "../core/scan/scan";
 import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
 import type { Problem } from "../core/problems";
 import { defaultChoices, detectSeries, normalizeChoices, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
+import type { BookAbout } from "../core/about";
+import { AboutLookup, type LookupStatus } from "./about";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { JobQueue, type JobStatus } from "./jobs";
@@ -33,6 +35,11 @@ export interface Platform {
   defaultRoot?: () => Promise<string | null>;
   /** Milliseconds since the host process started, when the host knows. */
   uptimeMs?: () => Promise<number>;
+  /** App-level settings that outlive a library, when the platform keeps them. */
+  appSettings?: {
+    read(): Promise<Record<string, unknown>>;
+    write(settings: Record<string, unknown>): Promise<void>;
+  };
   /** The one folder the app owns on this machine, when there is one. */
   home?: {
     path(): Promise<string>;
@@ -84,6 +91,10 @@ export interface AppState {
   series: Record<string, SeriesRecord>;
   /** The series whose setup is open, or null. */
   seriesSetup: SeriesGroup | null;
+  /** What the book database said, by book id. */
+  about: Record<string, BookAbout>;
+  /** Whether descriptions are looked up online, and how the current run is going. */
+  lookup: { enabled: boolean } & LookupStatus;
   /** How long the last scan took, for the header. */
   lastScanMs: number | null;
   /**
@@ -148,6 +159,8 @@ export class AppController {
   private clockOffset: number | null = null;
   /** Series offered for setup this session, so a skipped one stays skipped. */
   private seriesOffered = new Set<string>();
+  private lookup: AboutLookup | null = null;
+  private appSettings: Record<string, unknown> = {};
   /** Covers copied into the local mirror, and where they are. */
   private mirrorCovers = new Set<string>();
   private mirrorCoversDir: string | null = null;
@@ -180,6 +193,8 @@ export class AppController {
       problems: [],
       series: {},
       seriesSetup: null,
+      about: {},
+      lookup: { enabled: false, running: false, done: 0, total: 0 },
       lastScanMs: null,
       assetsReady: false,
       coverVersion: 0,
@@ -205,6 +220,10 @@ export class AppController {
   // Lifecycle -----------------------------------------------------------
 
   async boot(): Promise<void> {
+    if (this.platform.appSettings) {
+      this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true } });
+    }
     const asked = performance.now();
     void this.platform.uptimeMs?.().then((ms) => {
       this.clockOffset = ms - asked;
@@ -242,8 +261,10 @@ export class AppController {
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     log.info("open library", root);
-    this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false, series: {}, seriesSetup: null });
+    this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false, series: {}, seriesSetup: null, about: {} });
     this.seriesOffered = new Set();
+    this.lookup?.stop();
+    this.lookup = null;
     this.mirrorCovers = new Set();
     this.mirrorCoversDir = null;
     const marks: string[] = [];
@@ -291,8 +312,8 @@ export class AppController {
       // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
       await allowed;
       await migrate();
-      const [positions, problems, series] = await Promise.all([this.positionsFor(cached), lib.readProblems(), lib.readSeries()]);
-      if (this.lib === lib) this.set({ positions, problems, series: Object.fromEntries(series) });
+      const [positions, problems, series, about] = await Promise.all([this.positionsFor(cached), lib.readProblems(), lib.readSeries(), lib.readAbout()]);
+      if (this.lib === lib) this.set({ positions, problems, series: Object.fromEntries(series), about: Object.fromEntries(about) });
       void this.rescan(true);
       return;
     }
@@ -383,6 +404,7 @@ export class AppController {
       );
       void this.fetchCovers(books).then(() => this.mirrorCoversFor(books));
       if (background) this.offerSeriesSetup();
+      this.maybeLookup(books);
     } catch (e) {
       log.error("scan failed:", describe(e));
       this.set({ scanning: null, error: describe(e) });
@@ -832,6 +854,41 @@ export class AppController {
     }
   }
 
+  // Descriptions --------------------------------------------------------
+
+  /** Turn the online lookup on or off; on starts it for the books that lack an answer. */
+  async setLookup(enabled: boolean): Promise<void> {
+    this.appSettings = { ...this.appSettings, lookupDescriptions: enabled };
+    this.set({ lookup: { ...this.state.lookup, enabled } });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    if (enabled) this.maybeLookup(this.state.books);
+    else {
+      this.lookup?.stop();
+      this.set({ lookup: { ...this.state.lookup, running: false } });
+    }
+  }
+
+  /** Ask about the books with no answer yet, one at a time, after the shelf is settled. */
+  private maybeLookup(books: ScannedBook[]): void {
+    const lib = this.lib;
+    if (!lib || !this.state.lookup.enabled || this.lookup?.running) return;
+    if (books.some((b) => b.pending)) return;
+    this.lookup ??= new AboutLookup(lib);
+    void this.lookup.run(books, new Map(Object.entries(this.state.about)), (about, status) => {
+      if (this.lib !== lib) return;
+      this.set({
+        about: about ? { ...this.state.about, [about.bookId]: about } : this.state.about,
+        lookup: { ...this.state.lookup, ...status },
+      });
+    });
+  }
+
+  /** The description for a book, or null. */
+  aboutFor(book: ScannedBook): BookAbout | null {
+    const a = this.state.about[book.book.id];
+    return a && a.source === "openlibrary" ? a : null;
+  }
+
   openSeriesSetup(key: string): void {
     const g = this.detectedSeries().find((x) => x.key === key);
     if (g) this.set({ seriesSetup: g });
@@ -874,6 +931,7 @@ export class AppController {
   }
 
   destroy(): void {
+    this.lookup?.stop();
     this.stopSleepLoop();
     this.uninstallMedia?.();
     this.engine?.destroy();

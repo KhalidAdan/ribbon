@@ -180,3 +180,12 @@ export function revealHome(): Promise<void> {
 export function resetHome(): Promise<void> {
   return invoke<void>("reset_home");
 }
+
+/** App-level settings, a JSON object in the Ribbon folder. */
+export function appSettingsRead(): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("app_settings_read");
+}
+
+export function appSettingsWrite(settings: Record<string, unknown>): Promise<void> {
+  return invoke<void>("app_settings_write", { settings });
+}

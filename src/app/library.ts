@@ -10,6 +10,7 @@ import { bytesToRows, rowsToBytes, num, int } from "../core/csv";
 import { LOUDNESS_HEADERS, gainDb } from "../core/loudness";
 import { bytesToProblems, problemsToBytes, type Problem } from "../core/problems";
 import { bytesToSeries, seriesToBytes, type SeriesRecord } from "../core/series";
+import { aboutToBytes, bytesToAbout, type BookAbout } from "../core/about";
 import { locate } from "../core/timeline";
 
 /**
@@ -207,6 +208,22 @@ export class LibraryService {
     }
     await this.host.mkdir(this.dir());
     await this.host.writeFile(path, await problemsToBytes(list));
+  }
+
+  // About --------------------------------------------------------------
+
+  /** What the book database said about each book, by id. */
+  async readAbout(): Promise<Map<string, BookAbout>> {
+    try {
+      return new Map((await bytesToAbout(await this.host.readFile(this.dir("about.csv")))).map((a) => [a.bookId, a]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  async writeAbout(list: readonly BookAbout[]): Promise<void> {
+    await this.host.mkdir(this.dir());
+    await this.host.writeFile(this.dir("about.csv"), await aboutToBytes(list));
   }
 
   // Series -------------------------------------------------------------
