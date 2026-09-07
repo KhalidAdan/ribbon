@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampSpeed, formatDuration, formatSpeed, remainingAtSpeed, snapSpeed } from "../src/core/speed";
+import { clampSpeed, formatDuration, formatLeft, formatSpeed, remainingAtSpeed, snapSpeed } from "../src/core/speed";
 
 describe("speed", () => {
   it("computes remaining wall time", () => {
@@ -37,5 +37,14 @@ describe("speed", () => {
     expect(formatSpeed(1.5)).toBe("1.5×");
     expect(formatSpeed(1.25)).toBe("1.25×");
     expect(formatSpeed(2)).toBe("2×");
+  });
+});
+
+describe("formatLeft", () => {
+  it("is coarse: hours and minutes, then minutes, then seconds", () => {
+    expect(formatLeft(13 * 3_600_000 + 24 * 60_000 + 59_000)).toBe("13h 24m");
+    expect(formatLeft(24 * 60_000 + 5_000)).toBe("24 min");
+    expect(formatLeft(36_000)).toBe("36 sec");
+    expect(formatLeft(-5)).toBe("0 sec");
   });
 });

@@ -30,6 +30,16 @@ export function formatDuration(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+/** `13h 24m`, `24 min`, `36 sec`: the coarse form for "left in the book". */
+export function formatLeft(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m} min`;
+  return `${total} sec`;
+}
+
 export function formatSpeed(speed: number): string {
   const s = snapSpeed(speed);
   return `${Number.isInteger(s) ? s.toFixed(0) : s.toFixed(2).replace(/0$/, "")}×`;
