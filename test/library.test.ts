@@ -51,9 +51,9 @@ describe("positions", () => {
 describe("settings", () => {
   it("defaults to 1x and round-trips a snapped speed", async () => {
     const b = find("single-m4b");
-    expect(await lib.readSettings(b.book.id)).toEqual({ bookId: b.book.id, speed: 1 });
-    await lib.writeSettings({ bookId: b.book.id, speed: 1.2600001 });
-    expect(await lib.readSettings(b.book.id)).toEqual({ bookId: b.book.id, speed: 1.25 });
+    expect(await lib.readSettings(b.book.id)).toEqual({ bookId: b.book.id, speed: 1, trimSilence: false });
+    await lib.writeSettings({ bookId: b.book.id, speed: 1.2600001, trimSilence: true });
+    expect(await lib.readSettings(b.book.id)).toEqual({ bookId: b.book.id, speed: 1.25, trimSilence: true });
   });
 });
 

@@ -10,7 +10,9 @@ export function SpeedControl() {
   const state = useAppState();
   const c = useController();
   const speed = state.player.speed;
+  const trim = state.current?.settings.trimSilence ?? false;
   return (
+    <div className="flex flex-col gap-4">
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-base/6 text-neutral-600 sm:text-sm/6 dark:text-neutral-400">Speed</span>
       <div className="flex items-center gap-1">
@@ -40,6 +42,21 @@ export function SpeedControl() {
           </button>
         ))}
       </div>
+    </div>
+    <label htmlFor="trim-silence" className="flex cursor-pointer items-start gap-3">
+      <input
+        id="trim-silence"
+        type="checkbox"
+        role="switch"
+        checked={trim}
+        onChange={(e) => void c.setTrimSilence(e.target.checked)}
+        className="mt-1 size-4 shrink-0 accent-amber-500"
+      />
+      <span>
+        <span className="block text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white">Trim silences</span>
+        <span className="block text-sm/5 text-pretty text-neutral-500 dark:text-neutral-400">Shorten pauses longer than a second to about half a second. Off unless you turn it on.</span>
+      </span>
+    </label>
     </div>
   );
 }

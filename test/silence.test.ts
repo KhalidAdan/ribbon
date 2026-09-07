@@ -61,12 +61,12 @@ describe("findRange", () => {
 
 describe("gapRate", () => {
   it("shortens a gap to the target length", async () => {
-    expect(gapRate({ startMs: 0, endMs: 3000 })).toBe(10 > 8 ? 8 : 10);
-    expect(gapRate({ startMs: 0, endMs: 1500 })).toBe(5);
-    expect(gapRate({ startMs: 0, endMs: 300 })).toBe(1);
+    expect(gapRate({ startMs: 0, endMs: 3000 })).toBe(3);
+    expect(gapRate({ startMs: 0, endMs: 1500 })).toBe(2.5);
+    expect(gapRate({ startMs: 0, endMs: 600 })).toBe(1);
     expect(gapRate({ startMs: 0, endMs: 100 })).toBe(1);
   });
   it("caps at 8", async () => {
-    expect(gapRate({ startMs: 0, endMs: 60_000 })).toBe(8);
+    expect(gapRate({ startMs: 0, endMs: 60_000 })).toBe(3);
   });
 });
