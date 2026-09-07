@@ -34,6 +34,11 @@ export interface ScanOptions {
   onBooks?: (books: ScannedBook[]) => void;
   /** Skip files whose size and mtime match `.ribbon/files.csv`. Default true. */
   incremental?: boolean;
+  /**
+   * Library-relative paths, or folder prefixes, whose files are read
+   * again even when unchanged: a book the listener asked to rescan.
+   */
+  forget?: string[];
   /** Write `.ribbon/*` records. Default true. */
   write?: boolean;
 }
@@ -87,6 +92,9 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   };
   const records = await readRecords(host, root, opts.incremental ?? true);
   const recordsMs = lap();
+  const forget = opts.forget ?? [];
+  const forgotten = (path: string) => forget.some((f) => path === f || path.startsWith(f.endsWith("/") ? f : `${f}/`));
+  for (const path of [...records.previous.keys()]) if (forgotten(path)) records.previous.delete(path);
   const known = [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,

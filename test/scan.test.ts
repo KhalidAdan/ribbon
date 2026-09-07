@@ -31,6 +31,13 @@ describe("scanLibrary over generated fixtures", () => {
     expect(result.probed).toBe(1 + 5 + 12 + 1 + 2 + 1 + 2 + 3);
   });
 
+  it("reads a forgotten folder again even though nothing changed", async () => {
+    const again = await scanLibrary(host, FIXTURE_ROOT, { forget: ["multi-mp3"] });
+    expect(again.probed).toBe(5);
+    expect(again.reused).toBe(result.probed - 5);
+    expect(again.books.map((b) => b.book.path).sort()).toEqual(result.books.map((b) => b.book.path).sort());
+  });
+
   it("reads the single M4B: chapters, tags, series, cover", () => {
     const b = byPath("single-m4b");
     expect(b.book.title).toBe("The Single Book");

@@ -7,6 +7,7 @@ import { ControllerContext, useAppState, useController } from "./store";
 import { PickLibrary } from "./PickLibrary";
 import { LibraryPane } from "./LibraryPane";
 import { PlayerPane } from "./PlayerPane";
+import { SettingsPane } from "./SettingsPane";
 import { useKeys } from "./useKeys";
 import { ScanProgress } from "./ScanProgress";
 
@@ -85,6 +86,14 @@ function Ready() {
           )}
         </div>
         <div className="hidden min-w-0 flex-1 lg:block" />
+      </main>
+    );
+  }
+
+  if (state.pane === "settings") {
+    return (
+      <main className="h-full">
+        <SettingsPane />
       </main>
     );
   }

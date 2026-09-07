@@ -1,6 +1,7 @@
 import type { Host, ScanProgress } from "../host/host";
 import { extractMissingCovers, type ScannedBook } from "../core/scan/scan";
 import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
+import type { Problem } from "../core/problems";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { JobQueue, type JobStatus } from "./jobs";
@@ -66,6 +67,8 @@ export interface AppState {
   scanning: ScanStatus | null;
   /** Files the last scan could not read. */
   scanErrors: { path: string; message: string }[];
+  /** The same, as recorded beside the books, so yesterday's are still visible. */
+  problems: Problem[];
   /** How long the last scan took, for the header. */
   lastScanMs: number | null;
   /**
@@ -77,8 +80,8 @@ export interface AppState {
   /** Bumped when the set of locally mirrored covers changes. */
   coverVersion: number;
   error: string | null;
-  /** Narrow layouts show one pane at a time. */
-  pane: "library" | "player";
+  /** Narrow layouts show one pane at a time; settings takes the whole window. */
+  pane: "library" | "player" | "settings";
 }
 
 /**
@@ -157,6 +160,7 @@ export class AppController {
       jobs: {},
       scanning: null,
       scanErrors: [],
+      problems: [],
       lastScanMs: null,
       assetsReady: false,
       coverVersion: 0,
@@ -267,8 +271,8 @@ export class AppController {
       // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
       await allowed;
       await migrate();
-      const positions = await this.positionsFor(cached);
-      if (this.lib === lib) this.set({ positions });
+      const [positions, problems] = await Promise.all([this.positionsFor(cached), lib.readProblems()]);
+      if (this.lib === lib) this.set({ positions, problems });
       void this.rescan(true);
       return;
     }
@@ -285,7 +289,7 @@ export class AppController {
    * paints from folder names as soon as the walk is done, then fills in
    * authors, then durations, and the complete list lands last.
    */
-  async rescan(background = this.state.phase === "ready"): Promise<void> {
+  async rescan(background = this.state.phase === "ready", forget: string[] = []): Promise<void> {
     if (!this.lib || this.scanInFlight) return;
     const lib = this.lib;
     this.scanInFlight = true;
@@ -309,6 +313,7 @@ export class AppController {
     try {
       const result = await lib.rescanDetailed({
         write: false,
+        forget,
         onProgress: (p: ScanProgress) => {
           // Batches can land many times a second; the header need not.
           const now = Date.now();
@@ -345,6 +350,11 @@ export class AppController {
         lastScanMs: Date.now() - started,
         current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
       });
+      // Every scan is a full walk, so its errors are the whole current list.
+      const at = new Date().toISOString();
+      const problems: Problem[] = result.errors.map((e) => ({ path: e.path, message: e.message, at }));
+      this.set({ problems });
+      void lib.writeProblems(problems).catch((e: unknown) => log.warn("could not save problems:", describe(e)));
       const saveStarted = Date.now();
       this.saving = result.save().then(
         () => log.info("records saved in", Date.now() - saveStarted, "ms"),
@@ -745,6 +755,15 @@ export class AppController {
 
   showLibrary(): void {
     this.set({ pane: "library" });
+  }
+
+  showSettings(): void {
+    this.set({ pane: "settings" });
+  }
+
+  /** Read every file under a folder again, whether or not it changed. */
+  async rescanFolder(folder: string): Promise<void> {
+    await this.rescan(true, [folder]);
   }
 
   showPlayer(): void {

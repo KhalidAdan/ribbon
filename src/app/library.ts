@@ -8,6 +8,7 @@ import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } fro
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../core/scan/chapters";
 import { bytesToRows, rowsToBytes, num, int } from "../core/csv";
 import { LOUDNESS_HEADERS, gainDb } from "../core/loudness";
+import { bytesToProblems, problemsToBytes, type Problem } from "../core/problems";
 import { locate } from "../core/timeline";
 
 /**
@@ -183,6 +184,28 @@ export class LibraryService {
     await this.host.mkdir(this.dir("positions"));
     await this.host.writeFile(this.dir("positions", `${bookId}.csv`), await serializePosition(p));
     return p;
+  }
+
+  // Problems -----------------------------------------------------------
+
+  /** Files the last scan could not read, as recorded beside the books. */
+  async readProblems(): Promise<Problem[]> {
+    try {
+      return await bytesToProblems(await this.host.readFile(this.dir("problems.csv")));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Replace the record with this scan's list. An empty list clears it. */
+  async writeProblems(list: readonly Problem[]): Promise<void> {
+    const path = this.dir("problems.csv");
+    if (list.length === 0) {
+      await this.host.remove(path).catch(() => undefined);
+      return;
+    }
+    await this.host.mkdir(this.dir());
+    await this.host.writeFile(path, await problemsToBytes(list));
   }
 
   // Settings -----------------------------------------------------------
