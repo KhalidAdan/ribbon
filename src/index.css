@@ -1,9 +1,13 @@
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/newsreader/opsz.css";
+@import "@fontsource-variable/newsreader/opsz-italic.css";
 @import "tailwindcss";
 
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-sans--font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  /* The reader page: a book's page reads better in a serif. */
+  --font-serif: "Newsreader Variable", Georgia, "Times New Roman", serif;
 }
 
 html,

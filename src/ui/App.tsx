@@ -9,6 +9,7 @@ import { LibraryPane } from "./LibraryPane";
 import { PlayerPane } from "./PlayerPane";
 import { PlayerBar } from "./PlayerBar";
 import { PlayerSheet } from "./PlayerSheet";
+import { ReaderPage } from "./ReaderPage";
 import { SettingsPane } from "./SettingsPane";
 import { SeriesSetup } from "./SeriesSetup";
 import { useKeys } from "./useKeys";
@@ -99,6 +100,8 @@ function Ready() {
       <div className="min-h-0 flex-1">
         {state.pane === "settings" ? (
           <SettingsPane />
+        ) : state.pane === "reader" ? (
+          <ReaderPage />
         ) : (
           <div className={clsx("mx-auto h-full w-full", "max-w-3xl")}>
             <LibraryPane />

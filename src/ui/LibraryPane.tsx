@@ -98,7 +98,7 @@ export function LibraryPane() {
 
       {sorted.length > 0 && (
         <div className="px-4 pb-3 sm:px-5">
-          <SearchField value={query} onChange={setQuery} count={matches ? shown.length : null} onSubmit={() => shown[0] && void c.openBook(shown[0])} />
+          <SearchField value={query} onChange={setQuery} count={matches ? shown.length : null} onSubmit={() => shown[0] && c.openReader(shown[0].book.id)} />
         </div>
       )}
       {sorted.length === 0 && state.scanning ? (
@@ -160,7 +160,7 @@ const BookRow = memo(function BookRow({ book, active, coverUrl, position, playin
     <li>
       <button
         type="button"
-        onClick={() => void c.openBook(book)}
+        onClick={() => c.openReader(book.book.id)}
         aria-current={active ? "true" : undefined}
         className={clsx(
           "flex w-full items-center gap-3 rounded-lg p-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500",
