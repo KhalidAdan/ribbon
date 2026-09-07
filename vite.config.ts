@@ -1,13 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { devLibrary } from "./tools/vite-dev-library";
 
 const host = process.env.TAURI_DEV_HOST;
+const version = (JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string }).version;
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), devLibrary(process.env.RIBBON_DEV_LIBRARY ?? (existsSync("books") ? "books" : undefined))],
+  define: { __APP_VERSION__: JSON.stringify(version) },
   clearScreen: false,
   server: {
     port: 1420,

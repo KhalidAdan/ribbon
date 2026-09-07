@@ -1,4 +1,4 @@
-import { ArrowPathIcon, FolderOpenIcon } from "@heroicons/react/16/solid";
+import { ArrowPathIcon, Cog6ToothIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { Position } from "../core/types";
@@ -76,8 +76,16 @@ export function LibraryPane() {
         <Button icon size="sm" variant="ghost" aria-label="Rescan library" title="Rescan library" onClick={() => void c.rescan()} disabled={state.scanning !== null}>
           <ArrowPathIcon className={clsx("size-4 fill-current", state.scanning && "animate-spin")} />
         </Button>
-        <Button icon size="sm" variant="ghost" aria-label="Choose a different folder" title="Choose a different folder" onClick={() => c.forgetLibrary()}>
-          <FolderOpenIcon className="size-4 fill-current" />
+        <Button
+          icon
+          size="sm"
+          variant="ghost"
+          aria-label={state.problems.length > 0 ? `Settings, ${state.problems.length} ${state.problems.length === 1 ? "file" : "files"} could not be read` : "Settings"}
+          title="Settings"
+          onClick={() => c.showSettings()}
+        >
+          <Cog6ToothIcon className="size-4 fill-current" />
+          {state.problems.length > 0 && <span className="absolute top-1 right-1 size-2 rounded-full bg-amber-500 ring-2 ring-white dark:bg-amber-400 dark:ring-neutral-950" aria-hidden="true" />}
         </Button>
       </header>
 
@@ -85,11 +93,6 @@ export function LibraryPane() {
         <div className="px-4 pb-3 sm:px-5">
           <SearchField value={query} onChange={setQuery} count={matches ? shown.length : null} onSubmit={() => shown[0] && void c.openBook(shown[0])} />
         </div>
-      )}
-      {state.scanErrors.length > 0 && (
-        <p className="px-4 pb-2 text-sm/5 text-neutral-500 sm:px-5 dark:text-neutral-400" title={state.scanErrors.map((e) => `${e.path}: ${e.message}`).join("\n")}>
-          {state.scanErrors.length.toLocaleString()} {state.scanErrors.length === 1 ? "file" : "files"} could not be read. Details are in the log.
-        </p>
       )}
       {sorted.length === 0 && state.scanning ? (
         <ScanProgress status={state.scanning} />
