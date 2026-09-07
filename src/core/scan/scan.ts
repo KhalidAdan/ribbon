@@ -1,13 +1,14 @@
-import { pipe, collect, flatMap, from } from "@culvert/stream";
+import { pipe, collect, flatMap, from, channel, tap, type Sink } from "@culvert/stream";
+import { coalesce } from "../stream";
 import type { Host, ScannedFile, ScanProgress } from "../../host/host";
 import type { AudioFile, Book, Chapter } from "../types";
 import { bookId } from "../bookid";
 import { natcompare } from "../natsort";
-import { ODIO_DIR } from "./walk";
+import { RIBBON_DIR } from "./walk";
 import { groupBooks, type BookGroup } from "./group";
 import { probe } from "./probe";
 import { orderKeys, parseNumbered, resolveMetadata } from "./metadata";
-import { buildChapters, applyCorrections, rowsToCorrections } from "./chapters";
+import { buildChapters, applyCorrections, rowsToCorrections, type Correction } from "./chapters";
 import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows } from "./records";
 import { bytesToRows, type Row } from "../csv";
 import { coverArgs } from "./cover";
@@ -16,15 +17,24 @@ export interface ScannedBook {
   book: Book;
   files: AudioFile[];
   chapters: Chapter[];
+  /** Files found but not yet read. Absent once the book is complete. */
+  pending?: number;
 }
 
 export interface ScanOptions {
   signal?: AbortSignal;
   /** Live progress from the host scanner. */
   onProgress?: (p: ScanProgress) => void;
-  /** Skip files whose size and mtime match `.odio/files.csv`. Default true. */
+  /**
+   * The library as it takes shape: first from folder names alone, then
+   * with each book's tags, then durations, a few times a second. The
+   * returned result is the complete list; this is what to paint before it
+   * arrives.
+   */
+  onBooks?: (books: ScannedBook[]) => void;
+  /** Skip files whose size and mtime match `.ribbon/files.csv`. Default true. */
   incremental?: boolean;
-  /** Write `.odio/*` records. Default true. */
+  /** Write `.ribbon/*` records. Default true. */
   write?: boolean;
 }
 
@@ -36,52 +46,154 @@ export interface ScanResult {
   /** Files the fast reader rejected that ffprobe then read. */
   rescued: number;
   elapsedMs: number;
+  /**
+   * Write the records. Already done when the scan ran with `write` on;
+   * with it off, the caller decides when, so the shelf need not wait for
+   * a slow share to accept two files.
+   */
+  save: () => Promise<void>;
+  /** Where the time went, for the log. */
+  timings: { recordsMs: number; scanMs: number; rescueMs: number; buildMs: number; writeMs: number; publishes: number; publishMs: number };
+}
+
+/** How often, at most, the streamed books are rebuilt and published. */
+const PUBLISH_INTERVAL_MS = 120;
+
+/** Everything on disk from the last scan, read once up front. */
+interface Records {
+  previous: Map<string, AudioFile>;
+  previousBooks: Map<string, Book>;
+  corrections: Map<string, Correction[]>;
+  filesCsv: Uint8Array | null;
+  libraryCsv: Uint8Array | null;
 }
 
 /**
- * Scan a library folder. The host walks and reads tags in one call;
- * everything after that is a pure function of the file list. Chapter
- * markers are not read here: they are probed lazily by `ensureChapters`
- * the first time a book is opened, and cached in files.csv.
+ * Scan a library folder. The host walks and reads tags, streaming files
+ * back as it goes; everything after that is a pure function of the file
+ * list, so the books are rebuilt from whatever has arrived and published
+ * through `onBooks` while the read continues. Chapter markers are not
+ * read here: they are probed lazily by `ensureChapters` the first time a
+ * book is opened, and cached in files.csv.
  */
 export async function scanLibrary(host: Host, root: string, opts: ScanOptions = {}): Promise<ScanResult> {
   const started = Date.now();
-  const incremental = opts.incremental ?? true;
-  const errors: ScanResult["errors"] = [];
+  let mark = started;
+  const lap = () => {
+    const now = Date.now();
+    const ms = now - mark;
+    mark = now;
+    return ms;
+  };
+  const records = await readRecords(host, root, opts.incremental ?? true);
+  const recordsMs = lap();
+  const known = [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
-  const previous = incremental ? await readPreviousFiles(host, root) : new Map<string, AudioFile>();
-  const known = [...previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
-  const out = await host.scan(root, known, opts.onProgress);
+  // The host pushes batches of files; a channel turns them into a source,
+  // and the pipeline folds them into the arrived set, rebuilds the shelf
+  // at most once per window, and hands each shelf to the caller.
+  const arrived = new Map<string, ScannedFile>();
+  let publishes = 0;
+  let publishMs = 0;
+  const [writer, batches] = channel<ScannedFile[]>();
+  let tail = Promise.resolve();
+  const onFiles = opts.onBooks
+    ? (files: ScannedFile[]) => {
+        tail = tail.then(() => writer.write(files)).catch(() => undefined);
+      }
+    : undefined;
+  const onBooks = opts.onBooks;
+  const publishing = onBooks
+    ? pipe(
+        batches,
+        tap((files) => {
+          for (const f of files) arrived.set(f.path, f);
+        }),
+        coalesce(PUBLISH_INTERVAL_MS),
+        rebuild(() => buildBooks(host, root, [...arrived.values()], records, [])),
+        deliver((books) => {
+          publishes++;
+          onBooks(books);
+        }),
+      )
+    : Promise.resolve();
+  const rebuildTimer = (t: number) => (publishMs += Date.now() - t);
+
+  const out = await host.scan(root, known, opts.onProgress, onFiles);
+  await tail;
+  await writer.close();
+  await publishing;
+  const scanMs = lap();
+
+  function rebuild<T>(build: () => Promise<ScannedBook[]>) {
+    return async function* (windows: AsyncIterable<T>) {
+      for await (const _ of windows) {
+        const t = Date.now();
+        const books = await build();
+        rebuildTimer(t);
+        yield books;
+      }
+    };
+  }
+
   const stage = (text: string) => opts.onProgress?.({ walked: out.walked, done: out.walked, stage: text });
   const unreadable = out.files.filter((f) => f.kind === "audio" && f.fresh && f.durationMs <= 0).length;
   if (unreadable > 0) stage(`Checking ${unreadable.toLocaleString()} ${unreadable === 1 ? "file" : "files"} the tag reader could not read…`);
   const rescued = await rescueUnreadable(host, root, out.files, opts.signal);
+  const rescueMs = lap();
   stage("Organizing books…");
+  const errors: ScanResult["errors"] = [];
+  const books = await buildBooks(host, root, out.files, records, errors);
+  const buildMs = lap();
 
-  const groups = groupBooks(
-    out.files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })),
-  );
-  const byPath = new Map(out.files.map((f) => [f.path, f]));
-  const previousBooks = await readPreviousBooks(host, root);
-
-  const scanned: ScannedBook[] = [];
-  for (const group of groups) {
-    const b = await buildBook(host, root, group, byPath, previous, previousBooks, errors);
-    if (b) scanned.push(b);
-  }
-
+  let saving: Promise<void> | null = null;
+  const save = () => (saving ??= writeRecords(host, root, books, records));
   if (opts.write ?? true) {
     stage("Saving the library…");
-    await writeRecords(host, root, scanned);
+    await save();
   }
-  return { books: scanned, errors, probed: out.probed, reused: out.reused, rescued, elapsedMs: Date.now() - started };
+  const writeMs = lap();
+  return {
+    books,
+    errors,
+    probed: out.probed,
+    reused: out.reused,
+    rescued,
+    elapsedMs: Date.now() - started,
+    save,
+    timings: { recordsMs, scanMs, rescueMs, buildMs, writeMs, publishes, publishMs },
+  };
+}
+
+/** A sink that hands every item to `fn`. */
+function deliver<T>(fn: (item: T) => void): Sink<T> {
+  return async (source) => {
+    for await (const item of source) fn(item);
+  };
+}
+
+/** Group a file list into books. Pure, apart from `errors` collecting the unreadable. */
+function buildBooks(host: Host, root: string, files: readonly ScannedFile[], records: Records, errors: ScanResult["errors"]): Promise<ScannedBook[]> {
+  const groups = groupBooks(files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })));
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  return pipe(
+    from(groups),
+    async function* (source) {
+      for await (const group of source) {
+        const b = buildBook(group, byPath, records, errors);
+        if (b) yield b;
+      }
+    },
+    collect(),
+  );
 }
 
 /**
- * Covers that still need ffmpeg: books with a picture in a file but no
- * cover image yet. Runs after the library is on screen, one book at a
- * time, and reports each book as its cover lands. Returns the books that
- * changed.
+ * Covers that still need extracting: books with a picture in a file but
+ * no cover image yet. Runs after the library is on screen, one book at a
+ * time, and reports each book as its cover lands. The host copies the
+ * picture bytes out of the tag when it can; ffmpeg is the fallback.
+ * Returns the books that changed.
  */
 export async function extractMissingCovers(
   host: Host,
@@ -90,18 +202,41 @@ export async function extractMissingCovers(
   onCover?: (book: ScannedBook) => void,
   signal?: AbortSignal,
 ): Promise<ScannedBook[]> {
-  const prefix = `${ODIO_DIR}/covers/`;
+  const prefix = `${RIBBON_DIR}/covers/`;
+  const coversDir = host.join(root, RIBBON_DIR, "covers");
+  let existing: Set<string> | null = null;
   const changed: ScannedBook[] = [];
   for (const b of books) {
     if (signal?.aborted) break;
-    if (!b.book.cover.startsWith(prefix)) continue;
-    const abs = host.join(root, ...b.book.cover.split("/"));
-    if (await host.exists(abs)) continue;
+    if (!b.book.cover.startsWith(prefix) || b.pending) continue;
+    if (existing === null) {
+      // One listing for the whole pass instead of one existence check per book.
+      try {
+        existing = new Set((await host.readDir(coversDir)).filter((e) => e.isFile).map((e) => e.name));
+      } catch {
+        existing = new Set();
+      }
+    }
+    const name = b.book.cover.slice(prefix.length);
+    if (existing.has(name)) continue;
     const src = b.files.find((f) => f.hasCover);
     if (!src) continue;
-    await host.mkdir(host.join(root, ODIO_DIR, "covers"));
-    const r = await host.run("ffmpeg", coverArgs(host.join(root, ...src.path.split("/")), abs), signal);
-    if (r.code === 0) {
+    const abs = host.join(root, ...b.book.cover.split("/"));
+    const srcAbs = host.join(root, ...src.path.split("/"));
+    let ok = false;
+    if (host.extractCover) {
+      try {
+        ok = await host.extractCover(srcAbs, abs);
+      } catch {
+        ok = false;
+      }
+    }
+    if (!ok) {
+      await host.mkdir(coversDir);
+      ok = (await host.run("ffmpeg", coverArgs(srcAbs, abs), signal)).code === 0;
+    }
+    if (ok) {
+      existing.add(name);
       changed.push(b);
       onCover?.(b);
     }
@@ -145,26 +280,24 @@ async function rescueUnreadable(host: Host, root: string, files: ScannedFile[], 
   return results.filter(Boolean).length;
 }
 
-async function buildBook(
-  host: Host,
-  root: string,
-  group: BookGroup,
-  byPath: Map<string, ScannedFile>,
-  previous: Map<string, AudioFile>,
-  previousBooks: Map<string, Book>,
-  errors: ScanResult["errors"],
-): Promise<ScannedBook | null> {
+function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: Records, errors: ScanResult["errors"]): ScannedBook | null {
   const files: AudioFile[] = [];
   const freshTags: Record<string, string>[] = [];
+  let pending = 0;
   for (const entry of group.audio) {
     const s = byPath.get(entry.relPath);
     if (!s) continue;
-    if (!s.fresh) {
-      const cached = previous.get(entry.relPath);
+    if (!s.fresh && !s.pending) {
+      const cached = records.previous.get(entry.relPath);
       if (cached) {
         files.push({ ...cached, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs });
         continue;
       }
+    }
+    if (s.pending) {
+      pending++;
+      files.push({ path: entry.relPath, order: 0, durationMs: 0, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs, title: "", disc: 1, track: 0, hasCover: false, coverFile: "", chapters: [], chaptersProbed: false });
+      continue;
     }
     if (s.durationMs <= 0 && Object.keys(s.tags).length === 0) {
       errors.push({ path: entry.relPath, message: "could not read this file" });
@@ -200,15 +333,15 @@ async function buildBook(
           group.name,
           isLooseRootFile ? "" : parentName,
         )
-      : cachedMetadata(previousBooks.get(group.path), group.name, isLooseRootFile ? "" : parentName);
+      : cachedMetadata(records.previousBooks.get(group.path), group.name, isLooseRootFile ? "" : parentName);
 
   const sizeBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
   const id = bookId(group.path, sizeBytes);
-  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (files.find((f) => f.hasCover) ? `${ODIO_DIR}/covers/${id}.jpg` : "");
+  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (files.find((f) => f.hasCover) ? `${RIBBON_DIR}/covers/${id}.jpg` : "");
 
   let chapters = buildChapters(files);
-  const corrections = await readCorrections(host, root, id);
+  const corrections = records.corrections.get(id) ?? [];
   if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
 
   const book: Book = {
@@ -226,7 +359,7 @@ async function buildBook(
     sizeBytes,
     fileCount: files.length,
   };
-  return { book, files, chapters };
+  return pending > 0 ? { book, files, chapters, pending } : { book, files, chapters };
 }
 
 /** Disc, then track, then natural filename. Untracked files sort last only when some files are tracked. */
@@ -276,46 +409,68 @@ export async function ensureChapters(host: Host, root: string, book: ScannedBook
   if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
   let cover = book.book.cover;
   if (!cover && files.some((f) => f.hasCover)) {
-    const candidate = `${ODIO_DIR}/covers/${book.book.id}.jpg`;
+    const candidate = `${RIBBON_DIR}/covers/${book.book.id}.jpg`;
     const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters }], undefined, signal);
     if (done.length > 0) cover = candidate;
   }
   const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters };
   await updateFileRows(host, root, updated);
-  await host.mkdir(host.join(root, ODIO_DIR, "chapters"));
-  await host.writeFile(host.join(root, ODIO_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
+  await host.mkdir(host.join(root, RIBBON_DIR, "chapters"));
+  await host.writeFile(host.join(root, RIBBON_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
   return updated;
 }
 
-async function readPreviousFiles(host: Host, root: string): Promise<Map<string, AudioFile>> {
-  const out = new Map<string, AudioFile>();
-  const path = host.join(root, ODIO_DIR, "files.csv");
-  if (!(await host.exists(path))) return out;
+/** The file's bytes, or null when it cannot be read. One round trip, not two. */
+async function readIfExists(host: Host, path: string): Promise<Uint8Array | null> {
   try {
-    const byBook = await bytesToFiles(await host.readFile(path));
-    for (const list of byBook.values()) for (const f of list) out.set(f.path, f);
+    return await host.readFile(path);
   } catch {
-    /* a bad cache is just a full rescan */
+    return null;
   }
-  return out;
 }
 
-async function readPreviousBooks(host: Host, root: string): Promise<Map<string, Book>> {
-  const out = new Map<string, Book>();
-  const path = host.join(root, ODIO_DIR, "library.csv");
-  if (!(await host.exists(path))) return out;
-  try {
-    for (const b of await bytesToBooks(await host.readFile(path))) out.set(b.path, b);
-  } catch {
-    /* ignore */
+/** Every record the scan needs, read concurrently and once. */
+async function readRecords(host: Host, root: string, incremental: boolean): Promise<Records> {
+  const dir = host.join(root, RIBBON_DIR);
+  const encoder = new TextEncoder();
+  const [filesCsv, libraryCsv, correctionFiles] = await Promise.all([
+    incremental ? readIfExists(host, host.join(dir, "files.csv")) : Promise.resolve(null),
+    readIfExists(host, host.join(dir, "library.csv")),
+    host.readTextDir(host.join(dir, "corrections")),
+  ]);
+  const previous = new Map<string, AudioFile>();
+  if (filesCsv) {
+    try {
+      for (const list of (await bytesToFiles(filesCsv)).values()) for (const f of list) previous.set(f.path, f);
+    } catch {
+      /* a bad cache is just a full rescan */
+    }
   }
-  return out;
+  const previousBooks = new Map<string, Book>();
+  if (libraryCsv) {
+    try {
+      for (const b of await bytesToBooks(libraryCsv)) previousBooks.set(b.path, b);
+    } catch {
+      /* ignore */
+    }
+  }
+  const corrections = new Map<string, Correction[]>();
+  for (const f of correctionFiles) {
+    if (!f.name.endsWith(".csv")) continue;
+    try {
+      const list = rowsToCorrections((await bytesToRows(encoder.encode(f.text))).rows);
+      if (list.length > 0) corrections.set(f.name.slice(0, -4), list);
+    } catch {
+      /* ignore */
+    }
+  }
+  return { previous, previousBooks, corrections, filesCsv, libraryCsv };
 }
 
 /**
- * Metadata for a book whose files are all unchanged. The folder-name
- * rule is re-applied here so a curated numbered folder wins even when
- * the record was written before that rule existed.
+ * Metadata for a book whose files are all unchanged, or not yet read. The
+ * folder-name rule is re-applied here so a curated numbered folder wins
+ * even when the record was written before that rule existed.
  */
 function cachedMetadata(b: Book | undefined, folderName: string, parentFolderName = "") {
   const numbered = parseNumbered(folderName);
@@ -329,36 +484,72 @@ function cachedMetadata(b: Book | undefined, folderName: string, parentFolderNam
 }
 
 async function readCorrections(host: Host, root: string, id: string) {
-  const path = host.join(root, ODIO_DIR, "corrections", `${id}.csv`);
-  if (!(await host.exists(path))) return [];
+  const bytes = await readIfExists(host, host.join(root, RIBBON_DIR, "corrections", `${id}.csv`));
+  if (!bytes) return [];
   try {
-    const { rows } = await bytesToRows(await host.readFile(path));
-    return rowsToCorrections(rows);
+    return rowsToCorrections((await bytesToRows(bytes)).rows);
   } catch {
     return [];
   }
 }
 
-async function writeRecords(host: Host, root: string, books: readonly ScannedBook[]): Promise<void> {
-  const dir = host.join(root, ODIO_DIR);
-  await host.mkdir(dir);
-  await host.writeFile(host.join(dir, "library.csv"), await booksToBytes(books.map((b) => b.book)));
+function sameBytes(a: Uint8Array | null, b: Uint8Array): boolean {
+  if (!a || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Write library.csv and files.csv, but only the ones that changed. */
+async function writeRecords(host: Host, root: string, books: readonly ScannedBook[], records: Records): Promise<void> {
+  const dir = host.join(root, RIBBON_DIR);
+  const library = await booksToBytes(books.map((b) => b.book));
   const fileRows: Row[] = [];
   for (const b of books) fileRows.push(...filesToRows(b.book.id, b.files));
-  await host.writeFile(host.join(dir, "files.csv"), await filesToBytes(fileRows));
+  const files = await filesToBytes(fileRows);
+  const writeLibrary = !sameBytes(records.libraryCsv, library);
+  const writeFiles = !sameBytes(records.filesCsv, files);
+  if (!writeLibrary && !writeFiles) {
+    await mirrorRecords(host, root, library, files);
+    return;
+  }
+  if (host.writeTextFiles) {
+    const decoder = new TextDecoder();
+    const batch: { path: string; text: string }[] = [];
+    if (writeLibrary) batch.push({ path: host.join(dir, "library.csv"), text: decoder.decode(library) });
+    if (writeFiles) batch.push({ path: host.join(dir, "files.csv"), text: decoder.decode(files) });
+    await host.writeTextFiles(batch);
+  } else {
+    await host.mkdir(dir);
+    if (writeLibrary) await host.writeFile(host.join(dir, "library.csv"), library);
+    if (writeFiles) await host.writeFile(host.join(dir, "files.csv"), files);
+  }
+  await mirrorRecords(host, root, library, files);
+}
+
+/** Keep the local mirror current. Best effort: a failure changes nothing. */
+async function mirrorRecords(host: Host, root: string, library: Uint8Array, files: Uint8Array): Promise<void> {
+  if (!host.recordsMirror) return;
+  try {
+    const decoder = new TextDecoder();
+    await host.recordsMirror.write(root, { library: decoder.decode(library), files: decoder.decode(files) });
+  } catch {
+    /* the mirror is a convenience */
+  }
 }
 
 /** Rewrite files.csv and library.csv with one book's rows replaced. */
 async function updateFileRows(host: Host, root: string, book: ScannedBook): Promise<void> {
-  const path = host.join(root, ODIO_DIR, "files.csv");
-  const byBook = (await host.exists(path)) ? await bytesToFiles(await host.readFile(path)) : new Map<string, AudioFile[]>();
+  const path = host.join(root, RIBBON_DIR, "files.csv");
+  const existing = await readIfExists(host, path);
+  const byBook = existing ? await bytesToFiles(existing) : new Map<string, AudioFile[]>();
   byBook.set(book.book.id, book.files);
   const rows: Row[] = [];
   for (const [id, files] of byBook) rows.push(...filesToRows(id, files));
   await host.writeFile(path, await filesToBytes(rows));
-  const libPath = host.join(root, ODIO_DIR, "library.csv");
-  if (await host.exists(libPath)) {
-    const books = await bytesToBooks(await host.readFile(libPath));
+  const libPath = host.join(root, RIBBON_DIR, "library.csv");
+  const lib = await readIfExists(host, libPath);
+  if (lib) {
+    const books = await bytesToBooks(lib);
     const i = books.findIndex((b) => b.id === book.book.id);
     if (i >= 0) {
       books[i] = book.book;
@@ -368,25 +559,43 @@ async function updateFileRows(host: Host, root: string, book: ScannedBook): Prom
 }
 
 /**
- * Load the last scan without touching the audio files: library.csv,
- * files.csv, and the chapters folder in one call each. No per-book I/O.
+ * Load the last scan without touching the audio files. The local mirror
+ * is tried first, because it answers in a millisecond where a network
+ * volume takes hundreds; otherwise library.csv, files.csv and the
+ * chapters folder come from beside the books, all read at once. No
+ * per-book I/O either way.
  */
 export async function loadLibrary(host: Host, root: string): Promise<ScannedBook[] | null> {
-  const dir = host.join(root, ODIO_DIR);
-  const libPath = host.join(dir, "library.csv");
-  if (!(await host.exists(libPath))) return null;
-  const books = await bytesToBooks(await host.readFile(libPath));
-  const filesPath = host.join(dir, "files.csv");
-  const files = (await host.exists(filesPath)) ? await bytesToFiles(await host.readFile(filesPath)) : new Map<string, AudioFile[]>();
-  const chapterFiles = new Map((await host.readTextDir(host.join(dir, "chapters"))).map((t) => [t.name, t.text]));
-  const encoder = new TextEncoder();
-  const out: ScannedBook[] = [];
-  for (const book of books) {
-    const bookFiles = files.get(book.id) ?? [];
-    const text = chapterFiles.get(`${book.id}.csv`);
-    let chapters: Chapter[] = text ? await bytesToChapters(encoder.encode(text)) : [];
-    if (chapters.length === 0) chapters = buildChapters(bookFiles);
-    out.push({ book, files: bookFiles, chapters });
+  const mirror = await host.recordsMirror?.read(root).catch(() => null);
+  if (mirror) {
+    const encoder = new TextEncoder();
+    return assemble(await bytesToBooks(encoder.encode(mirror.library)), await bytesToFiles(encoder.encode(mirror.files)), new Map());
   }
-  return out;
+  const dir = host.join(root, RIBBON_DIR);
+  const [lib, filesCsv, chapterFiles] = await Promise.all([
+    readIfExists(host, host.join(dir, "library.csv")),
+    readIfExists(host, host.join(dir, "files.csv")),
+    host.readTextDir(host.join(dir, "chapters")),
+  ]);
+  if (!lib) return null;
+  const books = await bytesToBooks(lib);
+  const files = filesCsv ? await bytesToFiles(filesCsv) : new Map<string, AudioFile[]>();
+  return assemble(books, files, new Map(chapterFiles.map((t) => [t.name, t.text])));
+}
+
+function assemble(books: Book[], files: Map<string, AudioFile[]>, chaptersByName: Map<string, string>): Promise<ScannedBook[]> {
+  const encoder = new TextEncoder();
+  return pipe(
+    from(books),
+    async function* (source) {
+      for await (const book of source) {
+        const bookFiles = files.get(book.id) ?? [];
+        const text = chaptersByName.get(`${book.id}.csv`);
+        let chapters: Chapter[] = text ? await bytesToChapters(encoder.encode(text)) : [];
+        if (chapters.length === 0) chapters = buildChapters(bookFiles);
+        yield { book, files: bookFiles, chapters };
+      }
+    },
+    collect(),
+  );
 }

@@ -1,8 +1,8 @@
 import type { Host } from "../host/host";
 import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
-import { ODIO_DIR } from "../core/scan/walk";
+import { RIBBON_DIR, LEGACY_DIR } from "../core/scan/walk";
 import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
-import { mergePositions, nowIso, parsePositions, serializePosition } from "../core/position";
+import { mergePositions, nowIso, parsePositions, serializePosition, serializePositions } from "../core/position";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../core/scan/chapters";
@@ -12,7 +12,7 @@ import { locate } from "../core/timeline";
 
 /**
  * Everything the UI needs from a library folder, over a Host. Each
- * durable fact is one small CSV in `.odio/`. No caching beyond the
+ * durable fact is one small CSV in `.ribbon/`. No caching beyond the
  * device name: the files are the state.
  */
 export class LibraryService {
@@ -29,7 +29,19 @@ export class LibraryService {
   }
 
   private dir(...parts: string[]): string {
-    return this.host.join(this.root, ODIO_DIR, ...parts);
+    return this.host.join(this.root, RIBBON_DIR, ...parts);
+  }
+
+  /**
+   * Libraries recorded under the old folder name keep their positions,
+   * bookmarks, and corrections: the folder is renamed once, in place.
+   */
+  async migrateLegacyRecords(): Promise<boolean> {
+    const legacy = this.host.join(this.root, LEGACY_DIR);
+    const current = this.host.join(this.root, RIBBON_DIR);
+    if (!(await this.host.exists(legacy)) || (await this.host.exists(current))) return false;
+    await this.host.rename(legacy, current);
+    return true;
   }
 
   /** The last scan if there is one, else a fresh scan. */
@@ -86,9 +98,12 @@ export class LibraryService {
     return mergePositions(candidates, bookId);
   }
 
-  /** Every book's merged position in one directory read. */
+  /**
+   * Every book's merged position in one directory read. The result is
+   * also copied to the local mirror, where the next open reads it before
+   * the share has answered.
+   */
   async readAllPositions(): Promise<Map<string, Position>> {
-    const out = new Map<string, Position>();
     const files = await this.host.readTextDir(this.dir("positions"));
     const encoder = new TextEncoder();
     const byBook = new Map<string, Position[]>();
@@ -105,11 +120,62 @@ export class LibraryService {
         /* unreadable copy: ignore */
       }
     }
+    const out = new Map<string, Position>();
     for (const [id, list] of byBook) {
       const best = mergePositions(list, id);
       if (best) out.set(id, best);
     }
+    if (this.host.recordsMirror) {
+      try {
+        await this.host.recordsMirror.write(this.root, { positions: new TextDecoder().decode(await serializePositions([...out.values()])) });
+      } catch {
+        /* the mirror is a convenience */
+      }
+    }
     return out;
+  }
+
+  /** What the local mirror holds beyond the records: positions for the first paint, and covers. */
+  async readMirrorExtras(): Promise<{ positions: Map<string, Position>; coversDir: string | null; covers: Set<string> }> {
+    const positions = new Map<string, Position>();
+    const mirror = await this.host.recordsMirror?.read(this.root).catch(() => null);
+    if (!mirror) return { positions, coversDir: null, covers: new Set() };
+    if (mirror.positions) {
+      try {
+        for (const p of (await parsePositions(new TextEncoder().encode(mirror.positions))).positions) positions.set(p.bookId, p);
+      } catch {
+        /* ignore */
+      }
+    }
+    return { positions, coversDir: this.host.join(mirror.dir, "covers"), covers: new Set(mirror.covers) };
+  }
+
+  /** The mirror's cover file name for a book: its id plus the cover's extension. */
+  static mirrorCoverName(book: ScannedBook): string | null {
+    const cover = book.book.cover;
+    if (!cover) return null;
+    const dot = cover.lastIndexOf(".");
+    const ext = dot > cover.lastIndexOf("/") ? cover.slice(dot + 1).toLowerCase() : "jpg";
+    return `${book.book.id}.${ext}`;
+  }
+
+  /**
+   * Copy every book's cover into the local mirror, so the shelf never
+   * loads a picture across the network. Returns the names now present.
+   */
+  async mirrorCovers(books: readonly ScannedBook[]): Promise<Set<string>> {
+    const mirror = this.host.recordsMirror;
+    if (!mirror) return new Set();
+    const wanted: { name: string; src: string }[] = [];
+    for (const b of books) {
+      const name = LibraryService.mirrorCoverName(b);
+      if (name && !b.pending) wanted.push({ name, src: this.absPath(b.book.cover) });
+    }
+    try {
+      return new Set(await mirror.covers(this.root, wanted));
+    } catch {
+      return new Set();
+    }
   }
 
   async writePosition(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {

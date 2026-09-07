@@ -1,4 +1,4 @@
-# Odio
+# Ribbon
 
 The listener for books you own. Local files, local position, nothing to
 sign in to. See [docs/NORTHSTAR.md](docs/NORTHSTAR.md) for what this is
@@ -15,8 +15,11 @@ npm install
 npm run tauri:dev          # the desktop app
 ```
 
-On first launch, choose a folder of audiobooks. Odio scans it, writes
-its records to `<folder>/.odio/`, and opens the library.
+On first launch, choose a folder of audiobooks. Ribbon scans it, writes
+its records to `<folder>/.ribbon/`, and opens the library. The shelf is
+on screen from folder names before a single tag is read; durations fill
+in behind it. Launch with a folder as the argument, or set
+`RIBBON_LIBRARY`, to open it without the picker.
 
 ## Develop in a browser
 
@@ -24,20 +27,20 @@ The same UI runs in a browser tab against a folder on this machine,
 served by a Vite plugin. It is a development harness, not a server.
 
 ```sh
-ODIO_DEV_LIBRARY=path/to/books npm run dev     # defaults to ./books if present
+RIBBON_DEV_LIBRARY=path/to/books npm run dev     # defaults to ./books if present
 ```
 
 Then open http://localhost:1420. In dev builds the app controller is
-exposed as `window.__odio`.
+exposed as `window.__ribbon`.
 
 ## Test
 
 ```sh
 npm test                       # unit and fixture tests; ffmpeg generates fixtures once
-ODIO_BOOKS=books npm test      # also assert against a real library folder
+RIBBON_BOOKS=books npm test      # also assert against a real library folder
 npm run typecheck
-npm run odio -- scan books     # scan from the command line, no app
-npm run odio -- chapters books "Horus Rising"
+npm run ribbon -- scan books     # scan from the command line, no app
+npm run ribbon -- chapters books "Horus Rising"
 ```
 
 ## Layout
@@ -55,7 +58,7 @@ test          Vitest suites, one per core module plus scan and library
 
 ## What is on disk
 
-Everything durable lives beside the books in `.odio/`, all CSV:
+Everything durable lives beside the books in `.ribbon/`, all CSV:
 
 | File                          | Meaning                                       |
 | ----------------------------- | --------------------------------------------- |

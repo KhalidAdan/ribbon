@@ -1,7 +1,9 @@
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import type { Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "./host";
 import { scanWithFfprobe } from "./scan-with-ffprobe";
 
@@ -38,6 +40,9 @@ export function nodeHost(): Host {
     async remove(p: string): Promise<void> {
       await fs.rm(p, { force: true, recursive: true });
     },
+    async rename(from: string, to: string): Promise<void> {
+      await fs.rename(from, to);
+    },
     run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult> {
       return new Promise((resolve) => {
         const opts = { maxBuffer: 64 * 1024 * 1024, windowsHide: true, ...(signal ? { signal } : {}) };
@@ -47,11 +52,33 @@ export function nodeHost(): Host {
         });
       });
     },
+    stream(tool: Tool, args: string[], signal?: AbortSignal): Source<string> {
+      return (async function* () {
+        const child = spawn(tool, args, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+        child.on("error", () => undefined);
+        const onAbort = () => child.kill();
+        signal?.addEventListener("abort", onAbort, { once: true });
+        const rl = createInterface({ input: child.stderr!, crlfDelay: Infinity });
+        try {
+          for await (const line of rl) yield line;
+        } finally {
+          signal?.removeEventListener("abort", onAbort);
+          rl.close();
+          if (child.exitCode === null) child.kill();
+        }
+      })();
+    },
     join: (...parts: string[]) => path.join(...parts),
     async deviceName(): Promise<string> {
       return os.hostname();
     },
-    scan: (root, known, onProgress) => scanWithFfprobe(host, root, known, onProgress),
+    scan: (root, known, onProgress, onFiles) => scanWithFfprobe(host, root, known, onProgress, onFiles),
+    async writeTextFiles(files) {
+      for (const f of files) {
+        await fs.mkdir(path.dirname(f.path), { recursive: true });
+        await host.writeFile(f.path, new TextEncoder().encode(f.text));
+      }
+    },
     async readTextDir(dir: string): Promise<TextFile[]> {
       let names: string[];
       try {

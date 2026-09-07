@@ -15,7 +15,7 @@ const find = (p: string) => books.find((b) => b.book.path === p)!;
 beforeAll(async () => {
   books = await lib.open();
   for (const d of ["positions", "settings", "bookmarks", "corrections", "loudness", "silence"]) {
-    await fs.rm(path.join(FIXTURE_ROOT, ".odio", d), { recursive: true, force: true });
+    await fs.rm(path.join(FIXTURE_ROOT, ".ribbon", d), { recursive: true, force: true });
   }
 });
 
@@ -34,7 +34,7 @@ describe("positions", () => {
     const b = find("multi-mp3");
     await lib.writePosition(b.book.id, 100, 1_757_000_000_000);
     const conflict = `book_id,offset_ms,updated_at,device\n${b.book.id},999,2026-01-01T00:00:00.000Z,other-laptop\n`;
-    await fs.writeFile(path.join(FIXTURE_ROOT, ".odio", "positions", `${b.book.id} (conflicted copy).csv`), conflict);
+    await fs.writeFile(path.join(FIXTURE_ROOT, ".ribbon", "positions", `${b.book.id} (conflicted copy).csv`), conflict);
     const read = await lib.readPosition(b.book.id);
     expect(read?.offsetMs).toBe(999);
     expect(read?.device).toBe("other-laptop");
@@ -62,7 +62,7 @@ describe("bookmarks", () => {
     const b = find("single-m4b");
     const bm = await lib.addBookmark(b, 4500, "a note, with comma");
     expect(bm.clip).toBe(`clips/${b.book.id}-4500.opus`);
-    const clipPath = path.join(FIXTURE_ROOT, ".odio", "bookmarks", "clips", `${b.book.id}-4500.opus`);
+    const clipPath = path.join(FIXTURE_ROOT, ".ribbon", "bookmarks", "clips", `${b.book.id}-4500.opus`);
     const st = await fs.stat(clipPath);
     expect(st.size).toBeGreaterThan(100);
     expect(await lib.readBookmarks(b.book.id)).toEqual([bm]);

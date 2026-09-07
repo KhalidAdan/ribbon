@@ -1,6 +1,7 @@
 import { ArrowPathIcon, FolderOpenIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
+import type { Position } from "../core/types";
 import type { ScannedBook } from "../core/scan/scan";
 import { formatDuration } from "../core/speed";
 import { compareBooks } from "../core/order";
@@ -63,20 +64,35 @@ export function LibraryPane() {
         </div>
       ) : (
         <ul role="list" className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 sm:px-3">
-          {sorted.map((b) => (
-            <BookRow key={b.book.id} book={b} active={state.current?.book.book.id === b.book.id} />
-          ))}
+          {sorted.map((b) => {
+            const active = state.current?.book.book.id === b.book.id;
+            return (
+              <BookRow key={b.book.id} book={b} active={active} coverUrl={c.coverUrl(b)} position={state.positions[b.book.id] ?? null} playingAt={active ? state.player.positionMs : null} />
+            );
+          })}
         </ul>
       )}
     </section>
   );
 }
 
-function BookRow({ book, active }: { book: ScannedBook; active: boolean }) {
-  const state = useAppState();
+interface RowProps {
+  book: ScannedBook;
+  active: boolean;
+  coverUrl: string | null;
+  position: Position | null;
+  /** The player's position when this is the open book, else null. */
+  playingAt: number | null;
+}
+
+/**
+ * One shelf row. Memoised on its own props so a progress tick in the
+ * header, or another book's position, does not redraw the whole shelf:
+ * while a scan streams in, the header changes many times a second.
+ */
+const BookRow = memo(function BookRow({ book, active, coverUrl, position, playingAt }: RowProps) {
   const c = useController();
-  const pos = state.positions[book.book.id];
-  const offset = active ? state.player.positionMs : (pos?.offsetMs ?? 0);
+  const offset = playingAt ?? position?.offsetMs ?? 0;
   const fraction = book.book.durationMs > 0 ? Math.min(1, offset / book.book.durationMs) : 0;
   const remaining = Math.max(0, book.book.durationMs - offset);
   const started = offset > 0;
@@ -93,7 +109,7 @@ function BookRow({ book, active }: { book: ScannedBook; active: boolean }) {
           active ? "bg-neutral-950/5 dark:bg-white/10" : "hover:bg-neutral-950/5 dark:hover:bg-white/5",
         )}
       >
-        <Cover url={c.coverUrl(book)} title={book.book.title} className="size-14" />
+        <Cover url={coverUrl} title={book.book.title} className="size-14" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{book.book.title}</p>
           <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400">
@@ -105,11 +121,11 @@ function BookRow({ book, active }: { book: ScannedBook; active: boolean }) {
               <div className="h-full w-(--progress) rounded-full bg-amber-500 dark:bg-amber-400" style={{ "--progress": `${(fraction * 100).toFixed(1)}%` } as React.CSSProperties} />
             </div>
             <span className="shrink-0 text-xs/4 text-neutral-500 tabular-nums dark:text-neutral-400">
-              {finished ? "Finished" : started ? `${formatDuration(remaining)} left` : formatDuration(book.book.durationMs)}
+              {book.pending ? "Reading…" : finished ? "Finished" : started ? `${formatDuration(remaining)} left` : formatDuration(book.book.durationMs)}
             </span>
           </div>
         </div>
       </button>
     </li>
   );
-}
+});

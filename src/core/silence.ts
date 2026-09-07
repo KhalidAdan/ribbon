@@ -1,4 +1,6 @@
+import { pipe, from, collect, type Transform } from "@culvert/stream";
 import type { SilenceRange } from "./types";
+import { lines } from "./lines";
 
 /** Gaps shorter than this are narration rhythm, not dead air. */
 export const MIN_GAP_MS = 1_000;
@@ -10,32 +12,35 @@ export const MAX_GAP_RATE = 8;
 export const NOISE_DB = -45;
 
 /**
- * Parse ffmpeg's silencedetect output:
+ * ffmpeg's silencedetect lines in, silence ranges out, as they close:
  *   [silencedetect @ ...] silence_start: 12.345
  *   [silencedetect @ ...] silence_end: 15.2 | silence_duration: 2.855
  * An unterminated start closes at `fileEndMs`. Ranges under the
- * threshold are dropped.
+ * threshold are dropped. Works on a live stderr stream or a saved one.
  */
-export function parseSilenceDetect(stderr: string, fileEndMs: number, minGapMs = MIN_GAP_MS): SilenceRange[] {
-  const out: SilenceRange[] = [];
-  let open: number | null = null;
-  const re = /silence_(start|end):\s*(-?[\d.]+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(stderr)) !== null) {
-    const ms = Math.round(Number(m[2]) * 1000);
-    if (m[1] === "start") {
-      open = Math.max(0, ms);
-    } else if (open !== null) {
-      push(out, open, ms, minGapMs);
-      open = null;
+export function silenceRanges(fileEndMs: number, minGapMs = MIN_GAP_MS): Transform<string, SilenceRange> {
+  return async function* (source) {
+    let open: number | null = null;
+    for await (const line of source) {
+      const re = /silence_(start|end):\s*(-?[\d.]+)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(line)) !== null) {
+        const ms = Math.round(Number(m[2]) * 1000);
+        if (m[1] === "start") {
+          open = Math.max(0, ms);
+        } else if (open !== null) {
+          if (ms - open >= minGapMs) yield { startMs: open, endMs: ms };
+          open = null;
+        }
+      }
     }
-  }
-  if (open !== null) push(out, open, fileEndMs, minGapMs);
-  return out;
+    if (open !== null && fileEndMs - open >= minGapMs) yield { startMs: open, endMs: fileEndMs };
+  };
 }
 
-function push(out: SilenceRange[], startMs: number, endMs: number, minGapMs: number): void {
-  if (endMs - startMs >= minGapMs) out.push({ startMs, endMs });
+/** The ranges in a finished stderr transcript. */
+export function parseSilenceDetect(stderr: string, fileEndMs: number, minGapMs = MIN_GAP_MS): Promise<SilenceRange[]> {
+  return pipe(from(lines(stderr)), silenceRanges(fileEndMs, minGapMs), collect());
 }
 
 /** Inclusive start, exclusive end. Ranges must be sorted and disjoint. */

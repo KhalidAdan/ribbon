@@ -2282,25 +2282,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "odio"
-version = "0.1.0"
-dependencies = [
- "lofty",
- "log",
- "rayon",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-log",
- "tauri-plugin-os",
- "tauri-plugin-shell",
- "walkdir",
-]
-
-[[package]]
 name = "ogg_pager"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2801,6 +2782,24 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "ribbon"
+version = "0.1.0"
+dependencies = [
+ "lofty",
+ "log",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-log",
+ "tauri-plugin-os",
+ "tauri-plugin-shell",
 ]
 
 [[package]]

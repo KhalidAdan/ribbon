@@ -1,8 +1,8 @@
 /**
  * Command-line harness so the scan is provable without the app.
  *
- *   npm run odio -- scan <folder>        scan and print the library
- *   npm run odio -- chapters <folder> <book-id-or-title>
+ *   npm run ribbon -- scan <folder>        scan and print the library
+ *   npm run ribbon -- chapters <folder> <book-id-or-title>
  */
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
@@ -12,7 +12,7 @@ import { formatDuration } from "../src/core/speed";
 async function main(argv: string[]): Promise<number> {
   const [cmd, folder, arg] = argv;
   if (!cmd || !folder) {
-    console.error("usage: odio scan <folder> | odio chapters <folder> <book-id-or-title>");
+    console.error("usage: ribbon scan <folder> | ribbon chapters <folder> <book-id-or-title>");
     return 2;
   }
   const host = nodeHost();

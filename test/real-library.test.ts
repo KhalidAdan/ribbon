@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
 import { scanLibrary } from "../src/core/scan/scan";
 
-const root = process.env.ODIO_BOOKS ? path.resolve(process.env.ODIO_BOOKS) : null;
+const root = process.env.RIBBON_BOOKS ? path.resolve(process.env.RIBBON_BOOKS) : null;
 
 describe.skipIf(!root)("the user's real library", () => {
   it("scans Horus Rising and the loose MP3 correctly", async () => {
@@ -30,6 +30,6 @@ describe.skipIf(!root)("the user's real library", () => {
     expect(ego.book.durationMs).toBeGreaterThan(24_900_000);
     expect(ego.book.durationMs).toBeLessThan(25_100_000);
     expect(ego.files[0]!.hasCover).toBe(true);
-    expect(ego.book.cover).toBe(`.odio/covers/${ego.book.id}.jpg`);
+    expect(ego.book.cover).toBe(`.ribbon/covers/${ego.book.id}.jpg`);
   });
 });

@@ -1,4 +1,4 @@
-# Odio test plan
+# Ribbon test plan
 
 The North Star says the difference between "fine" and "I would never
 switch" lives in a dozen small behaviours. Every one of those
@@ -11,7 +11,7 @@ here. If a behaviour is not in this file, it is not done.
 | -------------- | ----------------------- | ------------------- | ----------------------------------- |
 | Unit           | Vitest                  | `npm test`          | Every decision in `src/core`.       |
 | Fixture        | Vitest + ffmpeg         | `npm test`          | Scan and probe against real codecs. |
-| Real library   | Vitest, opt-in          | `ODIO_BOOKS=books npm test` | The user's actual files.    |
+| Real library   | Vitest, opt-in          | `RIBBON_BOOKS=books npm test` | The user's actual files.    |
 | Rust           | `cargo test`            | `npm run test:rust` | Tauri commands and path scoping.    |
 | Manual         | Checklist below         | The app             | Audio, keys, lock screen.           |
 
@@ -50,7 +50,7 @@ They are deterministic and tiny. They are never committed.
 - Files ordered by disc tag, then track tag, then natural filename.
 - Files with a disc tag of `0` or missing sort as disc 1.
 - A track tag like `3/22` parses as 3.
-- Hidden files and the `.odio` folder are skipped.
+- Hidden files and the `.ribbon` folder are skipped.
 
 ### Probe parsing (`core/scan/probe.ts`)
 
@@ -214,7 +214,7 @@ and durations for every fixture.
 
 ## Real library cases
 
-Run with `ODIO_BOOKS=books`. Asserts against the user's folder:
+Run with `RIBBON_BOOKS=books`. Asserts against the user's folder:
 
 - Exactly two books found.
 - `Horus Rising` has 22 files ordered 1 to 22 by track tag, title
@@ -227,7 +227,7 @@ Run with `ODIO_BOOKS=books`. Asserts against the user's folder:
 
 Run with `cargo test --release` in `src-tauri`.
 
-- The walk skips `.odio` and hidden entries and classifies audio and
+- The walk skips `.ribbon` and hidden entries and classifies audio and
   image files by extension.
 - Probing `Horus Rising/Chapter 10.m4a` yields the title, artist,
   album, track `10`, a duration over one second, and an attached
@@ -264,7 +264,7 @@ Run with `cargo test --release` in `src-tauri`.
 - [ ] Pause for 15 seconds, play: audio rewinds by 2 seconds.
 - [ ] Speed 1.5x sounds pitch-correct. Time remaining updates.
 - [ ] Quit the app mid-book, reopen: it resumes where it was.
-- [ ] Position file exists at `.odio/positions/<id>.csv` and is
+- [ ] Position file exists at `.ribbon/positions/<id>.csv` and is
       readable in a text editor.
 - [ ] Media keys play and pause. Windows media overlay shows title and
       cover.

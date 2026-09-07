@@ -6,7 +6,7 @@ import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanPr
  * run in a plain browser tab against a library folder on this machine.
  * Never shipped: the Tauri build has no server behind it.
  */
-export function browserHost(base = "/__odio"): Host {
+export function browserHost(base = "/__ribbon"): Host {
   async function call<T>(op: string, body: unknown): Promise<T> {
     const r = await fetch(`${base}/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error(`${op}: ${r.status} ${await r.text()}`);
@@ -27,10 +27,12 @@ export function browserHost(base = "/__odio"): Host {
     },
     mkdir: (path) => call<void>("mkdir", { path }),
     remove: (path) => call<void>("remove", { path }),
+    rename: (from, to) => call<void>("rename", { from, to }),
     run: (tool: Tool, args: string[]) => call<RunResult>("run", { tool, args }),
     join: (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "/"),
     deviceName: async () => "browser-dev",
     async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+      // The dev server scans in one request; nothing streams back.
       onProgress?.({ walked: 0, done: 0 });
       return call<ScanOutput>("scan", { root, known });
     },
@@ -38,12 +40,12 @@ export function browserHost(base = "/__odio"): Host {
   };
 }
 
-export function browserFileUrl(absPath: string, base = "/__odio"): string {
+export function browserFileUrl(absPath: string, base = "/__ribbon"): string {
   return `${base}/file?path=${encodeURIComponent(absPath)}`;
 }
 
 /** The library root the dev server was started with. */
-export async function browserLibraryRoot(base = "/__odio"): Promise<string | null> {
+export async function browserLibraryRoot(base = "/__ribbon"): Promise<string | null> {
   try {
     const r = await fetch(`${base}/root`);
     if (!r.ok) return null;

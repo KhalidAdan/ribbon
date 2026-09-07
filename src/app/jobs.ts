@@ -1,7 +1,9 @@
+import { pipe, from, tap, collect } from "@culvert/stream";
 import type { ScannedBook } from "../core/scan/scan";
 import type { SilenceRange } from "../core/types";
-import { combineLoudness, parseEbur128, type FileLoudness } from "../core/loudness";
-import { parseSilenceDetect, MIN_GAP_MS, NOISE_DB } from "../core/silence";
+import { combineLoudness, ebur128Fold, type FileLoudness } from "../core/loudness";
+import { silenceRanges, MIN_GAP_MS, NOISE_DB } from "../core/silence";
+import { lines } from "../core/lines";
 import type { LibraryService } from "./library";
 
 /** One ffmpeg pass that measures loudness and finds silences together. */
@@ -26,17 +28,27 @@ export interface Analysis {
 
 /**
  * Decode a whole book once, recording loudness and silence. This is the
- * expensive job, so it runs only for books the listener opens.
+ * expensive job, so it runs only for books the listener opens. Each
+ * file is one pipeline over ffmpeg's stderr, live where the host can
+ * stream it: the loudness fold observes every line, the silence
+ * transform turns the detector's lines into ranges.
  */
 export async function analyzeBook(lib: LibraryService, book: ScannedBook, signal?: AbortSignal): Promise<Analysis | null> {
   const parts: FileLoudness[] = [];
   const silence = new Map<number, SilenceRange[]>();
   for (const [i, f] of book.files.entries()) {
     if (signal?.aborted) return null;
-    const r = await lib.host.run("ffmpeg", analyzeArgs(lib.absPath(f.path)), signal);
-    const m = parseEbur128(r.stderr);
+    const args = analyzeArgs(lib.absPath(f.path));
+    const output = lib.host.stream ? lib.host.stream("ffmpeg", args, signal) : from(lines((await lib.host.run("ffmpeg", args, signal)).stderr));
+    const loudness = ebur128Fold();
+    const ranges = await pipe(
+      output,
+      tap((line) => loudness.feed(line)),
+      silenceRanges(f.durationMs),
+      collect(),
+    );
+    const m = loudness.result();
     if (m) parts.push({ ...m, durationMs: f.durationMs });
-    const ranges = parseSilenceDetect(r.stderr, f.durationMs);
     if (ranges.length > 0) silence.set(i, ranges);
   }
   if (signal?.aborted) return null;

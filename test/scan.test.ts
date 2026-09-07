@@ -12,7 +12,7 @@ describe("scanLibrary over generated fixtures", () => {
   let result: ScanResult;
 
   beforeAll(async () => {
-    await fs.rm(path.join(FIXTURE_ROOT, ".odio"), { recursive: true, force: true });
+    await fs.rm(path.join(FIXTURE_ROOT, ".ribbon"), { recursive: true, force: true });
     result = await scanLibrary(host, FIXTURE_ROOT);
   });
 
@@ -45,15 +45,15 @@ describe("scanLibrary over generated fixtures", () => {
     expect(b.chapters.map((c) => c.title)).toEqual(["Opening", "Middle", "Closing"]);
     expect(b.chapters.map((c) => c.startMs)).toEqual([0, 2000, 4000]);
     expect(b.files[0]!.hasCover).toBe(true);
-    expect(b.book.cover).toBe(`.odio/covers/${b.book.id}.jpg`);
+    expect(b.book.cover).toBe(`.ribbon/covers/${b.book.id}.jpg`);
   });
 
-  it("extracts the embedded cover to .odio/covers as a JPEG, after the scan", async () => {
+  it("extracts the embedded cover to .ribbon/covers as a JPEG, after the scan", async () => {
     const b = byPath("single-m4b");
     const done = await extractMissingCovers(host, FIXTURE_ROOT, result.books);
     expect(done.map((x) => x.book.path)).toContain("single-m4b");
     expect(await extractMissingCovers(host, FIXTURE_ROOT, result.books)).toEqual([]);
-    const bytes = await fs.readFile(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`));
+    const bytes = await fs.readFile(path.join(FIXTURE_ROOT, ".ribbon", "covers", `${b.book.id}.jpg`));
     expect(bytes.length).toBeGreaterThan(500);
     expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
   });
@@ -131,12 +131,12 @@ describe("scanLibrary over generated fixtures", () => {
 
   it("ensureChapters recovers a cover the fast scanner missed", async () => {
     const b = byPath("single-m4b");
-    await fs.rm(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`), { force: true });
+    await fs.rm(path.join(FIXTURE_ROOT, ".ribbon", "covers", `${b.book.id}.jpg`), { force: true });
     const blind = { ...b, book: { ...b.book, cover: "" }, files: b.files.map((f) => ({ ...f, hasCover: false, coverFile: "", chaptersProbed: false })) };
     const fixed = await ensureChapters(host, FIXTURE_ROOT, blind);
     expect(fixed.files[0]!.hasCover).toBe(true);
-    expect(fixed.book.cover).toBe(`.odio/covers/${b.book.id}.jpg`);
-    const st = await fs.stat(path.join(FIXTURE_ROOT, ".odio", "covers", `${b.book.id}.jpg`));
+    expect(fixed.book.cover).toBe(`.ribbon/covers/${b.book.id}.jpg`);
+    const st = await fs.stat(path.join(FIXTURE_ROOT, ".ribbon", "covers", `${b.book.id}.jpg`));
     expect(st.size).toBeGreaterThan(500);
   });
 

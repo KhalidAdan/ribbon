@@ -8,15 +8,18 @@ export function nowIso(nowMs = Date.now()): string {
 }
 
 export function serializePosition(p: Position): Promise<Uint8Array> {
+  return serializePositions([p]);
+}
+
+/** Several positions as one file, in the same shape as a single one. */
+export function serializePositions(list: readonly Position[]): Promise<Uint8Array> {
   return rowsToBytes(
-    [
-      {
-        book_id: p.bookId,
-        offset_ms: String(Math.max(0, Math.round(p.offsetMs))),
-        updated_at: p.updatedAt,
-        device: p.device,
-      },
-    ],
+    list.map((p) => ({
+      book_id: p.bookId,
+      offset_ms: String(Math.max(0, Math.round(p.offsetMs))),
+      updated_at: p.updatedAt,
+      device: p.device,
+    })),
     POSITION_HEADERS,
   );
 }

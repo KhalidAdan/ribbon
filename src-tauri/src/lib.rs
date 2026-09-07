@@ -1,17 +1,36 @@
 mod scan;
+mod tags;
 
+use std::sync::OnceLock;
+use std::time::Instant;
 use tauri::Manager;
 use tauri_plugin_fs::FsExt;
 
+static STARTED: OnceLock<Instant> = OnceLock::new();
+
+/// Milliseconds since the process started, so the web side can log how
+/// long the listener waited from double-click to a painted shelf.
+#[tauri::command]
+fn uptime_ms() -> u64 {
+    STARTED.get().map(|t| t.elapsed().as_millis() as u64).unwrap_or(0)
+}
+
+/// A library folder named on the command line or in RIBBON_LIBRARY, for
+/// opening straight into a library without the picker. Used by scripts
+/// and timing runs; the remembered root still wins when there is one.
+#[tauri::command]
+fn env_library() -> Option<String> {
+    std::env::args().nth(1).filter(|a| !a.starts_with('-')).or_else(|| std::env::var("RIBBON_LIBRARY").ok()).filter(|s| !s.trim().is_empty())
+}
+
 /// Widen the filesystem and asset-protocol scopes to a library folder the
 /// user picked. Called once per library; the scope persists for the
-/// session. Everything outside stays inaccessible.
+/// session. Everything outside stays inaccessible. The folder is not
+/// checked here: that would be a network round trip before the first
+/// paint, and the scan reports a missing folder itself.
 #[tauri::command]
 fn allow_library(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let root = std::path::PathBuf::from(&path);
-    if !root.is_dir() {
-        return Err(format!("not a directory: {path}"));
-    }
     app.fs_scope()
         .allow_directory(&root, true)
         .map_err(|e| e.to_string())?;
@@ -23,12 +42,13 @@ fn allow_library(app: tauri::AppHandle, path: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = STARTED.set(Instant::now());
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
-        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::read_text_dir])
+        .invoke_handler(tauri::generate_handler![allow_library, scan::scan_library, scan::extract_cover, scan::read_text_dir, scan::write_text_files, scan::mirror_read, scan::mirror_write, scan::mirror_covers, uptime_ms, env_library])
         .plugin(
             // Always on, in every build: the terminal, the webview console,
             // and a file under the app's log directory.
@@ -41,13 +61,20 @@ pub fn run() {
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("odio".into()) }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("ribbon".into()) }),
                 ])
                 .build(),
         )
         .setup(|app| {
             let dir = app.path().app_log_dir().map(|p| p.display().to_string()).unwrap_or_default();
-            log::info!("odio starting; log directory {dir}");
+            log::info!("ribbon starting; log directory {dir}");
+            // Covers are served from the local mirror; a local path canonicalises in microseconds.
+            if let Ok(base) = scan::mirror_base(app.handle()) {
+                let _ = std::fs::create_dir_all(&base);
+                if let Err(e) = app.asset_protocol_scope().allow_directory(&base, true) {
+                    log::warn!("could not allow the mirror folder for assets: {e}");
+                }
+            }
             let _ = app.get_webview_window("main");
             Ok(())
         })

@@ -1,5 +1,5 @@
 {
-  "name": "odio",
+  "name": "ribbon",
   "version": "0.1.0",
   "description": "The listener for books you own.",
   "scripts": {
@@ -12,7 +12,7 @@
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test",
     "typecheck": "tsc --noEmit",
-    "odio": "tsx tools/odio.ts",
+    "ribbon": "tsx tools/ribbon.ts",
     "fixtures": "tsx tools/make-fixtures.ts"
   },
   "keywords": [],

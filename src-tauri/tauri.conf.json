@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Odio",
+  "productName": "Ribbon",
   "version": "0.1.0",
-  "identifier": "sh.odio.app",
+  "identifier": "app.ribbon.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Odio",
+        "title": "Ribbon",
         "width": 1100,
         "height": 760,
         "minWidth": 720,

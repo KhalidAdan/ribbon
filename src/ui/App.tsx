@@ -21,7 +21,7 @@ export function App() {
       await attachTauriLog();
       log.info("web side up");
       created = new AppController(platform);
-      if (import.meta.env.DEV) (window as unknown as { __odio: AppController }).__odio = created;
+      if (import.meta.env.DEV) (window as unknown as { __ribbon: AppController }).__ribbon = created;
       setController(created);
       void created.boot();
     });

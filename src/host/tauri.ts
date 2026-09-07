@@ -3,11 +3,26 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { hostname } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
+import { channel, type Source } from "@culvert/stream";
+import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
 import { joinPath } from "./paths";
 import { log } from "../app/log";
 
-const PROGRESS_EVENT = "odio://scan-progress";
+const BATCH_EVENT = "ribbon://scan-batch";
+
+/** What the Rust scanner sends: no name or chapters, cover as null when absent. */
+type RawFile = Omit<ScannedFile, "name" | "chapters" | "cover"> & { cover: string | null };
+interface RawBatch {
+  token: string;
+  files: RawFile[];
+  walked: number;
+  done: number;
+  sentMs: number;
+}
+
+function fromRaw(f: RawFile): ScannedFile {
+  return { ...f, name: f.path.slice(f.path.lastIndexOf("/") + 1), cover: f.cover ?? "", chapters: [] };
+}
 
 /**
  * Tauri implementation of Host over plugin-fs, plugin-shell, and the
@@ -37,6 +52,7 @@ export function tauriHost(): Host {
     async remove(p: string): Promise<void> {
       if (await exists(p)) await remove(p, { recursive: true });
     },
+    rename: (from: string, to: string) => rename(from, to),
     run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult> {
       return new Promise((resolve) => {
         const cmd = Command.create(tool, args, { encoding: "utf-8" });
@@ -54,24 +70,67 @@ export function tauriHost(): Host {
           .catch((e: unknown) => resolve({ code: 127, stdout, stderr: String(e) }));
       });
     },
+    stream(tool: Tool, args: string[], signal?: AbortSignal): Source<string> {
+      // The shell plugin pushes lines by event; the channel turns them into
+      // a pulled source with backpressure, one write in flight at a time.
+      const [writer, source] = channel<string>();
+      let tail = Promise.resolve();
+      const then = (step: () => Promise<void>) => {
+        tail = tail.then(step).catch(() => undefined);
+      };
+      const cmd = Command.create(tool, args, { encoding: "utf-8" });
+      cmd.stderr.on("data", (line: string) => then(() => writer.write(line)));
+      cmd.stdout.on("data", () => undefined);
+      cmd.on("error", () => then(() => writer.close()));
+      cmd.on("close", () => then(() => writer.close()));
+      cmd
+        .spawn()
+        .then((child) => signal?.addEventListener("abort", () => child.kill().catch(() => undefined), { once: true }))
+        .catch(() => then(() => writer.close()));
+      return source;
+    },
     join: (...parts: string[]) => joinPath(parts),
     deviceName: async () => (await hostname()) ?? "this device",
-    async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void): Promise<ScanOutput> {
+    async scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void, onFiles?: (files: ScannedFile[]) => void): Promise<ScanOutput> {
       log.info("scan starting", root, known.length, "known");
-      const unlisten = onProgress ? await listen<ScanProgress>(PROGRESS_EVENT, (e) => onProgress(e.payload)) : null;
-      log.info("listening for progress");
+      const t0 = performance.now();
+      const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      // Every file arrives in a batch, first as found and then as read; the
+      // command's reply is only a summary. Insertion order is walk order.
+      const files = new Map<string, ScannedFile>();
+      let batches = 0;
+      let lastBatchAt = t0;
+      const unlisten = await listen<RawBatch>(BATCH_EVENT, (e) => {
+        const b = e.payload;
+        if (b.token !== token) return;
+        batches++;
+        const arrived = performance.now();
+        lastBatchAt = arrived;
+        const mapped = b.files.map(fromRaw);
+        for (const f of mapped) files.set(f.path, f);
+        onProgress?.({ walked: b.walked, done: b.done });
+        if (mapped.length > 0) onFiles?.(mapped);
+      });
       try {
-        const r = await invoke<Omit<ScanOutput, "files"> & { files: (Omit<ScanOutput["files"][number], "chapters" | "cover"> & { cover: string | null })[] }>("scan_library", { root, known });
-        log.info("scan returned", r.walked, "files in", r.elapsedMs, "ms");
-        return { ...r, files: r.files.map((f) => ({ ...f, cover: f.cover ?? "", chapters: [] })) };
+        const r = await invoke<Omit<ScanOutput, "files">>("scan_library", { root, known, token });
+        const now = performance.now();
+        log.info(`scan returned ${r.walked} files; rust ${r.elapsedMs} ms, ipc ${Math.round(now - t0)} ms, ${batches} batches, last batch ${Math.round(now - lastBatchAt)} ms before the result`);
+        return { ...r, files: [...files.values()] };
       } catch (e) {
         log.error("scan failed", e);
         throw e;
       } finally {
-        unlisten?.();
+        unlisten();
       }
     },
     readTextDir: (dir: string) => invoke<TextFile[]>("read_text_dir", { dir }),
+    extractCover: (src: string, target: string) => invoke<boolean>("extract_cover", { src, target }),
+    writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
+    recordsMirror: {
+      read: (root) => invoke<{ dir: string; library: string; files: string; positions: string | null; covers: string[] } | null>("mirror_read", { root }),
+      write: (root, parts) => invoke<void>("mirror_write", { root, library: parts.library ?? null, files: parts.files ?? null, positions: parts.positions ?? null }),
+      covers: (root, covers) => invoke<string[]>("mirror_covers", { root, covers }),
+    },
   };
 }
 
@@ -83,4 +142,14 @@ export function allowLibrary(path: string): Promise<void> {
 /** A URL the webview can stream a file from, with range support. */
 export function fileUrl(absPath: string): string {
   return convertFileSrc(absPath);
+}
+
+/** Milliseconds since the Rust process started. */
+export function uptimeMs(): Promise<number> {
+  return invoke<number>("uptime_ms");
+}
+
+/** A library folder given on the command line or in RIBBON_LIBRARY, if any. */
+export function envLibrary(): Promise<string | null> {
+  return invoke<string | null>("env_library");
 }
