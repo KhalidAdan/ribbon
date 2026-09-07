@@ -123,17 +123,17 @@ export function matchWork(candidates: readonly WorkCandidate[], title: string, a
   if (!want) return null;
   const surname = author ? lastName(author) : "";
   const exact = (have: string) => have === want || have.startsWith(want + ":") || want.startsWith(have + ":");
-  // Database titles sometimes trail off into series notes ("The First
-  // Heretic   Warhammer 40000 Novels"); a prefix is enough when the
-  // author confirms it.
-  const prefix = (have: string) => have.startsWith(want + " ");
-  for (const c of candidates) {
-    const have = fold(c.title);
-    const byAuthor = surname !== "" && c.authors.some((a) => lastName(a) === surname);
-    if (surname && !byAuthor) continue;
-    if (exact(have) || (byAuthor && prefix(have))) return c;
-  }
-  return null;
+  // Database titles sometimes trail off into notes ("The First Heretic
+  // Warhammer 40000 Novels", with a run of spaces, or a parenthesis).
+  // That tail is accepted when the author confirms the book; a tail that
+  // is simply more words ("Dune Messiah" for "Dune") is not.
+  const loose = (t: string) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const noted = (title: string) => {
+    const raw = loose(title);
+    return raw.startsWith(want) && /^(\s{2,}|\s*[(\-–—:])/.test(raw.slice(want.length));
+  };
+  const allowed = candidates.filter((c) => !surname || c.authors.some((a) => lastName(a) === surname));
+  return allowed.find((c) => exact(fold(c.title))) ?? (surname ? allowed.find((c) => noted(c.title)) : undefined) ?? null;
 }
 
 const enc = encodeURIComponent;
