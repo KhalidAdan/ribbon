@@ -7,6 +7,7 @@ interface Props {
   durationMs: number;
   chapters: Chapter[];
   onSeek: (ms: number) => void;
+  label?: string;
 }
 
 /**
@@ -14,7 +15,7 @@ interface Props {
  * drawn over it. While dragging, the label tracks the thumb and the
  * engine is only told where to go on release.
  */
-export function Scrubber({ positionMs, durationMs, chapters, onSeek }: Props) {
+export function Scrubber({ positionMs, durationMs, chapters, onSeek, label = "Position in book" }: Props) {
   const [drag, setDrag] = useState<number | null>(null);
   const shown = drag ?? positionMs;
   const max = Math.max(1, durationMs);
@@ -38,7 +39,7 @@ export function Scrubber({ positionMs, durationMs, chapters, onSeek }: Props) {
         ref={ref}
         type="range"
         name="position"
-        aria-label="Position in book"
+        aria-label={label}
         aria-valuetext={formatDuration(shown)}
         min={0}
         max={max}
