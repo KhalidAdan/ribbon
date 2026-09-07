@@ -33,7 +33,7 @@ export function LibraryPane() {
     });
     return orderBySeries(sorted, (b) => b.book.id, Object.values(state.series));
   }, [state.books, state.positions, state.series]);
-  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.root]);
+  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources]);
   const inSeries = useMemo(() => new Set(series.flatMap((g) => g.bookIds)), [series]);
   const standalone = useMemo(() => byShelf.filter((b) => !inSeries.has(b.book.id)), [byShelf, inSeries]);
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
@@ -66,7 +66,7 @@ export function LibraryPane() {
     return byShelf.filter((b) => rank.has(b.book.id)).sort((a, b) => rank.get(a.book.id)! - rank.get(b.book.id)!);
   }, [byShelf, matches]);
 
-  const folderName = state.root ? state.root.split(/[\\/]/).filter(Boolean).pop() : "";
+  const folderName = state.sources.length === 1 ? state.sources[0]!.name : `${state.sources.length} folders`;
   const empty = state.books.length === 0;
 
   return (
@@ -74,7 +74,7 @@ export function LibraryPane() {
       <header className="flex items-center gap-3 px-4 pt-4 pb-3 sm:px-8">
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold tracking-tight text-neutral-950 dark:text-white">Library</h1>
-          <p className="truncate text-sm/6 text-neutral-500 dark:text-neutral-400" title={state.root ?? ""}>
+          <p className="truncate text-sm/6 text-neutral-500 dark:text-neutral-400" title={state.sources.map((s) => s.root).join("\n")}>
             {folderName}
             {state.scanning
               ? state.scanning.stage
@@ -115,7 +115,10 @@ export function LibraryPane() {
         <ScanProgress status={state.scanning} />
       ) : empty ? (
         <div className="px-5 py-10 text-center">
-          <p className="text-base/7 text-neutral-500 sm:text-sm/6 dark:text-neutral-400">No audiobooks found in this folder.</p>
+          <p className="text-base/7 text-neutral-500 sm:text-sm/6 dark:text-neutral-400">No audiobooks found in {state.sources.length === 1 ? "this folder" : "these folders"}.</p>
+          <Button size="sm" className="mt-4" onClick={() => void c.pickLibrary()}>
+            Add a folder
+          </Button>
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-10 sm:px-8">

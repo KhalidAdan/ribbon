@@ -15,11 +15,14 @@ npm install
 npm run tauri:dev          # the desktop app
 ```
 
-On first launch, choose a folder of audiobooks. Ribbon scans it, writes
-its records to `<folder>/.ribbon/`, and opens the library. The shelf is
-on screen from folder names before a single tag is read; durations fill
-in behind it. Launch with a folder as the argument, or set
-`RIBBON_LIBRARY`, to open it without the picker.
+On first launch, add a folder of audiobooks. Ribbon scans it, writes
+its records to `<folder>/.ribbon/`, and opens the library. Add more
+folders from Settings: the library is every folder together, and the
+books stay where they are. The shelf is on screen from folder names
+before a single tag is read; durations fill in behind it. Launch with a
+folder as the argument, or set `RIBBON_LIBRARY`, to add it without the
+picker. The list of folders lives in the Ribbon folder
+(`%LOCALAPPDATA%\Ribbon\sources.tsv`).
 
 ## Develop in a browser
 

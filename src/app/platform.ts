@@ -1,4 +1,5 @@
 import type { Platform } from "./controller";
+import type { SourceEntry } from "../core/sources";
 import { browserFileUrl, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
@@ -31,9 +32,15 @@ export function memorySettings(): NonNullable<Platform["appSettings"]> {
   return { read: async () => ({ ...store }), write: async (s) => void (store = { ...s }) };
 }
 
+/** Sources that last for the session only, for the harness and tests. */
+export function memorySources(): Platform["sources"] {
+  let list: SourceEntry[] = [];
+  return { load: async () => list.map((s) => ({ ...s })), save: async (next) => void (list = next.map((s) => ({ ...s }))) };
+}
+
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary, homeInfo, rememberLibrary, forgetLibrary, revealHome, resetHome, appSettingsRead, appSettingsWrite }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -43,31 +50,30 @@ export async function detectPlatform(): Promise<Platform> {
         // Open one level up so the current library is a folder you can
         // see and click, not a folder you are already inside.
         const parent = near ? near.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]+$/, "") : undefined;
-        const picked = await dialog.open({ directory: true, multiple: false, title: "Choose your audiobook folder", ...(parent ? { defaultPath: parent } : {}) });
+        const picked = await dialog.open({ directory: true, multiple: false, title: "Add a folder of audiobooks", ...(parent ? { defaultPath: parent } : {}) });
         log.info("picked", picked);
         return typeof picked === "string" ? picked : null;
       },
       allowFolder: allowLibrary,
       fileUrl,
-      // The library to reopen is the most recently opened one in the
-      // Ribbon folder's registry. A root remembered by an older build in
-      // the webview's storage is moved there once.
-      async loadRoot() {
-        const info = await homeInfo();
-        const recent = info.libraries[0]?.root ?? null;
-        if (recent) return recent;
-        const legacy = legacyRoot();
-        if (legacy) {
-          await rememberLibrary(legacy).catch(() => undefined);
+      // The sources live in the Ribbon folder. A root remembered by an
+      // older build in the webview's storage becomes the first source once.
+      sources: {
+        async load() {
+          const list = await sourcesRead();
+          if (list.length > 0) {
+            clearLegacyRoot();
+            return list;
+          }
+          const legacy = legacyRoot();
+          if (!legacy) return [];
+          const seeded = [{ root: legacy, addedAt: new Date().toISOString() }];
+          await sourcesWrite(seeded).catch(() => undefined);
           clearLegacyRoot();
-        }
-        return legacy;
+          return seeded;
+        },
+        save: sourcesWrite,
       },
-      async saveRoot(root) {
-        if (root) await rememberLibrary(root);
-        clearLegacyRoot();
-      },
-      forgetRoot: (root) => forgetLibrary(root),
       defaultRoot: envLibrary,
       uptimeMs,
       appSettings: { read: appSettingsRead, write: appSettingsWrite },
@@ -75,7 +81,7 @@ export async function detectPlatform(): Promise<Platform> {
         path: async () => (await homeInfo()).path,
         reveal: revealHome,
         async reset() {
-          const ok = await dialog.ask("Remove the local mirror, the remembered libraries and the covers Ribbon copied? Nothing beside your books is touched. The next open reads the library again.", {
+          const ok = await dialog.ask("Remove the local mirror, the list of folders and the covers Ribbon copied? Nothing beside your books is touched. You add your folders again next time.", {
             title: "Reset Ribbon",
             kind: "warning",
             okLabel: "Reset",
@@ -94,9 +100,7 @@ export async function detectPlatform(): Promise<Platform> {
     pickFolder: () => browserLibraryRoot(),
     allowFolder: async () => undefined,
     fileUrl: browserFileUrl,
-    loadRoot: async () => null,
-    saveRoot: async () => undefined,
-    forgetRoot: async () => undefined,
+    sources: memorySources(),
     defaultRoot: () => browserLibraryRoot(),
     appSettings: memorySettings(),
   };

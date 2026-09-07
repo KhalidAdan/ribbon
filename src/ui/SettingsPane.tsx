@@ -1,4 +1,4 @@
-import { ArrowPathIcon, ChevronLeftIcon, FolderOpenIcon } from "@heroicons/react/16/solid";
+import { ArrowPathIcon, ChevronLeftIcon, FolderPlusIcon, XMarkIcon } from "@heroicons/react/16/solid";
 import { useEffect, useMemo, useState } from "react";
 import { groupProblems } from "../core/problems";
 import { useAppState, useController } from "./store";
@@ -14,12 +14,18 @@ export function SettingsPane() {
   const state = useAppState();
   const c = useController();
   const groups = groupProblems(state.problems);
-  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.root]);
+  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources]);
   const [homePath, setHomePath] = useState<string | null>(null);
   useEffect(() => {
     void c.homePath().then(setHomePath);
   }, [c]);
-  const bookFor = (folder: string) => state.books.find((b) => b.book.path === folder) ?? null;
+  const bookFor = (source: string | undefined, folder: string) => state.books.find((b) => b.source === source && b.book.path === folder) ?? null;
+  const sourceName = (id: string | undefined) => state.sources.find((s) => s.id === id)?.name ?? "";
+  const countBySource = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of state.books) m.set(b.source ?? "", (m.get(b.source ?? "") ?? 0) + 1);
+    return m;
+  }, [state.books]);
 
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Settings">
@@ -32,23 +38,52 @@ export function SettingsPane() {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-6 sm:px-8">
-          <Section title="Library" description="Where your books are. Records live beside them in a .ribbon folder.">
-            <p className="truncate text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white" title={state.root ?? ""}>
-              {state.root}
-            </p>
-            <p className="mt-1 text-sm/6 text-neutral-500 dark:text-neutral-400">
-              {state.books.length.toLocaleString()} {state.books.length === 1 ? "book" : "books"}
-              {state.lastScanMs !== null ? (state.lastScanMs < 1000 ? " · last check took under a second" : ` · last check took ${(state.lastScanMs / 1000).toFixed(1)} s`) : ""}
-            </p>
+          <Section title="Folders" description="The folders your library is made of. The books stay where they are; Ribbon reads them in place and keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk.">
+            <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
+              {state.sources.map((s) => {
+                const status = state.sourceStatus[s.id];
+                const count = countBySource.get(s.id) ?? 0;
+                const line = status?.error
+                  ? `Could not open: ${status.error}`
+                  : status?.scanning
+                    ? status.scanning.stage
+                      ? status.scanning.stage
+                      : status.scanning.walked > 0
+                        ? `Checking ${status.scanning.done.toLocaleString()} of ${status.scanning.walked.toLocaleString()} files…`
+                        : "Checking for changes…"
+                    : `${count.toLocaleString()} ${count === 1 ? "book" : "books"}${status?.lastScanMs !== null && status?.lastScanMs !== undefined ? (status.lastScanMs < 1000 ? " · last check took under a second" : ` · last check took ${(status.lastScanMs / 1000).toFixed(1)} s`) : ""}`;
+                return (
+                  <li key={s.id} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{s.name}</p>
+                      <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400" title={s.root}>
+                        {s.root}
+                      </p>
+                      <p className={status?.error ? "text-sm/5 text-red-600 dark:text-red-400" : "text-sm/5 text-neutral-500 dark:text-neutral-400"}>{line}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button icon size="sm" variant="ghost" aria-label={`Rescan ${s.name}`} title="Rescan" onClick={() => void c.rescanSourceById(s.id)} disabled={status?.scanning !== null && status?.scanning !== undefined}>
+                        <ArrowPathIcon className={status?.scanning ? "size-4 animate-spin fill-current" : "size-4 fill-current"} />
+                      </Button>
+                      <Button icon size="sm" variant="ghost" aria-label={`Remove ${s.name} from the library`} title="Remove from the library" onClick={() => void c.removeSource(s.id)}>
+                        <XMarkIcon className="size-4 fill-current" />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => void c.rescan()} disabled={state.scanning !== null} className="py-1.5 pr-2.5 pl-1.5">
-                <ArrowPathIcon className="size-4 fill-current" />
-                {state.scanning ? "Checking…" : "Rescan library"}
+              <Button size="sm" onClick={() => void c.pickLibrary()} className="py-1.5 pr-2.5 pl-1.5">
+                <FolderPlusIcon className="size-4 fill-current" />
+                Add a folder
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => c.forgetLibrary()} className="py-1.5 pr-2.5 pl-1.5">
-                <FolderOpenIcon className="size-4 fill-current" />
-                Choose a different folder
-              </Button>
+              {state.sources.length > 1 && (
+                <Button size="sm" variant="ghost" onClick={() => void c.rescan()} disabled={state.scanning !== null} className="py-1.5 pr-2.5 pl-1.5">
+                  <ArrowPathIcon className="size-4 fill-current" />
+                  {state.scanning ? "Checking…" : "Rescan every folder"}
+                </Button>
+              )}
             </div>
           </Section>
 
@@ -63,15 +98,18 @@ export function SettingsPane() {
             {groups.length > 0 && (
               <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
                 {groups.map((g) => {
-                  const book = bookFor(g.folder);
+                  const book = bookFor(g.source, g.folder);
+                  const where = state.sources.length > 1 ? sourceName(g.source) : "";
                   return (
-                    <li key={g.folder || "/"} className="py-3">
+                    <li key={`${g.source ?? ""}:${g.folder || "/"}`} className="py-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{book ? book.book.title : g.folder || "Library folder"}</p>
-                          {book && book.book.author && <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{book.book.author}</p>}
+                          <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{book ? book.book.title : g.folder || where || "Library folder"}</p>
+                          {(book?.book.author || where) && (
+                            <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{[book?.book.author, where].filter(Boolean).join(" · ")}</p>
+                          )}
                         </div>
-                        <Button size="sm" onClick={() => void c.rescanFolder(g.folder)} disabled={state.scanning !== null} className="shrink-0 py-1.5 pr-2.5 pl-1.5">
+                        <Button size="sm" onClick={() => void (g.source && c.rescanFolder(g.source, g.folder))} disabled={state.scanning !== null || !g.source} className="shrink-0 py-1.5 pr-2.5 pl-1.5">
                           <ArrowPathIcon className="size-4 fill-current" />
                           Rescan
                         </Button>

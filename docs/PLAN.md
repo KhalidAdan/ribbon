@@ -44,8 +44,10 @@ CSV rows through `csvStringify` into a file. The reference scanner is
 
 ## Data model
 
-Every durable fact is a file next to the books, in a `.ribbon/` folder at
-the library root. All files are CSV. Nothing is binary or opaque.
+A library is one or more source folders; the app keeps their list in
+its own folder (`sources.tsv`) and the books stay where they are. Every
+durable fact is a file next to the books, in a `.ribbon/` folder at each
+source's root. All files are CSV. Nothing is binary or opaque.
 
 | File                              | Purpose                                             |
 | --------------------------------- | --------------------------------------------------- |

@@ -4,6 +4,7 @@ import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/typ
 import type { Problem } from "../core/problems";
 import { defaultChoices, detectSeries, normalizeChoices, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
 import type { BookAbout } from "../core/about";
+import { sameRoot, sourceFrom, type Source, type SourceEntry } from "../core/sources";
 import { AboutLookup, type LookupStatus } from "./about";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
@@ -19,19 +20,18 @@ import { log } from "./log";
 
 export interface Platform {
   host: Host;
-  /** Ask the user for a library folder, opening near `near`. Null when cancelled. */
+  /** Ask the user for a folder of books, opening near `near`. Null when cancelled. */
   pickFolder(near?: string | null): Promise<string | null>;
   /** Grant access to a folder before any read. */
   allowFolder(path: string): Promise<void>;
   /** Streamable URL for an absolute path. */
   fileUrl(absPath: string): string;
-  /** The library to reopen, from wherever the platform keeps it. */
-  loadRoot(): Promise<string | null>;
-  /** Remember a library as the one to reopen. */
-  saveRoot(root: string): Promise<void>;
-  /** Stop reopening a library; it stays on disk untouched. */
-  forgetRoot(root: string): Promise<void>;
-  /** A root to open automatically without picking (dev harness). */
+  /** The folders the library is populated from, wherever the platform keeps them. */
+  sources: {
+    load(): Promise<SourceEntry[]>;
+    save(list: SourceEntry[]): Promise<void>;
+  };
+  /** A folder to add automatically without picking (dev harness, command line). */
   defaultRoot?: () => Promise<string | null>;
   /** Milliseconds since the host process started, when the host knows. */
   uptimeMs?: () => Promise<number>;
@@ -70,9 +70,21 @@ export interface ScanStatus {
   background: boolean;
 }
 
+/** What the shelf knows about one source beyond its books. */
+export interface SourceStatus {
+  scanning: ScanStatus | null;
+  /** How long the last scan took, or null before the first finishes. */
+  lastScanMs: number | null;
+  /** Why the source could not be opened, or null. */
+  error: string | null;
+}
+
 export interface AppState {
   phase: "boot" | "pick" | "loading" | "ready";
-  root: string | null;
+  /** The folders the library is populated from, in the order they were added. */
+  sources: Source[];
+  sourceStatus: Record<string, SourceStatus>;
+  /** Every book from every source, in source order. */
   books: ScannedBook[];
   positions: Record<string, Position | null>;
   current: CurrentBook | null;
@@ -82,8 +94,9 @@ export interface AppState {
   /** The bookmark whose lead-in is playing through the main player. */
   previewing: number | null;
   jobs: Record<string, JobStatus>;
+  /** Progress across every source being scanned, or null when none is. */
   scanning: ScanStatus | null;
-  /** Files the last scan could not read. */
+  /** Files the last scans could not read. */
   scanErrors: { path: string; message: string }[];
   /** The same, as recorded beside the books, so yesterday's are still visible. */
   problems: Problem[];
@@ -95,10 +108,10 @@ export interface AppState {
   about: Record<string, BookAbout>;
   /** Whether descriptions are looked up online, and how the current run is going. */
   lookup: { enabled: boolean } & LookupStatus;
-  /** How long the last scan took, for the header. */
+  /** How long the last scan to finish took, for the header. */
   lastScanMs: number | null;
   /**
-   * True once the host will serve files from the library: covers and
+   * True once the host will serve files from every source: covers and
    * audio. Granting that access canonicalises the folder, which on a
    * network volume is several round trips, so the shelf paints first.
    */
@@ -117,8 +130,8 @@ export interface AppState {
 }
 
 /**
- * The folder picker opens inside the last library, where `.ribbon` is the
- * first thing to click. Choosing it means the library it belongs to.
+ * The folder picker opens inside the last source, where `.ribbon` is the
+ * first thing to click. Choosing it means the folder it belongs to.
  */
 export function libraryRootOf(picked: string): string {
   const trimmed = picked.replace(/[\\/]+$/, "");
@@ -137,44 +150,54 @@ function describe(e: unknown): string {
   }
 }
 
-function positionsRecord(books: readonly ScannedBook[], all: Map<string, Position>): Record<string, Position | null> {
-  const out: Record<string, Position | null> = {};
-  for (const b of books) out[b.book.id] = all.get(b.book.id) ?? null;
-  return out;
-}
-
 const SKIP_BACK_MS = 30_000;
 const SKIP_FORWARD_MS = 30_000;
 const POSITION_WRITE_INTERVAL_MS = 5_000;
 
+/** One source, open: its records service and everything the shelf needs from it. */
+interface Opened {
+  source: Source;
+  lib: LibraryService;
+  books: ScannedBook[];
+  positions: Map<string, Position>;
+  /** Series keys whose record lives beside this source's books. */
+  seriesKeys: Set<string>;
+  assetsReady: boolean;
+  scanning: ScanStatus | null;
+  scanInFlight: boolean;
+  /** The last scan's record write, which the shelf does not wait for. */
+  saving: Promise<void>;
+  coverJob: AbortController | null;
+  lookup: AboutLookup | null;
+  /** Covers copied into the local mirror, and where they are. */
+  mirrorCovers: Set<string>;
+  mirrorCoversDir: string | null;
+}
+
 export class AppController {
   private state: AppState;
   private listeners = new Set<() => void>();
-  private lib: LibraryService | null = null;
-  private jobs: JobQueue | null = null;
+  private opened = new Map<string, Opened>();
+  private jobs: JobQueue;
   private engine: PlayerEngine | null = null;
   private pausedAt: number | null = null;
   private lastWrite = 0;
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
   private chapterProbe: AbortController | null = null;
-  private scanInFlight = false;
-  /** The last scan's record write, which the shelf does not wait for. */
-  private saving: Promise<void> = Promise.resolve();
   /** process uptime minus performance.now(), learned once at boot. */
   private clockOffset: number | null = null;
   /** Series offered for setup this session, so a skipped one stays skipped. */
   private seriesOffered = new Set<string>();
-  private lookup: AboutLookup | null = null;
+  /** The lookup pass over every source, while one runs. */
+  private lookupRun: Promise<void> | null = null;
   private appSettings: Record<string, unknown> = {};
-  /** Covers copied into the local mirror, and where they are. */
-  private mirrorCovers = new Set<string>();
-  private mirrorCoversDir: string | null = null;
 
   constructor(private readonly platform: Platform) {
     this.state = {
       phase: "boot",
-      root: null,
+      sources: [],
+      sourceStatus: {},
       books: [],
       positions: {},
       current: null,
@@ -210,6 +233,8 @@ export class AppController {
       playerExpanded: false,
       playerDrawer: null,
     };
+    this.jobs = new JobQueue((book) => this.libOf(book));
+    this.jobs.onStatus((s, result) => this.onJob(s, result));
   }
 
   // Store plumbing ------------------------------------------------------
@@ -226,6 +251,85 @@ export class AppController {
     for (const l of this.listeners) l();
   }
 
+  // Sources -------------------------------------------------------------
+
+  /** The service for the source a book came from, or null when it is gone. */
+  private libOf(book: ScannedBook): LibraryService | null {
+    return this.openedOf(book)?.lib ?? null;
+  }
+
+  private openedOf(book: ScannedBook): Opened | null {
+    return (book.source && this.opened.get(book.source)) || null;
+  }
+
+  private openedInOrder(): Opened[] {
+    return this.state.sources.map((s) => this.opened.get(s.id)).filter((o): o is Opened => !!o);
+  }
+
+  private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
+    return books.map((b) => (b.source === o.source.id ? b : { ...b, source: o.source.id }));
+  }
+
+  /** Every open source's books, in source order, and their positions; a duplicate id keeps its first book. */
+  private publishBooks(extra: Partial<AppState> = {}): void {
+    const seen = new Set<string>();
+    const books: ScannedBook[] = [];
+    const positions: Record<string, Position | null> = {};
+    for (const o of this.openedInOrder()) {
+      for (const b of o.books) {
+        const id = b.book.id;
+        if (seen.has(id)) {
+          log.warn("two sources hold the same book id; keeping the first:", id, b.book.title);
+          continue;
+        }
+        seen.add(id);
+        books.push(b);
+        positions[id] = o.positions.get(id) ?? this.state.positions[id] ?? null;
+      }
+    }
+    // Keep the open book's live object if it still exists.
+    const cur = this.state.current;
+    const refreshed = cur ? books.find((b) => b.book.id === cur.book.book.id) : undefined;
+    this.set({
+      books,
+      positions,
+      current: cur && refreshed && refreshed !== cur.book ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
+      ...extra,
+    });
+  }
+
+  /** The scan status across every source, for the header. */
+  private publishScanning(extra: Partial<AppState> = {}): void {
+    const live = this.openedInOrder().filter((o) => o.scanning);
+    let scanning: ScanStatus | null = null;
+    if (live.length > 0) {
+      scanning = { walked: 0, done: 0, background: true };
+      for (const o of live) {
+        const s = o.scanning!;
+        scanning.walked += s.walked;
+        scanning.done += s.done;
+        if (s.found !== undefined) scanning.found = (scanning.found ?? 0) + s.found;
+        if (s.stage && !scanning.stage) scanning.stage = s.stage;
+        if (!s.background) scanning.background = false;
+      }
+    }
+    const sourceStatus: Record<string, SourceStatus> = {};
+    for (const s of this.state.sources) {
+      const o = this.opened.get(s.id);
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null }), scanning: o?.scanning ?? null };
+    }
+    this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
+  }
+
+  private setSourceStatus(id: string, patch: Partial<SourceStatus>): void {
+    const prev = this.state.sourceStatus[id] ?? { scanning: null, lastScanMs: null, error: null };
+    this.set({ sourceStatus: { ...this.state.sourceStatus, [id]: { ...prev, ...patch } } });
+  }
+
+  private saveSources(): Promise<void> {
+    return this.platform.sources.save(this.state.sources.map((s) => ({ root: s.root, addedAt: s.addedAt }))).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
+  }
+
   // Lifecycle -----------------------------------------------------------
 
   async boot(): Promise<void> {
@@ -238,44 +342,92 @@ export class AppController {
       this.clockOffset = ms - asked;
       log.info(`web side booted ${Math.round(ms)} ms after process start`);
     });
-    const remembered = (await this.platform.loadRoot()) ?? (await this.platform.defaultRoot?.()) ?? null;
-    if (remembered) {
-      try {
-        await this.openLibrary(remembered);
-        return;
-      } catch (e) {
-        this.set({ scanning: null, error: `Could not open ${remembered}: ${describe(e)}` });
-      }
+    const entries = await this.platform.sources.load().catch((e: unknown) => {
+      log.warn("could not read the sources:", describe(e));
+      return [] as SourceEntry[];
+    });
+    const given = (await this.platform.defaultRoot?.()) ?? null;
+    if (given && !entries.some((e) => sameRoot(e.root, given))) {
+      log.info("adding the folder given at launch", given);
+      entries.push({ root: given, addedAt: new Date().toISOString() });
+      await this.platform.sources.save(entries).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
     }
-    this.set({ phase: "pick" });
+    if (entries.length === 0) {
+      this.set({ phase: "pick" });
+      return;
+    }
+    const sources = entries.map(sourceFrom);
+    this.set({ phase: "loading", sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, { scanning: null, lastScanMs: null, error: null }])) });
+    await Promise.all(
+      sources.map((s) =>
+        this.openSource(s).catch((e: unknown) => {
+          log.error("could not open", s.root, describe(e));
+          this.setSourceStatus(s.id, { error: describe(e) });
+        }),
+      ),
+    );
+    if (this.opened.size === 0) {
+      const first = sources[0]!;
+      this.set({ phase: "pick", scanning: null, error: `Could not open ${first.root}: ${this.state.sourceStatus[first.id]?.error ?? "unknown error"}` });
+      return;
+    }
+    this.publishScanning({ phase: "ready" });
   }
 
+  /** Ask for a folder and add it; a folder already in the library is checked for changes instead. */
   async pickLibrary(): Promise<void> {
-    const root = await this.platform.pickFolder(this.state.root ?? (await this.platform.loadRoot()));
+    const near = this.state.sources[this.state.sources.length - 1]?.root ?? null;
+    const root = await this.platform.pickFolder(near);
     if (!root) return;
     try {
-      await this.openLibrary(root);
+      await this.addSource(root);
     } catch (e) {
-      this.set({ phase: "pick", scanning: null, error: `Could not open ${root}: ${describe(e)}` });
+      this.set({ phase: this.opened.size === 0 ? "pick" : this.state.phase, scanning: null, error: `Could not open ${root}: ${describe(e)}` });
     }
+  }
+
+  /** The same as `pickLibrary` without the dialog. */
+  addFolder(root: string): Promise<void> {
+    return this.addSource(root);
   }
 
   /**
-   * Open a library. If it has been scanned before, its records paint
-   * immediately and a rescan runs behind them; nothing before that paint
-   * waits on the share when the local mirror has a copy. If not, the
-   * scan runs in the foreground with live counts.
+   * Add a folder to the library and open it. If it has been scanned
+   * before, its records paint immediately and a rescan runs behind them;
+   * nothing before that paint waits on the share when the local mirror
+   * has a copy. If not, the scan runs in the foreground with live counts.
    */
-  async openLibrary(pickedRoot: string): Promise<void> {
+  async addSource(pickedRoot: string): Promise<void> {
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
-    log.info("open library", root);
-    this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false, series: {}, seriesSetup: null, about: {} });
-    this.seriesOffered = new Set();
-    this.lookup?.stop();
-    this.lookup = null;
-    this.mirrorCovers = new Set();
-    this.mirrorCoversDir = null;
+    const existing = this.state.sources.find((s) => sameRoot(s.root, root));
+    if (existing) {
+      log.info("folder is already a source; checking it for changes", root);
+      const o = this.opened.get(existing.id);
+      if (o) await this.rescanSource(o, true);
+      else await this.openSource(existing);
+      return;
+    }
+    const source = sourceFrom({ root, addedAt: new Date().toISOString() });
+    log.info("add source", root);
+    this.set({
+      phase: this.opened.size === 0 ? "loading" : this.state.phase,
+      sources: [...this.state.sources, source],
+      sourceStatus: { ...this.state.sourceStatus, [source.id]: { scanning: null, lastScanMs: null, error: null } },
+      error: null,
+    });
+    try {
+      await this.openSource(source);
+    } catch (e) {
+      const { [source.id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
+      this.set({ sources: this.state.sources.filter((s) => s.id !== source.id), sourceStatus, phase: this.opened.size === 0 ? "pick" : "ready" });
+      throw e;
+    }
+    void this.saveSources();
+  }
+
+  private async openSource(source: Source): Promise<void> {
+    const root = source.root;
     const marks: string[] = [];
     let last = performance.now();
     const mark = (what: string) => {
@@ -283,82 +435,131 @@ export class AppController {
       marks.push(`${what} ${Math.round(now - last)}`);
       last = now;
     };
+    const lib = new LibraryService(this.platform.host, root);
+    const o: Opened = {
+      source,
+      lib,
+      books: [],
+      positions: new Map(),
+      seriesKeys: new Set(),
+      assetsReady: false,
+      scanning: null,
+      scanInFlight: false,
+      saving: Promise.resolve(),
+      coverJob: null,
+      lookup: null,
+      mirrorCovers: new Set(),
+      mirrorCoversDir: null,
+    };
+    this.opened.set(source.id, o);
+    this.ensureEngine();
+    const alive = () => this.opened.get(source.id) === o;
     // Access to the folder's files is granted while the shelf paints from
     // the local mirror; covers appear the moment it lands.
     const allowed = this.platform.allowFolder(root).then(() => {
       mark("allow");
-      if (this.state.root === root) this.set({ assetsReady: true });
+      o.assetsReady = true;
+      if (alive()) this.publishScanning();
     });
-    const lib = new LibraryService(this.platform.host, root);
-    this.lib = lib;
-    this.jobs = new JobQueue(lib);
-    this.jobs.onStatus((s, result) => this.onJob(s, result));
-    this.ensureEngine();
 
     let migrated = false;
     const migrate = async () => {
       if (migrated) return;
       migrated = true;
-      if (await lib.migrateLegacyRecords()) log.info("moved records from .odio to .ribbon");
+      if (await lib.migrateLegacyRecords()) log.info("moved records from .odio to .ribbon", root);
     };
-    let cached = await lib.loadCached();
-    mark("records");
-    if (!cached || cached.length === 0) {
-      await migrate();
-      cached = await lib.loadCached();
-      mark("migrate+records");
-    }
-    log.info("cached records:", cached ? `${cached.length} books` : "none");
-    if (cached && cached.length > 0) {
-      const extras = await lib.readMirrorExtras();
-      this.mirrorCovers = extras.covers;
-      this.mirrorCoversDir = extras.coversDir;
-      mark("positions");
-      void this.platform.saveRoot(root).catch((e: unknown) => log.warn("could not remember the library:", describe(e)));
-      this.set({ phase: "ready", books: cached, positions: positionsRecord(cached, extras.positions), scanning: null, coverVersion: this.state.coverVersion + 1 });
-      mark("render");
-      this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
-      // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
+    try {
+      let cached = await lib.loadCached();
+      mark("records");
+      if (!cached || cached.length === 0) {
+        await migrate();
+        cached = await lib.loadCached();
+        mark("migrate+records");
+      }
+      log.info("cached records:", source.name, cached ? `${cached.length} books` : "none");
+      if (cached && cached.length > 0) {
+        const extras = await lib.readMirrorExtras();
+        o.mirrorCovers = extras.covers;
+        o.mirrorCoversDir = extras.coversDir;
+        o.positions = extras.positions;
+        o.books = this.stamp(o, cached);
+        mark("positions");
+        if (!alive()) return;
+        this.publishBooks({ phase: "ready", coverVersion: this.state.coverVersion + 1 });
+        this.publishScanning();
+        mark("render");
+        this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
+        // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
+        await allowed;
+        await migrate();
+        const [positions, problems, series, about] = await Promise.all([lib.readAllPositions(), lib.readProblems(), lib.readSeries(), lib.readAbout()]);
+        if (!alive()) return;
+        o.positions = positions;
+        this.absorb(o, problems, series, about);
+        this.publishBooks();
+        void this.rescanSource(o, true);
+        return;
+      }
+      o.scanning = { walked: 0, done: 0, background: false };
+      this.publishScanning();
       await allowed;
-      await migrate();
-      const [positions, problems, series, about] = await Promise.all([this.positionsFor(cached), lib.readProblems(), lib.readSeries(), lib.readAbout()]);
-      if (this.lib === lib) this.set({ positions, problems, series: Object.fromEntries(series), about: Object.fromEntries(about) });
-      void this.rescan(true);
-      return;
+      await this.rescanSource(o, false);
+      if (!alive()) return;
+      this.offerSeriesSetup();
+      this.publishScanning({ phase: "ready" });
+      await o.saving;
+    } catch (e) {
+      if (alive()) {
+        this.opened.delete(source.id);
+        o.scanning = null;
+        this.publishBooks();
+        this.publishScanning();
+      }
+      throw e;
     }
-    this.set({ scanning: { walked: 0, done: 0, background: false } });
-    await allowed;
-    await this.rescan(false);
-    void this.platform.saveRoot(root).catch((e: unknown) => log.warn("could not remember the library:", describe(e)));
-    this.offerSeriesSetup();
-    this.set({ phase: "ready" });
-    await this.saving;
+  }
+
+  /** Records read beside one source's books, merged into the shelf. */
+  private absorb(o: Opened, problems: Problem[], series: Map<string, SeriesRecord>, about: Map<string, BookAbout>): void {
+    for (const k of series.keys()) o.seriesKeys.add(k);
+    this.set({
+      problems: [...this.state.problems.filter((p) => p.source !== o.source.id), ...problems.map((p) => ({ ...p, source: o.source.id }))],
+      series: { ...this.state.series, ...Object.fromEntries(series) },
+      about: { ...this.state.about, ...Object.fromEntries(about) },
+    });
+  }
+
+  /** Check every source for changes. */
+  async rescan(background = this.state.phase === "ready"): Promise<void> {
+    await Promise.all(this.openedInOrder().map((o) => this.rescanSource(o, background)));
+  }
+
+  /** Check one source for changes. */
+  async rescanSourceById(id: string): Promise<void> {
+    const o = this.opened.get(id);
+    if (o) await this.rescanSource(o, true);
   }
 
   /**
-   * Scan the library. Books appear as the scan streams them: the shelf
+   * Scan one source. Books appear as the scan streams them: the shelf
    * paints from folder names as soon as the walk is done, then fills in
    * authors, then durations, and the complete list lands last.
    */
-  async rescan(background = this.state.phase === "ready", forget: string[] = []): Promise<void> {
-    if (!this.lib || this.scanInFlight) return;
-    const lib = this.lib;
-    this.scanInFlight = true;
-    this.set({ scanning: { walked: 0, done: 0, background }, scanErrors: [] });
+  private async rescanSource(o: Opened, background: boolean, forget: string[] = []): Promise<void> {
+    if (o.scanInFlight) return;
+    const { lib, source } = o;
+    const alive = () => this.opened.get(source.id) === o;
+    o.scanInFlight = true;
+    o.scanning = { walked: 0, done: 0, background };
+    this.publishScanning({ scanErrors: this.state.scanErrors.filter((e) => !e.path.startsWith(`${source.id}:`)) });
     const started = Date.now();
-    log.info("scan start", this.state.root, background ? "(background)" : "(foreground)");
+    log.info("scan start", source.root, background ? "(background)" : "(foreground)");
     // Positions are one directory read; start it now and apply it to
     // every set of books that comes through.
-    let positions: Map<string, Position> | null = null;
     const positionsReady = lib
       .readAllPositions()
       .catch(() => new Map<string, Position>())
-      .then((m) => (positions = m));
-    const positionsOf = (books: ScannedBook[]): Record<string, Position | null> => {
-      const out: Record<string, Position | null> = {};
-      for (const b of books) out[b.book.id] = positions?.get(b.book.id) ?? this.state.positions[b.book.id] ?? null;
-      return out;
-    };
+      .then((m) => (o.positions = m));
     let painted = false;
     let lastTick = 0;
     try {
@@ -371,68 +572,70 @@ export class AppController {
           const final = p.stage !== undefined || (p.walked > 0 && p.done >= p.walked);
           if (!final && now - lastTick < 100) return;
           lastTick = now;
-          this.set({ scanning: { ...p, background } });
+          if (!alive()) return;
+          o.scanning = { ...p, background };
+          this.publishScanning();
         },
         onBooks: (books: ScannedBook[]) => {
-          if (books.length === 0) return;
+          if (books.length === 0 || !alive()) return;
           if (!painted) {
             painted = true;
-            log.info("first paint:", books.length, "books,", Date.now() - started, "ms after scan start");
+            log.info("first paint:", source.name, books.length, "books,", Date.now() - started, "ms after scan start");
             this.logPainted("from the walk");
           }
-          this.set({ books, positions: positionsOf(books), ...(this.state.phase === "loading" ? { phase: "ready" as const } : {}) });
+          o.books = this.stamp(o, books);
+          this.publishBooks(this.state.phase === "loading" ? { phase: "ready" } : {});
         },
       });
-      const books = result.books;
-      log.info("scan done:", books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.rescued, "rescued by ffprobe,", result.errors.length, "errors,", result.elapsedMs, "ms");
+      const books = this.stamp(o, result.books);
+      log.info("scan done:", source.name, books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.rescued, "rescued by ffprobe,", result.errors.length, "errors,", result.elapsedMs, "ms");
       const t = result.timings;
       log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
-      for (const e of result.errors) log.warn("scan:", e.path, e.message);
+      for (const e of result.errors) log.warn("scan:", source.name, e.path, e.message);
       await positionsReady;
-      const positions = positionsOf(books);
-      // Keep the open book's live object if it still exists.
-      const cur = this.state.current;
-      const refreshed = cur ? books.find((b) => b.book.id === cur.book.book.id) : undefined;
-      this.set({
-        books,
-        positions,
-        scanning: null,
-        scanErrors: result.errors,
-        lastScanMs: Date.now() - started,
-        current: cur && refreshed ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
-      });
-      // Every scan is a full walk, so its errors are the whole current list.
+      if (!alive()) return;
+      o.books = books;
+      o.scanning = null;
+      const elapsed = Date.now() - started;
+      // Every scan is a full walk, so its errors are the whole current list for this source.
       const at = new Date().toISOString();
-      const problems: Problem[] = result.errors.map((e) => ({ path: e.path, message: e.message, at }));
-      this.set({ problems });
-      void lib.writeProblems(problems).catch((e: unknown) => log.warn("could not save problems:", describe(e)));
+      const problems: Problem[] = result.errors.map((e) => ({ path: e.path, message: e.message, at, source: source.id }));
+      this.publishBooks({
+        scanErrors: [...this.state.scanErrors, ...result.errors],
+        problems: [...this.state.problems.filter((p) => p.source !== source.id), ...problems],
+        lastScanMs: elapsed,
+      });
+      this.setSourceStatus(source.id, { lastScanMs: elapsed, error: null });
+      this.publishScanning();
+      void lib.writeProblems(problems.map(({ path, message, at }) => ({ path, message, at }))).catch((e: unknown) => log.warn("could not save problems:", describe(e)));
       const saveStarted = Date.now();
-      this.saving = result.save().then(
-        () => log.info("records saved in", Date.now() - saveStarted, "ms"),
+      o.saving = result.save().then(
+        () => log.info("records saved in", Date.now() - saveStarted, "ms", source.name),
         (e: unknown) => log.warn("could not save records:", describe(e)),
       );
-      void this.fetchCovers(books).then(() => this.mirrorCoversFor(books));
+      void this.fetchCovers(o).then(() => this.mirrorCoversFor(o));
       if (background) this.offerSeriesSetup();
-      this.maybeLookup(books);
+      this.maybeLookup();
     } catch (e) {
-      log.error("scan failed:", describe(e));
-      this.set({ scanning: null, error: describe(e) });
+      log.error("scan failed:", source.name, describe(e));
+      o.scanning = null;
+      if (alive()) {
+        this.setSourceStatus(source.id, { error: describe(e) });
+        this.publishScanning({ error: describe(e) });
+      }
       if (!background) throw e;
     } finally {
-      this.scanInFlight = false;
+      o.scanInFlight = false;
     }
   }
 
-  private coverJob: AbortController | null = null;
-
   /** Covers ffmpeg still has to cut, after the library is visible. */
-  private async fetchCovers(books: ScannedBook[]): Promise<void> {
-    if (!this.lib) return;
-    this.coverJob?.abort();
+  private async fetchCovers(o: Opened): Promise<void> {
+    o.coverJob?.abort();
     const abort = new AbortController();
-    this.coverJob = abort;
-    const done = await extractMissingCovers(this.lib.host, this.lib.root, books, () => this.set({ books: [...this.state.books] }), abort.signal);
-    if (done.length > 0) log.info("covers extracted:", done.length);
+    o.coverJob = abort;
+    const done = await extractMissingCovers(o.lib.host, o.lib.root, o.books, () => this.publishBooks(), abort.signal);
+    if (done.length > 0) log.info("covers extracted:", done.length, o.source.name);
   }
 
   /** How long the listener waited from launch to a shelf, when the host can say. */
@@ -445,40 +648,82 @@ export class AppController {
     });
   }
 
-  forgetLibrary(): void {
-    this.engine?.pause();
-    if (this.state.root) void this.platform.forgetRoot(this.state.root).catch(() => undefined);
-    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false });
-  }
-
-  private async positionsFor(books: ScannedBook[]): Promise<Record<string, Position | null>> {
-    const all = this.lib ? await this.lib.readAllPositions() : new Map<string, Position>();
-    return positionsRecord(books, all);
+  /**
+   * Take a folder out of the library. Nothing on disk changes: its
+   * records stay beside its books and its mirror stays in the Ribbon
+   * folder, so adding it back is instant.
+   */
+  async removeSource(id: string): Promise<void> {
+    const o = this.opened.get(id);
+    const source = this.state.sources.find((s) => s.id === id);
+    if (!source) return;
+    log.info("remove source", source.root);
+    const cur = this.state.current;
+    if (cur && cur.book.source === id) {
+      if (this.state.player.playing) {
+        this.engine?.pause();
+        await this.persistPosition();
+      }
+      this.chapterProbe?.abort();
+      this.engine?.pause();
+      this.set({ current: null, playerExpanded: false, playerDrawer: null, resumeOffer: null, previewing: null });
+    }
+    this.jobs.cancelWhere((b) => b.source === id);
+    if (o) {
+      o.coverJob?.abort();
+      o.lookup?.stop();
+      this.opened.delete(id);
+    }
+    const gone = new Set((o?.books ?? []).map((b) => b.book.id));
+    const { [id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
+    const series = Object.fromEntries(Object.entries(this.state.series).filter(([k]) => !o?.seriesKeys.has(k)));
+    const about = Object.fromEntries(Object.entries(this.state.about).filter(([k]) => !gone.has(k)));
+    const jobs = Object.fromEntries(Object.entries(this.state.jobs).filter(([k]) => !gone.has(k)));
+    this.set({
+      sources: this.state.sources.filter((s) => s.id !== id),
+      sourceStatus,
+      problems: this.state.problems.filter((p) => p.source !== id),
+      series,
+      about,
+      jobs,
+      seriesSetup: this.state.seriesSetup && this.state.seriesSetup.bookIds.some((b) => gone.has(b)) ? null : this.state.seriesSetup,
+      readerBookId: this.state.readerBookId && gone.has(this.state.readerBookId) ? null : this.state.readerBookId,
+      pane: this.state.pane === "reader" && this.state.readerBookId && gone.has(this.state.readerBookId) ? "library" : this.state.pane,
+    });
+    this.publishBooks();
+    this.publishScanning(this.state.sources.length === 0 ? { phase: "pick", pane: "library", playerExpanded: false } : {});
+    await this.saveSources();
   }
 
   /** Copy covers into the local mirror once the shelf is settled, then show them from there. */
-  private async mirrorCoversFor(books: ScannedBook[]): Promise<void> {
-    const lib = this.lib;
-    if (!lib || !lib.host.recordsMirror) return;
-    const present = await lib.mirrorCovers(books);
-    if (this.lib !== lib) return;
-    if (!this.mirrorCoversDir) this.mirrorCoversDir = (await lib.readMirrorExtras()).coversDir;
-    this.mirrorCovers = present;
+  private async mirrorCoversFor(o: Opened): Promise<void> {
+    if (!o.lib.host.recordsMirror) return;
+    const present = await o.lib.mirrorCovers(o.books);
+    if (this.opened.get(o.source.id) !== o) return;
+    if (!o.mirrorCoversDir) o.mirrorCoversDir = (await o.lib.readMirrorExtras()).coversDir;
+    o.mirrorCovers = present;
     this.set({ coverVersion: this.state.coverVersion + 1 });
   }
 
   /**
    * The cover's URL. From the local mirror when it has a copy; otherwise
-   * from the library, but only once files may be served and no scan is
-   * running, because a read across the network stalls the host's main
-   * thread and a scan keeps the volume busy. Null means show initials.
+   * from the source, but only once its files may be served and no scan
+   * of it is running, because a read across the network stalls the
+   * host's main thread and a scan keeps the volume busy. Null means
+   * show initials.
    */
   coverUrl(book: ScannedBook): string | null {
-    if (!this.lib || !book.book.cover) return null;
+    const o = this.openedOf(book);
+    if (!o || !book.book.cover) return null;
     const name = LibraryService.mirrorCoverName(book);
-    if (name && this.mirrorCoversDir && this.mirrorCovers.has(name)) return this.platform.fileUrl(this.lib.host.join(this.mirrorCoversDir, name));
-    if (!this.state.assetsReady || this.state.scanning) return null;
-    return this.platform.fileUrl(this.lib.absPath(book.book.cover));
+    if (name && o.mirrorCoversDir && o.mirrorCovers.has(name)) return this.platform.fileUrl(o.lib.host.join(o.mirrorCoversDir, name));
+    if (!o.assetsReady || o.scanning) return null;
+    return this.platform.fileUrl(o.lib.absPath(book.book.cover));
+  }
+
+  /** The source a book came from, for the page. */
+  sourceOf(book: ScannedBook): Source | null {
+    return this.state.sources.find((s) => s.id === book.source) ?? null;
   }
 
   private onJob(s: JobStatus, result: { gainDb: number | null; silence: Map<number, SilenceRange[]> } | null): void {
@@ -497,7 +742,11 @@ export class AppController {
     if (this.engine) return this.engine;
     if (typeof Audio === "undefined") return null;
     this.engine = new PlayerEngine({
-      resolveUrl: (rel) => this.platform.fileUrl(this.lib!.absPath(rel)),
+      resolveUrl: (rel) => {
+        const cur = this.state.current;
+        const lib = (cur && this.libOf(cur.book)) ?? this.openedInOrder()[0]?.lib;
+        return lib ? this.platform.fileUrl(lib.absPath(rel)) : "";
+      },
       onState: (player) => this.onPlayerState(player),
       onEnded: () => this.onBookEnded(),
     });
@@ -534,7 +783,8 @@ export class AppController {
    * and swapped in when they arrive.
    */
   async openBook(book: ScannedBook, opts: { expand?: boolean; autoplay?: boolean } = {}): Promise<void> {
-    if (!this.lib) return;
+    const lib = this.libOf(book);
+    if (!lib) return;
     const engine = this.ensureEngine();
     if (!engine) return;
     const expand = opts.expand ?? true;
@@ -549,13 +799,13 @@ export class AppController {
     }
     this.chapterProbe?.abort();
     const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
-      this.lib.readSettings(book.book.id),
-      this.lib.readBookmarks(book.book.id),
-      this.lib.readLoudness(book.book.id),
-      this.lib.readSilence(book.book.id),
-      this.lib.readCorrections(book.book.id),
+      lib.readSettings(book.book.id),
+      lib.readBookmarks(book.book.id),
+      lib.readLoudness(book.book.id),
+      lib.readSilence(book.book.id),
+      lib.readCorrections(book.book.id),
     ]);
-    const position = this.state.positions[book.book.id] ?? (await this.lib.readPosition(book.book.id));
+    const position = this.state.positions[book.book.id] ?? (await lib.readPosition(book.book.id));
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
@@ -564,7 +814,7 @@ export class AppController {
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = position ? Date.parse(position.updatedAt) : null;
     this.refreshMediaMetadata();
-    if (this.jobs && (!loudness || !silence)) this.jobs.enqueue(book, true);
+    if (!loudness || !silence) this.jobs.enqueue(book, true);
     void this.probeChapters(book);
     if (opts.autoplay) await this.play();
   }
@@ -580,20 +830,28 @@ export class AppController {
   }
 
   private async probeChapters(book: ScannedBook): Promise<void> {
-    if (!this.lib || book.files.every((f) => f.chaptersProbed)) return;
+    const o = this.openedOf(book);
+    if (!o || book.files.every((f) => f.chaptersProbed)) return;
     const abort = new AbortController();
     this.chapterProbe = abort;
     // The chapter probe rewrites files.csv; let the scan's own write land first.
-    await this.saving;
+    await o.saving;
     if (abort.signal.aborted) return;
-    const updated = await this.lib.ensureChapters(book, abort.signal);
-    if (abort.signal.aborted || updated === book) return;
+    const probed = await o.lib.ensureChapters(book, abort.signal);
+    if (abort.signal.aborted || probed === book) return;
+    const updated = this.stamp(o, [probed])[0]!;
     const cur = this.state.current;
     if (!cur || cur.book.book.id !== book.book.id) return;
-    const books = this.state.books.map((b) => (b.book.id === updated.book.id ? updated : b));
-    this.set({ books, current: { ...cur, book: updated } });
+    this.replaceBook(o, updated);
+    this.set({ current: { ...cur, book: updated } });
     this.engine?.setChapters(updated.chapters);
     this.refreshMediaMetadata();
+  }
+
+  /** Swap one book's object in its source and on the shelf. */
+  private replaceBook(o: Opened, updated: ScannedBook): void {
+    o.books = o.books.map((b) => (b.book.id === updated.book.id ? updated : b));
+    this.set({ books: this.state.books.map((b) => (b.book.id === updated.book.id ? updated : b)) });
   }
 
   /** Play, applying the scaled resume rewind for the time we were away. */
@@ -679,29 +937,33 @@ export class AppController {
 
   async setSpeed(speed: number): Promise<void> {
     const cur = this.state.current;
-    if (!cur || !this.engine || !this.lib) return;
+    const lib = cur && this.libOf(cur.book);
+    if (!cur || !this.engine || !lib) return;
     const s = snapSpeed(speed);
     this.engine.setSpeed(s);
     const settings = { ...cur.settings, speed: s };
     this.set({ current: { ...cur, settings } });
-    await this.lib.writeSettings(settings);
+    await lib.writeSettings(settings);
   }
 
   /** Turn pause trimming on or off for the open book; the analysis is already there or on its way. */
   async setTrimSilence(on: boolean): Promise<void> {
     const cur = this.state.current;
-    if (!cur || !this.engine || !this.lib) return;
+    const lib = cur && this.libOf(cur.book);
+    if (!cur || !this.engine || !lib) return;
     const settings = { ...cur.settings, trimSilence: on };
     this.set({ current: { ...cur, settings } });
     this.engine.setSilence(on ? cur.silence : null);
-    await this.lib.writeSettings(settings);
+    await lib.writeSettings(settings);
   }
 
   private async persistPosition(): Promise<void> {
     const cur = this.state.current;
-    if (!cur || !this.lib || !this.engine) return;
+    const o = cur && this.openedOf(cur.book);
+    if (!cur || !o || !this.engine) return;
     this.lastWrite = Date.now();
-    const pos = await this.lib.writePosition(cur.book.book.id, this.engine.positionMs());
+    const pos = await o.lib.writePosition(cur.book.book.id, this.engine.positionMs());
+    o.positions.set(cur.book.book.id, pos);
     this.set({ positions: { ...this.state.positions, [cur.book.book.id]: pos } });
   }
 
@@ -778,8 +1040,9 @@ export class AppController {
 
   async addBookmark(note: string): Promise<void> {
     const cur = this.state.current;
-    if (!cur || !this.lib || !this.engine) return;
-    const bm = await this.lib.addBookmark(cur.book, this.engine.positionMs(), note);
+    const lib = cur && this.libOf(cur.book);
+    if (!cur || !lib || !this.engine) return;
+    const bm = await lib.addBookmark(cur.book, this.engine.positionMs(), note);
     const bookmarks = [...cur.bookmarks, bm].sort((a, b) => a.offsetMs - b.offsetMs);
     this.set({ current: { ...this.state.current!, bookmarks } });
   }
@@ -805,25 +1068,29 @@ export class AppController {
 
   async removeBookmark(offsetMs: number): Promise<void> {
     const cur = this.state.current;
-    if (!cur || !this.lib) return;
+    const lib = cur && this.libOf(cur.book);
+    if (!cur || !lib) return;
     if (this.state.previewing === offsetMs) this.pause();
-    await this.lib.removeBookmark(cur.book.book.id, offsetMs);
+    await lib.removeBookmark(cur.book.book.id, offsetMs);
     this.set({ current: { ...this.state.current!, bookmarks: cur.bookmarks.filter((b) => b.offsetMs !== offsetMs) } });
   }
 
   bookmarkClipUrl(bm: Bookmark): string | null {
-    if (!this.lib || !bm.clip) return null;
-    return this.platform.fileUrl(this.lib.host.join(this.lib.root, ".ribbon", "bookmarks", ...bm.clip.split("/")));
+    const cur = this.state.current;
+    const lib = cur && this.libOf(cur.book);
+    if (!lib || !bm.clip) return null;
+    return this.platform.fileUrl(lib.host.join(lib.root, ".ribbon", "bookmarks", ...bm.clip.split("/")));
   }
 
   // Chapter corrections -------------------------------------------------
 
   async correctChapters(corrections: Correction[]): Promise<void> {
     const cur = this.state.current;
-    if (!cur || !this.lib) return;
-    const updated = await this.lib.writeCorrections(cur.book, corrections);
-    const books = this.state.books.map((b) => (b.book.id === updated.book.id ? updated : b));
-    this.set({ books, current: { ...cur, book: updated, corrections } });
+    const o = cur && this.openedOf(cur.book);
+    if (!cur || !o) return;
+    const updated = this.stamp(o, [await o.lib.writeCorrections(cur.book, corrections)])[0]!;
+    this.replaceBook(o, updated);
+    this.set({ current: { ...cur, book: updated, corrections } });
     this.engine?.setChapters(updated.chapters);
   }
 
@@ -859,28 +1126,47 @@ export class AppController {
     return this.platform.home ? this.platform.home.reveal().catch((e: unknown) => log.warn("could not open the folder:", describe(e))) : Promise.resolve();
   }
 
-  /** Wipe the app's own folder (mirror, registry) and go back to the picker. */
+  /** Wipe the app's own folder (mirror, sources) and go back to the first screen. */
   async resetHome(): Promise<void> {
     if (!this.platform.home) return;
     if (!(await this.platform.home.reset())) return;
     this.engine?.pause();
-    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [] });
+    for (const o of this.opened.values()) {
+      o.coverJob?.abort();
+      o.lookup?.stop();
+    }
+    this.opened.clear();
+    this.jobs.cancelAll();
+    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null });
   }
 
   // Series ----------------------------------------------------------------
 
-  /** Series the shelf looks like it has, from tags and folder numbers. */
+  /**
+   * Series the shelf looks like it has, from tags and folder numbers,
+   * source by source. Books numbered straight under a source's folder
+   * make a series named after that folder. A series named the same in
+   * two sources is one series.
+   */
   detectedSeries(): SeriesGroup[] {
-    const libraryName = this.state.root ? (this.state.root.split(/[\\/]/).filter(Boolean).pop() ?? "") : "";
-    return detectSeries(
-      this.state.books.map((b) => b.book),
-      libraryName,
-    );
+    const byKey = new Map<string, SeriesGroup>();
+    for (const o of this.openedInOrder()) {
+      for (const g of detectSeries(
+        o.books.map((b) => b.book),
+        o.source.name,
+      )) {
+        const have = byKey.get(g.key);
+        if (have) have.bookIds.push(...g.bookIds.filter((id) => !have.bookIds.includes(id)));
+        else byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
+      }
+    }
+    return [...byKey.values()];
   }
 
   /** After a scan: open the setup for the first series with no record, once per session. */
   private offerSeriesSetup(): void {
     if (this.state.seriesSetup) return;
+    if (this.openedInOrder().some((o) => o.scanning)) return;
     for (const g of this.detectedSeries()) {
       if (this.state.series[g.key] || this.seriesOffered.has(g.key)) continue;
       this.seriesOffered.add(g.key);
@@ -897,25 +1183,35 @@ export class AppController {
     this.appSettings = { ...this.appSettings, lookupDescriptions: enabled };
     this.set({ lookup: { ...this.state.lookup, enabled } });
     await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
-    if (enabled) this.maybeLookup(this.state.books);
+    if (enabled) this.maybeLookup();
     else {
-      this.lookup?.stop();
+      for (const o of this.opened.values()) o.lookup?.stop();
       this.set({ lookup: { ...this.state.lookup, running: false } });
     }
   }
 
-  /** Ask about the books with no answer yet, one at a time, after the shelf is settled. */
-  private maybeLookup(books: ScannedBook[]): void {
-    const lib = this.lib;
-    if (!lib || !this.state.lookup.enabled || this.lookup?.running) return;
-    if (books.some((b) => b.pending)) return;
-    this.lookup ??= new AboutLookup(lib);
-    void this.lookup.run(books, new Map(Object.entries(this.state.about)), (about, status) => {
-      if (this.lib !== lib) return;
-      this.set({
-        about: about ? { ...this.state.about, [about.bookId]: about } : this.state.about,
-        lookup: { ...this.state.lookup, ...status },
-      });
+  /**
+   * Ask about the books with no answer yet, one at a time, source after
+   * source, after every shelf is settled. One conversation with the
+   * database at a time, however many folders there are.
+   */
+  private maybeLookup(): void {
+    if (!this.state.lookup.enabled || this.lookupRun) return;
+    if (this.state.books.some((b) => b.pending) || this.openedInOrder().some((o) => o.scanning)) return;
+    this.lookupRun = (async () => {
+      for (const o of this.openedInOrder()) {
+        if (this.opened.get(o.source.id) !== o || !this.state.lookup.enabled) continue;
+        o.lookup ??= new AboutLookup(o.lib);
+        await o.lookup.run(o.books, new Map(Object.entries(this.state.about)), (about, status) => {
+          if (this.opened.get(o.source.id) !== o) return;
+          this.set({
+            about: about ? { ...this.state.about, [about.bookId]: about } : this.state.about,
+            lookup: { ...this.state.lookup, ...status },
+          });
+        });
+      }
+    })().finally(() => {
+      this.lookupRun = null;
     });
   }
 
@@ -934,16 +1230,21 @@ export class AppController {
     this.set({ seriesSetup: null });
   }
 
-  /** Save the decisions beside the books and apply them to the shelf. */
+  /** Save the decisions beside the books, in every source that holds one, and apply them to the shelf. */
   async saveSeries(choices: SeriesChoice[]): Promise<void> {
     const g = this.state.seriesSetup;
-    if (!g || !this.lib) return;
+    if (!g) return;
     const record: SeriesRecord = { key: g.key, name: g.name, choices: normalizeChoices(choices), decidedAt: new Date().toISOString() };
     this.set({ series: { ...this.state.series, [g.key]: record }, seriesSetup: null });
-    try {
-      await this.lib.writeSeries(record);
-    } catch (e) {
-      log.warn("could not save series:", describe(e));
+    const members = new Set(g.bookIds);
+    const holders = this.openedInOrder().filter((o) => o.books.some((b) => members.has(b.book.id)));
+    for (const o of holders) {
+      o.seriesKeys.add(g.key);
+      try {
+        await o.lib.writeSeries(record);
+      } catch (e) {
+        log.warn("could not save series:", o.source.name, describe(e));
+      }
     }
   }
 
@@ -953,9 +1254,10 @@ export class AppController {
     return g ? this.saveSeries(defaultChoices(g)) : Promise.resolve();
   }
 
-  /** Read every file under a folder again, whether or not it changed. */
-  async rescanFolder(folder: string): Promise<void> {
-    await this.rescan(true, [folder]);
+  /** Read every file under a folder of one source again, whether or not it changed. */
+  async rescanFolder(sourceId: string, folder: string): Promise<void> {
+    const o = this.opened.get(sourceId);
+    if (o) await this.rescanSource(o, true, [folder]);
   }
 
   showPlayer(): void {
@@ -967,12 +1269,14 @@ export class AppController {
   }
 
   destroy(): void {
-    this.lookup?.stop();
+    for (const o of this.opened.values()) {
+      o.lookup?.stop();
+      o.coverJob?.abort();
+    }
     this.stopSleepLoop();
     this.uninstallMedia?.();
     this.engine?.destroy();
-    this.jobs?.cancelAll();
+    this.jobs.cancelAll();
     this.chapterProbe?.abort();
-    this.coverJob?.abort();
   }
 }
