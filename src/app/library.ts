@@ -249,6 +249,14 @@ export class LibraryService {
     await this.host.writeFile(this.dir("series", `${record.key}.csv`), await seriesToBytes(record));
   }
 
+  /** Forget a series decision. True when there was one here. */
+  async deleteSeries(key: string): Promise<boolean> {
+    const path = this.dir("series", `${key}.csv`);
+    if (!(await this.host.exists(path))) return false;
+    await this.host.remove(path);
+    return true;
+  }
+
   // Settings -----------------------------------------------------------
 
   async readSettings(bookId: string): Promise<BookSettings> {

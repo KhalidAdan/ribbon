@@ -13,8 +13,10 @@ export interface SeriesGroup {
   /** Stable id, safe as a file name. */
   key: string;
   name: string;
-  /** Members in detected order. */
+  /** Members in detected order, then the ones the listener added. */
   bookIds: string[];
+  /** Members the listener added by hand rather than detection found. */
+  added?: string[];
 }
 
 export interface SeriesChoice {
@@ -92,6 +94,54 @@ export function detectSeries(books: readonly Book[], libraryName: string): Serie
     out.push({ key, name: g.name, bookIds: [...g.books].sort(compareBooks).map((b) => b.id) });
   }
   return out;
+}
+
+/** A key no other series has: the name's slug, numbered when taken. */
+export function uniqueKey(name: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  const base = slug(name);
+  if (!used.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const key = `${base}-${n}`;
+    if (!used.has(key)) return key;
+  }
+}
+
+/** A series made by hand: these books, in this order, all on the shelf. */
+export function newSeriesRecord(key: string, name: string, bookIds: readonly string[], decidedAt = new Date().toISOString()): SeriesRecord {
+  return { key, name: name.trim(), decidedAt, choices: bookIds.map((bookId, i) => ({ bookId, included: true, order: i + 1 })) };
+}
+
+/** True for a series detection did not find: every member was added by hand. */
+export function isHandMade(g: SeriesGroup): boolean {
+  return g.added !== undefined && g.added.length === g.bookIds.length;
+}
+
+/**
+ * The series on the shelf: what detection found, plus what the records
+ * say. A record can add books detection missed to a series it found,
+ * and a record with no detected members is a series made by hand.
+ * Members no longer on the shelf are left out.
+ */
+export function mergeSeries(detected: readonly SeriesGroup[], records: Iterable<SeriesRecord>, onShelf: ReadonlySet<string>): SeriesGroup[] {
+  const byKey = new Map<string, SeriesGroup>();
+  for (const g of detected) byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
+  for (const r of records) {
+    const ids = normalizeChoices(r.choices)
+      .map((c) => c.bookId)
+      .filter((id) => onShelf.has(id));
+    const have = byKey.get(r.key);
+    if (have) {
+      const added = ids.filter((id) => !have.bookIds.includes(id));
+      if (added.length > 0) {
+        have.bookIds.push(...added);
+        have.added = [...(have.added ?? []), ...added];
+      }
+    } else if (ids.length > 0) {
+      byKey.set(r.key, { key: r.key, name: r.name, bookIds: ids, added: [...ids] });
+    }
+  }
+  return [...byKey.values()];
 }
 
 /** The decisions to start from: everything in, in detected order. */

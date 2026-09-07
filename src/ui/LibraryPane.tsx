@@ -33,7 +33,7 @@ export function LibraryPane() {
     });
     return orderBySeries(sorted, (b) => b.book.id, Object.values(state.series));
   }, [state.books, state.positions, state.series]);
-  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources]);
+  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);
   const inSeries = useMemo(() => new Set(series.flatMap((g) => g.bookIds)), [series]);
   const standalone = useMemo(() => byShelf.filter((b) => !inSeries.has(b.book.id)), [byShelf, inSeries]);
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
