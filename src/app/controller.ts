@@ -456,7 +456,7 @@ export class AppController {
     if (result && cur && cur.book.book.id === s.bookId) {
       this.set({ current: { ...cur, loudnessGainDb: result.gainDb, silence: result.silence } });
       if (result.gainDb !== null) this.engine?.setLoudnessGainDb(result.gainDb);
-      this.engine?.setSilence(result.silence);
+      if (cur.settings.trimSilence) this.engine?.setSilence(result.silence);
     }
   }
 
@@ -526,7 +526,7 @@ export class AppController {
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, pane: "player", resumeOffer: null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
-    await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: silence ?? undefined }, startMs);
+    await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     engine.setSpeed(settings.speed);
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = position ? Date.parse(position.updatedAt) : null;
@@ -640,6 +640,16 @@ export class AppController {
     this.engine.setSpeed(s);
     const settings = { ...cur.settings, speed: s };
     this.set({ current: { ...cur, settings } });
+    await this.lib.writeSettings(settings);
+  }
+
+  /** Turn pause trimming on or off for the open book; the analysis is already there or on its way. */
+  async setTrimSilence(on: boolean): Promise<void> {
+    const cur = this.state.current;
+    if (!cur || !this.engine || !this.lib) return;
+    const settings = { ...cur.settings, trimSilence: on };
+    this.set({ current: { ...cur, settings } });
+    this.engine.setSilence(on ? cur.silence : null);
     await this.lib.writeSettings(settings);
   }
 

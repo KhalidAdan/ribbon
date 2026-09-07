@@ -4,10 +4,14 @@ import { lines } from "./lines";
 
 /** Gaps shorter than this are narration rhythm, not dead air. */
 export const MIN_GAP_MS = 1_000;
-/** Every kept gap plays for about this long. */
-export const TARGET_GAP_MS = 300;
+/**
+ * Every kept gap plays for about this long. A pause should still read
+ * as a pause: shorter than this and sentences run into each other and
+ * the position display leaps.
+ */
+export const TARGET_GAP_MS = 600;
 /** The rate never exceeds this while crossing a gap. */
-export const MAX_GAP_RATE = 8;
+export const MAX_GAP_RATE = 3;
 /** Silence threshold handed to ffmpeg's silencedetect. */
 export const NOISE_DB = -45;
 

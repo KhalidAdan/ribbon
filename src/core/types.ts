@@ -79,4 +79,6 @@ export interface SilenceRange {
 export interface BookSettings {
   bookId: string;
   speed: number;
+  /** Shorten recorded pauses during playback. Off unless the listener turns it on. */
+  trimSilence: boolean;
 }
