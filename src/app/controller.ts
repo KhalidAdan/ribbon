@@ -107,7 +107,9 @@ export interface AppState {
   coverVersion: number;
   error: string | null;
   /** What fills the window above the player bar. */
-  pane: "library" | "settings";
+  pane: "library" | "settings" | "reader";
+  /** The book the reader page shows. */
+  readerBookId: string | null;
   /** The full player is open over everything. */
   playerExpanded: boolean;
   /** Which drawer the full player shows, if any. */
@@ -204,6 +206,7 @@ export class AppController {
       coverVersion: 0,
       error: null,
       pane: "library",
+      readerBookId: null,
       playerExpanded: false,
       playerDrawer: null,
     };
@@ -530,12 +533,14 @@ export class AppController {
    * read; embedded chapter markers are probed behind it the first time
    * and swapped in when they arrive.
    */
-  async openBook(book: ScannedBook): Promise<void> {
+  async openBook(book: ScannedBook, opts: { expand?: boolean; autoplay?: boolean } = {}): Promise<void> {
     if (!this.lib) return;
     const engine = this.ensureEngine();
     if (!engine) return;
+    const expand = opts.expand ?? true;
     if (this.state.current?.book.book.id === book.book.id) {
-      this.expandPlayer();
+      if (expand) this.expandPlayer();
+      if (opts.autoplay && !this.state.player.playing) await this.play();
       return;
     }
     if (this.state.player.playing) {
@@ -552,7 +557,7 @@ export class AppController {
     ]);
     const position = this.state.positions[book.book.id] ?? (await this.lib.readPosition(book.book.id));
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
-    this.set({ current, playerExpanded: true, playerDrawer: null, resumeOffer: null });
+    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     engine.setSpeed(settings.speed);
@@ -561,6 +566,17 @@ export class AppController {
     this.refreshMediaMetadata();
     if (this.jobs && (!loudness || !silence)) this.jobs.enqueue(book, true);
     void this.probeChapters(book);
+    if (opts.autoplay) await this.play();
+  }
+
+  /** Start or continue a book from its page: the bar appears, the page stays. */
+  playBook(book: ScannedBook): Promise<void> {
+    return this.openBook(book, { expand: false, autoplay: true });
+  }
+
+  /** Show a book's page, with its series along the side when it has one. */
+  openReader(bookId: string): void {
+    this.set({ pane: "reader", readerBookId: bookId, playerExpanded: false });
   }
 
   private async probeChapters(book: ScannedBook): Promise<void> {
