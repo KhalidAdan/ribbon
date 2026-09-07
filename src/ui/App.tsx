@@ -7,6 +7,8 @@ import { ControllerContext, useAppState, useController } from "./store";
 import { PickLibrary } from "./PickLibrary";
 import { LibraryPane } from "./LibraryPane";
 import { PlayerPane } from "./PlayerPane";
+import { PlayerBar } from "./PlayerBar";
+import { PlayerSheet } from "./PlayerSheet";
 import { SettingsPane } from "./SettingsPane";
 import { SeriesSetup } from "./SeriesSetup";
 import { useKeys } from "./useKeys";
@@ -91,24 +93,22 @@ function Ready() {
     );
   }
 
-  if (state.pane === "settings") {
-    return (
-      <main className="h-full">
-        <SettingsPane />
-        <SeriesSetup />
-      </main>
-    );
-  }
-
   return (
-    <main className="flex h-full">
+    <main className="flex h-full flex-col">
       <SeriesSetup />
-      <div className={clsx("h-full w-full shrink-0 lg:w-80 lg:border-r lg:border-neutral-950/10 dark:lg:border-white/10", state.pane === "player" && "max-lg:hidden")}>
-        <LibraryPane />
+      <div className="min-h-0 flex-1">
+        {state.pane === "settings" ? (
+          <SettingsPane />
+        ) : (
+          <div className={clsx("mx-auto h-full w-full", "max-w-3xl")}>
+            <LibraryPane />
+          </div>
+        )}
       </div>
-      <div className={clsx("h-full min-w-0 flex-1", state.pane === "library" && "max-lg:hidden")}>
+      <PlayerBar />
+      <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
         <PlayerPane />
-      </div>
+      </PlayerSheet>
       {state.error && (
         <div role="alert" className="fixed inset-x-4 bottom-4 mx-auto flex max-w-lg items-center gap-3 rounded-lg bg-neutral-950 px-4 py-3 text-white shadow-lg ring-1 ring-black/10 dark:bg-white dark:text-neutral-950 dark:shadow-none">
           <p className="min-w-0 flex-1 text-sm/6">{state.error}</p>
