@@ -331,7 +331,10 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
   if (files.length === 0) return null;
   orderFiles(files);
 
-  const isLooseRootFile = group.audio.length === 1 && group.covers.length === 0 && !group.path.includes("/");
+  // A loose file is its own book with the file's path as the group path.
+  // A one-file book in its own folder is not loose: its folder still
+  // names it, and a numbered folder still wins.
+  const isLooseRootFile = group.audio.length === 1 && group.path === group.audio[0]!.relPath;
   const parentName = group.path.includes("/") ? group.path.slice(0, group.path.lastIndexOf("/")).split("/").pop() ?? "" : "";
   const meta =
     freshTags.length > 0

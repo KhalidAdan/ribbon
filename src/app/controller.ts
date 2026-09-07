@@ -2,6 +2,7 @@ import type { Host, ScanProgress } from "../host/host";
 import { extractMissingCovers, type ScannedBook } from "../core/scan/scan";
 import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
 import type { Problem } from "../core/problems";
+import { defaultChoices, detectSeries, normalizeChoices, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { JobQueue, type JobStatus } from "./jobs";
@@ -69,6 +70,10 @@ export interface AppState {
   scanErrors: { path: string; message: string }[];
   /** The same, as recorded beside the books, so yesterday's are still visible. */
   problems: Problem[];
+  /** Series decisions beside the books, by key. */
+  series: Record<string, SeriesRecord>;
+  /** The series whose setup is open, or null. */
+  seriesSetup: SeriesGroup | null;
   /** How long the last scan took, for the header. */
   lastScanMs: number | null;
   /**
@@ -131,6 +136,8 @@ export class AppController {
   private saving: Promise<void> = Promise.resolve();
   /** process uptime minus performance.now(), learned once at boot. */
   private clockOffset: number | null = null;
+  /** Series offered for setup this session, so a skipped one stays skipped. */
+  private seriesOffered = new Set<string>();
   /** Covers copied into the local mirror, and where they are. */
   private mirrorCovers = new Set<string>();
   private mirrorCoversDir: string | null = null;
@@ -161,6 +168,8 @@ export class AppController {
       scanning: null,
       scanErrors: [],
       problems: [],
+      series: {},
+      seriesSetup: null,
       lastScanMs: null,
       assetsReady: false,
       coverVersion: 0,
@@ -223,7 +232,8 @@ export class AppController {
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     log.info("open library", root);
-    this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false });
+    this.set({ phase: "loading", root, error: null, scanning: null, assetsReady: false, series: {}, seriesSetup: null });
+    this.seriesOffered = new Set();
     this.mirrorCovers = new Set();
     this.mirrorCoversDir = null;
     const marks: string[] = [];
@@ -271,8 +281,8 @@ export class AppController {
       // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
       await allowed;
       await migrate();
-      const [positions, problems] = await Promise.all([this.positionsFor(cached), lib.readProblems()]);
-      if (this.lib === lib) this.set({ positions, problems });
+      const [positions, problems, series] = await Promise.all([this.positionsFor(cached), lib.readProblems(), lib.readSeries()]);
+      if (this.lib === lib) this.set({ positions, problems, series: Object.fromEntries(series) });
       void this.rescan(true);
       return;
     }
@@ -280,6 +290,7 @@ export class AppController {
     await allowed;
     await this.rescan(false);
     this.platform.saveRoot(root);
+    this.offerSeriesSetup();
     this.set({ phase: "ready" });
     await this.saving;
   }
@@ -361,6 +372,7 @@ export class AppController {
         (e: unknown) => log.warn("could not save records:", describe(e)),
       );
       void this.fetchCovers(books).then(() => this.mirrorCoversFor(books));
+      if (background) this.offerSeriesSetup();
     } catch (e) {
       log.error("scan failed:", describe(e));
       this.set({ scanning: null, error: describe(e) });
@@ -759,6 +771,57 @@ export class AppController {
 
   showSettings(): void {
     this.set({ pane: "settings" });
+  }
+
+  // Series ----------------------------------------------------------------
+
+  /** Series the shelf looks like it has, from tags and folder numbers. */
+  detectedSeries(): SeriesGroup[] {
+    const libraryName = this.state.root ? (this.state.root.split(/[\\/]/).filter(Boolean).pop() ?? "") : "";
+    return detectSeries(
+      this.state.books.map((b) => b.book),
+      libraryName,
+    );
+  }
+
+  /** After a scan: open the setup for the first series with no record, once per session. */
+  private offerSeriesSetup(): void {
+    if (this.state.seriesSetup) return;
+    for (const g of this.detectedSeries()) {
+      if (this.state.series[g.key] || this.seriesOffered.has(g.key)) continue;
+      this.seriesOffered.add(g.key);
+      log.info("offering series setup:", g.name, g.bookIds.length, "books");
+      this.set({ seriesSetup: g });
+      return;
+    }
+  }
+
+  openSeriesSetup(key: string): void {
+    const g = this.detectedSeries().find((x) => x.key === key);
+    if (g) this.set({ seriesSetup: g });
+  }
+
+  closeSeriesSetup(): void {
+    this.set({ seriesSetup: null });
+  }
+
+  /** Save the decisions beside the books and apply them to the shelf. */
+  async saveSeries(choices: SeriesChoice[]): Promise<void> {
+    const g = this.state.seriesSetup;
+    if (!g || !this.lib) return;
+    const record: SeriesRecord = { key: g.key, name: g.name, choices: normalizeChoices(choices), decidedAt: new Date().toISOString() };
+    this.set({ series: { ...this.state.series, [g.key]: record }, seriesSetup: null });
+    try {
+      await this.lib.writeSeries(record);
+    } catch (e) {
+      log.warn("could not save series:", describe(e));
+    }
+  }
+
+  /** Skip: everything stays on the shelf in detected order, and the question is not asked again. */
+  skipSeriesSetup(): Promise<void> {
+    const g = this.state.seriesSetup;
+    return g ? this.saveSeries(defaultChoices(g)) : Promise.resolve();
   }
 
   /** Read every file under a folder again, whether or not it changed. */

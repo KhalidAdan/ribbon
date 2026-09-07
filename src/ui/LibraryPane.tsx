@@ -6,6 +6,7 @@ import type { ScannedBook } from "../core/scan/scan";
 import { formatDuration } from "../core/speed";
 import { compareBooks } from "../core/order";
 import { indexBooks, searchBooks, type BookIndex } from "../core/search";
+import { hiddenBookIds, orderBySeries } from "../core/series";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
@@ -20,12 +21,15 @@ export function LibraryPane() {
       const p = state.positions[b.book.id];
       return p ? Date.parse(p.updatedAt) : 0;
     };
-    return [...state.books].sort((a, b) => {
+    const byShelf = [...state.books].sort((a, b) => {
       const d = listenedAt(b) - listenedAt(a);
       if (d !== 0) return d;
       return compareBooks(a.book, b.book);
     });
-  }, [state.books, state.positions]);
+    return orderBySeries(byShelf, (b) => b.book.id, Object.values(state.series));
+  }, [state.books, state.positions, state.series]);
+  const hidden = useMemo(() => hiddenBookIds(Object.values(state.series)), [state.series]);
+  const [showHidden, setShowHidden] = useState(false);
 
   // Search: the index follows the shelf, the match list follows the query.
   const [query, setQuery] = useState("");
@@ -50,10 +54,13 @@ export function LibraryPane() {
     };
   }, [index, query]);
   const shown = useMemo(() => {
-    if (!matches) return sorted;
+    // A search looks through hidden books too; the plain shelf does not.
+    const base = matches || showHidden ? sorted : sorted.filter((b) => !hidden.has(b.book.id));
+    if (!matches) return base;
     const rank = new Map(matches.map((id, i) => [id, i]));
-    return sorted.filter((b) => rank.has(b.book.id)).sort((a, b) => rank.get(a.book.id)! - rank.get(b.book.id)!);
-  }, [sorted, matches]);
+    return base.filter((b) => rank.has(b.book.id)).sort((a, b) => rank.get(a.book.id)! - rank.get(b.book.id)!);
+  }, [sorted, matches, hidden, showHidden]);
+  const hiddenCount = useMemo(() => sorted.filter((b) => hidden.has(b.book.id)).length, [sorted, hidden]);
 
   const folderName = state.root ? state.root.split(/[\\/]/).filter(Boolean).pop() : "";
 
@@ -109,9 +116,16 @@ export function LibraryPane() {
           {shown.map((b) => {
             const active = state.current?.book.book.id === b.book.id;
             return (
-              <BookRow key={b.book.id} book={b} active={active} coverUrl={c.coverUrl(b)} position={state.positions[b.book.id] ?? null} playingAt={active ? state.player.positionMs : null} />
+              <BookRow key={b.book.id} book={b} active={active} coverUrl={c.coverUrl(b)} position={state.positions[b.book.id] ?? null} playingAt={active ? state.player.positionMs : null} dimmed={hidden.has(b.book.id)} />
             );
           })}
+          {hiddenCount > 0 && !matches && (
+            <li className="px-2 pt-3 pb-1">
+              <button type="button" onClick={() => setShowHidden((v) => !v)} className="text-sm/6 text-neutral-500 underline-offset-2 hover:text-neutral-950 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:text-neutral-400 dark:hover:text-white">
+                {showHidden ? `Hide ${hiddenCount} ${hiddenCount === 1 ? "book" : "books"} left off the shelf` : `${hiddenCount} ${hiddenCount === 1 ? "book" : "books"} left off the shelf · Show`}
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </section>
@@ -125,6 +139,8 @@ interface RowProps {
   position: Position | null;
   /** The player's position when this is the open book, else null. */
   playingAt: number | null;
+  /** Left off the shelf by a series setup, shown only on request. */
+  dimmed?: boolean;
 }
 
 /**
@@ -132,7 +148,7 @@ interface RowProps {
  * header, or another book's position, does not redraw the whole shelf:
  * while a scan streams in, the header changes many times a second.
  */
-const BookRow = memo(function BookRow({ book, active, coverUrl, position, playingAt }: RowProps) {
+const BookRow = memo(function BookRow({ book, active, coverUrl, position, playingAt, dimmed = false }: RowProps) {
   const c = useController();
   const offset = playingAt ?? position?.offsetMs ?? 0;
   const fraction = book.book.durationMs > 0 ? Math.min(1, offset / book.book.durationMs) : 0;
@@ -149,6 +165,7 @@ const BookRow = memo(function BookRow({ book, active, coverUrl, position, playin
         className={clsx(
           "flex w-full items-center gap-3 rounded-lg p-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500",
           active ? "bg-neutral-950/5 dark:bg-white/10" : "hover:bg-neutral-950/5 dark:hover:bg-white/5",
+          dimmed && "opacity-60",
         )}
       >
         <Cover url={coverUrl} title={book.book.title} className="size-14" />
