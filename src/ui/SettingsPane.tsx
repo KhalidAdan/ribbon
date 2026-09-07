@@ -1,6 +1,7 @@
-import { ArrowPathIcon, ChevronLeftIcon, FolderPlusIcon, XMarkIcon } from "@heroicons/react/16/solid";
+import { ArrowPathIcon, ChevronLeftIcon, FolderPlusIcon, PlusIcon, XMarkIcon } from "@heroicons/react/16/solid";
 import { useEffect, useMemo, useState } from "react";
 import { groupProblems } from "../core/problems";
+import { isHandMade } from "../core/series";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 
@@ -14,7 +15,7 @@ export function SettingsPane() {
   const state = useAppState();
   const c = useController();
   const groups = groupProblems(state.problems);
-  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources]);
+  const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);
   const [homePath, setHomePath] = useState<string | null>(null);
   useEffect(() => {
     void c.homePath().then(setHomePath);
@@ -138,20 +139,26 @@ export function SettingsPane() {
 
           <Section
             title="Series"
-            description={series.length === 0 ? "No series found. Numbered folders or a series tag make one." : "Which books belong, in what order, and which to leave off the shelf. Nothing is deleted."}
+            description={
+              series.length === 0
+                ? "No series found. Numbered folders or a series tag make one, or make your own from any books on the shelf."
+                : "Which books belong, in what order, and which to leave off the shelf. Nothing is deleted. Make your own for the ones detection misses."
+            }
           >
             {series.length > 0 && (
               <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
                 {series.map((g) => {
                   const record = state.series[g.key];
                   const left = record ? record.choices.filter((ch) => !ch.included).length : 0;
+                  const added = g.added?.length ?? 0;
                   return (
                     <li key={g.key} className="flex items-center justify-between gap-3 py-3">
                       <div className="min-w-0">
                         <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{g.name}</p>
                         <p className="text-sm/5 text-neutral-500 dark:text-neutral-400">
-                          {g.bookIds.length} books
-                          {record ? ` · ${left === 0 ? "all on the shelf" : `${left} left off`} · set up ${new Date(record.decidedAt).toLocaleDateString(undefined, { dateStyle: "medium" })}` : " · not set up"}
+                          {g.bookIds.length} {g.bookIds.length === 1 ? "book" : "books"}
+                          {isHandMade(g) ? " · made by hand" : added > 0 ? ` · ${added} added by hand` : ""}
+                          {record ? ` · ${left === 0 ? "all on the shelf" : `${left} left off`} · ${isHandMade(g) ? "made" : "set up"} ${new Date(record.decidedAt).toLocaleDateString(undefined, { dateStyle: "medium" })}` : " · not set up"}
                         </p>
                       </div>
                       <Button size="sm" onClick={() => c.openSeriesSetup(g.key)} className="shrink-0">
@@ -162,6 +169,12 @@ export function SettingsPane() {
                 })}
               </ul>
             )}
+            <div className="mt-3">
+              <Button size="sm" onClick={() => c.openNewSeries()} disabled={state.books.length === 0} className="py-1.5 pr-2.5 pl-1.5">
+                <PlusIcon className="size-4 fill-current" />
+                New series
+              </Button>
+            </div>
           </Section>
 
           <Section

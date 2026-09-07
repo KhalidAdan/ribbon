@@ -12,6 +12,7 @@ import { PlayerSheet } from "./PlayerSheet";
 import { ReaderPage } from "./ReaderPage";
 import { SettingsPane } from "./SettingsPane";
 import { SeriesSetup } from "./SeriesSetup";
+import { NewSeries } from "./NewSeries";
 import { useKeys } from "./useKeys";
 import { ScanProgress } from "./ScanProgress";
 
@@ -97,6 +98,7 @@ function Ready() {
   return (
     <main className="flex h-full flex-col">
       <SeriesSetup />
+      <NewSeries />
       <div className="min-h-0 flex-1">
         {state.pane === "settings" ? (
           <SettingsPane />

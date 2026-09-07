@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, normalizeChoices, orderBySeries, seriesToBytes, slug } from "../src/core/series";
+import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, orderBySeries, seriesToBytes, slug, uniqueKey } from "../src/core/series";
 import type { Book } from "../src/core/types";
 
 const book = (path: string, extra: Partial<Book> = {}): Book => ({
@@ -100,6 +100,46 @@ describe("orderBySeries", () => {
       { bookId: "c", included: true, order: 2 },
     ] };
     expect(orderBySeries(shelf, (s) => s, [record])).toEqual(["x", "b", "y", "c", "a", "z"]);
+  });
+});
+
+describe("series made by hand", () => {
+  const onShelf = new Set(["a", "b", "c", "d", "e"]);
+  const detected = [{ key: "heresy", name: "Heresy", bookIds: ["a", "b", "c"] }];
+
+  it("gives a new series a key no other has", () => {
+    expect(uniqueKey("The Horus Heresy", [])).toBe("the-horus-heresy");
+    expect(uniqueKey("Heresy", ["heresy"])).toBe("heresy-2");
+    expect(uniqueKey("Heresy", ["heresy", "heresy-2"])).toBe("heresy-3");
+  });
+
+  it("makes a record with every book in, in the order given", () => {
+    const r = newSeriesRecord("mine", "  Mine ", ["d", "e"], "2026-09-08T00:00:00Z");
+    expect(r).toEqual({ key: "mine", name: "Mine", decidedAt: "2026-09-08T00:00:00Z", choices: [
+      { bookId: "d", included: true, order: 1 },
+      { bookId: "e", included: true, order: 2 },
+    ] });
+  });
+
+  it("is a series of its own when detection found nothing, without the books that left the shelf", () => {
+    const r = newSeriesRecord("mine", "Mine", ["e", "gone", "d"]);
+    const [g] = mergeSeries([], [r], onShelf);
+    expect(g).toEqual({ key: "mine", name: "Mine", bookIds: ["e", "d"], added: ["e", "d"] });
+    expect(isHandMade(g!)).toBe(true);
+    expect(mergeSeries([], [newSeriesRecord("empty", "Empty", ["gone"])], onShelf)).toEqual([]);
+  });
+
+  it("adds the books a record names to the series detection found", () => {
+    const r = { key: "heresy", name: "Heresy", decidedAt: "", choices: [
+      { bookId: "b", included: true, order: 1 },
+      { bookId: "d", included: false, order: 2 },
+      { bookId: "a", included: true, order: 3 },
+    ] };
+    const [g] = mergeSeries(detected, [r], onShelf);
+    expect(g).toEqual({ key: "heresy", name: "Heresy", bookIds: ["a", "b", "c", "d"], added: ["d"] });
+    expect(isHandMade(g!)).toBe(false);
+    // A record that only orders the detected books adds nothing.
+    expect(mergeSeries(detected, [{ ...r, choices: r.choices.slice(0, 1) }], onShelf)[0]).toEqual(detected[0]);
   });
 });
 

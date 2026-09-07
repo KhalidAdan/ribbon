@@ -2,7 +2,7 @@ import type { Host, ScanProgress } from "../host/host";
 import { extractMissingCovers, type ScannedBook } from "../core/scan/scan";
 import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
 import type { Problem } from "../core/problems";
-import { defaultChoices, detectSeries, normalizeChoices, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
+import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
 import type { BookAbout } from "../core/about";
 import { sameRoot, sourceFrom, type Source, type SourceEntry } from "../core/sources";
 import { AboutLookup, type LookupStatus } from "./about";
@@ -104,6 +104,8 @@ export interface AppState {
   series: Record<string, SeriesRecord>;
   /** The series whose setup is open, or null. */
   seriesSetup: SeriesGroup | null;
+  /** The dialog for making a series by hand is open. */
+  seriesNew: boolean;
   /** What the book database said, by book id. */
   about: Record<string, BookAbout>;
   /** Whether descriptions are looked up online, and how the current run is going. */
@@ -222,6 +224,7 @@ export class AppController {
       problems: [],
       series: {},
       seriesSetup: null,
+      seriesNew: false,
       about: {},
       lookup: { enabled: false, running: false, done: 0, total: 0 },
       lastScanMs: null,
@@ -1143,10 +1146,11 @@ export class AppController {
   // Series ----------------------------------------------------------------
 
   /**
-   * Series the shelf looks like it has, from tags and folder numbers,
-   * source by source. Books numbered straight under a source's folder
-   * make a series named after that folder. A series named the same in
-   * two sources is one series.
+   * The series on the shelf: what tags and folder numbers suggest,
+   * source by source, plus what the records beside the books say. Books
+   * numbered straight under a source's folder make a series named after
+   * that folder. A series named the same in two sources is one series.
+   * A record can add books to a series, or be a series on its own.
    */
   detectedSeries(): SeriesGroup[] {
     const byKey = new Map<string, SeriesGroup>();
@@ -1160,7 +1164,58 @@ export class AppController {
         else byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
       }
     }
-    return [...byKey.values()];
+    return mergeSeries([...byKey.values()], Object.values(this.state.series), new Set(this.state.books.map((b) => b.book.id)));
+  }
+
+  openNewSeries(): void {
+    this.set({ seriesNew: true, seriesSetup: null });
+  }
+
+  closeNewSeries(): void {
+    this.set({ seriesNew: false });
+  }
+
+  /** Make a series by hand: these books, in this order. Its record goes beside them. */
+  async createSeries(name: string, bookIds: readonly string[]): Promise<void> {
+    const onShelf = new Set(this.state.books.map((b) => b.book.id));
+    const ids = bookIds.filter((id) => onShelf.has(id));
+    if (!name.trim() || ids.length === 0) return;
+    const key = uniqueKey(name, [...Object.keys(this.state.series), ...this.detectedSeries().map((g) => g.key)]);
+    const record = newSeriesRecord(key, name, ids);
+    log.info("new series:", record.name, ids.length, "books");
+    this.set({ series: { ...this.state.series, [key]: record }, seriesNew: false });
+    await this.writeSeriesRecord(record);
+  }
+
+  /** Forget a series: its record goes, its books stay. Detection may still find it. */
+  async deleteSeries(key: string): Promise<void> {
+    const { [key]: gone, ...series } = this.state.series;
+    if (!gone) return;
+    log.info("delete series:", gone.name);
+    this.seriesOffered.add(key);
+    this.set({ series, seriesSetup: this.state.seriesSetup?.key === key ? null : this.state.seriesSetup });
+    for (const o of this.openedInOrder()) {
+      o.seriesKeys.delete(key);
+      try {
+        await o.lib.deleteSeries(key);
+      } catch (e) {
+        log.warn("could not delete series:", o.source.name, describe(e));
+      }
+    }
+  }
+
+  /** Write a record beside the books in every source that holds one of its members. */
+  private async writeSeriesRecord(record: SeriesRecord): Promise<void> {
+    const members = new Set(record.choices.map((c) => c.bookId));
+    const holders = this.openedInOrder().filter((o) => o.books.some((b) => members.has(b.book.id)));
+    for (const o of holders) {
+      o.seriesKeys.add(record.key);
+      try {
+        await o.lib.writeSeries(record);
+      } catch (e) {
+        log.warn("could not save series:", o.source.name, describe(e));
+      }
+    }
   }
 
   /** After a scan: open the setup for the first series with no record, once per session. */
@@ -1236,16 +1291,7 @@ export class AppController {
     if (!g) return;
     const record: SeriesRecord = { key: g.key, name: g.name, choices: normalizeChoices(choices), decidedAt: new Date().toISOString() };
     this.set({ series: { ...this.state.series, [g.key]: record }, seriesSetup: null });
-    const members = new Set(g.bookIds);
-    const holders = this.openedInOrder().filter((o) => o.books.some((b) => members.has(b.book.id)));
-    for (const o of holders) {
-      o.seriesKeys.add(g.key);
-      try {
-        await o.lib.writeSeries(record);
-      } catch (e) {
-        log.warn("could not save series:", o.source.name, describe(e));
-      }
-    }
+    await this.writeSeriesRecord(record);
   }
 
   /** Skip: everything stays on the shelf in detected order, and the question is not asked again. */

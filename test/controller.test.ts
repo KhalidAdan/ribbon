@@ -172,6 +172,28 @@ describe("AppController with two sources", () => {
   });
 });
 
+describe("AppController series by hand", () => {
+  it("creates a series from picked books, shows it, and deletes it again", async () => {
+    const c = new AppController(platform(FIXTURE_ROOT));
+    await c.addSource(FIXTURE_ROOT);
+    await settle(c, () => c.getState().scanning === null);
+    const [a, b] = c.getState().books.slice(0, 2).map((x) => x.book.id) as [string, string];
+    await c.createSeries("My Picks", [b, a]);
+    const g = c.getState().series["my-picks"];
+    expect(g?.choices.map((ch) => ch.bookId)).toEqual([b, a]);
+    expect(c.detectedSeries().find((x) => x.key === "my-picks")).toEqual({ key: "my-picks", name: "My Picks", bookIds: [b, a], added: [b, a] });
+    expect((await fs.stat(path.join(FIXTURE_ROOT, ".ribbon", "series", "my-picks.csv"))).isFile()).toBe(true);
+    // A second one of the same name gets its own key.
+    await c.createSeries("My Picks", [a]);
+    expect(Object.keys(c.getState().series).sort()).toEqual(["my-picks", "my-picks-2"]);
+    await c.deleteSeries("my-picks");
+    await c.deleteSeries("my-picks-2");
+    expect(c.getState().series).toEqual({});
+    expect(c.detectedSeries().some((x) => x.key.startsWith("my-picks"))).toBe(false);
+    await expect(fs.stat(path.join(FIXTURE_ROOT, ".ribbon", "series", "my-picks.csv"))).rejects.toThrow();
+  });
+});
+
 describe("libraryRootOf", () => {
   it("strips a trailing .ribbon in either slash style", () => {
     expect(libraryRootOf("\\\\nas\\media\\Books\\.ribbon")).toBe("\\\\nas\\media\\Books");

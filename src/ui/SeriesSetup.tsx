@@ -1,7 +1,8 @@
-import { ArrowDownIcon, ArrowUpIcon } from "@heroicons/react/16/solid";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, XMarkIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { defaultChoices, excludeShorterThan, normalizeChoices, type SeriesChoice } from "../core/series";
+import { defaultChoices, excludeShorterThan, isHandMade, normalizeChoices, type SeriesChoice } from "../core/series";
+import { fold } from "../core/search";
 import { formatLeft } from "../core/speed";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
@@ -21,6 +22,10 @@ export function SeriesSetup() {
   const existing = setup ? state.series[setup.key] : undefined;
   const [choices, setChoices] = useState<SeriesChoice[]>([]);
   const [hours, setHours] = useState(4);
+  const [adding, setAdding] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Books added in this dialog, which can be taken out again before Save. */
+  const [addedHere, setAddedHere] = useState<string[]>([]);
 
   useEffect(() => {
     if (!setup) return;
@@ -29,6 +34,9 @@ export function SeriesSetup() {
     const known = new Set(base.map((ch) => ch.bookId));
     const fresh = defaultChoices(setup).filter((ch) => !known.has(ch.bookId));
     setChoices(normalizeChoices([...base, ...fresh.map((ch, i) => ({ ...ch, order: base.length + i + 1 }))]));
+    setAdding("");
+    setConfirmDelete(false);
+    setAddedHere([]);
   }, [setup, existing]);
 
   useEffect(() => {
@@ -52,6 +60,23 @@ export function SeriesSetup() {
     setChoices(normalizeChoices(next));
   };
   const toggle = (bookId: string) => setChoices(choices.map((ch) => (ch.bookId === bookId ? { ...ch, included: !ch.included } : ch)));
+  // Books the listener put in by hand can be taken out again; detected ones can only be left off.
+  const handMade = isHandMade(setup);
+  const removable = new Set(handMade ? setup.bookIds : (setup.added ?? []));
+  const remove = (bookId: string) => {
+    setChoices(normalizeChoices(choices.filter((ch) => ch.bookId !== bookId)));
+    setAddedHere(addedHere.filter((id) => id !== bookId));
+  };
+  const member = new Set(choices.map((ch) => ch.bookId));
+  const needle = fold(adding.trim());
+  const candidates = needle
+    ? state.books.filter((b) => !member.has(b.book.id) && (fold(b.book.title).includes(needle) || fold(b.book.author).includes(needle))).slice(0, 6)
+    : [];
+  const add = (bookId: string) => {
+    setChoices(normalizeChoices([...choices, { bookId, included: true, order: choices.length + 1 }]));
+    setAddedHere([...addedHere, bookId]);
+    setAdding("");
+  };
 
   return (
     <dialog
@@ -71,7 +96,7 @@ export function SeriesSetup() {
           Set up {setup.name}
         </h2>
         <p className="mt-1 text-sm/6 text-pretty text-neutral-500 dark:text-neutral-400">
-          Untick anything you do not want on the shelf, and put the books in the order you want to listen. Nothing is deleted; you can change this later in settings.
+          Untick anything you do not want on the shelf, put the books in the order you want to listen, and add any book detection missed. Nothing is deleted; you can change this later in settings.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <label htmlFor="series-min-hours" className="text-sm/6 text-neutral-600 dark:text-neutral-400">
@@ -126,21 +151,70 @@ export function SeriesSetup() {
                 <Button icon size="sm" variant="ghost" aria-label={`Move ${b.book.title} down`} disabled={i === ordered.length - 1} onClick={() => move(i, 1)}>
                   <ArrowDownIcon className="size-4 fill-current" />
                 </Button>
+                {(removable.has(ch.bookId) || addedHere.includes(ch.bookId)) && (
+                  <Button icon size="sm" variant="ghost" aria-label={`Take ${b.book.title} out of the series`} title="Take out of the series" onClick={() => remove(ch.bookId)}>
+                    <XMarkIcon className="size-4 fill-current" />
+                  </Button>
+                )}
               </div>
             </li>
           );
         })}
       </ol>
 
+      <div className="shrink-0 px-5 pt-3 sm:px-6">
+        <label htmlFor="series-add-book" className="sr-only">
+          Add a book to the series
+        </label>
+        <input
+          id="series-add-book"
+          type="search"
+          value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          placeholder="Add a book: type a title or author…"
+          autoComplete="off"
+          className="w-full rounded-md bg-white px-3 py-1.5 text-base/6 text-neutral-950 ring-1 ring-neutral-950/10 placeholder:text-neutral-400 focus:outline-2 focus:-outline-offset-1 focus:outline-amber-500 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:ring-white/10"
+        />
+        {needle && (
+          <ul role="list" className="mt-1 max-h-48 divide-y divide-neutral-950/5 overflow-y-auto rounded-md ring-1 ring-neutral-950/10 dark:divide-white/5 dark:ring-white/10">
+            {candidates.length === 0 && <li className="px-3 py-2 text-sm/6 text-neutral-500 dark:text-neutral-400">No other book matches.</li>}
+            {candidates.map((b) => (
+              <li key={b.book.id}>
+                <button type="button" onClick={() => add(b.book.id)} className="flex w-full items-center gap-3 px-3 py-1.5 text-left hover:bg-neutral-950/5 dark:hover:bg-white/5">
+                  <PlusIcon className="size-4 shrink-0 fill-current text-neutral-500 dark:text-neutral-400" />
+                  <Cover url={c.coverUrl(b)} title={b.book.title} className="size-8" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm/5 font-medium text-neutral-950 dark:text-white">{b.book.title}</span>
+                    <span className="block truncate text-xs/5 text-neutral-500 dark:text-neutral-400">{b.book.author || "Unknown author"}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-neutral-950/10 px-5 py-4 sm:px-6 dark:border-white/10">
         <p className="text-sm/6 text-neutral-500 tabular-nums dark:text-neutral-400">
           {included} of {choices.length} on the shelf
         </p>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => void c.skipSeriesSetup()}>
-            Skip for now
-          </Button>
-          <Button variant="primary" onClick={() => void c.saveSeries(choices)}>
+        <div className="flex flex-wrap gap-2">
+          {handMade && existing && (
+            <Button variant="ghost" onClick={() => (confirmDelete ? void c.deleteSeries(setup.key) : setConfirmDelete(true))} className={confirmDelete ? "text-red-600 dark:text-red-400" : ""}>
+              {confirmDelete ? "Delete for good" : "Delete series"}
+            </Button>
+          )}
+          {!existing && (
+            <Button variant="ghost" onClick={() => void c.skipSeriesSetup()}>
+              Skip for now
+            </Button>
+          )}
+          {existing && (
+            <Button variant="ghost" onClick={() => c.closeSeriesSetup()}>
+              Cancel
+            </Button>
+          )}
+          <Button variant="primary" onClick={() => void c.saveSeries(choices)} disabled={choices.length === 0}>
             Save
           </Button>
         </div>
