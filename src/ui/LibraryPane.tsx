@@ -1,14 +1,16 @@
 import { ArrowPathIcon, FolderOpenIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { Position } from "../core/types";
 import type { ScannedBook } from "../core/scan/scan";
 import { formatDuration } from "../core/speed";
 import { compareBooks } from "../core/order";
+import { indexBooks, searchBooks, type BookIndex } from "../core/search";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
+import { SearchField } from "./SearchField";
 
 export function LibraryPane() {
   const state = useAppState();
@@ -24,6 +26,34 @@ export function LibraryPane() {
       return compareBooks(a.book, b.book);
     });
   }, [state.books, state.positions]);
+
+  // Search: the index follows the shelf, the match list follows the query.
+  const [query, setQuery] = useState("");
+  const [index, setIndex] = useState<BookIndex | null>(null);
+  const [matches, setMatches] = useState<string[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    void indexBooks(state.books.map((b) => b.book)).then((db) => live && setIndex(db));
+    return () => {
+      live = false;
+    };
+  }, [state.books]);
+  useEffect(() => {
+    if (!index || !query.trim()) {
+      setMatches(null);
+      return;
+    }
+    let live = true;
+    void searchBooks(index, query).then((ids) => live && setMatches(ids));
+    return () => {
+      live = false;
+    };
+  }, [index, query]);
+  const shown = useMemo(() => {
+    if (!matches) return sorted;
+    const rank = new Map(matches.map((id, i) => [id, i]));
+    return sorted.filter((b) => rank.has(b.book.id)).sort((a, b) => rank.get(a.book.id)! - rank.get(b.book.id)!);
+  }, [sorted, matches]);
 
   const folderName = state.root ? state.root.split(/[\\/]/).filter(Boolean).pop() : "";
 
@@ -51,6 +81,11 @@ export function LibraryPane() {
         </Button>
       </header>
 
+      {sorted.length > 0 && (
+        <div className="px-4 pb-3 sm:px-5">
+          <SearchField value={query} onChange={setQuery} count={matches ? shown.length : null} onSubmit={() => shown[0] && void c.openBook(shown[0])} />
+        </div>
+      )}
       {state.scanErrors.length > 0 && (
         <p className="px-4 pb-2 text-sm/5 text-neutral-500 sm:px-5 dark:text-neutral-400" title={state.scanErrors.map((e) => `${e.path}: ${e.message}`).join("\n")}>
           {state.scanErrors.length.toLocaleString()} {state.scanErrors.length === 1 ? "file" : "files"} could not be read. Details are in the log.
@@ -62,9 +97,13 @@ export function LibraryPane() {
         <div className="px-5 py-10 text-center">
           <p className="text-base/7 text-neutral-500 sm:text-sm/6 dark:text-neutral-400">No audiobooks found in this folder.</p>
         </div>
+      ) : shown.length === 0 ? (
+        <div className="px-5 py-10 text-center">
+          <p className="text-base/7 text-neutral-500 sm:text-sm/6 dark:text-neutral-400">Nothing matches “{query.trim()}”.</p>
+        </div>
       ) : (
         <ul role="list" className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 sm:px-3">
-          {sorted.map((b) => {
+          {shown.map((b) => {
             const active = state.current?.book.book.id === b.book.id;
             return (
               <BookRow key={b.book.id} book={b} active={active} coverUrl={c.coverUrl(b)} position={state.positions[b.book.id] ?? null} playingAt={active ? state.player.positionMs : null} />
