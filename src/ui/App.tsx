@@ -103,7 +103,7 @@ function Ready() {
         ) : state.pane === "reader" ? (
           <ReaderPage />
         ) : (
-          <div className={clsx("mx-auto h-full w-full", "max-w-3xl")}>
+          <div className={clsx("mx-auto h-full w-full", "max-w-6xl")}>
             <LibraryPane />
           </div>
         )}

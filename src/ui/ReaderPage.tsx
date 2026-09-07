@@ -11,9 +11,7 @@ import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
 import { tintFromImage } from "./tint";
-
-/** A book is finished when the saved position is within a minute of its end. */
-const FINISHED_WITHIN_MS = 60_000;
+import { progressOf as progressIn } from "./progress";
 
 /**
  * One book, as a page in its own colours: a rail of every book in its
@@ -65,10 +63,8 @@ export function ReaderPage() {
   if (!book) return null;
 
   const progressOf = (b: ScannedBook) => {
-    const active = state.current?.book.book.id === b.book.id;
-    const pos = active ? state.player.positionMs : (state.positions[b.book.id]?.offsetMs ?? 0);
-    const within = Math.min(FINISHED_WITHIN_MS, b.book.durationMs * 0.1);
-    return { pos, finished: pos > 0 && b.book.durationMs > 0 && pos >= b.book.durationMs - within, started: pos > 0 };
+    const p = progressIn(b, state);
+    return { pos: p.posMs, finished: p.finished, started: p.started };
   };
   const me = progressOf(book);
   const index = orderedIds.indexOf(book.book.id);
