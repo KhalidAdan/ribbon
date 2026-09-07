@@ -19,6 +19,7 @@ export function PlayerPane() {
   const cur = state.current;
   const [drawer, setDrawer] = useState<"chapters" | "bookmarks" | "speed" | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [moreAbout, setMoreAbout] = useState(false);
 
   if (!cur) {
     return (
@@ -30,6 +31,7 @@ export function PlayerPane() {
 
   const { book } = cur;
   const p = state.player;
+  const about = c.aboutFor(book);
   const chapter = book.chapters[p.chapterIndex] ?? null;
   const bookLeft = remainingAtSpeed(p.durationMs - p.positionMs, p.speed);
   // The timeline is the current chapter. Books run ten hours and more;
@@ -61,6 +63,14 @@ export function PlayerPane() {
               </p>
             </div>
           </div>
+          {about && (
+            <div>
+              <p className={clsx("text-base/7 text-pretty whitespace-pre-line text-neutral-700 sm:text-sm/6 dark:text-neutral-300", !moreAbout && "line-clamp-4")}>{about.description}</p>
+              <button type="button" onClick={() => setMoreAbout((v) => !v)} className="mt-1 text-sm/6 text-neutral-500 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:text-neutral-400">
+                {moreAbout ? "Less" : "More"}
+              </button>
+            </div>
+          )}
 
           {state.resumeOffer && <ResumeOffer />}
 

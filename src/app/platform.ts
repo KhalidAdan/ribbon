@@ -25,9 +25,15 @@ function clearLegacyRoot(): void {
   }
 }
 
+/** Settings that last for the session only, for the harness and tests. */
+export function memorySettings(): NonNullable<Platform["appSettings"]> {
+  let store: Record<string, unknown> = {};
+  return { read: async () => ({ ...store }), write: async (s) => void (store = { ...s }) };
+}
+
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary, homeInfo, rememberLibrary, forgetLibrary, revealHome, resetHome }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary, homeInfo, rememberLibrary, forgetLibrary, revealHome, resetHome, appSettingsRead, appSettingsWrite }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -64,6 +70,7 @@ export async function detectPlatform(): Promise<Platform> {
       forgetRoot: (root) => forgetLibrary(root),
       defaultRoot: envLibrary,
       uptimeMs,
+      appSettings: { read: appSettingsRead, write: appSettingsWrite },
       home: {
         path: async () => (await homeInfo()).path,
         reveal: revealHome,
@@ -91,5 +98,6 @@ export async function detectPlatform(): Promise<Platform> {
     saveRoot: async () => undefined,
     forgetRoot: async () => undefined,
     defaultRoot: () => browserLibraryRoot(),
+    appSettings: memorySettings(),
   };
 }

@@ -97,6 +97,25 @@ pub fn forget_library(root: String) -> Result<(), String> {
     write_registry(&entries)
 }
 
+fn settings_path() -> PathBuf {
+    home_dir().join("settings.json")
+}
+
+/// App-level settings (not per book, not per library): a JSON object.
+#[tauri::command]
+pub fn app_settings_read() -> serde_json::Value {
+    std::fs::read_to_string(settings_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}))
+}
+
+#[tauri::command]
+pub fn app_settings_write(settings: serde_json::Value) -> Result<(), String> {
+    let dir = home_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let tmp = dir.join("settings.json.tmp");
+    std::fs::write(&tmp, serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, settings_path()).map_err(|e| e.to_string())
+}
+
 /// Open the folder in the system file browser.
 #[tauri::command]
 pub fn reveal_home() -> Result<(), String> {

@@ -126,6 +126,23 @@ export function SettingsPane() {
             )}
           </Section>
 
+          <Section
+            title="Descriptions"
+            description="Ribbon can ask Open Library, a free book database, about each book: it sends the title and author once, in the background, and keeps the answer beside the book. Off unless you turn it on."
+          >
+            <label htmlFor="lookup-descriptions" className="flex cursor-pointer items-start gap-3">
+              <input id="lookup-descriptions" type="checkbox" role="switch" checked={state.lookup.enabled} onChange={(e) => void c.setLookup(e.target.checked)} className="mt-1 size-4 shrink-0 accent-amber-500" />
+              <span>
+                <span className="block text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white">Look up descriptions from Open Library</span>
+                <span className="block text-sm/5 text-neutral-500 dark:text-neutral-400">
+                  {state.lookup.running
+                    ? `Asking about book ${state.lookup.done + 1} of ${state.lookup.total}…`
+                    : `${Object.values(state.about).filter((a) => a.source === "openlibrary").length.toLocaleString()} of ${state.books.length.toLocaleString()} books have a description.`}
+                </span>
+              </span>
+            </label>
+          </Section>
+
           {homePath && (
             <Section title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a local mirror of each library's records and covers, the log, and the list of libraries opened here. Your records stay beside your books.">
               <p className="truncate text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white" title={homePath}>

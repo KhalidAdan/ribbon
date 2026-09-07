@@ -64,6 +64,8 @@ pub fn run() {
             home::forget_library,
             home::reveal_home,
             home::reset_home,
+            home::app_settings_read,
+            home::app_settings_write,
             uptime_ms,
             env_library
         ])
