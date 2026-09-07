@@ -2,24 +2,24 @@ import type { Platform } from "./controller";
 import { browserFileUrl, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
-const ROOT_KEY = "ribbon.libraryRoot";
+/** Where the remembered library lived before the Ribbon folder existed. */
+const LEGACY_ROOT_KEY = "ribbon.libraryRoot";
 
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-function loadRoot(): string | null {
+function legacyRoot(): string | null {
   try {
-    return localStorage.getItem(ROOT_KEY);
+    return localStorage.getItem(LEGACY_ROOT_KEY);
   } catch {
     return null;
   }
 }
 
-function saveRoot(root: string | null): void {
+function clearLegacyRoot(): void {
   try {
-    if (root) localStorage.setItem(ROOT_KEY, root);
-    else localStorage.removeItem(ROOT_KEY);
+    localStorage.removeItem(LEGACY_ROOT_KEY);
   } catch {
     /* private mode */
   }
@@ -27,7 +27,10 @@ function saveRoot(root: string | null): void {
 
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary }, dialog] = await Promise.all([import("../host/tauri"), import("@tauri-apps/plugin-dialog")]);
+    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary, homeInfo, rememberLibrary, forgetLibrary, revealHome, resetHome }, dialog] = await Promise.all([
+      import("../host/tauri"),
+      import("@tauri-apps/plugin-dialog"),
+    ]);
     return {
       host: tauriHost(),
       async pickFolder(near) {
@@ -40,10 +43,42 @@ export async function detectPlatform(): Promise<Platform> {
       },
       allowFolder: allowLibrary,
       fileUrl,
-      loadRoot,
-      saveRoot,
+      // The library to reopen is the most recently opened one in the
+      // Ribbon folder's registry. A root remembered by an older build in
+      // the webview's storage is moved there once.
+      async loadRoot() {
+        const info = await homeInfo();
+        const recent = info.libraries[0]?.root ?? null;
+        if (recent) return recent;
+        const legacy = legacyRoot();
+        if (legacy) {
+          await rememberLibrary(legacy).catch(() => undefined);
+          clearLegacyRoot();
+        }
+        return legacy;
+      },
+      async saveRoot(root) {
+        if (root) await rememberLibrary(root);
+        clearLegacyRoot();
+      },
+      forgetRoot: (root) => forgetLibrary(root),
       defaultRoot: envLibrary,
       uptimeMs,
+      home: {
+        path: async () => (await homeInfo()).path,
+        reveal: revealHome,
+        async reset() {
+          const ok = await dialog.ask("Remove the local mirror, the remembered libraries and the covers Ribbon copied? Nothing beside your books is touched. The next open reads the library again.", {
+            title: "Reset Ribbon",
+            kind: "warning",
+            okLabel: "Reset",
+            cancelLabel: "Keep",
+          });
+          if (!ok) return false;
+          await resetHome();
+          return true;
+        },
+      },
     };
   }
   // Development harness: the Vite plugin serves one folder from this machine.
@@ -52,8 +87,9 @@ export async function detectPlatform(): Promise<Platform> {
     pickFolder: () => browserLibraryRoot(),
     allowFolder: async () => undefined,
     fileUrl: browserFileUrl,
-    loadRoot: () => null,
-    saveRoot: () => undefined,
+    loadRoot: async () => null,
+    saveRoot: async () => undefined,
+    forgetRoot: async () => undefined,
     defaultRoot: () => browserLibraryRoot(),
   };
 }

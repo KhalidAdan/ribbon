@@ -1,5 +1,5 @@
 import { ArrowPathIcon, ChevronLeftIcon, FolderOpenIcon } from "@heroicons/react/16/solid";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { groupProblems } from "../core/problems";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
@@ -15,6 +15,10 @@ export function SettingsPane() {
   const c = useController();
   const groups = groupProblems(state.problems);
   const series = useMemo(() => c.detectedSeries(), [c, state.books, state.root]);
+  const [homePath, setHomePath] = useState<string | null>(null);
+  useEffect(() => {
+    void c.homePath().then(setHomePath);
+  }, [c]);
   const bookFor = (folder: string) => state.books.find((b) => b.book.path === folder) ?? null;
 
   return (
@@ -122,8 +126,24 @@ export function SettingsPane() {
             )}
           </Section>
 
+          {homePath && (
+            <Section title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a local mirror of each library's records and covers, the log, and the list of libraries opened here. Your records stay beside your books.">
+              <p className="truncate text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white" title={homePath}>
+                {homePath}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => void c.revealHome()}>
+                  Reveal in Explorer
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => void c.resetHome()}>
+                  Reset Ribbon…
+                </Button>
+              </div>
+            </Section>
+          )}
+
           <Section title="About" description={`Ribbon ${__APP_VERSION__}. The listener for books you own.`}>
-            <p className="text-sm/6 text-neutral-500 dark:text-neutral-400">The log file is under the app's data folder; problems above are the part of it worth reading.</p>
+            <p className="text-sm/6 text-neutral-500 dark:text-neutral-400">The log lives in the Ribbon folder; the problems above are the part of it worth reading.</p>
           </Section>
         </div>
       </div>

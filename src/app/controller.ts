@@ -23,13 +23,23 @@ export interface Platform {
   allowFolder(path: string): Promise<void>;
   /** Streamable URL for an absolute path. */
   fileUrl(absPath: string): string;
-  /** Persisted last library root. */
-  loadRoot(): string | null;
-  saveRoot(root: string | null): void;
+  /** The library to reopen, from wherever the platform keeps it. */
+  loadRoot(): Promise<string | null>;
+  /** Remember a library as the one to reopen. */
+  saveRoot(root: string): Promise<void>;
+  /** Stop reopening a library; it stays on disk untouched. */
+  forgetRoot(root: string): Promise<void>;
   /** A root to open automatically without picking (dev harness). */
   defaultRoot?: () => Promise<string | null>;
   /** Milliseconds since the host process started, when the host knows. */
   uptimeMs?: () => Promise<number>;
+  /** The one folder the app owns on this machine, when there is one. */
+  home?: {
+    path(): Promise<string>;
+    reveal(): Promise<void>;
+    /** Asks first. Resolves true when the reset happened. */
+    reset(): Promise<boolean>;
+  };
 }
 
 export interface CurrentBook {
@@ -200,7 +210,7 @@ export class AppController {
       this.clockOffset = ms - asked;
       log.info(`web side booted ${Math.round(ms)} ms after process start`);
     });
-    const remembered = this.platform.loadRoot() ?? (await this.platform.defaultRoot?.()) ?? null;
+    const remembered = (await this.platform.loadRoot()) ?? (await this.platform.defaultRoot?.()) ?? null;
     if (remembered) {
       try {
         await this.openLibrary(remembered);
@@ -213,7 +223,7 @@ export class AppController {
   }
 
   async pickLibrary(): Promise<void> {
-    const root = await this.platform.pickFolder(this.state.root ?? this.platform.loadRoot());
+    const root = await this.platform.pickFolder(this.state.root ?? (await this.platform.loadRoot()));
     if (!root) return;
     try {
       await this.openLibrary(root);
@@ -274,7 +284,7 @@ export class AppController {
       this.mirrorCovers = extras.covers;
       this.mirrorCoversDir = extras.coversDir;
       mark("positions");
-      this.platform.saveRoot(root);
+      void this.platform.saveRoot(root).catch((e: unknown) => log.warn("could not remember the library:", describe(e)));
       this.set({ phase: "ready", books: cached, positions: positionsRecord(cached, extras.positions), scanning: null, coverVersion: this.state.coverVersion + 1 });
       mark("render");
       this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
@@ -289,7 +299,7 @@ export class AppController {
     this.set({ scanning: { walked: 0, done: 0, background: false } });
     await allowed;
     await this.rescan(false);
-    this.platform.saveRoot(root);
+    void this.platform.saveRoot(root).catch((e: unknown) => log.warn("could not remember the library:", describe(e)));
     this.offerSeriesSetup();
     this.set({ phase: "ready" });
     await this.saving;
@@ -406,7 +416,7 @@ export class AppController {
 
   forgetLibrary(): void {
     this.engine?.pause();
-    this.platform.saveRoot(null);
+    if (this.state.root) void this.platform.forgetRoot(this.state.root).catch(() => undefined);
     this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", assetsReady: false });
   }
 
@@ -771,6 +781,22 @@ export class AppController {
 
   showSettings(): void {
     this.set({ pane: "settings" });
+  }
+
+  homePath(): Promise<string | null> {
+    return this.platform.home ? this.platform.home.path().catch(() => null) : Promise.resolve(null);
+  }
+
+  revealHome(): Promise<void> {
+    return this.platform.home ? this.platform.home.reveal().catch((e: unknown) => log.warn("could not open the folder:", describe(e))) : Promise.resolve();
+  }
+
+  /** Wipe the app's own folder (mirror, registry) and go back to the picker. */
+  async resetHome(): Promise<void> {
+    if (!this.platform.home) return;
+    if (!(await this.platform.home.reset())) return;
+    this.engine?.pause();
+    this.set({ phase: "pick", root: null, books: [], positions: {}, current: null, pane: "library", assetsReady: false, series: {}, problems: [] });
   }
 
   // Series ----------------------------------------------------------------
