@@ -51,6 +51,24 @@ They are deterministic and tiny. They are never committed.
 - Files with a disc tag of `0` or missing sort as disc 1.
 - A track tag like `3/22` parses as 3.
 - Hidden files and the `.ribbon` folder are skipped.
+- A numbered folder holding only numbered subfolders is one book with
+  parts: `20. The Primarchs/01 The Reflection Crackd/…` plays as book 20.
+  The library root never folds; a numbered folder with audio of its own
+  or an unnumbered child is left alone; nested anthologies fold at the
+  outermost.
+
+### Stories (`core/scan/parts.ts`)
+
+- Every file of a story carries the story's name in `files.csv`; the
+  stories on the book timeline fall out of the file list alone.
+- A story is named by its album tag when every story has one and no two
+  agree, else by its folder name without the number.
+- The author of a story is its files' artist tag; a book by several
+  hands is by "Various".
+- `partAt` finds the story around a position; the last owns its end.
+- `groupByPart` folds chapters under stories keeping each chapter's flat
+  index, so corrections and the player still address chapters.
+- Anthology files recorded before stories had names are read again once.
 
 ### Probe parsing (`core/scan/probe.ts`)
 

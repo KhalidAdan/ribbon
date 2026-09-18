@@ -8,7 +8,7 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const FIXTURE_VERSION = "9";
+export const FIXTURE_VERSION = "10";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const FIXTURE_ROOT = path.resolve(here, "..", "test", "fixtures", "generated");
 
@@ -186,6 +186,13 @@ export async function makeFixtures(root = FIXTURE_ROOT): Promise<string> {
   await mp3(at("nested", "Series", "Book One", "02.mp3"), 1, { album: "Book One", track: "2" });
   await mp3(at("nested", "Series", "Book Two", "01.mp3"), 1, { album: "Book Two", track: "1" });
   await fs.writeFile(at("nested", "Series", "Book One", "notes.txt"), "not audio");
+
+  // 9. An anthology: a numbered folder of numbered subfolders, each story tagged with its own title and author.
+  await mk("20. The Primarchs", "01 The Reflection Crackd");
+  await mk("20. The Primarchs", "02 Feat of Iron");
+  await mp3(at("20. The Primarchs", "01 The Reflection Crackd", "01.mp3"), 1, { title: "Crackd One", album: "The Reflection Crack'd (Unabridged)", artist: "Gav Thorpe", track: "1" });
+  await mp3(at("20. The Primarchs", "01 The Reflection Crackd", "02.mp3"), 1, { title: "Crackd Two", album: "The Reflection Crack'd (Unabridged)", artist: "Gav Thorpe", track: "2" });
+  await mp3(at("20. The Primarchs", "02 Feat of Iron", "01.mp3"), 2, { title: "Iron One", album: "Feat of Iron", artist: "Nick Kyme", track: "1" });
 
   await fs.writeFile(marker, FIXTURE_VERSION);
   return root;

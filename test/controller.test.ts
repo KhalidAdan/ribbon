@@ -45,11 +45,11 @@ describe("AppController sources", () => {
     const s = c.getState();
     expect(s.phase).toBe("ready");
     expect(s.error).toBeNull();
-    expect(s.books.length).toBe(11);
+    expect(s.books.length).toBe(12);
     expect(s.scanning).toBeNull();
     expect(s.scanErrors).toEqual([]);
     expect(progress.length).toBeGreaterThan(0);
-    expect(Object.keys(s.positions)).toHaveLength(11);
+    expect(Object.keys(s.positions)).toHaveLength(12);
   });
 
   it("paints from cache on the next open, then rescans behind it", async () => {
@@ -61,10 +61,10 @@ describe("AppController sources", () => {
     });
     await c.addSource(FIXTURE_ROOT);
     expect(c.getState().phase).toBe("ready");
-    expect(c.getState().books.length).toBe(11);
+    expect(c.getState().books.length).toBe(12);
     // The background rescan is still running or just finished.
     await settle(c, () => c.getState().scanning === null && c.getState().lastScanMs !== null);
-    expect(c.getState().books.length).toBe(11);
+    expect(c.getState().books.length).toBe(12);
     expect(phases).toEqual(["loading", "ready"]);
   });
 
@@ -73,7 +73,7 @@ describe("AppController sources", () => {
     await c.pickLibrary();
     expect(c.getState().phase).toBe("ready");
     expect(c.getState().sources.map((s) => s.root)).toEqual([FIXTURE_ROOT]);
-    expect(c.getState().books.length).toBe(11);
+    expect(c.getState().books.length).toBe(12);
   });
 
   it("renames a legacy .odio records folder to .ribbon and keeps its contents", async () => {
@@ -85,7 +85,7 @@ describe("AppController sources", () => {
     const c = new AppController(platform(FIXTURE_ROOT));
     await c.addSource(FIXTURE_ROOT);
     expect(c.getState().phase).toBe("ready");
-    expect(c.getState().books.length).toBe(11);
+    expect(c.getState().books.length).toBe(12);
     expect(await fs.readFile(path.join(current, "marker.txt"), "utf8")).toBe("kept");
     await expect(fs.stat(legacy)).rejects.toThrow();
     await settle(c, () => c.getState().scanning === null && c.getState().lastScanMs !== null);
@@ -110,7 +110,8 @@ describe("AppController with two sources", () => {
   });
 
   afterAll(async () => {
-    await fs.rm(second, { recursive: true, force: true });
+    // A background probe can still hold a file open on Windows; wait it out.
+    await fs.rm(second, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   it("shelves the books of every folder, tagged with their source, and remembers the folders", async () => {
@@ -122,14 +123,14 @@ describe("AppController with two sources", () => {
     const s = c.getState();
     expect(s.phase).toBe("ready");
     expect(s.sources.map((x) => x.name)).toEqual(["generated", path.basename(second)]);
-    expect(s.books.length).toBe(12);
+    expect(s.books.length).toBe(13);
     expect(s.books.filter((b) => b.source === sourceId(second)).map((b) => b.book.path)).toEqual(["Another Single"]);
-    expect(s.books.filter((b) => b.source === sourceId(FIXTURE_ROOT)).length).toBe(11);
+    expect(s.books.filter((b) => b.source === sourceId(FIXTURE_ROOT)).length).toBe(12);
     expect(await p.sources.load()).toEqual(s.sources.map((x) => ({ root: x.root, addedAt: x.addedAt })));
     // Adding a folder again only checks it for changes.
     await c.addSource(second);
     expect(c.getState().sources.length).toBe(2);
-    expect(c.getState().books.length).toBe(12);
+    expect(c.getState().books.length).toBe(13);
   });
 
   it("reopens every remembered folder at boot, with the folder given at launch added once", async () => {
@@ -138,7 +139,7 @@ describe("AppController with two sources", () => {
     p.defaultRoot = async () => second;
     const c = new AppController(p);
     await c.boot();
-    await settle(c, () => c.getState().scanning === null && c.getState().books.length === 12);
+    await settle(c, () => c.getState().scanning === null && c.getState().books.length === 13);
     expect(c.getState().phase).toBe("ready");
     expect(c.getState().sources.map((x) => x.root)).toEqual([FIXTURE_ROOT, second]);
     expect((await p.sources.load()).length).toBe(2);
@@ -154,7 +155,7 @@ describe("AppController with two sources", () => {
     const s = c.getState();
     expect(s.phase).toBe("ready");
     expect(s.sources.map((x) => x.root)).toEqual([FIXTURE_ROOT]);
-    expect(s.books.length).toBe(11);
+    expect(s.books.length).toBe(12);
     expect(await p.sources.load()).toEqual([{ root: FIXTURE_ROOT, addedAt: s.sources[0]!.addedAt }]);
     expect((await fs.stat(path.join(second, ".ribbon", "library.csv"))).isFile()).toBe(true);
     await c.removeSource(sourceId(FIXTURE_ROOT));

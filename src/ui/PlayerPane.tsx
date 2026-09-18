@@ -2,6 +2,7 @@ import { BackwardIcon, BookmarkIcon, ChevronDownIcon, ForwardIcon, ListBulletIco
 import { clsx } from "clsx";
 import { useState } from "react";
 import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
+import { partAt } from "../core/scan/parts";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
@@ -43,6 +44,10 @@ export function PlayerPane() {
   const inChapter = Math.min(scrubLength, Math.max(0, p.positionMs - scrubStart));
   const chapterLeft = remainingAtSpeed(scrubLength - inChapter, p.speed);
   const chapterNumber = chapter ? `${p.chapterIndex + 1} of ${book.chapters.length}` : "";
+  // An anthology says which story this chapter belongs to, and whose it is when the book is by several hands.
+  const storyIndex = partAt(book.parts, p.positionMs);
+  const story = book.parts[storyIndex] ?? null;
+  const storyLine = story ? `${story.title}${story.author && story.author !== book.book.author ? ` · ${story.author}` : ""} · Story ${storyIndex + 1} of ${book.parts.length}` : "";
 
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Player">
@@ -81,11 +86,14 @@ export function PlayerPane() {
               <button
                 type="button"
                 onClick={() => setDrawer("chapters")}
-                className="mb-2 flex w-full items-baseline justify-center gap-2 rounded-md px-2 py-1 text-center hover:bg-neutral-950/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 sm:justify-start sm:text-left dark:hover:bg-white/5"
-                aria-label={`Chapter ${chapterNumber}: ${chapter.title}. Open the chapter list`}
+                className="mb-2 flex w-full flex-col items-center gap-0.5 rounded-md px-2 py-1 text-center hover:bg-neutral-950/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 sm:items-start sm:text-left dark:hover:bg-white/5"
+                aria-label={`${storyLine ? `${storyLine}. ` : ""}Chapter ${chapterNumber}: ${chapter.title}. Open the chapter list`}
               >
-                <span className="min-w-0 truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{chapter.title}</span>
-                <span className="shrink-0 text-sm/5 text-neutral-500 tabular-nums dark:text-neutral-400">{chapterNumber}</span>
+                {storyLine && <span className="block max-w-full truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{storyLine}</span>}
+                <span className="flex max-w-full items-baseline gap-2">
+                  <span className="min-w-0 truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{chapter.title}</span>
+                  <span className="shrink-0 text-sm/5 text-neutral-500 tabular-nums dark:text-neutral-400">{chapterNumber}</span>
+                </span>
               </button>
             )}
             <Scrubber positionMs={inChapter} durationMs={scrubLength} chapters={[]} onSeek={(ms) => c.seek(scrubStart + ms)} label={chapter ? "Position in chapter" : "Position in book"} />

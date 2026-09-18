@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ArrowUpRightIcon, Cog6ToothIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, Cog6ToothIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ScannedBook } from "../core/scan/scan";
@@ -6,6 +6,7 @@ import { orderBySeries, hiddenBookIds } from "../core/series";
 import { NEUTRAL_TONE, type Tone } from "../core/tint";
 import { formatDuration, formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
+import { groupByPart, partAt } from "../core/scan/parts";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
@@ -72,7 +73,12 @@ export function ReaderPage() {
   const next = nextId ? byId.get(nextId) : undefined;
   const about = c.aboutFor(book);
   const chapterNow = chapterAt(book.chapters, me.pos);
-  const status = hidden.has(book.book.id) ? "Left off the shelf" : me.finished ? "Finished" : me.started ? `Up to chapter ${chapterNow + 1}` : "Not started";
+  // An anthology counts in stories where a novel counts in chapters.
+  const stories = book.parts;
+  const storyNow = partAt(stories, me.pos);
+  const story = stories[storyNow] ?? null;
+  const status = hidden.has(book.book.id) ? "Left off the shelf" : me.finished ? "Finished" : me.started ? (story ? `Story ${storyNow + 1} of ${stories.length}` : `Up to chapter ${chapterNow + 1}`) : "Not started";
+  const contents = groupByPart(book.chapters, stories);
   const isCurrent = state.current?.book.book.id === book.book.id;
   const seriesLeft = series ? orderedIds.filter((id) => !hidden.has(id)).reduce((s, id) => {
     const b = byId.get(id);
@@ -145,6 +151,7 @@ export function ReaderPage() {
           <Tag emphasis={me.started && !me.finished}>{status}</Tag>
           {series && index >= 0 && <Tag>Book {index + 1} of {orderedIds.length}</Tag>}
           <Tag>{formatLeft(book.book.durationMs)}</Tag>
+          {stories.length > 0 && <Tag>{stories.length} stories</Tag>}
           <Tag>{book.chapters.length} chapters</Tag>
         </div>
         {about ? (
@@ -160,24 +167,47 @@ export function ReaderPage() {
           </p>
         )}
         <div className="mt-8 max-w-[34rem] border border-(--pl)">
-          <Action onClick={() => void c.playBook(book)} label={me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"} detail={me.started && !me.finished ? `Chapter ${chapterNow + 1} · ${formatLeft(book.book.durationMs - me.pos)} left` : formatDuration(book.book.durationMs)} icon={<PlayIcon className="size-3 fill-current" />} />
-          <Action onClick={() => setDrawer("chapters")} label="Chapters" detail={String(book.chapters.length)} />
+          <Action onClick={() => void c.playBook(book)} label={me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"} detail={me.started && !me.finished ? `${story ? story.title : `Chapter ${chapterNow + 1}`} · ${formatLeft(book.book.durationMs - me.pos)} left` : formatDuration(book.book.durationMs)} icon={<PlayIcon className="size-3 fill-current" />} />
+          <Action onClick={() => setDrawer("chapters")} label={stories.length > 0 ? "Contents" : "Chapters"} detail={stories.length > 0 ? `${stories.length} stories` : String(book.chapters.length)} />
           {isCurrent && state.current && <Action onClick={() => c.expandPlayer("bookmarks")} label="Bookmarks" detail={String(state.current.bookmarks.length)} />}
           {next && <Action onClick={() => c.openReader(next.book.id)} label="Next in the series" detail={next.book.title} />}
         </div>
         {series && <p className="mt-8 text-xs text-(--pm) font-sans">↑ ↓ move through the series · Esc back to the library</p>}
       </div>
 
-      <Drawer open={drawer === "chapters"} onClose={() => setDrawer(null)} title={`Chapters · ${book.book.title}`}>
-        <ol className="divide-y divide-neutral-950/5 dark:divide-white/5">
-          {book.chapters.map((ch, i) => (
-            <li key={i} className={clsx("grid grid-cols-[3.5rem_1fr_auto] gap-3 py-2 text-sm/6", i === chapterNow && me.started && "font-medium text-neutral-950 dark:text-white")}>
-              <span className="text-neutral-500 tabular-nums dark:text-neutral-400">{formatDuration(ch.startMs)}</span>
-              <span className="truncate">{ch.title}</span>
-              <span className="text-neutral-500 tabular-nums dark:text-neutral-400">{formatDuration(ch.endMs - ch.startMs)}</span>
-            </li>
-          ))}
-        </ol>
+      <Drawer open={drawer === "chapters"} onClose={() => setDrawer(null)} title={`${stories.length > 0 ? "Contents" : "Chapters"} · ${book.book.title}`}>
+        <div className={clsx(stories.length > 0 && "flex flex-col gap-5")}>
+          {contents.map((g, gi) => {
+            const storyIndex = g.part ? stories.indexOf(g.part) : -1;
+            const done = me.finished || (storyIndex >= 0 && storyIndex < storyNow);
+            const author = g.part && g.part.author && g.part.author !== book.book.author ? g.part.author : "";
+            return (
+              <section key={g.part ? g.part.title + storyIndex : "chapters"} aria-label={g.part?.title}>
+                {g.part && (
+                  <div className="mb-1 flex items-baseline gap-3 py-1">
+                    <div className="min-w-0 flex-1">
+                      <p className={clsx("truncate text-base/6 font-semibold", storyIndex === storyNow && me.started && !me.finished ? "text-amber-600 dark:text-amber-400" : "text-neutral-950 dark:text-white")}>{g.part.title}</p>
+                      {author && <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{author}</p>}
+                    </div>
+                    <p className="flex shrink-0 items-center gap-1 text-sm/6 text-neutral-500 tabular-nums dark:text-neutral-400">
+                      {done && <CheckIcon className="size-4 shrink-0 fill-current" />}
+                      {done ? "Finished" : formatLeft(g.part.endMs - g.part.startMs)}
+                    </p>
+                  </div>
+                )}
+                <ol role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
+                  {g.chapters.map(({ chapter: ch, index: i }) => (
+                    <li key={i} className={clsx("grid grid-cols-[3.5rem_1fr_auto] gap-3 py-2 text-sm/6", i === chapterNow && me.started && "font-medium text-neutral-950 dark:text-white")}>
+                      <span className="text-neutral-500 tabular-nums dark:text-neutral-400">{formatDuration(ch.startMs)}</span>
+                      <span className="truncate">{ch.title}</span>
+                      <span className="text-neutral-500 tabular-nums dark:text-neutral-400">{formatDuration(ch.endMs - ch.startMs)}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            );
+          })}
+        </div>
       </Drawer>
     </section>
   );

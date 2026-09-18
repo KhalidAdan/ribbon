@@ -14,6 +14,7 @@ import { resumePosition, rewindFor } from "../core/resume";
 import { snapSpeed } from "../core/speed";
 import { clipRange } from "../core/bookmarks";
 import { chapterAt } from "../core/scan/chapters";
+import { partAt } from "../core/scan/parts";
 import * as sleep from "../core/sleep";
 import type { Correction } from "../core/scan/chapters";
 import { log } from "./log";
@@ -982,7 +983,8 @@ export class AppController {
       return;
     }
     const ch = cur.book.chapters[this.state.player.chapterIndex];
-    updateMediaMetadata(cur.book, ch?.title ?? "", this.coverUrl(cur.book));
+    const story = cur.book.parts[partAt(cur.book.parts, this.state.player.positionMs)] ?? null;
+    updateMediaMetadata(cur.book, ch?.title ?? "", this.coverUrl(cur.book), story);
   }
 
   // Sleep timer ---------------------------------------------------------

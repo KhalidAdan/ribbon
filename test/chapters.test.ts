@@ -9,6 +9,8 @@ const file = (path: string, durationMs: number, over: Partial<AudioFile> = {}): 
   sizeBytes: 1,
   mtimeMs: 0,
   title: "",
+  part: "",
+  partAuthor: "",
   disc: 1,
   track: 0,
   hasCover: false,

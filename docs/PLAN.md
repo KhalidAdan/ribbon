@@ -52,7 +52,7 @@ source's root. All files are CSV. Nothing is binary or opaque.
 | File                              | Purpose                                             |
 | --------------------------------- | --------------------------------------------------- |
 | `.ribbon/library.csv`               | One row per book. Rebuilt by scan. Cache, not truth. |
-| `.ribbon/files.csv`                 | One row per audio file: book id, order, path, duration, size, mtime. |
+| `.ribbon/files.csv`                 | One row per audio file: book id, order, path, duration, size, mtime, and for an anthology the story it belongs to. |
 | `.ribbon/chapters/<book>.csv`       | Effective chapters (embedded or inferred).           |
 | `.ribbon/corrections/<book>.csv`    | Hand edits to chapters. Overlaid on top. Synced.     |
 | `.ribbon/positions/<book>.csv`      | One row: offset_ms, updated_at, device. Synced.      |

@@ -1,14 +1,15 @@
 import { pipe, collect, flatMap, from, channel, tap, type Sink } from "@culvert/stream";
 import { coalesce } from "../stream";
 import type { Host, ScannedFile, ScanProgress } from "../../host/host";
-import type { AudioFile, Book, Chapter } from "../types";
+import type { AudioFile, Book, Chapter, Part } from "../types";
 import { bookId } from "../bookid";
 import { natcompare } from "../natsort";
 import { RIBBON_DIR } from "./walk";
 import { groupBooks, type BookGroup } from "./group";
 import { probe } from "./probe";
-import { orderKeys, parseNumbered, resolveMetadata } from "./metadata";
+import { orderKeys, parseNumbered, resolveMetadata, stripUnabridged } from "./metadata";
 import { buildChapters, applyCorrections, rowsToCorrections, type Correction } from "./chapters";
+import { buildParts } from "./parts";
 import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows } from "./records";
 import { bytesToRows, type Row } from "../csv";
 import { coverArgs } from "./cover";
@@ -17,6 +18,8 @@ export interface ScannedBook {
   book: Book;
   files: AudioFile[];
   chapters: Chapter[];
+  /** The stories of an anthology, in order. Empty for a book that is one story. */
+  parts: Part[];
   /** Files found but not yet read. Absent once the book is complete. */
   pending?: number;
   /** The id of the source folder the book came from; set by the app, not the scan. */
@@ -97,7 +100,9 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const forget = opts.forget ?? [];
   const forgotten = (path: string) => forget.some((f) => path === f || path.startsWith(f.endsWith("/") ? f : `${f}/`));
   for (const path of [...records.previous.keys()]) if (forgotten(path)) records.previous.delete(path);
-  const known = [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  // Anthology files recorded before stories had names are read again so theirs can be.
+  for (const path of unnamedStories(records.previous)) records.previous.delete(path);
+  const known =[...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,
   // and the pipeline folds them into the arrived set, rebuilds the shelf
@@ -295,6 +300,31 @@ function partIndexOf(group: BookGroup, relPath: string): number {
   return group.parts ? group.parts.findIndex((p) => relPath.startsWith(p.path + "/")) : -1;
 }
 
+/** Files of an anthology whose record carries no story name: written before stories were recorded. */
+function unnamedStories(previous: Map<string, AudioFile>): string[] {
+  const entries = [...previous.values()].map((f) => ({ relPath: f.path, absPath: "", name: f.path.slice(f.path.lastIndexOf("/") + 1), sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  const out: string[] = [];
+  for (const g of groupBooks(entries)) {
+    if (!g.parts) continue;
+    for (const a of g.audio) if (!previous.get(a.relPath)?.part) out.push(a.relPath);
+  }
+  return out;
+}
+
+/**
+ * What to call each story. The album tag names it when every story has
+ * one and no two agree, which is a novella tagged with its own title.
+ * When the tags all name the anthology instead, or are missing, the
+ * numbered folder names stand, without their numbers. Files read on an
+ * earlier pass carry no tags here; their record remembers the name.
+ */
+function partNames(group: BookGroup, byPath: Map<string, ScannedFile>, records: Records): string[] {
+  const parts = group.parts ?? [];
+  const tagged = parts.map((p) => stripUnabridged(commonest(p.audio.map((a) => byPath.get(a.relPath)?.tags.album ?? ""))) || commonest(p.audio.map((a) => records.previous.get(a.relPath)?.part ?? "")));
+  const distinct = tagged.every(Boolean) && new Set(tagged).size === tagged.length;
+  return distinct ? tagged : parts.map((p) => p.name);
+}
+
 /** The most common non-empty value, ties to the first seen. */
 function commonest(values: readonly string[]): string {
   const counts = new Map<string, number>();
@@ -316,25 +346,25 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
   const files: AudioFile[] = [];
   const freshTags: Record<string, string>[] = [];
   let pending = 0;
-  // An anthology's parts name their chapters: the part's album tag when
-  // its files agree, else the part folder's name without its number.
-  const partTitles = (group.parts ?? []).map((p) => commonest(p.audio.map((a) => byPath.get(a.relPath)?.tags.album ?? "")) || p.name);
-  // Files read on an earlier pass carry no tags here; the part's own book record from that pass has its author.
-  const partAuthors = (group.parts ?? []).map((p) => commonest(p.audio.map((a) => byPath.get(a.relPath)?.tags.artist ?? byPath.get(a.relPath)?.tags.album_artist ?? "")) || records.previousBooks.get(p.path)?.author || "");
+  const partTitles = partNames(group, byPath, records);
+  // Files read on an earlier pass carry no tags here; their record, or the part's own book record from before it was folded in, has the author.
+  const partAuthors = (group.parts ?? []).map((p) => commonest(p.audio.map((a) => byPath.get(a.relPath)?.tags.artist ?? byPath.get(a.relPath)?.tags.album_artist ?? "")) || commonest(p.audio.map((a) => records.previous.get(a.relPath)?.partAuthor ?? "")) || records.previousBooks.get(p.path)?.author || "");
   for (const entry of group.audio) {
     const s = byPath.get(entry.relPath);
     if (!s) continue;
     const part = partIndexOf(group, entry.relPath);
+    // Every file of a story carries its name, so the parts fall out of the file list alone.
+    const story = part >= 0 ? { part: partTitles[part]!, partAuthor: partAuthors[part]! } : { part: "", partAuthor: "" };
     if (!s.fresh && !s.pending) {
       const cached = records.previous.get(entry.relPath);
       if (cached) {
-        files.push({ ...cached, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs });
+        files.push({ ...cached, ...story, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs });
         continue;
       }
     }
     if (s.pending) {
       pending++;
-      files.push({ path: entry.relPath, order: 0, durationMs: 0, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs, title: "", disc: 1, track: 0, hasCover: false, coverFile: "", chapters: [], chaptersProbed: false });
+      files.push({ path: entry.relPath, order: 0, durationMs: 0, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs, title: "", ...story, disc: 1, track: 0, hasCover: false, coverFile: "", chapters: [], chaptersProbed: false });
       continue;
     }
     if (s.durationMs <= 0 && Object.keys(s.tags).length === 0) {
@@ -343,15 +373,15 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     }
     const keys = orderKeys(s.tags);
     freshTags.push(s.tags);
-    const ownTitle = s.tags.title ?? "";
     files.push({
       path: entry.relPath,
       order: 0,
       durationMs: s.durationMs,
       sizeBytes: entry.sizeBytes,
       mtimeMs: entry.mtimeMs,
-      // Parts play in order and read as "Part: chapter" in the chapter list.
-      title: part >= 0 ? `${partTitles[part]}: ${ownTitle || stemOf(entry.relPath)}` : ownTitle,
+      title: s.tags.title ?? "",
+      ...story,
+      // Stories play in their numbered order, whatever the disc tags say.
       disc: part >= 0 ? part + 1 : keys.disc,
       track: keys.track,
       hasCover: s.hasCover,
@@ -391,6 +421,7 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
   let chapters = buildChapters(files);
   const corrections = records.corrections.get(id) ?? [];
   if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
+  const parts = buildParts(files);
 
   const book: Book = {
     id,
@@ -407,13 +438,7 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     sizeBytes,
     fileCount: files.length,
   };
-  return pending > 0 ? { book, files, chapters, pending } : { book, files, chapters };
-}
-
-function stemOf(relPath: string): string {
-  const base = relPath.slice(relPath.lastIndexOf("/") + 1);
-  const dot = base.lastIndexOf(".");
-  return dot > 0 ? base.slice(0, dot) : base;
+  return pending > 0 ? { book, files, chapters, parts, pending } : { book, files, chapters, parts };
 }
 
 /** Disc, then track, then natural filename. Untracked files sort last only when some files are tracked. */
@@ -464,10 +489,10 @@ export async function ensureChapters(host: Host, root: string, book: ScannedBook
   let cover = book.book.cover;
   if (!cover && files.some((f) => f.hasCover)) {
     const candidate = `${RIBBON_DIR}/covers/${book.book.id}.jpg`;
-    const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters }], undefined, signal);
+    const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters, parts: book.parts }], undefined, signal);
     if (done.length > 0) cover = candidate;
   }
-  const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters };
+  const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters, parts: buildParts(files) };
   await updateFileRows(host, root, updated);
   await host.mkdir(host.join(root, RIBBON_DIR, "chapters"));
   await host.writeFile(host.join(root, RIBBON_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
@@ -647,7 +672,7 @@ function assemble(books: Book[], files: Map<string, AudioFile[]>, chaptersByName
         const text = chaptersByName.get(`${book.id}.csv`);
         let chapters: Chapter[] = text ? await bytesToChapters(encoder.encode(text)) : [];
         if (chapters.length === 0) chapters = buildChapters(bookFiles);
-        yield { book, files: bookFiles, chapters };
+        yield { book, files: bookFiles, chapters, parts: buildParts(bookFiles) };
       }
     },
     collect(),

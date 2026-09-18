@@ -1,21 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { fold, indexBooks, searchBooks } from "../src/core/search";
-import type { Book } from "../src/core/types";
+import type { Book, Part } from "../src/core/types";
 
-const book = (id: string, title: string, author: string, series = "", narrator = ""): Book => ({
-  id,
-  path: id,
-  title,
-  rawTitle: title,
-  author,
-  narrator,
-  series,
-  seriesIndex: null,
-  year: null,
-  cover: "",
-  durationMs: 0,
-  sizeBytes: 0,
-  fileCount: 1,
+const book = (id: string, title: string, author: string, series = "", narrator = "", parts: Part[] = []): { book: Book; parts: Part[] } => ({
+  book: {
+    id,
+    path: id,
+    title,
+    rawTitle: title,
+    author,
+    narrator,
+    series,
+    seriesIndex: null,
+    year: null,
+    cover: "",
+    durationMs: 0,
+    sizeBytes: 0,
+    fileCount: 1,
+  },
+  parts,
 });
 
 const shelf = [
@@ -24,6 +27,10 @@ const shelf = [
   book("legion", "07. Legion", "Dan Abnett", "The Horus Heresy"),
   book("drizzt", "Homeland", "R. A. Salvatore", "The Legend of Drizzt", "Victor Bevine"),
   book("bela", "Béla's Journey", "Zoë Quinn"),
+  book("primarchs", "20. The Primarchs", "Various", "The Horus Heresy", "", [
+    { title: "The Reflection Crack'd", author: "Gav Thorpe", startMs: 0, endMs: 10 },
+    { title: "Feat of Iron", author: "Nick Kyme", startMs: 10, endMs: 20 },
+  ]),
 ];
 
 describe("book search", () => {
@@ -55,7 +62,13 @@ describe("book search", () => {
     const index = await indexBooks(shelf);
     const ids = await searchBooks(index, "horus");
     expect(ids[0]).toBe("horus");
-    expect(ids).toHaveLength(3);
+    expect(ids).toHaveLength(4);
+  });
+
+  it("finds an anthology by one of its stories or their authors", async () => {
+    const index = await indexBooks(shelf);
+    expect(await searchBooks(index, "reflection")).toEqual(["primarchs"]);
+    expect(await searchBooks(index, "kyme")).toEqual(["primarchs"]);
   });
 
   it("returns nothing for a blank query", async () => {

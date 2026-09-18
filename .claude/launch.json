@@ -21,6 +21,18 @@
         "series"
       ],
       "port": 1420
+    },
+    {
+      "name": "ribbon-web-anthology",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--mode",
+        "anthology"
+      ],
+      "port": 1420
     }
   ]
 }

@@ -1,10 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
 import { scanLibrary, loadLibrary, ensureChapters, extractMissingCovers, type ScanResult } from "../src/core/scan/scan";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 import { locate } from "../src/core/timeline";
+import { bytesToFiles, filesToBytes, filesToRows } from "../src/core/scan/records";
+import type { Row } from "../src/core/csv";
 
 const host = nodeHost();
 
@@ -25,10 +28,49 @@ describe("scanLibrary over generated fixtures", () => {
   it("finds every fixture book exactly once with no errors", () => {
     expect(result.errors).toEqual([]);
     expect(result.books.map((b) => b.book.path).sort()).toEqual(
-      ["flac", "gaps", "loose.mp3", "loud", "multi-m4a-natural", "multi-mp3", "nested/Series/Book One", "nested/Series/Book Two", "opus", "quiet", "single-m4b"].sort(),
+      ["20. The Primarchs", "flac", "gaps", "loose.mp3", "loud", "multi-m4a-natural", "multi-mp3", "nested/Series/Book One", "nested/Series/Book Two", "opus", "quiet", "single-m4b"].sort(),
     );
     expect(result.reused).toBe(0);
-    expect(result.probed).toBe(1 + 5 + 12 + 1 + 2 + 1 + 2 + 3);
+    expect(result.probed).toBe(1 + 5 + 12 + 1 + 2 + 1 + 2 + 3 + 3);
+  });
+
+  it("folds an anthology into one book whose stories are named by their tags", () => {
+    const b = byPath("20. The Primarchs");
+    expect(b.book.title).toBe("20. The Primarchs");
+    expect(b.book.author).toBe("Various");
+    expect(b.book.seriesIndex).toBe(20);
+    expect(b.files.map((f) => f.path.slice(b.book.path.length + 1))).toEqual(["01 The Reflection Crackd/01.mp3", "01 The Reflection Crackd/02.mp3", "02 Feat of Iron/01.mp3"]);
+    expect(b.files.map((f) => f.part)).toEqual(["The Reflection Crack'd", "The Reflection Crack'd", "Feat of Iron"]);
+    expect(b.files.map((f) => f.partAuthor)).toEqual(["Gav Thorpe", "Gav Thorpe", "Nick Kyme"]);
+    expect(b.chapters.map((c) => c.title)).toEqual(["Crackd One", "Crackd Two", "Iron One"]);
+    const [d0, d1, d2] = b.files.map((f) => f.durationMs) as [number, number, number];
+    expect(b.parts).toEqual([
+      { title: "The Reflection Crack'd", author: "Gav Thorpe", startMs: 0, endMs: d0 + d1 },
+      { title: "Feat of Iron", author: "Nick Kyme", startMs: d0 + d1, endMs: d0 + d1 + d2 },
+    ]);
+  });
+
+  it("reads an anthology again when its records predate story names, and only then", async () => {
+    // Its own copy: other test files share the fixture folder's records.
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ribbon-anthology-"));
+    try {
+      await fs.cp(path.join(FIXTURE_ROOT, "20. The Primarchs"), path.join(dir, "20. The Primarchs"), { recursive: true });
+      const b = (await scanLibrary(host, dir)).books[0]!;
+      const filesPath = path.join(dir, ".ribbon", "files.csv");
+      const byBook = await bytesToFiles(await fs.readFile(filesPath));
+      for (const f of byBook.get(b.book.id)!) Object.assign(f, { part: "", partAuthor: "", title: `${f.part}: ${f.title}` });
+      const rows: Row[] = [];
+      for (const [id, files] of byBook) rows.push(...filesToRows(id, files));
+      await fs.writeFile(filesPath, await filesToBytes(rows));
+      const again = await scanLibrary(host, dir);
+      expect(again.probed).toBe(3);
+      const fixed = again.books[0]!;
+      expect(fixed.parts).toEqual(b.parts);
+      expect(fixed.chapters.map((c) => c.title)).toEqual(["Crackd One", "Crackd Two", "Iron One"]);
+      expect((await scanLibrary(host, dir)).probed).toBe(0);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("reads a forgotten folder again even though nothing changed", async () => {
@@ -117,6 +159,7 @@ describe("scanLibrary over generated fixtures", () => {
     expect(loaded!.map((b) => b.book)).toEqual(result.books.map((b) => b.book));
     expect(loaded!.map((b) => b.files)).toEqual(result.books.map((b) => b.files));
     expect(loaded!.map((b) => b.chapters)).toEqual(result.books.map((b) => b.chapters));
+    expect(loaded!.map((b) => b.parts)).toEqual(result.books.map((b) => b.parts));
   });
 
   it("marks every file as chapter-probed on the ffprobe path", () => {
