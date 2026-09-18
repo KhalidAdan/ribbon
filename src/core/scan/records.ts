@@ -17,7 +17,7 @@ export const LIBRARY_HEADERS = [
   "file_count",
 ];
 
-export const FILE_HEADERS = ["book_id", "order", "path", "duration_ms", "size_bytes", "mtime_ms", "title", "disc", "track", "has_cover", "cover_file", "chapters", "probed"];
+export const FILE_HEADERS = ["book_id", "order", "path", "duration_ms", "size_bytes", "mtime_ms", "title", "part", "part_author", "disc", "track", "has_cover", "cover_file", "chapters", "probed"];
 
 export const CHAPTER_HEADERS = ["index", "start_ms", "end_ms", "title"];
 
@@ -110,6 +110,8 @@ export function filesToRows(bookId: string, files: readonly AudioFile[]): Row[] 
     size_bytes: String(f.sizeBytes),
     mtime_ms: String(f.mtimeMs),
     title: f.title,
+    part: f.part,
+    part_author: f.partAuthor,
     disc: String(f.disc),
     track: String(f.track),
     has_cover: f.hasCover ? "1" : "0",
@@ -136,6 +138,8 @@ export async function bytesToFiles(bytes: Uint8Array): Promise<Map<string, Audio
       sizeBytes: int(r.size_bytes),
       mtimeMs: int(r.mtime_ms),
       title: r.title ?? "",
+      part: r.part ?? "",
+      partAuthor: r.part_author ?? "",
       disc: int(r.disc, 1),
       track: int(r.track),
       hasCover: bool(r.has_cover),

@@ -13,6 +13,10 @@ export interface AudioFile {
   mtimeMs: number;
   /** Title tag of this file, if any. Used to name inferred chapters. */
   title: string;
+  /** The story of an anthology this file belongs to, or empty. Every file of a story carries the same name. */
+  part: string;
+  /** Who wrote that story, when the tags say; empty otherwise. */
+  partAuthor: string;
   disc: number;
   track: number;
   hasCover: boolean;
@@ -29,6 +33,18 @@ export interface Chapter {
   startMs: number;
   endMs: number;
   title: string;
+}
+
+/**
+ * One story of an anthology on the book timeline: a run of the book's
+ * files that share a part name. A book with no parts is one story.
+ */
+export interface Part {
+  title: string;
+  /** Empty when the tags do not say or the whole book is by one hand. */
+  author: string;
+  startMs: number;
+  endMs: number;
 }
 
 export interface Book {

@@ -29,6 +29,11 @@ export function orderKeys(tags: Record<string, string>): FileOrderKeys {
 }
 
 const UNABRIDGED = /\s*[([]\s*unabridged\s*[)\]]\s*$/i;
+
+/** "Legion (Unabridged)" is "Legion". A title that is only the note stays as it was. */
+export function stripUnabridged(title: string): string {
+  return title.replace(UNABRIDGED, "").trim() || title;
+}
 /** "07. Legion", "07 - Legion", "7) Legion", "7.5_Legion": a curated order plus a name. */
 const NUMBERED = /^\s*(\d+(?:\.\d+)?)(?:(\s*[.\-_)]+\s*)|(\s+))(.+?)\s*$/;
 
@@ -105,7 +110,7 @@ export function resolveMetadata(probes: readonly ProbeResult[], folderName: stri
   const yearText = mode(tagSets.map((t) => first(t, "date", "year", "originaldate")));
   const yearMatch = yearText.match(/\d{4}/);
   return {
-    title: numbered ? rawTitle : rawTitle.replace(UNABRIDGED, "").trim() || rawTitle,
+    title: numbered ? rawTitle : stripUnabridged(rawTitle),
     rawTitle,
     author,
     narrator,

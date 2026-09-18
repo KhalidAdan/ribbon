@@ -19,7 +19,7 @@ const book: Book = {
 };
 
 const files: AudioFile[] = [
-  { path: "Series/Book, One/01.mp3", order: 0, durationMs: 100, sizeBytes: 10, mtimeMs: 1, title: "One", disc: 1, track: 1, hasCover: true, coverFile: "", chapters: [], chaptersProbed: true },
+  { path: "Series/Book, One/01.mp3", order: 0, durationMs: 100, sizeBytes: 10, mtimeMs: 1, title: "One", part: "", partAuthor: "", disc: 1, track: 1, hasCover: true, coverFile: "", chapters: [], chaptersProbed: true },
   {
     path: "Series/Book, One/02.mp3",
     order: 1,
@@ -27,6 +27,8 @@ const files: AudioFile[] = [
     sizeBytes: 20,
     mtimeMs: 2,
     title: "Two",
+    part: "A Story, Told",
+    partAuthor: "Eve Author",
     disc: 1,
     track: 2,
     hasCover: false,
