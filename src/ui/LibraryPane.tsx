@@ -44,7 +44,7 @@ export function LibraryPane() {
   const [matches, setMatches] = useState<string[] | null>(null);
   useEffect(() => {
     let live = true;
-    void indexBooks(state.books.map((b) => b.book)).then((db) => live && setIndex(db));
+    void indexBooks(state.books).then((db) => live && setIndex(db));
     return () => {
       live = false;
     };
@@ -190,7 +190,8 @@ const BookCard = memo(function BookCard({ book, coverUrl, progress }: CardProps)
         <Cover url={coverUrl} title={book.book.title} className="w-full" />
         <p className="mt-2.5 truncate text-sm/5 font-medium text-neutral-950 group-hover:underline group-hover:underline-offset-2 dark:text-white">{book.book.title}</p>
         <p className="truncate text-xs/5 text-neutral-500 dark:text-neutral-400">
-          {book.book.author || "Unknown author"} · {formatLeft(book.book.durationMs)}
+          {book.book.author || "Unknown author"} · {book.parts.length > 0 ? `${book.parts.length} stories · ` : ""}
+          {formatLeft(book.book.durationMs)}
         </p>
         <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-neutral-950/10 dark:bg-white/15" aria-hidden="true">
           <div className="h-full bg-amber-500 dark:bg-amber-400" style={{ width: `${(progress * 100).toFixed(1)}%` }} />

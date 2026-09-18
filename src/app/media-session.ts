@@ -1,4 +1,5 @@
 import type { ScannedBook } from "../core/scan/scan";
+import type { Part } from "../core/types";
 
 export interface MediaSessionHandlers {
   play: () => void;
@@ -35,19 +36,24 @@ export function installMediaSession(h: MediaSessionHandlers): () => void {
   };
 }
 
-export function updateMediaMetadata(book: ScannedBook | null, chapterTitle: string, coverUrl: string | null): void {
+/** What the lock screen shows. In an anthology the story stands where the book would, and the book becomes the album. */
+export function mediaMetadataFor(book: ScannedBook, chapterTitle: string, story: Part | null): { title: string; artist: string; album: string } {
+  const heading = story ? story.title : book.book.title;
+  return {
+    title: chapterTitle ? `${heading}: ${chapterTitle}` : heading,
+    artist: (story && story.author) || book.book.author || "",
+    album: story ? book.book.title : book.book.series || book.book.title,
+  };
+}
+
+export function updateMediaMetadata(book: ScannedBook | null, chapterTitle: string, coverUrl: string | null, story: Part | null = null): void {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
   if (!book) {
     navigator.mediaSession.metadata = null;
     return;
   }
   const artwork: MediaImage[] = coverUrl ? [{ src: coverUrl, sizes: "512x512", type: "image/jpeg" }] : [];
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: chapterTitle ? `${book.book.title}: ${chapterTitle}` : book.book.title,
-    artist: book.book.author || "",
-    album: book.book.series || book.book.title,
-    artwork,
-  });
+  navigator.mediaSession.metadata = new MediaMetadata({ ...mediaMetadataFor(book, chapterTitle, story), artwork });
 }
 
 export function updateMediaPlayback(playing: boolean, positionMs: number, durationMs: number, speed: number): void {

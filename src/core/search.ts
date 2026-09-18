@@ -1,15 +1,15 @@
 import { create, insertMultiple, search, type Orama } from "@orama/orama";
-import type { Book } from "./types";
+import type { Book, Part } from "./types";
 
 /**
- * Full-text search over the shelf with Orama: title, author, narrator
- * and series, prefix matching with one typo of tolerance. Text is
- * folded to plain lower-case letters on the way in and on the way out,
- * so "Béla" finds "bela" and vice versa. Everything is in memory; the
- * index is rebuilt whenever the shelf changes, which takes a few
- * milliseconds for a few hundred books.
+ * Full-text search over the shelf with Orama: title, author, narrator,
+ * series, and an anthology's stories and their authors, prefix matching
+ * with one typo of tolerance. Text is folded to plain lower-case letters
+ * on the way in and on the way out, so "Béla" finds "bela" and vice
+ * versa. Everything is in memory; the index is rebuilt whenever the
+ * shelf changes, which takes a few milliseconds for a few hundred books.
  */
-const schema = { title: "string", author: "string", narrator: "string", series: "string" } as const;
+const schema = { title: "string", author: "string", narrator: "string", series: "string", stories: "string" } as const;
 
 export type BookIndex = Orama<typeof schema>;
 
@@ -23,11 +23,18 @@ export function fold(text: string): string {
     .trim();
 }
 
-export async function indexBooks(books: readonly Book[]): Promise<BookIndex> {
+export async function indexBooks(books: readonly { book: Book; parts: readonly Part[] }[]): Promise<BookIndex> {
   const db = create({ schema });
   await insertMultiple(
     db,
-    books.map((b) => ({ id: b.id, title: fold(b.title), author: fold(b.author), narrator: fold(b.narrator), series: fold(b.series) })),
+    books.map(({ book: b, parts }) => ({
+      id: b.id,
+      title: fold(b.title),
+      author: fold(b.author),
+      narrator: fold(b.narrator),
+      series: fold(b.series),
+      stories: fold(parts.map((p) => `${p.title} ${p.author}`).join(" ")),
+    })),
   );
   return db;
 }
