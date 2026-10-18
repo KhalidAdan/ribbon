@@ -244,6 +244,14 @@ export function toPosition(bookId: string, r: PosRecord, deviceNames: ReadonlyMa
   return { bookId, offsetMs: Math.max(0, Math.round(r.ms)), updatedAt: new Date(Date.parse(r.t)).toISOString(), device };
 }
 
+/** The later of two records: within one device by its sequence, across devices by time, then by device. */
+function newer(a: Base, b: Base, nowMs: number): boolean {
+  if (a.dev === b.dev) return a.seq > b.seq;
+  const ta = effectiveTime(a, nowMs);
+  const tb = effectiveTime(b, nowMs);
+  return ta !== tb ? ta > tb : a.dev > b.dev;
+}
+
 /**
  * Reads and marks as of now: the union of every device's records, the
  * latest per id, minus what a later `del` took back.
@@ -256,7 +264,7 @@ export function mergeById<T extends ReadRecord | MarkRecord>(records: readonly L
     if (r.k !== kind) continue;
     const rr = r as T;
     const have = byId.get(rr.id);
-    if (!have || effectiveTime(rr, nowMs) > effectiveTime(have, nowMs) || (effectiveTime(rr, nowMs) === effectiveTime(have, nowMs) && rr.dev > have.dev)) byId.set(rr.id, rr);
+    if (!have || newer(rr, have, nowMs)) byId.set(rr.id, rr);
   }
   return [...byId.values()].filter((r) => (dels.get(r.id) ?? -Infinity) < effectiveTime(r, nowMs));
 }

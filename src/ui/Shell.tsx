@@ -62,12 +62,13 @@ export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Cr
   );
 }
 
-export type Tab = "library" | "settings";
+export type Tab = "library" | "stats" | "settings";
 
 /** Pages as plain text tabs; the current one in ink with a hairline beneath. */
 export function Tabs({ current, onSelect, badges = {} }: { current: Tab | null; onSelect: (t: Tab) => void; badges?: Partial<Record<Tab, ReactNode>> }) {
   const tabs: { id: Tab; label: string }[] = [
     { id: "library", label: "Library" },
+    { id: "stats", label: "Stats" },
     { id: "settings", label: "Settings" },
   ];
   return (
