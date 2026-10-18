@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ArrowUpRightIcon, CheckIcon, Cog6ToothIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { BookmarkIcon, CheckIcon, ListBulletIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ScannedBook } from "../core/scan/scan";
@@ -13,12 +13,14 @@ import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
 import { tintFromImage } from "./tint";
 import { progressOf as progressIn } from "./progress";
+import { Menu, ProgressLine, SectionHeader } from "./kit";
 
 /**
- * One book, as a page in its own colours: a rail of every book in its
- * series on the left, the cover with pride of place, then the title,
- * author, a few facts, the description when there is one, and what you
- * can do next. Up and down move through the series; Escape goes back.
+ * One book's page: the cover, the title in the book's own serif, where
+ * you are as a sentence, what you can do, the facts, the description,
+ * and the rest of its series as a list. A faint wash of the cover's
+ * colour sits behind the top. Up and down move through the series;
+ * Escape goes back to the library.
  */
 export function ReaderPage() {
   const state = useAppState();
@@ -27,7 +29,7 @@ export function ReaderPage() {
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
   const [drawer, setDrawer] = useState<"chapters" | null>(null);
 
-  const series = useMemo(() => (book ? c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null : null), [c, book, state.books, state.sources, state.series]);
+  const series = useMemo(() => (book ? (c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null) : null), [c, book, state.books, state.sources, state.series]);
   const record = series ? state.series[series.key] : undefined;
   const orderedIds = useMemo(() => (series ? orderBySeries(series.bookIds, (id) => id, record ? [record] : []) : []), [series, record]);
   const hidden = useMemo(() => hiddenBookIds(record ? [record] : []), [record]);
@@ -54,8 +56,14 @@ export function ReaderPage() {
       if (e.key === "Escape") c.showLibrary();
       if (!book || orderedIds.length === 0) return;
       const i = orderedIds.indexOf(book.book.id);
-      if (e.key === "ArrowDown" && i >= 0 && i + 1 < orderedIds.length) c.openReader(orderedIds[i + 1]!);
-      if (e.key === "ArrowUp" && i > 0) c.openReader(orderedIds[i - 1]!);
+      if (e.key === "ArrowDown" && i >= 0 && i + 1 < orderedIds.length) {
+        e.preventDefault();
+        c.openReader(orderedIds[i + 1]!);
+      }
+      if (e.key === "ArrowUp" && i > 0) {
+        e.preventDefault();
+        c.openReader(orderedIds[i - 1]!);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -63,146 +71,169 @@ export function ReaderPage() {
 
   if (!book) return null;
 
-  const progressOf = (b: ScannedBook) => {
-    const p = progressIn(b, state);
-    return { pos: p.posMs, finished: p.finished, started: p.started };
-  };
-  const me = progressOf(book);
+  const me = progressIn(book, state);
   const index = orderedIds.indexOf(book.book.id);
+  const shelfIds = orderedIds.filter((id) => !hidden.has(id));
   const nextId = index >= 0 ? orderedIds.slice(index + 1).find((id) => !hidden.has(id)) : undefined;
   const next = nextId ? byId.get(nextId) : undefined;
   const about = c.aboutFor(book);
-  const chapterNow = chapterAt(book.chapters, me.pos);
+  const chapterNow = chapterAt(book.chapters, me.posMs);
   // An anthology counts in stories where a novel counts in chapters.
   const stories = book.parts;
-  const storyNow = partAt(stories, me.pos);
+  const storyNow = partAt(stories, me.posMs);
   const story = stories[storyNow] ?? null;
-  const status = hidden.has(book.book.id) ? "Left off the shelf" : me.finished ? "Finished" : me.started ? (story ? `Story ${storyNow + 1} of ${stories.length}` : `Up to chapter ${chapterNow + 1}`) : "Not started";
   const contents = groupByPart(book.chapters, stories);
   const isCurrent = state.current?.book.book.id === book.book.id;
-  const seriesLeft = series ? orderedIds.filter((id) => !hidden.has(id)).reduce((s, id) => {
-    const b = byId.get(id);
-    if (!b) return s;
-    const p = progressOf(b);
-    return s + (p.finished ? 0 : b.book.durationMs - p.pos);
-  }, 0) : 0;
-  const finishedCount = series ? orderedIds.filter((id) => !hidden.has(id) && byId.get(id) && progressOf(byId.get(id)!).finished).length : 0;
+  const left = book.book.durationMs - me.posMs;
+  const where = story ? `story ${storyNow + 1} of ${stories.length}, ${story.title}` : book.chapters.length > 1 ? `chapter ${chapterNow + 1} of ${book.chapters.length}` : null;
+  const sentence = hidden.has(book.book.id)
+    ? "Left off the shelf for this series. It is still here when you want it."
+    : me.finished
+      ? "Finished. Listen again any time; your place starts over."
+      : me.started
+        ? `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through${where ? `, in ${where}` : ""}. ${formatLeft(left)} left.`
+        : `Not started. ${formatLeft(book.book.durationMs)}${book.chapters.length > 1 ? ` in ${book.chapters.length} chapters` : ""}.`;
 
-  const vars = { "--pb": tone.bg, "--pb2": tone.bg2, "--pi": tone.ink, "--pm": tone.muted, "--pl": tone.line, "--pa": tone.accent } as CSSProperties;
+  const seriesProgress = shelfIds.map((id) => {
+    const b = byId.get(id);
+    return b ? progressIn(b, state) : null;
+  });
+  const seriesFinished = seriesProgress.filter((p) => p?.finished).length;
+  const seriesLeft = shelfIds.reduce((s, id, i) => {
+    const b = byId.get(id);
+    const p = seriesProgress[i];
+    return b && p && !p.finished ? s + b.book.durationMs - p.posMs : s;
+  }, 0);
+
+  const facts: { term: string; value: string }[] = [
+    { term: "Length", value: formatLeft(book.book.durationMs) },
+    stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) },
+    ...(book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
+    { term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) },
+  ];
+
+  const wash = { "--tone": tone.accent } as CSSProperties;
 
   return (
-    <section className="grid h-full grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] overflow-hidden bg-(--pb) font-serif text-(--pi) transition-colors duration-500 max-lg:grid-cols-[4.5rem_1fr]" style={vars} aria-label={book.book.title}>
-      <nav className="relative flex flex-col pt-5 pl-7 max-lg:pl-5" aria-label={series ? `Books in ${series.name}` : "Back"}>
-        <Button icon size="sm" variant="ghost" aria-label="Back to the library" onClick={() => c.showLibrary()} className="mb-6 text-(--pi) hover:bg-white/10 hover:text-(--pi)">
-          <ArrowLeftIcon className="size-5 fill-current" />
-        </Button>
-        {series && (
-          <div className="group/rail flex w-60 flex-col gap-1.5" role="list">
-            {orderedIds.map((id) => {
-              const b = byId.get(id);
-              if (!b) return null;
-              const p = progressOf(b);
-              const now = id === book.book.id;
-              const off = hidden.has(id);
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="listitem"
-                  onClick={() => c.openReader(id)}
-                  aria-current={now ? "true" : undefined}
-                  aria-label={`${b.book.title}${now ? ", this book" : ""}${p.finished ? ", finished" : ""}`}
-                  className="group/notch flex h-2 w-60 items-center gap-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--pa)"
-                >
-                  <i
-                    className={clsx(
-                      "block h-0.5 rounded-[1px] bg-(--pi) transition-[width,opacity] duration-300 ease-out group-hover/notch:bg-(--pa) group-hover/notch:opacity-100",
-                      now ? "h-[3px] w-8 bg-(--pa) opacity-100 group-hover/rail:w-[4.5rem]" : p.finished ? "w-6 opacity-70 group-hover/rail:w-14" : off ? "w-2.5 opacity-25 group-hover/rail:w-14" : "w-4 opacity-35 group-hover/rail:w-14",
-                    )}
-                  />
-                  <span className="pointer-events-none translate-x-[-6px] text-[15px]/none font-medium whitespace-nowrap text-(--pa) opacity-0 transition-[opacity,transform] duration-150 group-hover/notch:translate-x-0 group-hover/notch:opacity-100 group-focus-visible/notch:translate-x-0 group-focus-visible/notch:opacity-100">
-                    {b.book.title}
-                  </span>
-                </button>
-              );
-            })}
+    <section className="relative h-full overflow-y-auto quiet-scroll" style={wash} aria-label={book.book.title}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[32rem] [background:radial-gradient(70%_100%_at_20%_0%,color-mix(in_oklab,var(--tone)_16%,transparent),transparent)] dark:[background:radial-gradient(70%_100%_at_20%_0%,color-mix(in_oklab,var(--tone)_12%,transparent),transparent)]" aria-hidden="true" />
+      <div className="relative mx-auto w-full max-w-5xl px-4 pt-8 pb-16 sm:px-8 sm:pt-12">
+        <div className="grid gap-8 md:grid-cols-[16rem_minmax(0,1fr)] md:gap-12 lg:grid-cols-[19rem_minmax(0,1fr)]">
+          <Cover url={coverUrl} title={book.book.title} className="w-48 self-start sm:w-56 md:w-full" />
+          <div className="min-w-0">
+            {series && index >= 0 && (
+              <p className="text-base/6 text-ink-2 sm:text-sm/5">
+                {series.name} · Book {index + 1} of {orderedIds.length}
+              </p>
+            )}
+            <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{book.book.title}</h1>
+            <p className="mt-2 text-base/6 text-ink-2">
+              {book.book.author || "Author unknown"}
+              {book.book.narrator ? `, read by ${book.book.narrator}` : ""}
+            </p>
+
+            <p className="mt-6 max-w-[52ch] border-l border-line-strong pl-3 text-base/6 text-pretty text-ink tabular-nums sm:text-[0.9375rem]/6">{sentence}</p>
+            {me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
+
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <Button variant="primary" leading={PlayIcon} onClick={() => void c.playBook(book)}>
+                {me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"}
+              </Button>
+              <Button leading={ListBulletIcon} onClick={() => setDrawer("chapters")}>
+                {stories.length > 0 ? "Contents" : "Chapters"}
+              </Button>
+              {isCurrent && state.current && state.current.bookmarks.length > 0 && (
+                <Button variant="ghost" leading={BookmarkIcon} onClick={() => c.expandPlayer("bookmarks")}>
+                  {state.current.bookmarks.length} {state.current.bookmarks.length === 1 ? "bookmark" : "bookmarks"}
+                </Button>
+              )}
+              <Menu
+                label="More about this book"
+                title={book.book.title}
+                align="left"
+                items={[
+                  ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
+                  ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
+                ]}
+              />
+            </div>
+
+            <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 sm:grid-cols-4">
+              {facts.map((f) => (
+                <div key={f.term} className="min-w-0">
+                  <dt className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">{f.term}</dt>
+                  <dd className="mt-0.5 truncate text-base/6 font-medium text-ink tabular-nums sm:text-sm/5">{f.value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="mt-8">
+              {about ? (
+                <p className="max-w-[65ch] text-base/7 text-pretty whitespace-pre-line text-ink-2 sm:text-[0.9375rem]/7">{about.description}</p>
+              ) : (
+                <p className="max-w-[60ch] text-base/6 text-pretty text-ink-3 sm:text-sm/6">
+                  No description yet.{state.lookup.enabled ? " Ribbon is asking Open Library about your books in the background." : " Turn on descriptions in Settings and Ribbon will ask Open Library."}
+                </p>
+              )}
+            </div>
           </div>
-        )}
-        <div className="mt-auto flex flex-col gap-2 pb-5 opacity-80">
-          {series && (
-            <Button icon size="sm" variant="ghost" aria-label="Change this series" onClick={() => c.openSeriesSetup(series.key)} className="text-(--pi) hover:bg-white/10 hover:text-(--pi)">
-              <Cog6ToothIcon className="size-4 fill-current" />
-            </Button>
-          )}
         </div>
-      </nav>
 
-      <div className="grid place-items-center py-10 pr-6 max-lg:hidden">
-        <Cover url={coverUrl} title={book.book.title} className="w-[min(460px,82%)] rounded-[4px] bg-(--pb2) text-(--pm) outline-0" />
-      </div>
-
-      <div className="max-w-[620px] overflow-y-auto px-6 pt-24 pb-12 lg:pl-6 lg:pr-16 max-lg:pt-10">
-        <h1 className="text-[34px]/[1.15] font-semibold tracking-[-0.01em] text-balance">{book.book.title}</h1>
-        <p className="mt-1.5 text-[21px]/7 italic">
-          {book.book.author || "Author unknown"}
-          {book.book.narrator ? `, read by ${book.book.narrator}` : ""}
-        </p>
-        <div className="mt-5 mb-6 flex flex-wrap gap-2">
-          <Tag emphasis={me.started && !me.finished}>{status}</Tag>
-          {series && index >= 0 && <Tag>Book {index + 1} of {orderedIds.length}</Tag>}
-          <Tag>{formatLeft(book.book.durationMs)}</Tag>
-          {stories.length > 0 && <Tag>{stories.length} stories</Tag>}
-          <Tag>{book.chapters.length} chapters</Tag>
-        </div>
-        {about ? (
-          <p className="mb-3.5 max-w-[34rem] text-[17.5px]/[1.55] text-pretty whitespace-pre-line">{about.description}</p>
-        ) : (
-          <p className="mb-3.5 max-w-[34rem] text-[15px]/6 italic text-(--pm)">
-            No description yet.{state.lookup.enabled ? " Ribbon is asking Open Library about your books in the background." : " Turn on descriptions in settings and Ribbon will ask Open Library."}
-          </p>
-        )}
         {series && (
-          <p className="mb-3.5 max-w-[34rem] text-[15px]/6 italic text-(--pm)">
-            {series.name} · {finishedCount} of {orderedIds.length - hidden.size} finished · {formatLeft(seriesLeft).replace(/ \d+m$/, "")} still to hear.
-          </p>
+          <section aria-labelledby="series-list-title" className="mt-16 flex flex-col gap-4">
+            <SectionHeader
+              id="series-list-title"
+              title={series.name}
+              description={`${seriesFinished} of ${shelfIds.length} finished${seriesLeft > 0 ? `, ${formatLeft(seriesLeft).replace(/ \d+m$/, "")} still to hear` : ""}. Use the up and down arrows to move through it.`}
+              actions={
+                <Button size="sm" variant="ghost" onClick={() => c.openSeriesSetup(series.key)}>
+                  Change the series…
+                </Button>
+              }
+            />
+            <ol role="list" className="flex flex-col border-t border-line">
+              {orderedIds.map((id, i) => {
+                const b = byId.get(id);
+                if (!b) return null;
+                return <SeriesRow key={id} book={b} number={i + 1} now={id === book.book.id} off={hidden.has(id)} />;
+              })}
+            </ol>
+          </section>
         )}
-        <div className="mt-8 max-w-[34rem] border border-(--pl)">
-          <Action onClick={() => void c.playBook(book)} label={me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"} detail={me.started && !me.finished ? `${story ? story.title : `Chapter ${chapterNow + 1}`} · ${formatLeft(book.book.durationMs - me.pos)} left` : formatDuration(book.book.durationMs)} icon={<PlayIcon className="size-3 fill-current" />} />
-          <Action onClick={() => setDrawer("chapters")} label={stories.length > 0 ? "Contents" : "Chapters"} detail={stories.length > 0 ? `${stories.length} stories` : String(book.chapters.length)} />
-          {isCurrent && state.current && <Action onClick={() => c.expandPlayer("bookmarks")} label="Bookmarks" detail={String(state.current.bookmarks.length)} />}
-          {next && <Action onClick={() => c.openReader(next.book.id)} label="Next in the series" detail={next.book.title} />}
-        </div>
-        {series && <p className="mt-8 text-xs text-(--pm) font-sans">↑ ↓ move through the series · Esc back to the library</p>}
       </div>
 
-      <Drawer open={drawer === "chapters"} onClose={() => setDrawer(null)} title={`${stories.length > 0 ? "Contents" : "Chapters"} · ${book.book.title}`}>
+      <Drawer open={drawer === "chapters"} onClose={() => setDrawer(null)} title={stories.length > 0 ? "Contents" : "Chapters"}>
         <div className={clsx(stories.length > 0 && "flex flex-col gap-5")}>
-          {contents.map((g, gi) => {
+          {contents.map((g) => {
             const storyIndex = g.part ? stories.indexOf(g.part) : -1;
             const done = me.finished || (storyIndex >= 0 && storyIndex < storyNow);
             const author = g.part && g.part.author && g.part.author !== book.book.author ? g.part.author : "";
             return (
               <section key={g.part ? g.part.title + storyIndex : "chapters"} aria-label={g.part?.title}>
                 {g.part && (
-                  <div className="mb-1 flex items-baseline gap-3 py-1">
+                  <div className="mb-1 flex items-baseline gap-3 px-3 py-1">
                     <div className="min-w-0 flex-1">
-                      <p className={clsx("truncate text-base/6 font-semibold", storyIndex === storyNow && me.started && !me.finished ? "text-amber-600 dark:text-amber-400" : "text-neutral-950 dark:text-white")}>{g.part.title}</p>
-                      {author && <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{author}</p>}
+                      <p className={clsx("truncate text-base/6 font-semibold sm:text-sm/5", storyIndex === storyNow && me.started && !me.finished ? "text-place" : "text-ink")}>{g.part.title}</p>
+                      {author && <p className="truncate text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">{author}</p>}
                     </div>
-                    <p className="flex shrink-0 items-center gap-1 text-sm/6 text-neutral-500 tabular-nums dark:text-neutral-400">
-                      {done && <CheckIcon className="size-4 shrink-0 fill-current" />}
+                    <p className="flex shrink-0 items-center gap-1 text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">
+                      {done && <CheckIcon className="size-4 shrink-0 fill-current" aria-hidden="true" />}
                       {done ? "Finished" : formatLeft(g.part.endMs - g.part.startMs)}
                     </p>
                   </div>
                 )}
-                <ol role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
-                  {g.chapters.map(({ chapter: ch, index: i }) => (
-                    <li key={i} className={clsx("grid grid-cols-[3.5rem_1fr_auto] gap-3 py-2 text-sm/6", i === chapterNow && me.started && "font-medium text-neutral-950 dark:text-white")}>
-                      <span className="text-neutral-500 tabular-nums dark:text-neutral-400">{formatDuration(ch.startMs)}</span>
-                      <span className="truncate">{ch.title}</span>
-                      <span className="text-neutral-500 tabular-nums dark:text-neutral-400">{formatDuration(ch.endMs - ch.startMs)}</span>
-                    </li>
-                  ))}
+                <ol role="list" className="flex flex-col">
+                  {g.chapters.map(({ chapter: ch, index: i }) => {
+                    const here = i === chapterNow && me.started && !me.finished;
+                    return (
+                      <li key={i} className={clsx("relative grid grid-cols-[3.5rem_1fr_auto] gap-3 rounded-md py-2 pr-2 pl-3 text-base/6 sm:text-sm/5", here && "bg-raised")}>
+                        {here && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-place" aria-hidden="true" />}
+                        <span className="text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{formatDuration(ch.startMs)}</span>
+                        <span className={clsx("truncate", here ? "font-medium text-ink" : "text-ink-2")}>{ch.title}</span>
+                        <span className="text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{formatDuration(ch.endMs - ch.startMs)}</span>
+                      </li>
+                    );
+                  })}
                 </ol>
               </section>
             );
@@ -213,16 +244,32 @@ export function ReaderPage() {
   );
 }
 
-function Tag({ children, emphasis = false }: { children: React.ReactNode; emphasis?: boolean }) {
-  return <span className={clsx("rounded-[3px] border px-2.5 py-1.5 text-[13px]/4", emphasis ? "border-(--pa) text-(--pa)" : "border-(--pl) text-(--pi)")}>{children}</span>;
-}
-
-function Action({ onClick, label, detail, icon }: { onClick: () => void; label: string; detail: string; icon?: React.ReactNode }) {
+/** One book in the series list: its number, cover, title, and how it stands. */
+function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: number; now: boolean; off: boolean }) {
+  const state = useAppState();
+  const c = useController();
+  const p = progressIn(book, state);
+  const standing = off ? "Left off the shelf" : p.finished ? "Finished" : p.started ? `${Math.max(1, Math.floor(p.fraction * 100))}% · ${formatLeft(book.book.durationMs - p.posMs)} left` : formatLeft(book.book.durationMs);
   return (
-    <button type="button" onClick={onClick} className="grid w-full grid-cols-[1fr_auto_2.5rem] items-center gap-3 border-b border-(--pl) py-2.5 pl-4 text-left text-[16px]/6 font-medium last:border-b-0 hover:bg-white/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--pa)">
-      <span>{label}</span>
-      <span className="text-[15px]/6 font-normal text-(--pm)">{detail}</span>
-      <span className="grid h-full place-items-center border-l border-(--pl) text-(--pi)">{icon ?? <ArrowUpRightIcon className="size-3 fill-current" />}</span>
-    </button>
+    <li className="border-b border-line">
+      <button
+        type="button"
+        onClick={() => c.openReader(book.book.id)}
+        aria-current={now ? "page" : undefined}
+        className={clsx("relative grid w-full grid-cols-[2rem_2.5rem_minmax(0,1fr)_auto] items-center gap-3 py-2 pr-2 pl-3 text-left focus-ring sm:grid-cols-[2rem_2.5rem_minmax(0,1fr)_auto]", now ? "bg-raised" : "hover:bg-raised", off && "opacity-50")}
+      >
+        {now && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-place" aria-hidden="true" />}
+        <span className="text-right text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{number}</span>
+        <Cover url={c.coverUrl(book)} title={book.book.title} className="w-10" />
+        <span className="min-w-0">
+          <span className={clsx("block truncate text-base/6 sm:text-sm/5", now ? "font-medium text-ink" : "text-ink")}>{book.book.title}</span>
+          <span className="block truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">{book.book.author}</span>
+        </span>
+        <span className="flex items-center gap-1.5 text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
+          {p.finished && !off && <CheckIcon className="size-4 shrink-0 fill-ink-3" aria-hidden="true" />}
+          {standing}
+        </span>
+      </button>
+    </li>
   );
 }

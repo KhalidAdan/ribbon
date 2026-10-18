@@ -1,15 +1,17 @@
-import { ArrowPathIcon, ChevronLeftIcon, FolderPlusIcon, PlusIcon, XMarkIcon } from "@heroicons/react/16/solid";
+import { ArrowPathIcon, CheckCircleIcon, FolderPlusIcon, PlusIcon } from "@heroicons/react/16/solid";
+import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { groupProblems } from "../core/problems";
 import { isHandMade } from "../core/series";
 import { useAppState, useController } from "./store";
-import { Button } from "./Button";
+import { Button, IconButton } from "./Button";
+import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";
 
 declare const __APP_VERSION__: string;
 
 /**
- * Settings: the library folder, the problems the last scan found, and
- * the version. Full width, with a way back to the shelf.
+ * Settings: the folders the library is made of, the files a scan could
+ * not read, the series, the one online lookup, and Ribbon's own folder.
  */
 export function SettingsPane() {
   const state = useAppState();
@@ -27,206 +29,178 @@ export function SettingsPane() {
     for (const b of state.books) m.set(b.source ?? "", (m.get(b.source ?? "") ?? 0) + 1);
     return m;
   }, [state.books]);
+  const described = Object.values(state.about).filter((a) => a.source === "openlibrary").length;
 
   return (
-    <section className="flex h-full min-w-0 flex-col" aria-label="Settings">
-      <header className="flex items-center gap-2 px-3 pt-3 sm:px-5">
-        <Button icon size="sm" variant="ghost" aria-label="Back to library" onClick={() => c.showLibrary()}>
-          <ChevronLeftIcon className="size-4 fill-current" />
-        </Button>
-        <h1 className="text-xl font-semibold tracking-tight text-neutral-950 dark:text-white">Settings</h1>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-6 sm:px-8">
-          <Section title="Folders" description="The folders your library is made of. The books stay where they are; Ribbon reads them in place and keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk.">
-            <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
-              {state.sources.map((s) => {
-                const status = state.sourceStatus[s.id];
-                const count = countBySource.get(s.id) ?? 0;
-                const line = status?.error
-                  ? `Could not open: ${status.error}`
-                  : status?.scanning
+    <section className="h-full overflow-y-auto quiet-scroll" aria-label="Settings">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-12 px-4 pt-8 pb-16 sm:px-8">
+        <section aria-labelledby="settings-folders" className="flex flex-col gap-4">
+          <SectionHeader
+            id="settings-folders"
+            title="Folders"
+            description="The library is these folders together. Books stay where they are; Ribbon keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk."
+            actions={
+              <>
+                {state.sources.length > 1 && (
+                  <Button size="sm" variant="ghost" leading={ArrowPathIcon} onClick={() => void c.rescan()} disabled={state.scanning !== null}>
+                    {state.scanning ? "Checking…" : "Check all"}
+                  </Button>
+                )}
+                <Button size="sm" leading={FolderPlusIcon} onClick={() => void c.pickLibrary()}>
+                  Add a folder
+                </Button>
+              </>
+            }
+          />
+          <Group>
+            {state.sources.map((s) => {
+              const status = state.sourceStatus[s.id];
+              const count = countBySource.get(s.id) ?? 0;
+              const busy = !!status?.scanning;
+              const line = status?.error
+                ? `Could not open it: ${status.error}`
+                : status?.scanning
+                  ? status.scanning.stage
                     ? status.scanning.stage
-                      ? status.scanning.stage
-                      : status.scanning.walked > 0
-                        ? `Checking ${status.scanning.done.toLocaleString()} of ${status.scanning.walked.toLocaleString()} files…`
-                        : "Checking for changes…"
-                    : `${count.toLocaleString()} ${count === 1 ? "book" : "books"}${status?.lastScanMs !== null && status?.lastScanMs !== undefined ? (status.lastScanMs < 1000 ? " · last check took under a second" : ` · last check took ${(status.lastScanMs / 1000).toFixed(1)} s`) : ""}`;
-                return (
-                  <li key={s.id} className="flex items-center justify-between gap-3 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{s.name}</p>
-                      <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400" title={s.root}>
+                    : status.scanning.walked > 0
+                      ? `Checking ${status.scanning.done.toLocaleString()} of ${status.scanning.walked.toLocaleString()} files…`
+                      : "Checking for changes…"
+                  : `${count.toLocaleString()} ${count === 1 ? "book" : "books"}${status?.lastScanMs !== null && status?.lastScanMs !== undefined ? (status.lastScanMs < 1000 ? ", checked in under a second" : `, checked in ${(status.lastScanMs / 1000).toFixed(1)} s`) : ""}`;
+              return (
+                <Row
+                  key={s.id}
+                  title={s.name}
+                  description={
+                    <>
+                      <span className="block truncate font-mono text-[0.75rem]/5 text-ink-3" title={s.root}>
                         {s.root}
-                      </p>
-                      <p className={status?.error ? "text-sm/5 text-red-600 dark:text-red-400" : "text-sm/5 text-neutral-500 dark:text-neutral-400"}>{line}</p>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button icon size="sm" variant="ghost" aria-label={`Rescan ${s.name}`} title="Rescan" onClick={() => void c.rescanSourceById(s.id)} disabled={status?.scanning !== null && status?.scanning !== undefined}>
-                        <ArrowPathIcon className={status?.scanning ? "size-4 animate-spin fill-current" : "size-4 fill-current"} />
+                      </span>
+                      <span className={clsx("block", status?.error ? "text-red-600 dark:text-red-400" : "")}>{line}</span>
+                    </>
+                  }
+                  aside={
+                    <>
+                      <IconButton size="sm" label={`Check ${s.name} for changes`} icon={ArrowPathIcon} onClick={() => void c.rescanSourceById(s.id)} disabled={busy} className={clsx(busy && "[&>svg]:animate-spin")} />
+                      <Menu label={`${s.name}: more`} title={s.name} items={[{ label: "Remove from the library", onSelect: () => void c.removeSource(s.id), danger: true }]} />
+                    </>
+                  }
+                />
+              );
+            })}
+          </Group>
+        </section>
+
+        <section aria-labelledby="settings-problems" className="flex flex-col gap-4">
+          <SectionHeader
+            id="settings-problems"
+            title="Files Ribbon could not read"
+            description={state.problems.length === 0 ? undefined : `${state.problems.length.toLocaleString()} ${state.problems.length === 1 ? "file" : "files"} on the last check, by folder. Checking a folder again reads them again.`}
+          />
+          {groups.length === 0 ? (
+            <div className="rounded-[10px] ring-1 ring-line">
+              <EmptyState compact icon={CheckCircleIcon} title="Every file was read">
+                The last check of every folder found nothing it could not open.
+              </EmptyState>
+            </div>
+          ) : (
+            <Group>
+              {groups.map((g) => {
+                const book = bookFor(g.source, g.folder);
+                const where = state.sources.length > 1 ? sourceName(g.source) : "";
+                return (
+                  <div key={`${g.source ?? ""}:${g.folder || "/"}`} className="rounded-md bg-raised px-3 py-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{book ? book.book.title : g.folder || where || "Library folder"}</p>
+                        {(book?.book.author || where) && <p className="truncate text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">{[book?.book.author, where].filter(Boolean).join(" · ")}</p>}
+                      </div>
+                      <Button size="sm" leading={ArrowPathIcon} onClick={() => void (g.source && c.rescanFolder(g.source, g.folder))} disabled={state.scanning !== null || !g.source}>
+                        Check again
                       </Button>
-                      <Button icon size="sm" variant="ghost" aria-label={`Remove ${s.name} from the library`} title="Remove from the library" onClick={() => void c.removeSource(s.id)}>
-                        <XMarkIcon className="size-4 fill-current" />
-                      </Button>
                     </div>
-                  </li>
+                    <ul role="list" className="mt-2 flex flex-col gap-1">
+                      {g.problems.map((p) => (
+                        <li key={p.path} className="flex flex-wrap items-baseline gap-x-3 text-sm/5 sm:text-[0.8125rem]/5">
+                          <span className="min-w-0 truncate font-mono text-[0.75rem]/5 text-ink-2" title={p.path}>
+                            {p.path.slice(p.path.lastIndexOf("/") + 1)}
+                          </span>
+                          <span className="text-ink-3">{p.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 );
               })}
-            </ul>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => void c.pickLibrary()} className="py-1.5 pr-2.5 pl-1.5">
-                <FolderPlusIcon className="size-4 fill-current" />
-                Add a folder
-              </Button>
-              {state.sources.length > 1 && (
-                <Button size="sm" variant="ghost" onClick={() => void c.rescan()} disabled={state.scanning !== null} className="py-1.5 pr-2.5 pl-1.5">
-                  <ArrowPathIcon className="size-4 fill-current" />
-                  {state.scanning ? "Checking…" : "Rescan every folder"}
-                </Button>
-              )}
-            </div>
-          </Section>
+            </Group>
+          )}
+        </section>
 
-          <Section
-            title="Problems"
-            description={
-              state.problems.length === 0
-                ? "Every file in the library was read on the last scan."
-                : `${state.problems.length.toLocaleString()} ${state.problems.length === 1 ? "file" : "files"} could not be read. Each is listed under its folder; a rescan reads it again.`
-            }
-          >
-            {groups.length > 0 && (
-              <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
-                {groups.map((g) => {
-                  const book = bookFor(g.source, g.folder);
-                  const where = state.sources.length > 1 ? sourceName(g.source) : "";
-                  return (
-                    <li key={`${g.source ?? ""}:${g.folder || "/"}`} className="py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{book ? book.book.title : g.folder || where || "Library folder"}</p>
-                          {(book?.book.author || where) && (
-                            <p className="truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{[book?.book.author, where].filter(Boolean).join(" · ")}</p>
-                          )}
-                        </div>
-                        <Button size="sm" onClick={() => void (g.source && c.rescanFolder(g.source, g.folder))} disabled={state.scanning !== null || !g.source} className="shrink-0 py-1.5 pr-2.5 pl-1.5">
-                          <ArrowPathIcon className="size-4 fill-current" />
-                          Rescan
-                        </Button>
-                      </div>
-                      <ul className="mt-2 flex flex-col gap-1">
-                        {g.problems.map((p) => (
-                          <li key={p.path} className="flex flex-wrap items-baseline gap-x-3 text-sm/5">
-                            <span className="min-w-0 truncate text-neutral-700 dark:text-neutral-300" title={p.path}>
-                              {p.path.slice(p.path.lastIndexOf("/") + 1)}
-                            </span>
-                            <span className="text-neutral-500 dark:text-neutral-400">{p.message}</span>
-                            {p.at && (
-                              <time dateTime={p.at} className="text-neutral-400 tabular-nums dark:text-neutral-500">
-                                {new Date(p.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
-                              </time>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Section>
-
-          <Section
+        <section aria-labelledby="settings-series" className="flex flex-col gap-4">
+          <SectionHeader
+            id="settings-series"
             title="Series"
-            description={
-              series.length === 0
-                ? "No series found. Numbered folders or a series tag make one, or make your own from any books on the shelf."
-                : "Which books belong, in what order, and which to leave off the shelf. Nothing is deleted. Make your own for the ones detection misses."
-            }
-          >
-            {series.length > 0 && (
-              <ul role="list" className="divide-y divide-neutral-950/5 dark:divide-white/5">
-                {series.map((g) => {
-                  const record = state.series[g.key];
-                  const left = record ? record.choices.filter((ch) => !ch.included).length : 0;
-                  const added = g.added?.length ?? 0;
-                  return (
-                    <li key={g.key} className="flex items-center justify-between gap-3 py-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{g.name}</p>
-                        <p className="text-sm/5 text-neutral-500 dark:text-neutral-400">
-                          {g.bookIds.length} {g.bookIds.length === 1 ? "book" : "books"}
-                          {isHandMade(g) ? " · made by hand" : added > 0 ? ` · ${added} added by hand` : ""}
-                          {record ? ` · ${left === 0 ? "all on the shelf" : `${left} left off`} · ${isHandMade(g) ? "made" : "set up"} ${new Date(record.decidedAt).toLocaleDateString(undefined, { dateStyle: "medium" })}` : " · not set up"}
-                        </p>
-                      </div>
-                      <Button size="sm" onClick={() => c.openSeriesSetup(g.key)} className="shrink-0">
-                        {record ? "Change" : "Set up"}
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <div className="mt-3">
-              <Button size="sm" onClick={() => c.openNewSeries()} disabled={state.books.length === 0} className="py-1.5 pr-2.5 pl-1.5">
-                <PlusIcon className="size-4 fill-current" />
+            description={series.length === 0 ? "No series yet. Numbered folders or a series tag make one, or make your own from any books." : "Which books belong, in what order, and which to leave off the shelf. Nothing is deleted."}
+            actions={
+              <Button size="sm" leading={PlusIcon} onClick={() => c.openNewSeries()} disabled={state.books.length === 0}>
                 New series
               </Button>
-            </div>
-          </Section>
-
-          <Section
-            title="Descriptions"
-            description="Ribbon can ask Open Library, a free book database, about each book: it sends the title and author once, in the background, and keeps the answer beside the book. Off unless you turn it on."
-          >
-            <label htmlFor="lookup-descriptions" className="flex cursor-pointer items-start gap-3">
-              <input id="lookup-descriptions" type="checkbox" role="switch" checked={state.lookup.enabled} onChange={(e) => void c.setLookup(e.target.checked)} className="mt-1 size-4 shrink-0 accent-amber-500" />
-              <span>
-                <span className="block text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white">Look up descriptions from Open Library</span>
-                <span className="block text-sm/5 text-neutral-500 dark:text-neutral-400">
-                  {state.lookup.running
-                    ? `Asking about book ${state.lookup.done + 1} of ${state.lookup.total}…`
-                    : `${Object.values(state.about).filter((a) => a.source === "openlibrary").length.toLocaleString()} of ${state.books.length.toLocaleString()} books have a description.`}
-                </span>
-              </span>
-            </label>
-          </Section>
-
-          {homePath && (
-            <Section title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a local mirror of each library's records and covers, the log, and the list of libraries opened here. Your records stay beside your books.">
-              <p className="truncate text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white" title={homePath}>
-                {homePath}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => void c.revealHome()}>
-                  Reveal in Explorer
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => void c.resetHome()}>
-                  Reset Ribbon…
-                </Button>
-              </div>
-            </Section>
+            }
+          />
+          {series.length > 0 && (
+            <Group>
+              {series.map((g) => {
+                const record = state.series[g.key];
+                const left = record ? record.choices.filter((ch) => !ch.included).length : 0;
+                const added = g.added?.length ?? 0;
+                return (
+                  <Row
+                    key={g.key}
+                    title={g.name}
+                    description={`${g.bookIds.length} ${g.bookIds.length === 1 ? "book" : "books"}${isHandMade(g) ? ", made by hand" : added > 0 ? `, ${added} added by hand` : ""}${record ? `, ${left === 0 ? "all on the shelf" : `${left} left off`}` : ", not set up yet"}`}
+                    aside={
+                      <Button size="sm" onClick={() => c.openSeriesSetup(g.key)}>
+                        {record ? "Change…" : "Set up…"}
+                      </Button>
+                    }
+                  />
+                );
+              })}
+            </Group>
           )}
+        </section>
 
-          <Section title="About" description={`Ribbon ${__APP_VERSION__}. The listener for books you own.`}>
-            <p className="text-sm/6 text-neutral-500 dark:text-neutral-400">The log lives in the Ribbon folder; the problems above are the part of it worth reading.</p>
-          </Section>
-        </div>
+        <section aria-labelledby="settings-online" className="flex flex-col gap-4">
+          <SectionHeader id="settings-online" title="Online" description="The only thing Ribbon ever asks the internet, and only if you turn it on." />
+          <Group footer="Sends a book's title and author to Open Library once, in the background, and keeps the answer beside the book.">
+            <Row
+              title="Descriptions from Open Library"
+              description={state.lookup.running ? `Asking about book ${state.lookup.done + 1} of ${state.lookup.total}…` : `${described.toLocaleString()} of ${state.books.length.toLocaleString()} books have a description.`}
+              aside={<Toggle label="Look up descriptions from Open Library" checked={state.lookup.enabled} onChange={(on) => void c.setLookup(on)} />}
+            />
+          </Group>
+        </section>
+
+        {homePath && (
+          <section aria-labelledby="settings-home" className="flex flex-col gap-4">
+            <SectionHeader id="settings-home" title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a copy of each library's records, your places, the covers, and the log." />
+            <Group>
+              <Row
+                title={<span className="font-mono text-[0.8125rem]/5 font-normal">{homePath}</span>}
+                aside={
+                  <>
+                    <Button size="sm" onClick={() => void c.revealHome()}>
+                      Show in Explorer
+                    </Button>
+                    <Menu label="Ribbon folder: more" title="Ribbon folder" items={[{ label: "Reset Ribbon…", onSelect: () => void c.resetHome(), danger: true }]} />
+                  </>
+                }
+              />
+            </Group>
+          </section>
+        )}
+
+        <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Ribbon {__APP_VERSION__}. The listener for books you own.</p>
       </div>
-    </section>
-  );
-}
-
-function Section({ title, description, children }: { title: string; description: string; children?: React.ReactNode }) {
-  return (
-    <section aria-labelledby={`settings-${title}`}>
-      <h2 id={`settings-${title}`} className="text-base/6 font-semibold text-neutral-950 dark:text-white">
-        {title}
-      </h2>
-      <p className="mt-0.5 text-sm/6 text-pretty text-neutral-500 dark:text-neutral-400">{description}</p>
-      {children && <div className="mt-3">{children}</div>}
     </section>
   );
 }

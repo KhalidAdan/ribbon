@@ -1,4 +1,3 @@
-import { clsx } from "clsx";
 import { useEffect, useState } from "react";
 import { AppController } from "../app/controller";
 import { detectPlatform } from "../app/platform";
@@ -15,6 +14,9 @@ import { SeriesSetup } from "./SeriesSetup";
 import { NewSeries } from "./NewSeries";
 import { useKeys } from "./useKeys";
 import { ScanProgress } from "./ScanProgress";
+import { TopBar, Tabs, type Crumb } from "./Shell";
+import { Button } from "./Button";
+import { useSearch } from "./useSearch";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
@@ -45,9 +47,10 @@ export function App() {
   );
 }
 
+
 function Screen() {
   return (
-    <div className="isolate h-full bg-white text-neutral-950 antialiased dark:bg-neutral-950 dark:text-white">
+    <div className="isolate h-full bg-canvas font-sans text-ink antialiased">
       <Routed />
     </div>
   );
@@ -68,40 +71,45 @@ function Ready() {
   const state = useAppState();
   const c = useController();
   useKeys(c);
-
   useEffect(() => c.installLifecycle(), [c]);
+  const { query, setQuery, found } = useSearch(state.books);
 
   if (state.phase === "boot") return null;
   if (state.phase === "pick") return <PickLibrary />;
-  if (state.phase === "loading") {
-    return (
-      <main className="flex h-full">
-        <div className="h-full w-full shrink-0 pt-6 lg:w-80 lg:border-r lg:border-neutral-950/10 dark:lg:border-white/10">
-          <h1 className="px-4 pb-3 text-xl font-semibold tracking-tight text-neutral-950 sm:px-5 dark:text-white">Library</h1>
-          {state.scanning ? (
-            <ScanProgress status={state.scanning} />
-          ) : (
-            <p className="px-4 text-base/7 text-neutral-500 sm:px-5 sm:text-sm/6 dark:text-neutral-400">Opening your library…</p>
-          )}
-        </div>
-        <div className="hidden min-w-0 flex-1 lg:block" />
-      </main>
-    );
-  }
+
+  const reader = state.pane === "reader" ? (state.books.find((b) => b.book.id === state.readerBookId) ?? null) : null;
+  const series = reader ? c.detectedSeries().find((g) => g.bookIds.includes(reader.book.id)) : undefined;
+  const folders = state.sources.length === 1 ? state.sources[0]!.name : `${state.sources.length} folders`;
+  const crumbs: Crumb[] =
+    state.pane === "settings"
+      ? [{ label: "Settings" }]
+      : reader
+        ? [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name }] : []), { label: reader.book.title }]
+        : [{ label: folders }];
+  const onQuery = (q: string) => {
+    setQuery(q);
+    if (q && state.pane !== "library") c.showLibrary();
+  };
 
   return (
     <main className="flex h-full flex-col">
       <SeriesSetup />
       <NewSeries />
+      <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
+      <Tabs
+        current={state.pane === "settings" ? "settings" : "library"}
+        onSelect={(t) => (t === "settings" ? c.showSettings() : c.showLibrary())}
+        badges={state.problems.length > 0 ? { settings: <span className="size-1.5 rounded-full bg-place" aria-label={`${state.problems.length} files could not be read`} /> } : {}}
+      />
       <div className="min-h-0 flex-1">
-        {state.pane === "settings" ? (
+        {state.phase === "loading" ? (
+          <Loading />
+        ) : state.pane === "settings" ? (
           <SettingsPane />
         ) : state.pane === "reader" ? (
           <ReaderPage />
         ) : (
-          <div className={clsx("mx-auto h-full w-full", "max-w-6xl")}>
-            <LibraryPane />
-          </div>
+          <LibraryPane query={query} onQuery={onQuery} found={found} />
         )}
       </div>
       <PlayerBar />
@@ -109,13 +117,22 @@ function Ready() {
         <PlayerPane />
       </PlayerSheet>
       {state.error && (
-        <div role="alert" className="fixed inset-x-4 bottom-4 mx-auto flex max-w-lg items-center gap-3 rounded-lg bg-neutral-950 px-4 py-3 text-white shadow-lg ring-1 ring-black/10 dark:bg-white dark:text-neutral-950 dark:shadow-none">
-          <p className="min-w-0 flex-1 text-sm/6">{state.error}</p>
-          <button type="button" onClick={() => c.clearError()} className="text-sm/6 underline underline-offset-2">
+        <div role="alert" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg items-start gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong">
+          <p className="min-w-0 flex-1 py-0.5 text-base/6 text-pretty text-ink sm:text-sm/5">{state.error}</p>
+          <Button size="sm" variant="ghost" onClick={() => c.clearError()}>
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
     </main>
+  );
+}
+
+function Loading() {
+  const state = useAppState();
+  return (
+    <div className="mx-auto w-full max-w-xl px-4 pt-16 sm:px-6">
+      {state.scanning ? <ScanProgress status={state.scanning} /> : <p className="text-base/6 text-ink-2 sm:text-sm/5">Opening your library…</p>}
+    </div>
   );
 }

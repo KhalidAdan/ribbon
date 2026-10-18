@@ -42,7 +42,7 @@ export function SearchField({ value, onChange, onSubmit, count }: Props) {
       <label htmlFor="library-search" className="sr-only">
         Search your library
       </label>
-      <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 fill-neutral-400 dark:fill-neutral-500" aria-hidden="true" />
+      <MagnifyingGlassIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 fill-ink-3" aria-hidden="true" />
       <input
         ref={ref}
         id="library-search"
@@ -59,9 +59,9 @@ export function SearchField({ value, onChange, onSubmit, count }: Props) {
             ref.current?.blur();
           }
         }}
-        placeholder="Search titles, authors, series"
+        placeholder="Search"
         aria-describedby={count !== null ? "library-search-count" : undefined}
-        className="block w-full rounded-md bg-neutral-950/5 py-1.5 pr-8 pl-8 text-base/6 text-neutral-950 placeholder:text-neutral-400 focus:bg-white focus:outline-2 focus:-outline-offset-1 focus:outline-amber-500 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:placeholder:text-neutral-500 dark:focus:bg-white/10 [&::-webkit-search-cancel-button]:hidden"
+        className="block w-full rounded-md bg-raised py-1.5 pr-8 pl-8 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:bg-surface focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1 sm:text-sm/6 [&::-webkit-search-cancel-button]:hidden"
       />
       {value ? (
         <button
@@ -71,12 +71,12 @@ export function SearchField({ value, onChange, onSubmit, count }: Props) {
             ref.current?.focus();
           }}
           aria-label="Clear search"
-          className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded text-neutral-500 hover:text-neutral-950 focus-visible:outline-2 focus-visible:outline-amber-500 dark:text-neutral-400 dark:hover:text-white"
+          className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 items-center justify-center rounded text-ink-3 focus-ring hover:text-ink"
         >
           <XMarkIcon className="size-4 fill-current" />
         </button>
       ) : (
-        <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border border-neutral-950/10 px-1 font-sans text-[11px]/4 text-neutral-400 pointer-fine:block dark:border-white/15 dark:text-neutral-500" aria-hidden="true">
+        <kbd className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded-[4px] px-1 font-sans text-[0.6875rem]/4 text-ink-3 ring-1 ring-line-strong ring-inset pointer-coarse:hidden" aria-hidden="true">
           /
         </kbd>
       )}

@@ -16,7 +16,11 @@ export function PlayerSheet({ open, onClose, children }: Props) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (open && !el.open) el.showModal();
+    if (open && !el.open) {
+      el.showModal();
+      // showModal focuses the first control; the title is the calmer place to start.
+      el.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    }
     else if (!open && el.open) el.close();
   }, [open]);
   return (
@@ -30,7 +34,7 @@ export function PlayerSheet({ open, onClose, children }: Props) {
         }
       }}
       aria-label="Player"
-      className="fixed inset-0 m-0 hidden h-full max-h-none w-full max-w-none bg-white p-0 text-neutral-950 open:block dark:bg-neutral-950 dark:text-white"
+      className="fixed inset-0 m-0 hidden h-full max-h-none w-full max-w-none bg-canvas p-0 font-sans text-ink antialiased open:block starting:open:translate-y-4 starting:open:opacity-0 transition-[translate,opacity] duration-200 ease-out"
     >
       {open && children}
     </dialog>

@@ -1,62 +1,54 @@
 import { MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { SPEED_STEP, formatSpeed } from "../core/speed";
+import { SPEED_STEP, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
 import { useAppState, useController } from "./store";
-import { Button } from "./Button";
+import { IconButton } from "./Button";
+import { Group, Row, Toggle } from "./kit";
 
-const PRESETS = [1, 1.25, 1.5, 1.75, 2];
+const PRESETS = [0.8, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
 
+/** Speed for this book: a stepper, the usual choices, and how long the book is at each. */
 export function SpeedControl() {
   const state = useAppState();
   const c = useController();
-  const speed = state.player.speed;
+  const p = state.player;
+  const speed = p.speed;
+  const left = p.durationMs - p.positionMs;
   const trim = state.current?.settings.trimSilence ?? false;
   return (
-    <div className="flex flex-col gap-4">
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-base/6 text-neutral-600 sm:text-sm/6 dark:text-neutral-400">Speed</span>
-      <div className="flex items-center gap-1">
-        <Button icon size="sm" variant="ghost" aria-label="Slower" onClick={() => void c.setSpeed(speed - SPEED_STEP)}>
-          <MinusIcon className="size-4 fill-current" />
-        </Button>
-        <span className="w-12 text-center text-base/6 font-medium text-neutral-950 tabular-nums sm:text-sm/6 dark:text-white" aria-live="polite">
-          {formatSpeed(speed)}
-        </span>
-        <Button icon size="sm" variant="ghost" aria-label="Faster" onClick={() => void c.setSpeed(speed + SPEED_STEP)}>
-          <PlusIcon className="size-4 fill-current" />
-        </Button>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between gap-3">
+        <IconButton variant="secondary" label="Slower" icon={MinusIcon} onClick={() => void c.setSpeed(speed - SPEED_STEP)} />
+        <div className="text-center">
+          <p className="text-2xl font-semibold text-ink tabular-nums" aria-live="polite">
+            {formatSpeed(speed)}
+          </p>
+          <p className="text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{formatLeft(remainingAtSpeed(left, speed))} left at this speed</p>
+        </div>
+        <IconButton variant="secondary" label="Faster" icon={PlusIcon} onClick={() => void c.setSpeed(speed + SPEED_STEP)} />
       </div>
-      <div className="flex gap-1" role="group" aria-label="Speed presets">
-        {PRESETS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => void c.setSpeed(s)}
-            aria-pressed={Math.abs(speed - s) < 0.001}
-            className={clsx(
-              "rounded-md px-2 py-1 text-sm/5 tabular-nums focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500",
-              Math.abs(speed - s) < 0.001 ? "bg-neutral-950/10 text-neutral-950 dark:bg-white/15 dark:text-white" : "text-neutral-500 hover:bg-neutral-950/5 hover:text-neutral-950 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white",
-            )}
-          >
-            {formatSpeed(s)}
-          </button>
-        ))}
-      </div>
-    </div>
-    <label htmlFor="trim-silence" className="flex cursor-pointer items-start gap-3">
-      <input
-        id="trim-silence"
-        type="checkbox"
-        role="switch"
-        checked={trim}
-        onChange={(e) => void c.setTrimSilence(e.target.checked)}
-        className="mt-1 size-4 shrink-0 accent-amber-500"
-      />
-      <span>
-        <span className="block text-base/6 text-neutral-950 sm:text-sm/6 dark:text-white">Trim silences</span>
-        <span className="block text-sm/5 text-pretty text-neutral-500 dark:text-neutral-400">Shorten pauses longer than a second to about half a second. Off unless you turn it on.</span>
-      </span>
-    </label>
+      <Group label="Choices">
+        <div className="grid grid-cols-4 gap-1" role="group" aria-label="Speed choices">
+          {PRESETS.map((s) => {
+            const on = Math.abs(speed - s) < 0.001;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => void c.setSpeed(s)}
+                aria-pressed={on}
+                className={clsx("rounded-md py-2 text-center focus-ring", on ? "bg-primary text-on-primary" : "bg-raised text-ink hover:bg-line")}
+              >
+                <span className="block text-base/6 font-medium tabular-nums sm:text-sm/5">{formatSpeed(s)}</span>
+                <span className={clsx("block text-xs/4 tabular-nums", on ? "opacity-70" : "text-ink-3")}>{formatLeft(remainingAtSpeed(left, s)).replace(/ \d+m$/, "")}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Group>
+      <Group footer="Off unless you turn it on. Speech stays at its own pace; only the gaps get shorter.">
+        <Row title="Trim silences" description="Pauses longer than a second become about half a second." aside={<Toggle label="Trim silences" checked={trim} onChange={(on) => void c.setTrimSilence(on)} />} />
+      </Group>
     </div>
   );
 }

@@ -29,10 +29,10 @@ export function Scrubber({ positionMs, durationMs, chapters, onSeek, label = "Po
   }, [progress]);
 
   return (
-    <div className="relative pt-2">
-      <div className="pointer-events-none absolute inset-x-0 top-2 h-1.5" aria-hidden="true">
+    <div className="relative">
+      <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2" aria-hidden="true">
         {chapters.slice(1).map((ch) => (
-          <span key={ch.startMs} className="absolute top-0 h-full w-px bg-white/70 dark:bg-neutral-950/60" style={{ left: `${(ch.startMs / max) * 100}%` }} />
+          <span key={ch.startMs} className="absolute top-0 h-full w-px bg-canvas" style={{ left: `${(ch.startMs / max) * 100}%` }} />
         ))}
       </div>
       <input
@@ -58,7 +58,7 @@ export function Scrubber({ positionMs, durationMs, chapters, onSeek, label = "Po
           if (drag !== null) onSeek(drag);
           setDrag(null);
         }}
-        className="scrubber relative block h-1.5 w-full"
+        className="scrubber relative block h-4 w-full"
       />
     </div>
   );

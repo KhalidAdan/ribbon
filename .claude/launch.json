@@ -33,6 +33,18 @@
         "anthology"
       ],
       "port": 1420
+    },
+    {
+      "name": "ribbon-web-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "--mode",
+        "demo"
+      ],
+      "port": 1420
     }
   ]
 }
