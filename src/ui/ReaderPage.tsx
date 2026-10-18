@@ -2,7 +2,7 @@ import { BookmarkIcon, CheckIcon, ListBulletIcon, PlayIcon } from "@heroicons/re
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ScannedBook } from "../core/scan/scan";
-import { orderBySeries, hiddenBookIds } from "../core/series";
+import { orderBySeries, hiddenBookIds, seriesNumber } from "../core/series";
 import { NEUTRAL_TONE, type Tone } from "../core/tint";
 import { formatDuration, formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
@@ -127,7 +127,7 @@ export function ReaderPage() {
           <div className="min-w-0">
             {series && index >= 0 && (
               <p className="text-base/6 text-ink-2 sm:text-sm/5">
-                {series.name} · Book {index + 1} of {orderedIds.length}
+                {series.name} · Book {seriesNumber(record, book.book.id, index + 1)} of {orderedIds.length}
               </p>
             )}
             <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{book.book.title}</h1>
@@ -211,7 +211,7 @@ export function ReaderPage() {
               {orderedIds.map((id, i) => {
                 const b = byId.get(id);
                 if (!b) return null;
-                return <SeriesRow key={id} book={b} number={i + 1} now={id === book.book.id} off={hidden.has(id)} />;
+                return <SeriesRow key={id} book={b} number={seriesNumber(record, id, i + 1)} now={id === book.book.id} off={hidden.has(id)} />;
               })}
             </ol>
           </section>
@@ -261,7 +261,7 @@ export function ReaderPage() {
 }
 
 /** One book in the series list: its number, cover, title, and how it stands. */
-function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: number; now: boolean; off: boolean }) {
+function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: string; now: boolean; off: boolean }) {
   const state = useAppState();
   const c = useController();
   const p = progressIn(book, state);
