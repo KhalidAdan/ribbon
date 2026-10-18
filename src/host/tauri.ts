@@ -1,4 +1,5 @@
 import { readDir, stat, exists, readFile, writeFile, mkdir, remove, rename } from "@tauri-apps/plugin-fs";
+import { renameWithRetry } from "./retry";
 import { Command } from "@tauri-apps/plugin-shell";
 import { hostname } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
@@ -45,7 +46,10 @@ export function tauriHost(): Host {
     async writeFile(p: string, data: Uint8Array): Promise<void> {
       const tmp = `${p}.${Date.now()}.tmp`;
       await writeFile(tmp, data);
-      await rename(tmp, p);
+      await renameWithRetry(() => rename(tmp, p));
+    },
+    async appendFile(p: string, data: Uint8Array): Promise<void> {
+      await writeFile(p, data, { append: true, create: true });
     },
     async mkdir(p: string): Promise<void> {
       if (!(await exists(p))) await mkdir(p, { recursive: true });

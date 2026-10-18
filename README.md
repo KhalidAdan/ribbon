@@ -68,7 +68,9 @@ Everything durable lives beside the books in `.ribbon/`, all CSV:
 | `library.csv`, `files.csv`    | Scan cache. Rebuilt any time.                 |
 | `chapters/<id>.csv`           | Effective chapters.                           |
 | `corrections/<id>.csv`        | Your hand edits to chapters. Sync this.       |
-| `positions/<id>.csv`          | Where you are. Sync this. Last write wins.    |
+| `positions/<device>.ndjson`   | Where you are, one log per device. Sync this. See [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md). |
+| `positions/<id>.csv`          | Where you are, as Ribbon 0.4 wrote it. Still kept for older versions. |
+| `edits/<id>.csv`              | Your corrections to a book's details.        |
 | `settings/<id>.csv`           | Per-book speed.                               |
 | `loudness/<id>.csv`           | Measured LUFS and the gain applied.           |
 | `silence/<id>.csv`            | Gaps that get shortened during playback.      |

@@ -216,6 +216,8 @@ export class AppController {
   /** The lookup pass over every source, while one runs. */
   private lookupRun: Promise<void> | null = null;
   private appSettings: Record<string, unknown> = {};
+  /** This installation in the position log: a random id, made once and kept in the app's settings. */
+  private deviceId: string = globalThis.crypto.randomUUID();
 
   constructor(private readonly platform: Platform) {
     this.state = {
@@ -373,6 +375,11 @@ export class AppController {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
       this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView) });
+      if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
+      else {
+        this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
+        await this.platform.appSettings.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+      }
     }
     const asked = performance.now();
     void this.platform.uptimeMs?.().then((ms) => {
@@ -473,6 +480,7 @@ export class AppController {
       last = now;
     };
     const lib = new LibraryService(this.platform.host, root);
+    lib.setDevice(this.deviceId);
     const o: Opened = {
       source,
       lib,
@@ -497,6 +505,8 @@ export class AppController {
       mirrorCoversDir: null,
     };
     this.opened.set(source.id, o);
+    // The position log describes each book by its claims and its files.
+    lib.bookInfo = (id) => o.books.find((b) => b.book.id === id);
     this.ensureEngine();
     const alive = () => this.opened.get(source.id) === o;
     // Access to the folder's files is granted while the shelf paints from
@@ -814,7 +824,7 @@ export class AppController {
     if (cur && cur.book.source === id) {
       if (this.state.player.playing) {
         this.engine?.pause();
-        await this.persistPosition();
+        await this.persistPosition("pause");
       }
       this.chapterProbe?.abort();
       this.engine?.pause();
@@ -923,9 +933,9 @@ export class AppController {
     if (prev.playing && !player.playing && player.bookId === prev.bookId) {
       if (this.state.previewing !== null) this.set({ previewing: null });
       if (!player.reconnecting) this.pausedAt = Date.now();
-      void this.persistPosition(true);
+      void this.persistPosition("pause");
     }
-    if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition(false);
+    if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
     if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
     if (player.playing !== prev.playing || player.reconnecting !== prev.reconnecting || Math.abs(player.positionMs - prev.positionMs) > 900) {
       updateMediaPlayback(player.playing || player.reconnecting, player.positionMs, player.durationMs, player.speed);
@@ -951,7 +961,7 @@ export class AppController {
     }
     // Keep the place in the book being left before anything else happens.
     if (this.state.player.playing) engine.pause();
-    await this.persistPosition(true);
+    await this.persistPosition("pause");
     if (seq !== this.openSeq) return;
     this.chapterProbe?.abort();
     const id = book.book.id;
@@ -1044,7 +1054,7 @@ export class AppController {
     this.engine.pause();
     this.pausedAt = Date.now();
     this.set({ previewing: null });
-    void this.persistPosition();
+    void this.persistPosition("pause");
   }
 
   togglePlay(): void {
@@ -1060,7 +1070,7 @@ export class AppController {
     // A place chosen by hand is exact: no resume rewind on the next play.
     this.pausedAt = null;
     this.set({ resumeOffer: null, previewing: null });
-    void this.persistPosition();
+    void this.persistPosition("seek");
   }
 
   skip(deltaMs: number): void {
@@ -1131,7 +1141,8 @@ export class AppController {
    * nothing to say yet. Urgent ones (pause, seek, leaving) are written at
    * once; the steady ones while playing are throttled by the keeper.
    */
-  private async persistPosition(urgent = true): Promise<void> {
+  private async persistPosition(why: NonNullable<Position["why"]>): Promise<void> {
+    const urgent = why !== "periodic";
     const cur = this.state.current;
     const o = cur && this.openedOf(cur.book);
     const engine = this.engine;
@@ -1141,7 +1152,7 @@ export class AppController {
     const offsetMs = engine.positionMs();
     this.lastWrite = Date.now();
     try {
-      const kept = o.keeper.record(await o.lib.positionAt(bookId, offsetMs), urgent);
+      const kept = o.keeper.record(await o.lib.positionAt(bookId, offsetMs, Date.now(), why), urgent);
       this.set({ positions: { ...this.state.positions, [bookId]: kept } });
     } catch (e) {
       log.error("could not keep the position:", describe(e));
@@ -1155,7 +1166,7 @@ export class AppController {
    */
   async flushPositions(timeoutMs = 4_000): Promise<void> {
     if (this.state.player.playing) this.engine?.pause();
-    await this.persistPosition(true);
+    await this.persistPosition("close");
     const all = Promise.all(this.openedInOrder().map((o) => o.keeper.flush()));
     await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
   }
@@ -1186,12 +1197,12 @@ export class AppController {
 
   /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
   async checkpoint(): Promise<void> {
-    if (this.state.current) await this.persistPosition(true);
+    if (this.state.current) await this.persistPosition("close");
   }
 
   private onBookEnded(): void {
     this.pausedAt = Date.now();
-    void this.persistPosition(true);
+    void this.persistPosition("end");
   }
 
   private refreshMediaMetadata(): void {
