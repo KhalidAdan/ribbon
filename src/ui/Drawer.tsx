@@ -17,14 +17,25 @@ interface Props {
  */
 export function Drawer({ open, onClose, title, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (open && !el.open) {
-      el.showModal();
-      // showModal focuses the first control; the title is the calmer place to start.
-      el.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+      const show = () => {
+        if (el.open || !el.isConnected || !openRef.current) return;
+        el.showModal();
+        // showModal focuses the first control; the title is the calmer place to start.
+        el.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+      };
+      // Opened together with the dialog around it (the player and its chapters
+      // at once), React runs this effect first: wait for that one to open, or
+      // this panel lands underneath it, open but out of reach.
+      const parent = el.parentElement?.closest("dialog");
+      if (parent && !parent.open) queueMicrotask(show);
+      else show();
     }
     else if (!open && el.open) el.close();
   }, [open]);
@@ -32,10 +43,14 @@ export function Drawer({ open, onClose, title, children }: Props) {
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
+      onClose={(e) => {
+        // React passes a nested dialog's close up the tree; only our own closes us.
+        if (e.target === e.currentTarget) onClose();
+      }}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
+          e.stopPropagation();
           onClose();
         }
       }}
