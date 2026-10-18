@@ -13,6 +13,7 @@ import { buildChapters, applyCorrections, rowsToCorrections, type Correction } f
 import { buildParts } from "./parts";
 import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, LIBRARY_DETAIL_COLUMN } from "./records";
 import { bytesToRows, type Row } from "../csv";
+import type { EditValues } from "../edits";
 import { coverArgs } from "./cover";
 
 export interface ScannedBook {
@@ -25,6 +26,10 @@ export interface ScannedBook {
   pending?: number;
   /** The id of the source folder the book came from; set by the app, not the scan. */
   source?: string;
+  /** The book as the files describe it, when hand edits lie over `book`; set by the app. */
+  original?: Book;
+  /** The hand edits in effect; set by the app. */
+  edits?: EditValues;
 }
 
 export interface ScanOptions {

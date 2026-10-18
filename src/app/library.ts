@@ -12,6 +12,7 @@ import { bytesToProblems, problemsToBytes, type Problem } from "../core/problems
 import { bytesToSeries, seriesToBytes, type SeriesRecord } from "../core/series";
 import { aboutToBytes, bytesToAbout, type BookAbout } from "../core/about";
 import { locate } from "../core/timeline";
+import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
 
 /**
  * Everything the UI needs from a library folder, over a Host. Each
@@ -168,6 +169,9 @@ export class LibraryService {
   static mirrorCoverName(book: ScannedBook): string | null {
     const cover = book.book.cover;
     if (!cover) return null;
+    // A cover chosen by hand has its own name each time, so the mirror copies the new picture.
+    const edited = cover.match(/edited-[^/]*-([0-9a-z]+)\.(\w+)$/i);
+    if (edited) return `${book.book.id}-${edited[1]}.${edited[2]!.toLowerCase()}`;
     const dot = cover.lastIndexOf(".");
     const ext = dot > cover.lastIndexOf("/") ? cover.slice(dot + 1).toLowerCase() : "jpg";
     return `${book.book.id}.${ext}`;
@@ -371,6 +375,48 @@ export class LibraryService {
     await this.host.mkdir(this.dir("chapters"));
     await this.host.writeFile(this.dir("chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
     return { ...book, chapters };
+  }
+
+  // Edits --------------------------------------------------------------
+
+  /** Every book's hand edits, in one directory read. */
+  async readAllEdits(): Promise<Map<string, BookEdits>> {
+    const out = new Map<string, BookEdits>();
+    const encoder = new TextEncoder();
+    for (const f of await this.host.readTextDir(this.dir("edits"))) {
+      if (!f.name.endsWith(".csv")) continue;
+      try {
+        const e = await bytesToEdits(f.name.slice(0, -4), encoder.encode(f.text));
+        if (Object.keys(e.values).length > 0) out.set(e.bookId, e);
+      } catch {
+        /* an unreadable edit is no edit */
+      }
+    }
+    return out;
+  }
+
+  /** Keep a book's edits beside it; no edits removes the file. */
+  async writeEdits(edits: BookEdits): Promise<void> {
+    const path = this.dir("edits", `${edits.bookId}.csv`);
+    if (Object.keys(edits.values).length === 0) {
+      await this.host.remove(path).catch(() => undefined);
+      return;
+    }
+    await this.host.mkdir(this.dir("edits"));
+    await this.host.writeFile(path, await editsToBytes(edits));
+  }
+
+  /**
+   * Put a cover chosen by hand beside the books, under a new name each
+   * time so every copy of it (the local mirror, the webview's cache)
+   * sees a new picture. Returns its library-relative path.
+   */
+  async writeEditedCover(bookId: string, bytes: Uint8Array, ext: string, nowMs = Date.now()): Promise<string> {
+    const clean = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    const name = `edited-${bookId}-${nowMs.toString(36)}.${clean}`;
+    await this.host.mkdir(this.dir("covers"));
+    await this.host.writeFile(this.dir("covers", name), bytes);
+    return `${RIBBON_DIR}/covers/${name}`;
   }
 
   // Loudness -----------------------------------------------------------

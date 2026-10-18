@@ -49,6 +49,7 @@ const SCENES: Scene[] = [
   { name: "settings", setup: `c.showSettings()` },
   { name: "series-new", setup: `c.openNewSeries()` },
   { name: "series-setup", setup: `const g = c.detectedSeries()[0]; if (g) c.openSeriesSetup(g.key)` },
+  { name: "edit-book", setup: `const b = ${PICK_SERIES_BOOK}; c.openReader(b.book.id); c.openEditBook(b.book.id)` },
   // States that are hard to reach on purpose, set straight on the controller.
   { name: "first-run", setup: `c.set({ phase: "pick" })` },
   { name: "loading", setup: `c.set({ phase: "loading", scanning: { walked: 1586, done: 412, background: false } })` },

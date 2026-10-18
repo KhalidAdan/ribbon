@@ -17,6 +17,7 @@ import { ScanProgress } from "./ScanProgress";
 import { TopBar, Tabs, type Crumb } from "./Shell";
 import { Button } from "./Button";
 import { useSearch } from "./useSearch";
+import { EditBook } from "./EditBook";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
@@ -95,6 +96,7 @@ function Ready() {
     <main className="flex h-full flex-col">
       <SeriesSetup />
       <NewSeries />
+      <EditBookHost />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
       <Tabs
         current={state.pane === "settings" ? "settings" : "library"}
@@ -135,4 +137,13 @@ function Loading() {
       {state.scanning ? <ScanProgress status={state.scanning} /> : <p className="text-base/6 text-ink-2 sm:text-sm/5">Opening your library…</p>}
     </div>
   );
+}
+
+/** The edit dialog for whichever book asked for it. */
+function EditBookHost() {
+  const state = useAppState();
+  const c = useController();
+  const book = state.editBook ? state.books.find((b) => b.book.id === state.editBook) : undefined;
+  if (!book) return null;
+  return <EditBook book={book} open onClose={() => c.closeEditBook()} />;
 }
