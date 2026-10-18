@@ -93,6 +93,12 @@ export interface Host {
   readFile(path: string): Promise<Uint8Array>;
   /** Atomic: written to a sibling temp file and renamed into place. */
   writeFile(path: string, data: Uint8Array): Promise<void>;
+  /**
+   * Add bytes to the end of a file, creating it if needed. Not atomic: an
+   * interrupted append can leave a partial last line, which the position
+   * log tolerates. Optional: hosts without it read, add and rewrite.
+   */
+  appendFile?(path: string, data: Uint8Array): Promise<void>;
   mkdir(path: string): Promise<void>;
   remove(path: string): Promise<void>;
   /** Move a file or folder within the same volume. */

@@ -64,6 +64,10 @@ export function devLibrary(root: string | undefined): Plugin {
 
           if (op === "file") {
             const p = inside(url.searchParams.get("path") ?? "");
+            if (req.method === "PUT" && url.searchParams.get("append") === "1") {
+              await fs.appendFile(p, await body(req));
+              return json(res, 200, true);
+            }
             if (req.method === "PUT") {
               const data = await body(req);
               const tmp = `${p}.${process.pid}.tmp`;

@@ -2,7 +2,8 @@ import type { Host } from "../host/host";
 import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
 import { RIBBON_DIR, LEGACY_DIR } from "../core/scan/walk";
 import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
-import { mergePositions, nowIso, parsePositions, serializePosition, serializePositions } from "../core/position";
+import { nowIso, parsePositions, serializePosition, serializePositions } from "../core/position";
+import { claimsFor, compact, COMPACT_BYTES, deviceFileName, encodeRecord, FORMAT, fromLegacy, locatorFor, LOG_EXT, logName, mergePlaces, nextSeq, parseLog, ribbonClaim, toPosition, type DeviceInfo, type LogRecord } from "../core/poslog";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../core/scan/chapters";
@@ -80,58 +81,91 @@ export class LibraryService {
   }
 
   // Positions ----------------------------------------------------------
+  //
+  // The position log (docs/POSITION-FORMAT.md): this device appends to its
+  // own file beside the books and reads everyone's. The per-book CSV of
+  // earlier versions is still read, and still written, so Ribbon 0.4 on
+  // another machine keeps up.
 
-  /**
-   * Merge every position file for the book, including sync-conflict
-   * copies (`<id> (conflict).csv` and the like), last write wins.
-   */
-  async readPosition(bookId: string): Promise<Position | null> {
-    const dir = this.dir("positions");
-    if (!(await this.host.exists(dir))) return null;
-    const entries = await this.host.readDir(dir);
-    const candidates: Position[] = [];
-    for (const e of entries) {
-      if (!e.isFile || !e.name.startsWith(bookId) || !e.name.endsWith(".csv")) continue;
-      try {
-        const { positions } = await parsePositions(await this.host.readFile(this.host.join(dir, e.name)));
-        candidates.push(...positions);
-      } catch {
-        /* unreadable copy: ignore */
-      }
-    }
-    return mergePositions(candidates, bookId);
+  private identity: DeviceInfo | null = null;
+  private lastSeq = 0;
+  private deviceFileWritten = false;
+  /** Every log write, one at a time: appends and compaction never interleave. */
+  private logQueue: Promise<unknown> = Promise.resolve();
+  /** What a book looks like, for the claims and the locator on each record. Set by the app. */
+  bookInfo: ((bookId: string) => ScannedBook | undefined) | null = null;
+
+  /** Who this device is in the log: a random id made once per install, and a name people read. */
+  setDevice(id: string, app = "ribbon"): void {
+    this.deviceId = id.startsWith("urn:uuid:") ? id : `urn:uuid:${id}`;
+    this.app = app;
+    this.identity = null;
+  }
+
+  private deviceId: string | null = null;
+  private app = "ribbon";
+
+  private async me(): Promise<DeviceInfo> {
+    if (!this.identity) this.identity = { id: this.deviceId ?? `urn:uuid:${crypto.randomUUID()}`, name: await this.deviceName(), app: this.app, format: FORMAT };
+    return this.identity;
   }
 
   /**
-   * Every book's merged position beside the books, in one directory read.
-   * Rejects when the folder cannot be read, so a share that is away is
-   * never mistaken for a library with no positions.
+   * Everything in the positions folder, merged: the place in every book,
+   * every record (for history), and who the devices are. One directory
+   * read. Rejects when the folder cannot be read, so a share that is away
+   * is never mistaken for a library with no positions.
    */
-  async readAllPositions(): Promise<Map<string, Position>> {
+  async readPositionLog(nowMs = Date.now()): Promise<{ places: Map<string, Position>; records: LogRecord[]; devices: Map<string, DeviceInfo> }> {
     const files = await this.host.readTextDir(this.dir("positions"));
     // An empty answer from a folder that is not there is a share that is away.
     if (files.length === 0 && !(await this.host.exists(this.root))) throw new Error(`${this.root} is not reachable`);
+    const me = await this.me();
     const encoder = new TextEncoder();
-    const byBook = new Map<string, Position[]>();
+    const records: LogRecord[] = [];
+    const devices = new Map<string, DeviceInfo>();
     for (const f of files) {
-      if (!f.name.endsWith(".csv")) continue;
-      try {
-        const { positions } = await parsePositions(encoder.encode(f.text));
-        for (const p of positions) {
-          const list = byBook.get(p.bookId) ?? [];
-          list.push(p);
-          byBook.set(p.bookId, list);
+      if (f.name.endsWith(LOG_EXT)) {
+        const { records: rs } = parseLog(f.text);
+        records.push(...rs);
+        if (f.name === logName(me.id)) {
+          for (const r of rs) if (r.dev === me.id && r.seq > this.lastSeq) this.lastSeq = r.seq;
+          if (f.text.length > COMPACT_BYTES) void this.compactOwnLog();
         }
-      } catch {
-        /* unreadable copy: ignore */
+      } else if (f.name.endsWith(".json")) {
+        try {
+          const d = JSON.parse(f.text) as DeviceInfo;
+          if (typeof d.id === "string") devices.set(d.id, d);
+        } catch {
+          /* not a device file */
+        }
+      } else if (f.name.endsWith(".csv")) {
+        try {
+          for (const p of (await parsePositions(encoder.encode(f.text))).positions) records.push(fromLegacy(p, f.name));
+        } catch {
+          /* unreadable copy: ignore */
+        }
       }
     }
-    const out = new Map<string, Position>();
-    for (const [id, list] of byBook) {
-      const best = mergePositions(list, id);
-      if (best) out.set(id, best);
+    const names = new Map([...devices].map(([id, d]) => [id, d.name || "another device"]));
+    names.set(me.id, me.name);
+    const places = new Map<string, Position>();
+    for (const [id, r] of mergePlaces(records, nowMs)) places.set(id, toPosition(id, r, names));
+    return { places, records, devices };
+  }
+
+  /** Every book's place, merged from every device. */
+  async readAllPositions(): Promise<Map<string, Position>> {
+    return (await this.readPositionLog()).places;
+  }
+
+  /** One book's place, or null when there is none or the folder cannot be read. */
+  async readPosition(bookId: string): Promise<Position | null> {
+    try {
+      return (await this.readAllPositions()).get(bookId) ?? null;
+    } catch {
+      return null;
     }
-    return out;
   }
 
   /** True when positions can be kept on this machine as well as beside the books. */
@@ -197,8 +231,10 @@ export class LibraryService {
   }
 
   /** A position for this device, now. Not written anywhere. */
-  async positionAt(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {
-    return { bookId, offsetMs: Math.max(0, Math.round(Number.isFinite(offsetMs) ? offsetMs : 0)), updatedAt: nowIso(nowMs), device: await this.deviceName() };
+  async positionAt(bookId: string, offsetMs: number, nowMs = Date.now(), why?: Position["why"]): Promise<Position> {
+    const p: Position = { bookId, offsetMs: Math.max(0, Math.round(Number.isFinite(offsetMs) ? offsetMs : 0)), updatedAt: nowIso(nowMs), device: await this.deviceName() };
+    if (why) p.why = why;
+    return p;
   }
 
   async writePosition(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {
@@ -207,10 +243,67 @@ export class LibraryService {
     return p;
   }
 
-  /** Write one position beside the books, as given. */
+  /** Write one position beside the books: a record in this device's log, and the legacy per-book file. */
   async writePositionRecord(p: Position): Promise<void> {
-    await this.host.mkdir(this.dir("positions"));
+    const b = this.bookInfo?.(p.bookId);
+    const loc = b ? locatorFor(b.files, p.offsetMs, b.book.durationMs) : undefined;
+    await this.appendRecord({
+      k: "pos",
+      t: p.updatedAt,
+      book: b ? { ids: claimsFor(b.book), dur_ms: b.book.durationMs } : { ids: [ribbonClaim(p.bookId)] },
+      why: p.why ?? "periodic",
+      ms: p.offsetMs,
+      ...(loc ? { loc } : {}),
+    });
     await this.host.writeFile(this.dir("positions", `${p.bookId}.csv`), await serializePosition(p));
+  }
+
+  /** Add a record to this device's log, stamped with the device and the next sequence number. */
+  appendRecord(r: { k: LogRecord["k"]; t: string; book: { ids: string[]; dur_ms?: number } } & Record<string, unknown>): Promise<void> {
+    return this.serialLog(async () => {
+      const me = await this.me();
+      await this.host.mkdir(this.dir("positions"));
+      if (!this.deviceFileWritten) {
+        await this.host.writeFile(this.dir("positions", deviceFileName(me.id)), new TextEncoder().encode(`${JSON.stringify(me)}\n`));
+        this.deviceFileWritten = true;
+      }
+      this.lastSeq = nextSeq(this.lastSeq);
+      const line = encodeRecord({ v: 1, ...r, dev: me.id, seq: this.lastSeq });
+      await this.appendBytes(this.dir("positions", logName(me.id)), new TextEncoder().encode(line));
+    });
+  }
+
+  private serialLog<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.logQueue.then(fn, fn);
+    this.logQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async appendBytes(path: string, data: Uint8Array): Promise<void> {
+    if (this.host.appendFile) return this.host.appendFile(path, data);
+    let before: Uint8Array = new Uint8Array();
+    try {
+      before = await this.host.readFile(path);
+    } catch {
+      /* a new log */
+    }
+    const both = new Uint8Array(before.length + data.length);
+    both.set(before);
+    both.set(data, before.length);
+    await this.host.writeFile(path, both);
+  }
+
+  /** Rewrite this device's log with only the latest place per book and every other record. */
+  compactOwnLog(): Promise<void> {
+    return this.serialLog(async () => {
+      const me = await this.me();
+      const path = this.dir("positions", logName(me.id));
+      const text = new TextDecoder().decode(await this.host.readFile(path));
+      const { raw } = parseLog(text);
+      const kept = compact(raw);
+      if (kept.length === raw.length) return;
+      await this.host.writeFile(path, new TextEncoder().encode(kept.map((r) => encodeRecord(r)).join("")));
+    }).catch(() => undefined);
   }
 
   // Problems -----------------------------------------------------------

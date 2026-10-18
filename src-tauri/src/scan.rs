@@ -799,12 +799,29 @@ pub async fn mirror_write(root: String, library: Option<String>, files: Option<S
                     f.sync_all().map_err(|e| e.to_string())?;
                 }
             }
-            std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+            rename_retry(&tmp, &target).map_err(|e| e.to_string())?;
         }
         Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Rename a temp file over its target. Windows refuses while anyone has
+/// the target open (a reader, antivirus, a sync client) and that clears
+/// within milliseconds, so try a few times before giving up.
+fn rename_retry(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if tries < 7 && matches!(e.kind(), std::io::ErrorKind::PermissionDenied) || tries < 7 && e.raw_os_error() == Some(32) => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(15 * tries));
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// Write several small text files, each through a sibling temp file and
@@ -820,7 +837,7 @@ pub async fn write_text_files(files: Vec<TextFileAt>) -> Result<(), String> {
             }
             let tmp = target.with_extension(format!("{}.tmp", std::process::id()));
             std::fs::write(&tmp, f.text.as_bytes()).map_err(|e| format!("{}: {e}", tmp.display()))?;
-            std::fs::rename(&tmp, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+            rename_retry(&tmp, &target).map_err(|e| format!("{}: {e}", target.display()))?;
         }
         Ok(())
     })

@@ -25,6 +25,10 @@ export function browserHost(base = "/__ribbon"): Host {
       const r = await fetch(`${base}/file?path=${encodeURIComponent(path)}`, { method: "PUT", body: data as BodyInit });
       if (!r.ok) throw new Error(`writeFile ${path}: ${r.status}`);
     },
+    async appendFile(path: string, data: Uint8Array): Promise<void> {
+      const r = await fetch(`${base}/file?path=${encodeURIComponent(path)}&append=1`, { method: "PUT", body: data as BodyInit });
+      if (!r.ok) throw new Error(`appendFile ${path}: ${r.status}`);
+    },
     mkdir: (path) => call<void>("mkdir", { path }),
     remove: (path) => call<void>("remove", { path }),
     rename: (from, to) => call<void>("rename", { from, to }),

@@ -79,6 +79,8 @@ export interface Position {
   /** ISO 8601 with milliseconds and a trailing Z. */
   updatedAt: string;
   device: string;
+  /** What made the write: a pause, a seek, playing along (docs/POSITION-FORMAT.md). */
+  why?: "pause" | "seek" | "periodic" | "end" | "close" | "open" | "import" | "remote";
 }
 
 export interface Bookmark {

@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import { renameWithRetry } from "./retry";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile, spawn } from "node:child_process";
@@ -32,7 +33,10 @@ export function nodeHost(): Host {
     async writeFile(p: string, data: Uint8Array): Promise<void> {
       const tmp = `${p}.${process.pid}.${Date.now()}.tmp`;
       await fs.writeFile(tmp, data);
-      await fs.rename(tmp, p);
+      await renameWithRetry(() => fs.rename(tmp, p));
+    },
+    async appendFile(p: string, data: Uint8Array): Promise<void> {
+      await fs.appendFile(p, data);
     },
     async mkdir(p: string): Promise<void> {
       await fs.mkdir(p, { recursive: true });
