@@ -123,6 +123,12 @@ export interface Host {
    * pending, then finished files, each replacing its pending entry.
    */
   scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void, onFiles?: (files: ScannedFile[]) => void): Promise<ScanOutput>;
+  /**
+   * Search Audible's catalog by title and author, and give back its answer
+   * as JSON text. The catalog sends no CORS headers, so a page cannot ask
+   * it; the host does. Optional: hosts without network access leave it out.
+   */
+  catalogSearch?(title: string, author: string, region: string): Promise<string>;
   /** Every small text file in a directory, in one call. */
   readTextDir(dir: string): Promise<TextFile[]>;
   /**

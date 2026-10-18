@@ -1,4 +1,5 @@
 mod home;
+mod online;
 mod scan;
 mod tags;
 
@@ -68,6 +69,7 @@ pub fn run() {
             home::reset_home,
             home::app_settings_read,
             home::app_settings_write,
+            online::catalog_search,
             uptime_ms,
             env_library
         ])

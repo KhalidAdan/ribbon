@@ -134,6 +134,8 @@ export function devLibrary(root: string | undefined): Plugin {
               const out = await host.scan(inside(String(args.root)), (args.known as { path: string; sizeBytes: number; mtimeMs: number }[]) ?? []);
               return json(res, 200, out);
             }
+            case "catalog":
+              return json(res, 200, await host.catalogSearch!(String(args.title ?? ""), String(args.author ?? ""), String(args.region ?? "us")));
             case "readTextDir":
               return json(res, 200, await host.readTextDir(inside(String(args.dir ?? args.path))));
             case "run": {

@@ -1,4 +1,6 @@
 import { promises as fs } from "node:fs";
+import { catalogUrl } from "../core/chapternames";
+import type { Region } from "../core/audnexus";
 import { renameWithRetry } from "./retry";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -77,6 +79,11 @@ export function nodeHost(): Host {
       return os.hostname();
     },
     scan: (root, known, onProgress, onFiles) => scanWithFfprobe(host, root, known, onProgress, onFiles),
+    async catalogSearch(title: string, author: string, region: string): Promise<string> {
+      const r = await fetch(catalogUrl(title, author, region as Region), { headers: { accept: "application/json" } });
+      if (!r.ok) throw new Error(`catalog answered ${r.status}`);
+      return r.text();
+    },
     async writeTextFiles(files) {
       for (const f of files) {
         await fs.mkdir(path.dirname(f.path), { recursive: true });

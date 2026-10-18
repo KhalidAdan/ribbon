@@ -170,12 +170,12 @@ export function SettingsPane() {
         </section>
 
         <section aria-labelledby="settings-online" className="flex flex-col gap-4">
-          <SectionHeader id="settings-online" title="Online" description="The only thing Ribbon ever asks the internet, and only if you turn it on." />
-          <Group footer="Sends a book's title and author to Open Library once, in the background, and keeps the answer beside the book.">
+          <SectionHeader id="settings-online" title="Online" description="The only things Ribbon ever asks the internet, and only if you turn it on." />
+          <Group footer="Sends a book's title and author once, in the background: to Open Library for a description, and, for a book whose chapters are only numbered, to Audible's catalog and Audnexus for the names the publisher gave them. Names go on only when the count and the times match, and undo like any chapter change. Answers are kept beside the book.">
             <Row
-              title="Descriptions from Open Library"
+              title="Descriptions and chapter names"
               description={state.lookup.running ? `Asking about book ${state.lookup.done + 1} of ${state.lookup.total}…` : `${described.toLocaleString()} of ${state.books.length.toLocaleString()} books have a description.`}
-              aside={<Toggle label="Look up descriptions from Open Library" checked={state.lookup.enabled} onChange={(on) => void c.setLookup(on)} />}
+              aside={<Toggle label="Look up descriptions and chapter names online" checked={state.lookup.enabled} onChange={(on) => void c.setLookup(on)} />}
             />
           </Group>
         </section>

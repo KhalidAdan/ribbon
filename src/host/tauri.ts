@@ -131,6 +131,7 @@ export function tauriHost(): Host {
     readTextDir: (dir: string) => invoke<TextFile[]>("read_text_dir", { dir }),
     extractCover: (src: string, target: string) => invoke<boolean>("extract_cover", { src, target }),
     writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
+    catalogSearch: (title, author, region) => invoke<string>("catalog_search", { title, author, region }),
     recordsMirror: {
       read: (root) => invoke<{ dir: string; library: string; files: string; positions: string | null; covers: string[] } | null>("mirror_read", { root }),
       write: (root, parts) => invoke<void>("mirror_write", { root, library: parts.library ?? null, files: parts.files ?? null, positions: parts.positions ?? null }),
