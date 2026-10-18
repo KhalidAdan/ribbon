@@ -13,6 +13,7 @@ import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/e
 import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
 import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "../core/poslog";
 import { finishedByRead, openRead } from "../core/stats";
+import { chaptersUrl, parseChapters, type LookedUp, type Region } from "../core/audnexus";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
@@ -1351,6 +1352,27 @@ export class AppController {
   }
 
   // Chapter corrections -------------------------------------------------
+
+  /**
+   * Ask Audnexus for a book's chapters by its ASIN. Only when the
+   * listener asks; the ASIN is all that is sent. Throws a sentence when
+   * there is no answer worth using.
+   */
+  async lookupChapters(asin: string, region: Region): Promise<LookedUp> {
+    let r: Response;
+    try {
+      r = await fetch(chaptersUrl(asin, region), { headers: { accept: "application/json" } });
+    } catch (e) {
+      log.warn("chapter lookup failed:", describe(e));
+      throw new Error("Could not reach Audnexus. Check the connection and try again.");
+    }
+    if (r.status === 404) throw new Error("Audnexus has no chapters for that ASIN in this region.");
+    if (!r.ok) throw new Error(`Audnexus answered ${r.status}. Try again later.`);
+    const found = parseChapters(await r.json().catch(() => null));
+    if (!found) throw new Error("Audnexus has no chapters for that ASIN in this region.");
+    log.info("chapter lookup:", asin, region, found.chapters.length, "chapters");
+    return found;
+  }
 
   async correctChapters(corrections: Correction[]): Promise<void> {
     const cur = this.state.current;

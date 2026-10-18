@@ -463,7 +463,7 @@ export class LibraryService {
     await this.host.mkdir(this.dir("corrections"));
     await this.host.writeFile(this.dir("corrections", `${book.book.id}.csv`), await rowsToBytes(correctionsToRows(corrections), CORRECTION_HEADERS));
     const base = buildChapters(book.files);
-    const chapters = applyCorrections(base, corrections, book.book.durationMs).chapters;
+    const chapters = applyCorrections(base, corrections, book.book.durationMs, book.files).chapters;
     const { chaptersToBytes } = await import("../core/scan/records");
     await this.host.mkdir(this.dir("chapters"));
     await this.host.writeFile(this.dir("chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
