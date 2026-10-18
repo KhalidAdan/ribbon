@@ -53,6 +53,7 @@ const SCENES: Scene[] = [
   { name: "library-filtered", setup: `c.setView({ filter: { standing: ["started"], author: ["Dan Abnett"] }, sort: "listened", reverse: false })` },
   { name: "filter-panel", setup: `c.setView({ filter: { standing: ["started"] }, sort: "shelf", reverse: false }); await new Promise((r) => setTimeout(r, 100)); [...document.querySelectorAll("button")].find((b) => b.textContent.startsWith("Filter")).click()` },
   { name: "stats", setup: `c.showStats()` },
+  { name: "player-sleep", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: true }); await new Promise((r) => setTimeout(r, 200)); [...document.querySelectorAll("[role=group]")].find((e) => e.getAttribute("aria-label") === "Sleep timer")?.scrollIntoView({ block: "center" })` },
   { name: "chapter-tools", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: true }); c.setPlayerDrawer("chapters"); await new Promise((r) => setTimeout(r, 200)); [...document.querySelectorAll("dialog[open] button")].find((b) => b.textContent.trim() === "Edit").click()` },
   // States that are hard to reach on purpose, set straight on the controller.
   { name: "first-run", setup: `c.set({ phase: "pick" })` },

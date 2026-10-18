@@ -14,19 +14,22 @@ export function SleepControl() {
   const active = s.state.mode !== null;
   const left = s.state.mode?.kind === "chapter" ? "At the end of this chapter" : s.remainingMs !== null ? `${formatDuration(s.remainingMs)} left` : "On";
 
+  // Stacked, not side by side: five choices beside a sentence squeezed it to a word a line.
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <MoonIcon className={clsx("size-4 shrink-0", active ? "fill-ink" : "fill-ink-3")} aria-hidden="true" />
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <span className="flex h-lh shrink-0 items-center text-base/6 sm:text-sm/5" aria-hidden="true">
+          <MoonIcon className={clsx("size-4", active ? "fill-ink" : "fill-ink-3")} />
+        </span>
         <div className="min-w-0">
           <p className="text-base/6 font-medium text-ink sm:text-sm/5">Sleep timer</p>
-          <p className="text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5" aria-live="polite">
+          <p className="text-sm/5 text-pretty text-ink-2 tabular-nums sm:text-[0.8125rem]/5" aria-live="polite">
             {active ? `${left}${s.gain < 1 ? ", fading out" : ""}` : "Fades out, and stops at a chapter's end if you like."}
           </p>
         </div>
       </div>
       {active ? (
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1 pl-6">
           <Button size="sm" onClick={() => c.extendSleep(15 * 60_000)}>
             +15 min
           </Button>
@@ -35,14 +38,14 @@ export function SleepControl() {
           </Button>
         </div>
       ) : (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Sleep timer">
+        <div className="flex flex-wrap gap-1 pl-6" role="group" aria-label="Sleep timer">
           {MINUTES.map((m) => (
-            <Button key={m} size="sm" variant="ghost" onClick={() => c.startSleep({ kind: "duration", ms: m * 60_000 })} className="tabular-nums">
-              {m}m
+            <Button key={m} size="sm" onClick={() => c.startSleep({ kind: "duration", ms: m * 60_000 })} className="tabular-nums">
+              {m} min
             </Button>
           ))}
-          <Button size="sm" variant="ghost" onClick={() => c.startSleep({ kind: "chapter" })}>
-            Chapter end
+          <Button size="sm" onClick={() => c.startSleep({ kind: "chapter" })}>
+            End of chapter
           </Button>
         </div>
       )}
