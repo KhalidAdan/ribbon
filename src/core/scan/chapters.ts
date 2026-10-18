@@ -66,17 +66,61 @@ export type Correction =
   | { op: "rename"; index: number; title: string }
   | { op: "move"; index: number; startMs: number }
   | { op: "delete"; index: number }
-  | { op: "insert"; startMs: number; title: string };
+  | { op: "insert"; startMs: number; title: string }
+  /** Move this chapter's start and every later one's by the same amount. */
+  | { op: "shift"; index: number; deltaMs: number }
+  /** Name every chapter from a pattern: "Chapter {n}", "Part {nn}"; numbering starts at `from`. */
+  | { op: "titles"; pattern: string; from: number }
+  /** Start from nothing; the inserts that follow are the whole list (a lookup applied with its times). */
+  | { op: "clear" }
+  /** Start from one chapter per file, ignoring markers inside the files. */
+  | { op: "files" };
+
+/** A title from a pattern: {n} is the number, {nn} and {nnn} pad it. */
+export function patternTitle(pattern: string, n: number): string {
+  return pattern.replace(/\{(n+)\}/g, (_, ns: string) => String(n).padStart(ns.length, "0"));
+}
+
+/** One chapter per file, named as the files are, whatever markers they carry. */
+export function fileChapters(files: readonly AudioFile[]): Chapter[] {
+  return buildChapters(files.map((f) => ({ ...f, chapters: [] })));
+}
 
 export interface CorrectionReport {
   chapters: Chapter[];
   ignored: { correction: Correction; reason: string }[];
 }
 
-export function applyCorrections(chapters: readonly Chapter[], corrections: readonly Correction[], totalMs: number): CorrectionReport {
+export function applyCorrections(chapters: readonly Chapter[], corrections: readonly Correction[], totalMs: number, files: readonly AudioFile[] = []): CorrectionReport {
   let list = chapters.map((c) => ({ ...c }));
   const ignored: CorrectionReport["ignored"] = [];
   for (const c of corrections) {
+    if (c.op === "clear") {
+      list = [];
+      continue;
+    }
+    if (c.op === "files") {
+      if (files.length === 0) ignored.push({ correction: c, reason: "no files" });
+      else list = fileChapters(files);
+      continue;
+    }
+    if (c.op === "titles") {
+      list.forEach((ch, i) => (ch.title = patternTitle(c.pattern, c.from + i)));
+      continue;
+    }
+    if (c.op === "shift") {
+      if (!list[c.index]) {
+        ignored.push({ correction: c, reason: `no chapter at index ${c.index}` });
+        continue;
+      }
+      // The first chapter never starts before the book; a chapter pushed past the end goes.
+      for (let i = c.index; i < list.length; i++) list[i]!.startMs = Math.max(i === 0 ? 0 : 1, list[i]!.startMs + c.deltaMs);
+      list = reflow(
+        list.filter((ch) => ch.startMs < totalMs),
+        totalMs,
+      );
+      continue;
+    }
     if (c.op === "insert") {
       if (c.startMs < 0 || c.startMs >= totalMs) {
         ignored.push({ correction: c, reason: "start outside book" });
@@ -125,9 +169,9 @@ export const CORRECTION_HEADERS = ["op", "index", "start_ms", "title"];
 export function correctionsToRows(list: readonly Correction[]): Record<string, string>[] {
   return list.map((c) => ({
     op: c.op,
-    index: "index" in c ? String(c.index) : "",
-    start_ms: "startMs" in c ? String(c.startMs) : "",
-    title: "title" in c ? c.title : "",
+    index: "index" in c ? String(c.index) : "from" in c ? String(c.from) : "",
+    start_ms: "startMs" in c ? String(c.startMs) : "deltaMs" in c ? String(c.deltaMs) : "",
+    title: "title" in c ? c.title : "pattern" in c ? c.pattern : "",
   }));
 }
 
@@ -149,6 +193,18 @@ export function rowsToCorrections(rows: readonly Record<string, string>[]): Corr
         break;
       case "insert":
         if (Number.isFinite(startMs)) out.push({ op: "insert", startMs, title });
+        break;
+      case "shift":
+        if (Number.isInteger(index) && Number.isFinite(startMs)) out.push({ op: "shift", index, deltaMs: startMs });
+        break;
+      case "titles":
+        if (title) out.push({ op: "titles", pattern: title, from: Number.isInteger(index) ? index : 1 });
+        break;
+      case "clear":
+        out.push({ op: "clear" });
+        break;
+      case "files":
+        out.push({ op: "files" });
         break;
       default:
         break;

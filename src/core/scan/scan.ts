@@ -429,7 +429,7 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
 
   let chapters = buildChapters(files);
   const corrections = records.corrections.get(id) ?? [];
-  if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
+  if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs, files).chapters;
   const parts = buildParts(files);
 
   const book: Book = {
@@ -495,7 +495,7 @@ export async function ensureChapters(host: Host, root: string, book: ScannedBook
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
   let chapters = buildChapters(files);
   const corrections = await readCorrections(host, root, book.book.id);
-  if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs).chapters;
+  if (corrections.length > 0) chapters = applyCorrections(chapters, corrections, durationMs, files).chapters;
   let cover = book.book.cover;
   if (!cover && files.some((f) => f.hasCover)) {
     const candidate = `${RIBBON_DIR}/covers/${book.book.id}.jpg`;
