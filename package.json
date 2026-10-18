@@ -15,7 +15,8 @@
     "ribbon": "tsx tools/ribbon.ts",
     "fixtures": "tsx tools/make-fixtures.ts",
     "shots": "tsx tools/shots.ts",
-    "demo-library": "tsx tools/make-demo-library.ts"
+    "demo-library": "tsx tools/make-demo-library.ts",
+    "flows": "tsx tools/flows.ts"
   },
   "keywords": [],
   "author": "",

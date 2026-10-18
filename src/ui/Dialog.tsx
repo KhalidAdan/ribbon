@@ -21,10 +21,14 @@ export function Dialog({ open, onClose, title, description, children, hint, acti
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
+      onClose={(e) => {
+        // React passes a nested dialog's close up the tree; only our own closes us.
+        if (e.target === e.currentTarget) onClose();
+      }}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
+          e.stopPropagation();
           onClose();
         }
       }}
