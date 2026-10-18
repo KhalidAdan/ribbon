@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import { useEffect, useRef, type ReactNode } from "react";
 
 /**
@@ -5,7 +6,7 @@ import { useEffect, useRef, type ReactNode } from "react";
  * the body, and a footer with a hint on the left and the actions on the
  * right. Escape and the close event call onClose.
  */
-export function Dialog({ open, onClose, title, description, children, hint, actions, labelId }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode; hint?: ReactNode; actions: ReactNode; labelId: string }) {
+export function Dialog({ open, onClose, title, description, children, hint, actions, labelId, wide = false }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode; hint?: ReactNode; actions: ReactNode; labelId: string; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -28,7 +29,7 @@ export function Dialog({ open, onClose, title, description, children, hint, acti
         }
       }}
       aria-labelledby={labelId}
-      className="m-auto hidden max-h-[90dvh] w-[calc(100%-2rem)] max-w-xl flex-col rounded-[10px] bg-surface p-0 text-ink shadow-xl ring-1 ring-line backdrop:bg-black/50 open:flex starting:open:scale-[0.98] starting:open:opacity-0 transition-[scale,opacity] duration-150 ease-out dark:shadow-none dark:ring-line-strong"
+      className={clsx("m-auto hidden max-h-[90dvh] w-[calc(100%-2rem)] flex-col rounded-[10px] bg-surface p-0 text-ink shadow-xl ring-1 ring-line backdrop:bg-black/50 open:flex starting:open:scale-[0.98] starting:open:opacity-0 transition-[scale,opacity] duration-150 ease-out dark:shadow-none dark:ring-line-strong", wide ? "max-w-3xl" : "max-w-xl")}
     >
       <header className="shrink-0 px-5 pt-5">
         <h2 id={labelId} tabIndex={-1} data-autofocus className="text-base/6 font-semibold text-balance text-ink outline-none">

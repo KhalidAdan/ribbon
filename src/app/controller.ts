@@ -9,6 +9,7 @@ import { AboutLookup, type LookupStatus } from "./about";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { PositionKeeper, type KeeperStatus } from "./positions";
+import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/edits";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
@@ -139,6 +140,8 @@ export interface AppState {
   playerDrawer: "chapters" | "bookmarks" | "speed" | null;
   /** Where the open book's place is kept right now, for the player's footer. */
   placeKept: KeeperStatus | null;
+  /** The book whose details are open for editing, or null. */
+  editBook: string | null;
 }
 
 /**
@@ -174,6 +177,8 @@ interface Opened {
   books: ScannedBook[];
   /** Every position of this source's books, kept on this machine first and beside the books after. */
   keeper: PositionKeeper;
+  /** Hand edits to books' details, by book id. */
+  edits: Map<string, BookEdits>;
   /** Series keys whose record lives beside this source's books. */
   seriesKeys: Set<string>;
   assetsReady: boolean;
@@ -251,6 +256,7 @@ export class AppController {
       playerExpanded: false,
       playerDrawer: null,
       placeKept: null,
+      editBook: null,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -285,8 +291,16 @@ export class AppController {
     return this.state.sources.map((s) => this.opened.get(s.id)).filter((o): o is Opened => !!o);
   }
 
+  /** Mark books with their source and lay that source's hand edits over them. */
   private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
-    return books.map((b) => (b.source === o.source.id ? b : { ...b, source: o.source.id }));
+    return books.map((b) => {
+      const { original, edits: _was, ...rest } = b;
+      const base = original ?? b.book;
+      const e = o.edits.get(base.id);
+      const sourced = { ...rest, source: o.source.id };
+      if (!e) return original || b.source !== o.source.id ? { ...sourced, book: base } : b;
+      return { ...sourced, book: applyEdits(base, e.values), original: base, edits: e.values };
+    });
   }
 
   /** Every open source's books, in source order, and their positions; a duplicate id keeps its first book. */
@@ -459,6 +473,7 @@ export class AppController {
       source,
       lib,
       books: [],
+      edits: new Map(),
       keeper: new PositionKeeper({
         local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
         share: (p) => lib.writePositionRecord(p),
@@ -529,6 +544,7 @@ export class AppController {
         ]);
         if (!alive()) return;
         if (positions) this.takeSharePositions(o, positions);
+        await this.takeEdits(o);
         this.absorb(o, problems, series, about);
         this.publishBooks();
         void this.rescanSource(o, true);
@@ -574,6 +590,72 @@ export class AppController {
       this.pausedAt = Date.parse(p.updatedAt);
     }
     if (changed.length > 0) this.publishBooks();
+  }
+
+  /** Read a source's hand edits and lay them over its books. */
+  private async takeEdits(o: Opened): Promise<void> {
+    const edits = await o.lib.readAllEdits().catch((e: unknown) => {
+      log.warn("could not read the edits beside the books:", describe(e));
+      return null;
+    });
+    if (!edits || this.opened.get(o.source.id) !== o) return;
+    o.edits = edits;
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
+  }
+
+  /**
+   * Save what the edit form says about a book. Only fields that differ
+   * from the files are kept; a field set back to the files' value stops
+   * being an edit. Nothing in the audio files changes.
+   */
+  async saveEdits(bookId: string, form: Partial<Record<EditField, string>>): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    const previous = o.edits.get(bookId)?.values ?? {};
+    const values = diffEdits(b.original ?? b.book, form, previous);
+    const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(edits);
+    if (Object.keys(values).length === 0) o.edits.delete(bookId);
+    else o.edits.set(bookId, edits);
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
+    if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
+    log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+  }
+
+  openEditBook(bookId: string): void {
+    this.set({ editBook: bookId });
+  }
+
+  closeEditBook(): void {
+    this.set({ editBook: null });
+  }
+
+  /** Use an image the listener chose as the book's cover; it is copied beside the books. */
+  async setCover(bookId: string, bytes: Uint8Array, ext: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    const path = await o.lib.writeEditedCover(bookId, bytes, ext);
+    await this.saveEdits(bookId, { cover: path });
+  }
+
+  /** Take back hand edits: one field, or all of them. */
+  async resetEdits(bookId: string, field?: EditField): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    const values = { ...(o.edits.get(bookId)?.values ?? {}) };
+    if (field) delete values[field];
+    const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(edits);
+    if (Object.keys(edits.values).length === 0) o.edits.delete(bookId);
+    else o.edits.set(bookId, edits);
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
+    if (!field || field === "cover") void this.mirrorCoversFor(o);
   }
 
   /** Records read beside one source's books, merged into the shelf. */
@@ -650,8 +732,10 @@ export class AppController {
       log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
       for (const e of result.errors) log.warn("scan:", source.name, e.path, e.message);
       await positionsReady;
+      const edits = await lib.readAllEdits().catch(() => null);
       if (!alive()) return;
-      o.books = books;
+      if (edits) o.edits = edits;
+      o.books = this.stamp(o, books);
       o.scanning = null;
       const elapsed = Date.now() - started;
       // Every scan is a full walk, so its errors are the whole current list for this source.

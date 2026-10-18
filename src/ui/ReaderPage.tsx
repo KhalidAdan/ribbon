@@ -167,6 +167,7 @@ export function ReaderPage() {
                 title={book.book.title}
                 align="left"
                 items={[
+                  { label: "Edit details and cover…", onSelect: () => c.openEditBook(book.book.id) },
                   ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
                   ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
                 ]}
