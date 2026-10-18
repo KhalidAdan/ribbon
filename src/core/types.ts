@@ -84,9 +84,13 @@ export interface Position {
 }
 
 export interface Bookmark {
+  /** The `mark` record's id in the position log (docs/POSITION-FORMAT.md). */
+  id: string;
   bookId: string;
   offsetMs: number;
   createdAt: string;
+  /** When the note last changed, if it has. */
+  modifiedAt?: string;
   note: string;
   /** Filename of the audio clip beside the bookmark row, or empty. */
   clip: string;

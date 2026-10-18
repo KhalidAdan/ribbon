@@ -7,6 +7,7 @@ import { analyzeBook } from "../src/app/jobs";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 import type { ScannedBook } from "../src/core/scan/scan";
 import { TARGET_LUFS } from "../src/core/loudness";
+import { markId } from "../src/core/bookmarks";
 
 const lib = new LibraryService(nodeHost(), FIXTURE_ROOT);
 let books: ScannedBook[];
@@ -58,15 +59,18 @@ describe("settings", () => {
 });
 
 describe("bookmarks", () => {
-  it("adds a bookmark with a clip and removes it with the clip", async () => {
+  it("cuts a clip, keeps the CSV for earlier versions, and removes the clip", async () => {
     const b = find("single-m4b");
-    const bm = await lib.addBookmark(b, 4500, "a note, with comma");
-    expect(bm.clip).toBe(`clips/${b.book.id}-4500.opus`);
+    const clip = await lib.cutClip(b, 4500);
+    expect(clip).toBe(`clips/${b.book.id}-4500.opus`);
     const clipPath = path.join(FIXTURE_ROOT, ".ribbon", "bookmarks", "clips", `${b.book.id}-4500.opus`);
     const st = await fs.stat(clipPath);
     expect(st.size).toBeGreaterThan(100);
+    const bm = { id: markId(b.book.id, 4500), bookId: b.book.id, offsetMs: 4500, createdAt: "2026-10-18T12:00:00.000Z", note: "a note, with comma", clip };
+    await lib.writeBookmarks(b.book.id, [bm]);
     expect(await lib.readBookmarks(b.book.id)).toEqual([bm]);
-    await lib.removeBookmark(b.book.id, 4500);
+    await lib.removeClip(clip);
+    await lib.writeBookmarks(b.book.id, []);
     expect(await lib.readBookmarks(b.book.id)).toEqual([]);
     await expect(fs.stat(clipPath)).rejects.toThrow();
   });
@@ -74,8 +78,7 @@ describe("bookmarks", () => {
   it("clips inside the right file of a multi-file book", async () => {
     const b = find("multi-mp3");
     const secondFileStart = b.files[0]!.durationMs;
-    const bm = await lib.addBookmark(b, secondFileStart + 500, "");
-    expect(bm.clip).not.toBe("");
+    expect(await lib.cutClip(b, secondFileStart + 500)).not.toBe("");
   });
 });
 

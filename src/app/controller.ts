@@ -19,7 +19,7 @@ import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from ".
 import { resumePosition, rewindFor } from "../core/resume";
 import { snapSpeed } from "../core/speed";
 import { defaultSettings } from "../core/settings";
-import { clipRange } from "../core/bookmarks";
+import { bookmarksOf, clipRange, markFields, markId, type MarkFields } from "../core/bookmarks";
 import { chapterAt } from "../core/scan/chapters";
 import { partAt } from "../core/scan/parts";
 import * as sleep from "../core/sleep";
@@ -158,6 +158,7 @@ function sameRecord(a: LogRecord, b: LogRecord): boolean {
   if (a.k === "read" && b.k === "read") return a.id === b.id && a.finished === b.finished && a.started === b.started;
   if (a.k === "del" && b.k === "del") return a.of === b.of;
   if (a.k === "session" && b.k === "session") return a.start === b.start;
+  if (a.k === "mark" && b.k === "mark") return a.id === b.id && a.modified === b.modified && a.body === b.body;
   return false;
 }
 
@@ -225,6 +226,8 @@ export class AppController {
   private openSeq = 0;
   /** Sequence for history shown before the log is read back; only ever increases. */
   private localSeq = 0;
+  /** Rows of each book's bookmarks CSV, by book id, once read. */
+  private bookmarkRows = new Map<string, Bookmark[]>();
   /** The stretch of playing going on now, for the session record. */
   private listening: { bookId: string; start: number; fromMs: number; speed: number } | null = null;
   private lastWrite = 0;
@@ -1005,7 +1008,7 @@ export class AppController {
       });
     const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
       quiet("settings", lib.readSettings(id), defaultSettings(id)),
-      quiet("bookmarks", lib.readBookmarks(id), [] as Bookmark[]),
+      quiet("bookmarks", this.loadBookmarks(id), [] as Bookmark[]),
       quiet("loudness", lib.readLoudness(id), null),
       quiet("silence", lib.readSilence(id), null),
       quiet("corrections", lib.readCorrections(id), [] as Correction[]),
@@ -1307,13 +1310,41 @@ export class AppController {
 
   // Bookmarks -----------------------------------------------------------
 
+  /** Bookmark the place in the open book. */
   async addBookmark(note: string): Promise<void> {
     const cur = this.state.current;
-    const lib = cur && this.libOf(cur.book);
-    if (!cur || !lib || !this.engine) return;
-    const bm = await lib.addBookmark(cur.book, this.engine.positionMs(), note);
-    const bookmarks = [...cur.bookmarks, bm].sort((a, b) => a.offsetMs - b.offsetMs);
-    this.set({ current: { ...this.state.current!, bookmarks } });
+    if (!cur || !this.engine) return;
+    await this.addBookmarkAt(cur.book.book.id, this.engine.positionMs(), note);
+  }
+
+  /**
+   * Add a bookmark: cut its clip, write its `mark` to the log (shown at
+   * once), and write the book's bookmarks CSV for earlier versions.
+   */
+  async addBookmarkAt(bookId: string, offsetMs: number, note: string): Promise<Bookmark | null> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!b || !lib) return null;
+    if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
+    const ms = Math.max(0, Math.round(offsetMs));
+    const clip = await lib.cutClip(b, ms).catch((e: unknown) => {
+      log.warn("could not cut a bookmark's clip:", describe(e));
+      return "";
+    });
+    const bm: Bookmark = { id: markId(bookId, ms), bookId, offsetMs: ms, createdAt: new Date().toISOString(), note, clip };
+    await this.writeHistory(bookId, markFields(bm), bm.createdAt);
+    await this.writeBookmarkRows(bookId);
+    return bm;
+  }
+
+  /** Change a bookmark's note. */
+  async editBookmark(bookId: string, id: string, note: string): Promise<void> {
+    if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
+    const bm = this.bookmarksFor(bookId).find((x) => x.id === id);
+    if (!bm || bm.note === note) return;
+    const modifiedAt = new Date().toISOString();
+    await this.writeHistory(bookId, markFields({ ...bm, note, modifiedAt }), modifiedAt);
+    await this.writeBookmarkRows(bookId);
   }
 
   /**
@@ -1335,13 +1366,61 @@ export class AppController {
     await this.engine.play();
   }
 
-  async removeBookmark(offsetMs: number): Promise<void> {
+  /** Delete a bookmark: a `del` in the log, then its clip and its CSV row. */
+  async removeBookmark(bookId: string, id: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!b || !lib) return;
+    if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
+    const bm = this.bookmarksFor(bookId).find((x) => x.id === id);
+    if (!bm) return;
+    if (this.state.current?.book.book.id === bookId && this.state.previewing === bm.offsetMs) this.pause();
+    await this.writeHistory(bookId, { k: "del", of: id });
+    await lib.removeClip(bm.clip);
+    await this.writeBookmarkRows(bookId);
+  }
+
+  /** A book's bookmarks, read again from its CSV and merged with the log as read so far. */
+  async loadBookmarks(bookId: string): Promise<Bookmark[]> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!lib) return [];
+    this.bookmarkRows.set(bookId, await lib.readBookmarks(bookId));
+    return this.bookmarksFor(bookId);
+  }
+
+  /** A book's bookmarks: the marks in its source's log merged with its CSV rows. */
+  bookmarksFor(bookId: string): Bookmark[] {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return [];
+    return bookmarksOf(o.log, { id: bookId, claims: claimsFor(b.original ?? b.book) }, this.bookmarkRows.get(bookId) ?? []);
+  }
+
+  /**
+   * The bookmarks CSV, rewritten as this device sees them, so Ribbon 0.4
+   * on other machines keeps working. Only once its rows have been read,
+   * so a CSV that could not be read is never written over.
+   */
+  private async writeBookmarkRows(bookId: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!lib || !this.bookmarkRows.has(bookId)) return;
+    const list = this.bookmarksFor(bookId);
+    try {
+      await lib.writeBookmarks(bookId, list);
+      this.bookmarkRows.set(bookId, list);
+    } catch (e) {
+      log.warn("could not write bookmarks beside the books:", describe(e));
+    }
+  }
+
+  /** The open book's bookmarks, again from the log, when they changed. */
+  private refreshBookmarks(): void {
     const cur = this.state.current;
-    const lib = cur && this.libOf(cur.book);
-    if (!cur || !lib) return;
-    if (this.state.previewing === offsetMs) this.pause();
-    await lib.removeBookmark(cur.book.book.id, offsetMs);
-    this.set({ current: { ...this.state.current!, bookmarks: cur.bookmarks.filter((b) => b.offsetMs !== offsetMs) } });
+    if (!cur) return;
+    const bookmarks = this.bookmarksFor(cur.book.book.id);
+    if (JSON.stringify(bookmarks) !== JSON.stringify(cur.bookmarks)) this.set({ current: { ...cur, bookmarks } });
   }
 
   bookmarkClipUrl(bm: Bookmark): string | null {
@@ -1436,14 +1515,18 @@ export class AppController {
       sessions.push(r);
     }
     this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions } });
+    this.refreshBookmarks();
   }
 
-  /** Write a history record to the log of the book's source, and show it at once. */
-  private async writeHistory(bookId: string, r: { k: "read"; id: string; started: string; finished?: string } | { k: "del"; of: string } | Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" }): Promise<void> {
+  /** Write a history record or a mark to the log of the book's source, and show it at once. */
+  private async writeHistory(
+    bookId: string,
+    r: { k: "read"; id: string; started: string; finished?: string } | { k: "del"; of: string } | MarkFields | (Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" }),
+    t = new Date().toISOString(),
+  ): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const t = new Date().toISOString();
     const book = { ids: claimsFor(b.original ?? b.book), dur_ms: b.book.durationMs };
     // Shown at once; the next read of the log replaces it with what was written.
     this.localSeq = Math.max(this.localSeq + 1, Date.now());
