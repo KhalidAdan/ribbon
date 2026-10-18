@@ -58,6 +58,14 @@ export interface Book {
   series: string;
   seriesIndex: number | null;
   year: number | null;
+  /** What the files and the side files say beyond the basics. Empty when they say nothing. */
+  subtitle?: string;
+  genres?: string[];
+  publisher?: string;
+  description?: string;
+  language?: string;
+  isbn?: string;
+  asin?: string;
   /** Library-relative path to the cover image, or empty. */
   cover: string;
   durationMs: number;

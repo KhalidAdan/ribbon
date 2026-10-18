@@ -13,7 +13,7 @@ import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
 import { tintFromImage } from "./tint";
 import { progressOf as progressIn } from "./progress";
-import { Menu, ProgressLine, SectionHeader } from "./kit";
+import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -76,7 +76,9 @@ export function ReaderPage() {
   const shelfIds = orderedIds.filter((id) => !hidden.has(id));
   const nextId = index >= 0 ? orderedIds.slice(index + 1).find((id) => !hidden.has(id)) : undefined;
   const next = nextId ? byId.get(nextId) : undefined;
+  // What the files say about the book comes first; Open Library only fills a gap.
   const about = c.aboutFor(book);
+  const description = book.book.description || about?.description || "";
   const chapterNow = chapterAt(book.chapters, me.posMs);
   // An anthology counts in stories where a novel counts in chapters.
   const stories = book.parts;
@@ -109,6 +111,8 @@ export function ReaderPage() {
     { term: "Length", value: formatLeft(book.book.durationMs) },
     stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) },
     ...(book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
+    ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
+    ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     { term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) },
   ];
 
@@ -127,10 +131,21 @@ export function ReaderPage() {
               </p>
             )}
             <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{book.book.title}</h1>
+            {book.book.subtitle && <p className="mt-1 font-serif text-xl/7 text-pretty text-ink-2">{book.book.subtitle}</p>}
             <p className="mt-2 text-base/6 text-ink-2">
               {book.book.author || "Author unknown"}
               {book.book.narrator ? `, read by ${book.book.narrator}` : ""}
             </p>
+
+            {book.book.genres && book.book.genres.length > 0 && (
+              <ul role="list" className="mt-4 flex flex-wrap gap-1.5" aria-label="Genres">
+                {book.book.genres.slice(0, 6).map((g) => (
+                  <li key={g}>
+                    <Badge>{g}</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             <p className="mt-6 max-w-[52ch] border-l border-line-strong pl-3 text-base/6 text-pretty text-ink tabular-nums sm:text-[0.9375rem]/6">{sentence}</p>
             {me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
@@ -168,8 +183,8 @@ export function ReaderPage() {
             </dl>
 
             <div className="mt-8">
-              {about ? (
-                <p className="max-w-[65ch] text-base/7 text-pretty whitespace-pre-line text-ink-2 sm:text-[0.9375rem]/7">{about.description}</p>
+              {description ? (
+                <p className="max-w-[65ch] text-base/7 text-pretty whitespace-pre-line text-ink-2 sm:text-[0.9375rem]/7">{description}</p>
               ) : (
                 <p className="max-w-[60ch] text-base/6 text-pretty text-ink-3 sm:text-sm/6">
                   No description yet.{state.lookup.enabled ? " Ribbon is asking Open Library about your books in the background." : " Turn on descriptions in Settings and Ribbon will ask Open Library."}
@@ -273,3 +288,17 @@ function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: numb
     </li>
   );
 }
+
+/** "en", "eng" or "English" as a name people read. */
+function languageName(code: string): string {
+  const c = code.trim();
+  if (c.length > 3) return c;
+  try {
+    return new Intl.DisplayNames(undefined, { type: "language" }).of(c.length === 3 ? (ISO3[c.toLowerCase()] ?? c) : c) ?? c;
+  } catch {
+    return c;
+  }
+}
+
+/** The three-letter codes audiobook tags use most, to their two-letter forms. */
+const ISO3: Record<string, string> = { eng: "en", deu: "de", ger: "de", fra: "fr", fre: "fr", spa: "es", ita: "it", jpn: "ja", nld: "nl", dut: "nl", por: "pt", rus: "ru", pol: "pl", swe: "sv", nor: "no", dan: "da", fin: "fi", zho: "zh", chi: "zh" };

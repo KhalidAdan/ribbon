@@ -52,7 +52,19 @@ const BATCH_WAIT: Duration = Duration::from_millis(250);
 const KEEP_TAGS: &[&str] = &[
     "title", "artist", "album", "album_artist", "albumartist", "author", "composer", "narrator", "performer", "series", "series-part", "series_part",
     "seriespart", "mvnm", "mvin", "grouping", "show", "part", "date", "year", "originaldate", "track", "tracknumber", "disc", "discnumber", "disk",
+    "subtitle", "genre", "publisher", "label", "organization", "description", "desc", "ldes", "comment", "synopsis", "language", "lang", "isbn", "asin",
+    "audible_asin", "audible asin", "copyright",
 ];
+
+/// The small files people keep beside a book: Audiobookshelf's and
+/// Calibre's metadata.opf, desc.txt and reader.txt. Read whole; they are
+/// a few kilobytes and there is at most a handful per book.
+fn is_side_file(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n == "desc.txt" || n == "description.txt" || n == "reader.txt" || n.ends_with(".opf")
+}
+
+const SIDE_FILE_MAX: u64 = 256 * 1024;
 /// Scan batches go to the webview as events. Events ride the same
 /// ordered script queue as the command's reply, and on WebView2 that is
 /// several times faster than the fetch path a large `Channel` message
@@ -239,6 +251,8 @@ pub fn walk(root: &Path) -> Vec<Entry> {
                     "audio"
                 } else if IMAGE.contains(&ext.as_str()) {
                     "image"
+                } else if is_side_file(&name) {
+                    "text"
                 } else {
                     continue;
                 };
@@ -273,6 +287,8 @@ fn id3_key(id: &str) -> Option<&'static str> {
         "TIT1" => "grouping",
         "TIT3" => "subtitle",
         "TPUB" => "publisher",
+        "TLAN" => "language",
+        "TCOP" => "copyright",
         _ => return None,
     })
 }
@@ -290,6 +306,9 @@ fn read_id3(tag: &Id3v2Tag, out: &mut Probed) {
                 if let Some(k) = id3_key(frame.id().as_str()) {
                     put(&mut out.tags, k, &t.timestamp.to_string());
                 }
+            }
+            Frame::Comment(c) if c.description.is_empty() || c.description.eq_ignore_ascii_case("description") => {
+                put(&mut out.tags, if c.description.is_empty() { "comment" } else { "description" }, &c.content)
             }
             Frame::Picture(_) => out.has_cover = true,
             _ => {}
@@ -312,6 +331,11 @@ fn mp4_key(fourcc: &str) -> Option<&'static str> {
         "\u{a9}mvi" => "mvin",
         "tvsh" => "show",
         "\u{a9}pub" => "publisher",
+        "desc" => "desc",
+        "ldes" => "ldes",
+        "\u{a9}des" => "description",
+        "\u{a9}cmt" => "comment",
+        "cprt" => "copyright",
         _ => return None,
     })
 }
@@ -432,6 +456,11 @@ pub fn probe_lofty(path: &Path) -> Probed {
                             ItemKey::DiscNumber => "disc",
                             ItemKey::Year | ItemKey::RecordingDate => "date",
                             ItemKey::Genre => "genre",
+                            ItemKey::Comment => "comment",
+                            ItemKey::Description => "description",
+                            ItemKey::Publisher | ItemKey::Label => "publisher",
+                            ItemKey::Language => "language",
+                            ItemKey::TrackSubtitle => "subtitle",
                             _ => continue,
                         };
                         if let Some(text) = item.value().text() {
@@ -570,6 +599,12 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
                 cover: None,
                 chapters_known: false,
             };
+            if e.kind == "text" && e.size <= SIDE_FILE_MAX {
+                if let Ok(text) = std::fs::read(&e.abs) {
+                    file.tags.insert("text".to_string(), String::from_utf8_lossy(&text).into_owned());
+                    file.fresh = true;
+                }
+            }
             if e.kind == "audio" {
                 let unchanged = known.get(&rel).map(|(s, m)| *s == e.size && (*m - e.mtime_ms).abs() <= 1000).unwrap_or(false);
                 if unchanged {

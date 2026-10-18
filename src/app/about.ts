@@ -35,7 +35,8 @@ export class AboutLookup {
 
   async run(books: readonly ScannedBook[], existing: Map<string, BookAbout>, onProgress: (about: BookAbout | null, status: LookupStatus) => void): Promise<void> {
     if (this.abort) return;
-    const todo = books.filter((b) => needsLookup(existing.get(b.book.id)));
+    // A book whose files already describe it needs nothing from the internet.
+    const todo = books.filter((b) => !b.book.description && needsLookup(existing.get(b.book.id)));
     if (todo.length === 0) return;
     const abort = new AbortController();
     this.abort = abort;
