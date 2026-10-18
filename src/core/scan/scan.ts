@@ -78,6 +78,12 @@ const PUBLISH_INTERVAL_MS = 120;
 /** Everything on disk from the last scan, read once up front. */
 interface Records {
   previous: Map<string, AudioFile>;
+  /**
+   * True when every file's tags are to be read again (records written
+   * before the scan kept the details). `previous` still holds what was
+   * known, so the shelf keeps showing it while the files are read.
+   */
+  reread: boolean;
   previousBooks: Map<string, Book>;
   corrections: Map<string, Correction[]>;
   filesCsv: Uint8Array | null;
@@ -108,7 +114,8 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   for (const path of [...records.previous.keys()]) if (forgotten(path)) records.previous.delete(path);
   // Anthology files recorded before stories had names are read again so theirs can be.
   for (const path of unnamedStories(records.previous)) records.previous.delete(path);
-  const known =[...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  // Nothing counts as known when every file is to be read again.
+  const known = records.reread ? [] : [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,
   // and the pipeline folds them into the arrived set, rebuilds the shelf
@@ -370,6 +377,12 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     }
     if (s.pending) {
       pending++;
+      // Being read again: until it is, it is what it was, length and chapters included.
+      const was = records.previous.get(entry.relPath);
+      if (was) {
+        files.push({ ...was, ...story, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs });
+        continue;
+      }
       files.push({ path: entry.relPath, order: 0, durationMs: 0, sizeBytes: entry.sizeBytes, mtimeMs: entry.mtimeMs, title: "", ...story, disc: 1, track: 0, hasCover: false, coverFile: "", chapters: [], chaptersProbed: false });
       continue;
     }
@@ -529,9 +542,11 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
   ]);
   const previous = new Map<string, AudioFile>();
   // Records from before the scan kept descriptions, genres and the rest
-  // carry none of them: read every file's tags once more, this once.
+  // carry none of them: read every file's tags once more, this once. What
+  // they do say (lengths, chapters) still shows until each file is read.
   const detailed = !libraryCsv || new TextDecoder().decode(libraryCsv.subarray(0, 512)).split("\n", 1)[0]!.includes(LIBRARY_DETAIL_COLUMN);
-  if (filesCsv && detailed) {
+  const reread = !!filesCsv && !detailed;
+  if (filesCsv) {
     try {
       for (const list of (await bytesToFiles(filesCsv)).values()) for (const f of list) previous.set(f.path, f);
     } catch {
@@ -556,7 +571,7 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* ignore */
     }
   }
-  return { previous, previousBooks, corrections, filesCsv, libraryCsv };
+  return { previous, reread, previousBooks, corrections, filesCsv, libraryCsv };
 }
 
 /**

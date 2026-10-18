@@ -139,7 +139,13 @@ describe("a scan with side files", () => {
       .map((line) => line.split(",").slice(0, 13).join(","))
       .join("\n");
     await fs.writeFile(path.join(recordsDir, "library.csv"), old);
-    const again = await scanLibrary(nodeHost(), root);
+    const known = (await scanLibrary(nodeHost(), root)).books[0]!.book;
+    await fs.writeFile(path.join(recordsDir, "library.csv"), old);
+    // While the file is read again, the shelf keeps showing what was known: never a length of zero.
+    const interim: number[] = [];
+    const again = await scanLibrary(nodeHost(), root, { onBooks: (books) => books.forEach((b) => interim.push(b.book.durationMs)) });
+    expect(interim.length).toBeGreaterThan(0);
+    expect(interim.every((ms) => ms === known.durationMs)).toBe(true);
     expect(again.probed).toBe(1);
     expect(again.books[0]!.book.publisher).toBe("Macmillan Audio");
     const third = await scanLibrary(nodeHost(), root);
