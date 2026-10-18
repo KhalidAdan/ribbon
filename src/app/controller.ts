@@ -10,6 +10,7 @@ import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { PositionKeeper, type KeeperStatus } from "./positions";
 import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/edits";
+import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
@@ -142,6 +143,8 @@ export interface AppState {
   placeKept: KeeperStatus | null;
   /** The book whose details are open for editing, or null. */
   editBook: string | null;
+  /** How the shelf is filtered and sorted; remembered between sessions. */
+  view: LibraryView;
 }
 
 /**
@@ -257,6 +260,7 @@ export class AppController {
       playerDrawer: null,
       placeKept: null,
       editBook: null,
+      view: DEFAULT_VIEW,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -368,7 +372,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true } });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView) });
     }
     const asked = performance.now();
     void this.platform.uptimeMs?.().then((ms) => {
@@ -623,6 +627,13 @@ export class AppController {
     this.publishBooks();
     if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
     log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+  }
+
+  /** Filter and sort the shelf, and remember it for next time. */
+  setView(view: LibraryView): void {
+    this.set({ view });
+    this.appSettings = { ...this.appSettings, libraryView: view };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
   }
 
   openEditBook(bookId: string): void {
