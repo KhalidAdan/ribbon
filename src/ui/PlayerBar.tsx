@@ -52,11 +52,10 @@ export function PlayerBar() {
           <button
             type="button"
             onClick={() => c.togglePlay()}
-            aria-label={p.playing ? "Pause" : "Play"}
-            disabled={p.error !== null}
+            aria-label={p.playing || p.reconnecting ? "Pause" : "Play"}
             className="flex size-10 items-center justify-center rounded-full bg-amber-500 text-neutral-950 hover:bg-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:opacity-50 dark:bg-amber-400 dark:hover:bg-amber-300"
           >
-            {p.playing ? <PauseIcon className="size-5 fill-current" /> : <PlayIcon className="size-5 translate-x-px fill-current" />}
+            {p.playing || p.reconnecting ? <PauseIcon className="size-5 fill-current" /> : <PlayIcon className="size-5 translate-x-px fill-current" />}
           </button>
           <Button icon size="sm" variant="ghost" aria-label="Forward 30 seconds" onClick={() => c.skip(30_000)}>
             <ForwardIcon className="size-4 fill-current" />

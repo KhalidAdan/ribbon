@@ -69,13 +69,7 @@ function Ready() {
   const c = useController();
   useKeys(c);
 
-  useEffect(() => {
-    const onUnload = () => {
-      if (c.getState().player.playing) c.pause();
-    };
-    window.addEventListener("beforeunload", onUnload);
-    return () => window.removeEventListener("beforeunload", onUnload);
-  }, [c]);
+  useEffect(() => c.installLifecycle(), [c]);
 
   if (state.phase === "boot") return null;
   if (state.phase === "pick") return <PickLibrary />;

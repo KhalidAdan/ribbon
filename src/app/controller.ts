@@ -8,10 +8,12 @@ import { sameRoot, sourceFrom, type Source, type SourceEntry } from "../core/sou
 import { AboutLookup, type LookupStatus } from "./about";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
+import { PositionKeeper } from "./positions";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
 import { snapSpeed } from "../core/speed";
+import { defaultSettings } from "../core/settings";
 import { clipRange } from "../core/bookmarks";
 import { chapterAt } from "../core/scan/chapters";
 import { partAt } from "../core/scan/parts";
@@ -41,6 +43,11 @@ export interface Platform {
     read(): Promise<Record<string, unknown>>;
     write(settings: Record<string, unknown>): Promise<void>;
   };
+  /**
+   * Run `flush` before the window closes, and wait for it. Returns an
+   * unsubscribe. Hosts without a window of their own leave it out.
+   */
+  onWindowClose?: (flush: () => Promise<void>) => () => void;
   /** The one folder the app owns on this machine, when there is one. */
   home?: {
     path(): Promise<string>;
@@ -155,14 +162,16 @@ function describe(e: unknown): string {
 
 const SKIP_BACK_MS = 30_000;
 const SKIP_FORWARD_MS = 30_000;
-const POSITION_WRITE_INTERVAL_MS = 5_000;
+/** How often a playing book hands its place to the keeper, which throttles the writes. */
+const POSITION_WRITE_INTERVAL_MS = 1_000;
 
 /** One source, open: its records service and everything the shelf needs from it. */
 interface Opened {
   source: Source;
   lib: LibraryService;
   books: ScannedBook[];
-  positions: Map<string, Position>;
+  /** Every position of this source's books, kept on this machine first and beside the books after. */
+  keeper: PositionKeeper;
   /** Series keys whose record lives beside this source's books. */
   seriesKeys: Set<string>;
   assetsReady: boolean;
@@ -184,6 +193,8 @@ export class AppController {
   private jobs: JobQueue;
   private engine: PlayerEngine | null = null;
   private pausedAt: number | null = null;
+  /** Bumped by every openBook, so a slow open that lost the race stops. */
+  private openSeq = 0;
   private lastWrite = 0;
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
@@ -214,6 +225,7 @@ export class AppController {
         chapterIndex: -1,
         skippingGap: false,
         gain: 1,
+        reconnecting: false,
         error: null,
       },
       sleep: { state: sleep.IDLE, gain: 1, remainingMs: null },
@@ -288,7 +300,7 @@ export class AppController {
         }
         seen.add(id);
         books.push(b);
-        positions[id] = o.positions.get(id) ?? this.state.positions[id] ?? null;
+        positions[id] = o.keeper.get(id) ?? this.state.positions[id] ?? null;
       }
     }
     // Keep the open book's live object if it still exists.
@@ -444,7 +456,11 @@ export class AppController {
       source,
       lib,
       books: [],
-      positions: new Map(),
+      keeper: new PositionKeeper({
+        local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
+        share: (p) => lib.writePositionRecord(p),
+        log: (m) => log.warn(source.name + ":", m),
+      }),
       seriesKeys: new Set(),
       assetsReady: false,
       scanning: null,
@@ -485,7 +501,7 @@ export class AppController {
         const extras = await lib.readMirrorExtras();
         o.mirrorCovers = extras.covers;
         o.mirrorCoversDir = extras.coversDir;
-        o.positions = extras.positions;
+        o.keeper.absorb(extras.positions.values(), { fromLocal: true });
         o.books = this.stamp(o, cached);
         mark("positions");
         if (!alive()) return;
@@ -496,9 +512,17 @@ export class AppController {
         // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
         await allowed;
         await migrate();
-        const [positions, problems, series, about] = await Promise.all([lib.readAllPositions(), lib.readProblems(), lib.readSeries(), lib.readAbout()]);
+        const [positions, problems, series, about] = await Promise.all([
+          lib.readAllPositions().catch((e: unknown) => {
+            log.warn("could not read positions beside the books; using the ones kept here:", describe(e));
+            return null;
+          }),
+          lib.readProblems().catch(() => []),
+          lib.readSeries().catch(() => new Map<string, SeriesRecord>()),
+          lib.readAbout().catch(() => new Map<string, BookAbout>()),
+        ]);
         if (!alive()) return;
-        o.positions = positions;
+        if (positions) this.takeSharePositions(o, positions);
         this.absorb(o, problems, series, about);
         this.publishBooks();
         void this.rescanSource(o, true);
@@ -521,6 +545,29 @@ export class AppController {
       }
       throw e;
     }
+  }
+
+  /**
+   * Positions read beside the books: newest wins against what is kept
+   * here, and anything newer here goes back to the share. A read that
+   * started before a write landed can never move a book backwards.
+   */
+  private takeSharePositions(o: Opened, share: Map<string, Position>): void {
+    if (this.opened.get(o.source.id) !== o) return;
+    const changed = o.keeper.absorb(share.values());
+    o.keeper.reconcile(share);
+    // The open book, paused here, was listened to somewhere else since:
+    // move to where that left off, so pressing play here continues it
+    // instead of overwriting it with the older place.
+    const cur = this.state.current;
+    const engine = this.engine;
+    if (cur && engine && changed.includes(cur.book.book.id) && !this.state.player.playing && engine.current.bookId === cur.book.book.id) {
+      const p = o.keeper.get(cur.book.book.id)!;
+      log.info(`a newer position for the open book came from ${p.device || "another device"}: ${p.offsetMs} ms`);
+      engine.seek(Math.min(p.offsetMs, cur.book.book.durationMs));
+      this.pausedAt = Date.parse(p.updatedAt);
+    }
+    if (changed.length > 0) this.publishBooks();
   }
 
   /** Records read beside one source's books, merged into the shelf. */
@@ -562,8 +609,8 @@ export class AppController {
     // every set of books that comes through.
     const positionsReady = lib
       .readAllPositions()
-      .catch(() => new Map<string, Position>())
-      .then((m) => (o.positions = m));
+      .then((m) => this.takeSharePositions(o, m))
+      .catch((e: unknown) => log.warn("could not read positions beside the books:", describe(e)));
     let painted = false;
     let lastTick = 0;
     try {
@@ -674,6 +721,7 @@ export class AppController {
     }
     this.jobs.cancelWhere((b) => b.source === id);
     if (o) {
+      await o.keeper.close().catch(() => undefined);
       o.coverJob?.abort();
       o.lookup?.stop();
       this.opened.delete(id);
@@ -769,15 +817,17 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
-    if (this.state.previewing !== null && prev.playing && !player.playing) {
-      this.set({ previewing: null });
-      this.pausedAt = Date.now();
-      void this.persistPosition();
+    // Stopped for any reason (the listener, the system, the end of a
+    // preview, a file that failed): keep the place now.
+    if (prev.playing && !player.playing && player.bookId === prev.bookId) {
+      if (this.state.previewing !== null) this.set({ previewing: null });
+      if (!player.reconnecting) this.pausedAt = Date.now();
+      void this.persistPosition(true);
     }
-    if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition();
+    if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition(false);
     if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
-    if (player.playing !== prev.playing || Math.abs(player.positionMs - prev.positionMs) > 900) {
-      updateMediaPlayback(player.playing, player.positionMs, player.durationMs, player.speed);
+    if (player.playing !== prev.playing || player.reconnecting !== prev.reconnecting || Math.abs(player.positionMs - prev.positionMs) > 900) {
+      updateMediaPlayback(player.playing || player.reconnecting, player.positionMs, player.durationMs, player.speed);
     }
   }
 
@@ -792,28 +842,38 @@ export class AppController {
     const engine = this.ensureEngine();
     if (!engine) return;
     const expand = opts.expand ?? true;
-    if (this.state.current?.book.book.id === book.book.id) {
+    const seq = ++this.openSeq;
+    if (this.state.current?.book.book.id === book.book.id && this.engine?.current.bookId === book.book.id) {
       if (expand) this.expandPlayer();
       if (opts.autoplay && !this.state.player.playing) await this.play();
       return;
     }
-    if (this.state.player.playing) {
-      engine.pause();
-      await this.persistPosition();
-    }
+    // Keep the place in the book being left before anything else happens.
+    if (this.state.player.playing) engine.pause();
+    await this.persistPosition(true);
+    if (seq !== this.openSeq) return;
     this.chapterProbe?.abort();
+    const id = book.book.id;
+    const quiet = <T>(what: string, p: Promise<T>, fallback: T): Promise<T> =>
+      p.catch((e: unknown) => {
+        log.warn(`could not read ${what} for`, book.book.title, describe(e));
+        return fallback;
+      });
     const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
-      lib.readSettings(book.book.id),
-      lib.readBookmarks(book.book.id),
-      lib.readLoudness(book.book.id),
-      lib.readSilence(book.book.id),
-      lib.readCorrections(book.book.id),
+      quiet("settings", lib.readSettings(id), defaultSettings(id)),
+      quiet("bookmarks", lib.readBookmarks(id), [] as Bookmark[]),
+      quiet("loudness", lib.readLoudness(id), null),
+      quiet("silence", lib.readSilence(id), null),
+      quiet("corrections", lib.readCorrections(id), [] as Correction[]),
     ]);
-    const position = this.state.positions[book.book.id] ?? (await lib.readPosition(book.book.id));
+    if (seq !== this.openSeq) return;
+    const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
+    if (seq !== this.openSeq) return;
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
+    if (seq !== this.openSeq) return;
     engine.setSpeed(settings.speed);
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = position ? Date.parse(position.updatedAt) : null;
@@ -887,7 +947,8 @@ export class AppController {
   }
 
   togglePlay(): void {
-    if (this.state.player.playing) this.pause();
+    // While a file is being reconnected the listener is still "playing": the button pauses.
+    if (this.state.player.playing || this.state.player.reconnecting) this.pause();
     else void this.play();
   }
 
@@ -895,6 +956,8 @@ export class AppController {
     if (!this.engine) return;
     this.engine.setStopAt(null);
     this.engine.seek(positionMs);
+    // A place chosen by hand is exact: no resume rewind on the next play.
+    this.pausedAt = null;
     this.set({ resumeOffer: null, previewing: null });
     void this.persistPosition();
   }
@@ -961,19 +1024,73 @@ export class AppController {
     await lib.writeSettings(settings);
   }
 
-  private async persistPosition(): Promise<void> {
+  /**
+   * Keep the open book's place. The engine only reports positions it can
+   * trust, and only for the book it has loaded; a book still loading has
+   * nothing to say yet. Urgent ones (pause, seek, leaving) are written at
+   * once; the steady ones while playing are throttled by the keeper.
+   */
+  private async persistPosition(urgent = true): Promise<void> {
     const cur = this.state.current;
     const o = cur && this.openedOf(cur.book);
-    if (!cur || !o || !this.engine) return;
+    const engine = this.engine;
+    if (!cur || !o || !engine) return;
+    const bookId = cur.book.book.id;
+    if (engine.current.bookId !== bookId) return;
+    const offsetMs = engine.positionMs();
     this.lastWrite = Date.now();
-    const pos = await o.lib.writePosition(cur.book.book.id, this.engine.positionMs());
-    o.positions.set(cur.book.book.id, pos);
-    this.set({ positions: { ...this.state.positions, [cur.book.book.id]: pos } });
+    try {
+      const kept = o.keeper.record(await o.lib.positionAt(bookId, offsetMs), urgent);
+      this.set({ positions: { ...this.state.positions, [bookId]: kept } });
+    } catch (e) {
+      log.error("could not keep the position:", describe(e));
+    }
+  }
+
+  /**
+   * Write every position everywhere and wait, for the window closing or
+   * going away. Bounded, so a share that hangs cannot hold the app open:
+   * whatever it does not take is already in the local copy.
+   */
+  async flushPositions(timeoutMs = 4_000): Promise<void> {
+    if (this.state.player.playing) this.engine?.pause();
+    await this.persistPosition(true);
+    const all = Promise.all(this.openedInOrder().map((o) => o.keeper.flush()));
+    await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
+  }
+
+  /**
+   * Keep the place through everything the window goes through: closing
+   * (pause, write everywhere, then let it close), being hidden or
+   * minimised (write, keep playing), and the page unloading in the
+   * browser harness. Returns an uninstall.
+   */
+  installLifecycle(): () => void {
+    const offs: (() => void)[] = [];
+    if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.flushPositions()));
+    if (typeof document !== "undefined") {
+      const onVisibility = () => {
+        if (document.visibilityState === "hidden") void this.checkpoint();
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      offs.push(() => document.removeEventListener("visibilitychange", onVisibility));
+    }
+    if (typeof window !== "undefined") {
+      const onUnload = () => void this.flushPositions();
+      window.addEventListener("pagehide", onUnload);
+      offs.push(() => window.removeEventListener("pagehide", onUnload));
+    }
+    return () => offs.forEach((f) => f());
+  }
+
+  /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
+  async checkpoint(): Promise<void> {
+    if (this.state.current) await this.persistPosition(true);
   }
 
   private onBookEnded(): void {
-    void this.persistPosition();
     this.pausedAt = Date.now();
+    void this.persistPosition(true);
   }
 
   private refreshMediaMetadata(): void {
@@ -1134,9 +1251,12 @@ export class AppController {
   /** Wipe the app's own folder (mirror, sources) and go back to the first screen. */
   async resetHome(): Promise<void> {
     if (!this.platform.home) return;
+    // The mirror holds positions the share may not have yet: give them a last chance to land.
+    await this.flushPositions();
     if (!(await this.platform.home.reset())) return;
     this.engine?.pause();
     for (const o of this.opened.values()) {
+      void o.keeper.close();
       o.coverJob?.abort();
       o.lookup?.stop();
     }
@@ -1318,6 +1438,7 @@ export class AppController {
 
   destroy(): void {
     for (const o of this.opened.values()) {
+      void o.keeper.flush();
       o.lookup?.stop();
       o.coverJob?.abort();
     }

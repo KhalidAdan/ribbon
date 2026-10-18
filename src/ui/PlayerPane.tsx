@@ -117,13 +117,12 @@ export function PlayerPane() {
             <button
               type="button"
               onClick={() => c.togglePlay()}
-              aria-label={p.playing ? "Pause" : "Play"}
-              disabled={p.error !== null}
-              className={clsx(
+              aria-label={p.playing || p.reconnecting ? "Pause" : "Play"}
+                className={clsx(
                 "flex size-16 items-center justify-center rounded-full bg-amber-500 text-neutral-950 hover:bg-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:opacity-50 dark:bg-amber-400 dark:hover:bg-amber-300",
               )}
             >
-              {p.playing ? <PauseIcon className="size-6 fill-current" /> : <PlayIcon className="size-6 translate-x-px fill-current" />}
+              {p.playing || p.reconnecting ? <PauseIcon className="size-6 fill-current" /> : <PlayIcon className="size-6 translate-x-px fill-current" />}
             </button>
             <Button icon variant="ghost" aria-label="Forward 30 seconds" onClick={() => c.skip(30_000)}>
               <ForwardIcon className="size-4 fill-current" />
@@ -133,8 +132,13 @@ export function PlayerPane() {
             </Button>
           </div>
 
-          {p.error && <p className="text-center text-sm/6 text-red-600 dark:text-red-400">{p.error}.</p>}
-          {p.buffering && !p.error && <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">Loading…</p>}
+          {p.error ? (
+            <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">{p.error}</p>
+          ) : p.reconnecting ? (
+            <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">Reconnecting…</p>
+          ) : p.buffering ? (
+            <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">Loading…</p>
+          ) : null}
 
           <div className="grid grid-cols-3 gap-2 border-t border-neutral-950/10 pt-5 dark:border-white/10">
             <div className="flex justify-start">
