@@ -274,5 +274,20 @@ working. A later version will stop.
   `settings.json`.
 - `read` records start and finish listen-throughs. Sessions are on by
   default and can be turned off in Settings.
-- Bookmarks are still kept in `bookmarks/<id>.csv` in this version, and
-  `mark` records are read but not yet written.
+- Bookmarks are `mark` records with a `motivation` of `bookmarking`.
+  Adding one writes a `mark`, editing its note writes it again with a
+  later `modified`, and deleting it writes a `del`. The `body` is the
+  note, and the selector is the thirty seconds before `target.ms`.
+- A bookmark's `id` is a version 8 UUID made from the Ribbon book id and
+  the offset, so the same place in the same book has the same id on
+  every device.
+- Each bookmark keeps a 30-second Opus clip in `bookmarks/clips/`, named
+  `<book-id>-<offset_ms>.opus`. A `mark` names its clip in
+  `x["urn:ribbon:clip"]`, relative to `bookmarks/`.
+- Ribbon 0.5 still writes `bookmarks/<book-id>.csv` (columns
+  `book_id,offset_ms,created_at,note,clip`) after every change, so
+  Ribbon 0.4 on other machines keeps working. Readers merge its rows
+  into the marks as `mark` records of a device of their own, written at
+  `created_at`, with the id above. A note edited or a bookmark deleted
+  later wins over the row. A bookmark that Ribbon 0.4 deletes leaves the
+  CSV but stays in the log.

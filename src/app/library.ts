@@ -394,6 +394,11 @@ export class LibraryService {
 
   // Bookmarks ----------------------------------------------------------
 
+  /**
+   * The rows of a book's bookmarks CSV, as every version writes them.
+   * The bookmarks themselves are these merged with the `mark` records of
+   * the position log (`bookmarksOf`).
+   */
   async readBookmarks(bookId: string): Promise<Bookmark[]> {
     const path = this.dir("bookmarks", `${bookId}.csv`);
     if (!(await this.host.exists(path))) return [];
@@ -405,43 +410,30 @@ export class LibraryService {
   }
 
   /**
-   * Add a bookmark and cut the previous thirty seconds into a small
-   * Opus clip beside it. The clip is best effort: a failed cut still
-   * saves the bookmark.
+   * Cut the thirty seconds before an offset into a small Opus clip in
+   * `bookmarks/clips/`. Best effort: the clip's name relative to
+   * `bookmarks/`, or empty when the cut failed.
    */
-  async addBookmark(book: ScannedBook, offsetMs: number, note: string, nowMs = Date.now()): Promise<Bookmark> {
+  async cutClip(book: ScannedBook, offsetMs: number): Promise<string> {
     const id = book.book.id;
-    const list = await this.readBookmarks(id);
     const clip = clipName(id, offsetMs);
-    const bookmark: Bookmark = { bookId: id, offsetMs: Math.max(0, Math.round(offsetMs)), createdAt: nowIso(nowMs), note, clip: "" };
-
     const durations = book.files.map((f) => f.durationMs);
     const loc = locate(durations, offsetMs);
     const file = book.files[loc.fileIndex];
-    if (file) {
-      const range = clipRange(loc.fileOffsetMs);
-      await this.host.mkdir(this.dir("bookmarks", "clips"));
-      const out = this.dir("bookmarks", "clips", clip);
-      const r = await this.host.run("ffmpeg", clipArgs(this.absPath(file.path), range.startMs, range.endMs, out));
-      if (r.code === 0) bookmark.clip = `clips/${clip}`;
-    }
-
-    list.push(bookmark);
-    await this.writeBookmarks(id, list);
-    return bookmark;
+    if (!file) return "";
+    const range = clipRange(loc.fileOffsetMs);
+    await this.host.mkdir(this.dir("bookmarks", "clips"));
+    const out = this.dir("bookmarks", "clips", clip);
+    const r = await this.host.run("ffmpeg", clipArgs(this.absPath(file.path), range.startMs, range.endMs, out));
+    return r.code === 0 ? `clips/${clip}` : "";
   }
 
-  async removeBookmark(bookId: string, offsetMs: number): Promise<void> {
-    const list = await this.readBookmarks(bookId);
-    const gone = list.filter((b) => b.offsetMs === offsetMs);
-    for (const b of gone) if (b.clip) await this.host.remove(this.dir("bookmarks", ...b.clip.split("/"))).catch(() => undefined);
-    await this.writeBookmarks(
-      bookId,
-      list.filter((b) => b.offsetMs !== offsetMs),
-    );
+  async removeClip(clip: string): Promise<void> {
+    if (clip) await this.host.remove(this.dir("bookmarks", ...clip.split("/"))).catch(() => undefined);
   }
 
-  private async writeBookmarks(bookId: string, list: Bookmark[]): Promise<void> {
+  /** A book's bookmarks as a CSV, for earlier versions on other machines. */
+  async writeBookmarks(bookId: string, list: readonly Bookmark[]): Promise<void> {
     await this.host.mkdir(this.dir("bookmarks"));
     await this.host.writeFile(this.dir("bookmarks", `${bookId}.csv`), await serializeBookmarks(list));
   }
