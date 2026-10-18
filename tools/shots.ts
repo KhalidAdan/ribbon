@@ -50,6 +50,8 @@ const SCENES: Scene[] = [
   { name: "series-new", setup: `c.openNewSeries()` },
   { name: "series-setup", setup: `const g = c.detectedSeries()[0]; if (g) c.openSeriesSetup(g.key)` },
   { name: "edit-book", setup: `const b = ${PICK_SERIES_BOOK}; c.openReader(b.book.id); c.openEditBook(b.book.id)` },
+  { name: "library-filtered", setup: `c.setView({ filter: { standing: ["started"], author: ["Dan Abnett"] }, sort: "listened", reverse: false })` },
+  { name: "filter-panel", setup: `c.setView({ filter: { standing: ["started"] }, sort: "shelf", reverse: false }); await new Promise((r) => setTimeout(r, 100)); [...document.querySelectorAll("button")].find((b) => b.textContent.startsWith("Filter")).click()` },
   // States that are hard to reach on purpose, set straight on the controller.
   { name: "first-run", setup: `c.set({ phase: "pick" })` },
   { name: "loading", setup: `c.set({ phase: "loading", scanning: { walked: 1586, done: 412, background: false } })` },

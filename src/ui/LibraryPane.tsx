@@ -1,4 +1,4 @@
-import { CheckIcon, FolderOpenIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/16/solid";
+import { CheckIcon, FolderOpenIcon, FunnelIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { memo, useMemo } from "react";
 import type { ScannedBook } from "../core/scan/scan";
@@ -13,6 +13,8 @@ import { Cover } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
 import { SearchField } from "./SearchField";
 import { EmptyState, Menu, ProgressLine, SectionHeader, SegmentedProgress } from "./kit";
+import { describeFilter, useShelfFacts, ViewBar } from "./ShelfView";
+import { applyView, filterCount, SORT_LABELS } from "../core/view";
 
 /**
  * The library: what you are in the middle of, then each series as a card
@@ -48,6 +50,12 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
     [state.books, state.positions, state.current, hidden],
   );
 
+  const facts = useShelfFacts();
+  const view = state.view;
+  const viewing = filterCount(view.filter) > 0 || view.sort !== "shelf";
+  // Search, filters and sort all combine; search keeps its rank unless a sort is chosen.
+  const results = useMemo(() => (found ? applyView(found, view, facts) : null), [found, view, facts]);
+  const shown = useMemo(() => (viewing && !found ? applyView(byShelf, view, facts) : null), [viewing, found, byShelf, view, facts]);
   const empty = state.books.length === 0;
   const folder = state.sources.length === 1 ? "this folder" : "these folders";
 
@@ -60,29 +68,50 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
           </div>
         )}
 
+        {!empty && <ViewBar />}
+
         {empty && state.scanning ? (
           <ScanProgress status={state.scanning} />
         ) : empty ? (
           <EmptyState icon={FolderOpenIcon} title="No audiobooks here" action={<Button onClick={() => void c.pickLibrary()}>Add a folder</Button>}>
             Ribbon found no audio files in {folder}. Add the folder your books live in.
           </EmptyState>
-        ) : found ? (
+        ) : results ? (
           <section aria-labelledby="results-title" className="flex flex-col gap-5">
             <SectionHeader
               id="results-title"
-              title={found.length === 0 ? "No matches" : `${found.length} ${found.length === 1 ? "book matches" : "books match"} “${query.trim()}”`}
-              description={found.length === 0 ? "Try part of a title, an author, a narrator or a series." : undefined}
+              title={results.length === 0 ? "No matches" : `${results.length} ${results.length === 1 ? "book matches" : "books match"} “${query.trim()}”`}
+              description={results.length === 0 ? (filterCount(view.filter) > 0 ? "Nothing matches with the filters on. Try clearing them." : "Try part of a title, an author, a narrator or a series.") : filterCount(view.filter) > 0 ? `${describeFilter(view.filter)}.` : undefined}
               actions={
                 <Button size="sm" variant="ghost" onClick={() => onQuery("")}>
                   Clear search
                 </Button>
               }
             />
-            {found.length === 0 ? (
+            {results.length === 0 ? (
               <EmptyState icon={MagnifyingGlassIcon} title={`Nothing matches “${query.trim()}”`} />
             ) : (
               <BookGrid>
-                {found.map((b) => (
+                {results.map((b) => (
+                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state)} />
+                ))}
+              </BookGrid>
+            )}
+          </section>
+        ) : shown ? (
+          <section aria-labelledby="view-title" className="flex flex-col gap-5">
+            <SectionHeader
+              id="view-title"
+              title={`${shown.length} ${shown.length === 1 ? "book" : "books"}`}
+              description={[describeFilter(view.filter), view.sort !== "shelf" ? `${filterCount(view.filter) > 0 ? "sorted" : "Sorted"} by ${SORT_LABELS[view.sort].toLowerCase()}${view.reverse ? ", reversed" : ""}` : ""].filter(Boolean).join(", ") + "."}
+            />
+            {shown.length === 0 ? (
+              <EmptyState icon={FunnelIcon} title="No book fits every filter" action={<Button onClick={() => c.setView({ ...view, filter: {} })}>Clear the filters</Button>}>
+                Take a filter off, or choose another value of one.
+              </EmptyState>
+            ) : (
+              <BookGrid>
+                {shown.map((b) => (
                   <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state)} />
                 ))}
               </BookGrid>
