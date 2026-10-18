@@ -41,6 +41,7 @@ export function browserHost(base = "/__ribbon"): Host {
       return call<ScanOutput>("scan", { root, known });
     },
     readTextDir: (dir) => call<TextFile[]>("readTextDir", { dir }),
+    catalogSearch: (title, author, region) => call<string>("catalog", { title, author, region }),
   };
 }
 

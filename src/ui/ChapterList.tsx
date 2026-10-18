@@ -44,7 +44,13 @@ export function ChapterList() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-          {cur.corrections.length > 0 ? `${cur.corrections.length} ${cur.corrections.length === 1 ? "change" : "changes"} by hand` : parts.length > 0 ? `${parts.length} stories` : source}
+          {cur.corrections.length > 0 && state.namedChapters[cur.book.book.id]
+            ? `Names from Audible’s data (${state.namedChapters[cur.book.book.id]})`
+            : cur.corrections.length > 0
+              ? `${cur.corrections.length} ${cur.corrections.length === 1 ? "change" : "changes"} by hand`
+              : parts.length > 0
+                ? `${parts.length} stories`
+                : source}
         </p>
         <Button size="sm" variant={editing ? "secondary" : "ghost"} leading={editing ? CheckIcon : PencilSquareIcon} onClick={() => setEditing((v) => !v)} aria-pressed={editing}>
           {editing ? "Done" : "Edit"}

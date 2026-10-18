@@ -6,6 +6,7 @@ import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeCh
 import type { BookAbout } from "../core/about";
 import { sameRoot, sourceFrom, type Source, type SourceEntry } from "../core/sources";
 import { AboutLookup, type LookupStatus } from "./about";
+import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { PositionKeeper, type KeeperStatus } from "./positions";
@@ -150,6 +151,8 @@ export interface AppState {
   view: LibraryView;
   /** Listen-throughs and listening sessions from every device's log. */
   history: { reads: ReadRecord[]; sessions: SessionRecord[]; recording: boolean };
+  /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
+  namedChapters: Record<string, string>;
 }
 
 /** The same history record, written here and read back from the log. */
@@ -199,6 +202,8 @@ interface Opened {
   edits: Map<string, BookEdits>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
+  /** What came of asking about each book's chapter names; read once, on the first ask. */
+  names: Map<string, NameRecord> | null;
   /** Records written here that a read of the log has not shown yet. */
   pendingLog: LogRecord[];
   /** Series keys whose record lives beside this source's books. */
@@ -289,6 +294,7 @@ export class AppController {
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], recording: true },
+      namedChapters: {},
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -514,6 +520,7 @@ export class AppController {
       edits: new Map(),
       log: [],
       pendingLog: [],
+      names: null,
       keeper: new PositionKeeper({
         local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
         share: (p) => lib.writePositionRecord(p),
@@ -1026,7 +1033,7 @@ export class AppController {
     this.pausedAt = position ? Date.parse(position.updatedAt) : null;
     this.refreshMediaMetadata();
     if (!loudness || !silence) this.jobs.enqueue(book, true);
-    void this.probeChapters(book);
+    void this.probeChapters(book).then(() => this.maybeNameChapters(book.book.id));
     if (opts.autoplay) await this.play();
   }
 
@@ -1758,9 +1765,68 @@ export class AppController {
           });
         });
       }
+      await this.nameAllChapters();
     })().finally(() => {
       this.lookupRun = null;
     });
+  }
+
+  // Chapter names --------------------------------------------------------
+
+  /** One ask at a time, whoever asks: the background pass or a book being opened. */
+  private naming: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Give a book its real chapter names when its chapters are only
+   * numbered: find its ASIN, ask Audnexus, and if the names fit the
+   * markers there are (same count, same length, starts in line), put them
+   * on as corrections beside the book. Once per book; only with the
+   * online lookups on; undone like any chapter correction.
+   */
+  maybeNameChapters(bookId: string): Promise<void> {
+    const run = this.naming.then(() => this.nameChapters(bookId)).catch((e: unknown) => log.warn("chapter names:", describe(e)));
+    this.naming = run;
+    return run;
+  }
+
+  private async nameChapters(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o) return;
+    o.names ??= await o.lib.readNameRecords();
+    const asked = o.names.get(bookId);
+    // Named in an earlier session: say so in the chapter list.
+    if (asked?.outcome === "applied" && this.state.namedChapters[bookId] === undefined) this.set({ namedChapters: { ...this.state.namedChapters, [bookId]: asked.asin } });
+    if (!this.state.lookup.enabled || asked || !wantsNames(book)) return;
+    const { asin, plan } = await new ChapterNamer(o.lib.host).plan(book);
+    const record: NameRecord = { bookId, asin, outcome: plan.apply ? "applied" : asin ? "kept" : "not-found", reason: plan.apply ? "" : plan.reason, at: new Date().toISOString() };
+    if (plan.apply) {
+      const cur = this.state.current;
+      if (cur && cur.book.book.id === bookId) {
+        await this.correctChapters([...cur.corrections, ...plan.corrections]);
+      } else {
+        const latest = this.state.books.find((b) => b.book.id === bookId) ?? book;
+        const corrections = [...(await o.lib.readCorrections(bookId)), ...plan.corrections];
+        this.replaceBook(o, this.stamp(o, [await o.lib.writeCorrections(latest, corrections)])[0]!);
+      }
+      this.set({ namedChapters: { ...this.state.namedChapters, [bookId]: asin } });
+    }
+    log.info(`chapter names for ${book.book.title}: ${record.outcome}${asin ? ` (${asin})` : ""}${record.reason ? `, ${record.reason}` : ""}`);
+    o.names.set(bookId, record);
+    await o.lib.writeNameRecords([...o.names.values()]).catch((e: unknown) => log.warn("could not keep chapter-name records:", describe(e)));
+  }
+
+  /** Every book with numbered chapters already read gets a turn, one at a time, after the descriptions. */
+  private async nameAllChapters(): Promise<void> {
+    for (const o of this.openedInOrder()) {
+      for (const b of o.books) {
+        if (!this.state.lookup.enabled || this.opened.get(o.source.id) !== o) return;
+        if (!wantsNames(b)) continue;
+        await this.maybeNameChapters(b.book.id);
+        // Gentle with services that are free to use.
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
   }
 
   /** The description for a book, or null. */

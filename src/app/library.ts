@@ -14,6 +14,7 @@ import { bytesToSeries, seriesToBytes, type SeriesRecord } from "../core/series"
 import { aboutToBytes, bytesToAbout, type BookAbout } from "../core/about";
 import { locate } from "../core/timeline";
 import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
+import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
 
 /**
  * Everything the UI needs from a library folder, over a Host. Each
@@ -460,6 +461,22 @@ export class LibraryService {
     await this.host.mkdir(this.dir("chapters"));
     await this.host.writeFile(this.dir("chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
     return { ...book, chapters };
+  }
+
+  // Chapter names ------------------------------------------------------
+
+  /** What came of asking about each book's chapter names, by book id. */
+  async readNameRecords(): Promise<Map<string, NameRecord>> {
+    try {
+      return new Map((await bytesToNameRecords(await this.host.readFile(this.dir("chapter-names.csv")))).map((r) => [r.bookId, r]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  async writeNameRecords(list: readonly NameRecord[]): Promise<void> {
+    await this.host.mkdir(this.dir());
+    await this.host.writeFile(this.dir("chapter-names.csv"), await nameRecordsToBytes(list));
   }
 
   // Edits --------------------------------------------------------------
