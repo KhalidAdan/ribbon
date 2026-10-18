@@ -12,6 +12,17 @@ export interface PositionSinks {
   /** The record beside the books, one book at a time. */
   share: (p: Position) => Promise<void>;
   log?: (message: string) => void;
+  /** Told after every write attempt, so the player can say where the place is kept. */
+  onStatus?: ((status: KeeperStatus) => void) | undefined;
+}
+
+export interface KeeperStatus {
+  /** A local copy exists and the last write to it worked. */
+  local: boolean;
+  /** Positions the share has not taken yet. */
+  pendingShare: number;
+  /** The share refused the last write. */
+  shareFailing: boolean;
 }
 
 export interface KeeperOptions {
@@ -72,6 +83,14 @@ export class PositionKeeper {
   /** Every book's newest known position. */
   all(): Map<string, Position> {
     return new Map(this.known);
+  }
+
+  status(): KeeperStatus {
+    return { local: !!this.sinks.local && !this.localDirty, pendingShare: this.toShare.size, shareFailing: this.failures > 0 };
+  }
+
+  private report(): void {
+    this.sinks.onStatus?.(this.status());
   }
 
   /** Writes the share has not taken yet. */
@@ -206,6 +225,7 @@ export class PositionKeeper {
         this.localRun = null;
       });
     await this.localRun;
+    this.report();
   }
 
   /** One share writer at a time, latest value per book, oldest book first. */
@@ -231,6 +251,7 @@ export class PositionKeeper {
       this.shareRun = null;
     });
     await this.shareRun;
+    this.report();
     if (this.toShare.size > 0 && !this.closed) this.scheduleShare(false);
   }
 }

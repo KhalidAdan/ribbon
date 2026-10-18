@@ -1,36 +1,63 @@
 import { clsx } from "clsx";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ComponentType, ReactNode, SVGProps } from "react";
 
-type Variant = "primary" | "secondary" | "ghost";
+type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "md" | "sm";
+type Icon = ComponentType<SVGProps<SVGSVGElement>>;
 
 interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   variant?: Variant;
+  /** md is 32px tall, sm is 26px. The only two sizes in the app. */
   size?: Size;
-  /** Icon-only buttons get a 48px touch target on coarse pointers. */
-  icon?: boolean;
+  /** An icon before the label; the padding on that side matches the vertical padding. */
+  leading?: Icon;
+  trailing?: Icon;
   type?: "button" | "submit";
   children: ReactNode;
 }
 
-const base =
-  "relative inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:opacity-50 disabled:pointer-events-none";
+const base = "relative inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap select-none focus-ring disabled:pointer-events-none disabled:opacity-40";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-amber-500 text-neutral-950 hover:bg-amber-400 dark:bg-amber-400 dark:hover:bg-amber-300",
-  secondary: "bg-neutral-950/5 text-neutral-950 hover:bg-neutral-950/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/15",
-  ghost: "text-neutral-700 hover:bg-neutral-950/5 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white",
+  // Inverted ink: the one thing on the screen you are most likely to want.
+  primary: "bg-primary text-on-primary hover:bg-primary/85",
+  secondary: "bg-raised text-ink ring-1 ring-line hover:ring-line-strong",
+  ghost: "text-ink-2 hover:bg-raised hover:text-ink",
+  danger: "bg-red-600 text-white hover:bg-red-500",
 };
 
-const sizes: Record<Size, { text: string; icon: string }> = {
-  md: { text: "text-base/6 sm:text-sm/6 py-2 px-3", icon: "p-2" },
-  sm: { text: "text-sm/5 py-1.5 px-2.5", icon: "p-1.5" },
+const sizes: Record<Size, { text: string; pad: string; lead: string; trail: string; icon: string }> = {
+  md: { text: "text-base/6 sm:text-sm/5", pad: "px-3 py-1.5", lead: "py-1.5 pr-3 pl-1.5", trail: "py-1.5 pr-1.5 pl-3", icon: "p-2" },
+  sm: { text: "text-sm/[1.125rem] sm:text-[0.8125rem]/[1.125rem]", pad: "px-2.5 py-1", lead: "py-1 pr-2.5 pl-1", trail: "py-1 pr-1 pl-2.5", icon: "p-[5px]" },
 };
 
-export function Button({ variant = "secondary", size = "md", icon = false, type = "button", className, children, ...rest }: Props) {
+export function Button({ variant = "secondary", size = "md", leading: Lead, trailing: Trail, type = "button", className, children, ...rest }: Props) {
+  const s = sizes[size];
   return (
-    <button type={type} className={clsx(base, variants[variant], icon ? sizes[size].icon : sizes[size].text, className)} {...rest}>
-      {icon && <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />}
+    <button type={type} className={clsx(base, variants[variant], s.text, Lead ? s.lead : Trail ? s.trail : s.pad, className)} {...rest}>
+      {Lead && <Lead className="size-4 shrink-0 fill-current" aria-hidden="true" />}
+      {children}
+      {Trail && <Trail className="size-4 shrink-0 fill-current" aria-hidden="true" />}
+    </button>
+  );
+}
+
+interface IconProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "children"> {
+  /** What the button does, for screen readers and the tooltip. */
+  label: string;
+  icon: Icon;
+  variant?: Exclude<Variant, "danger">;
+  size?: Size;
+  type?: "button" | "submit";
+  children?: ReactNode;
+}
+
+/** An icon-only button, with a 48px touch target on coarse pointers. */
+export function IconButton({ label, icon: Glyph, variant = "ghost", size = "md", type = "button", className, children, ...rest }: IconProps) {
+  return (
+    <button type={type} aria-label={label} title={label} className={clsx(base, variants[variant], sizes[size].icon, className)} {...rest}>
+      <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
+      <Glyph className="size-4 shrink-0 fill-current" aria-hidden="true" />
       {children}
     </button>
   );

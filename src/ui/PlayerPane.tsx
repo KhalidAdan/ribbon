@@ -1,10 +1,10 @@
-import { BackwardIcon, BookmarkIcon, ChevronDownIcon, ForwardIcon, ListBulletIcon, PauseIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { BookmarkIcon, ChevronDownIcon, MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useState } from "react";
-import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
+import { SPEED_STEP, formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
 import { partAt } from "../core/scan/parts";
 import { useAppState, useController } from "./store";
-import { Button } from "./Button";
+import { Button, IconButton } from "./Button";
 import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
 import { Scrubber } from "./Scrubber";
@@ -13,8 +13,15 @@ import { SleepControl } from "./SleepControl";
 import { ChapterList } from "./ChapterList";
 import { BookmarkList } from "./BookmarkList";
 import { ResumeOffer } from "./ResumeOffer";
-import { SkipIcon } from "./PlayerBar";
+import { Transport } from "./PlayerBar";
+import { Group, Row, Toggle } from "./kit";
 
+/**
+ * The full player, a canvas of its own: where you are as a sentence, the
+ * book in the middle, the transport over the chapter's scrubber, and what
+ * you can change about listening in grouped rows below. The footer says
+ * where your place is kept.
+ */
 export function PlayerPane() {
   const state = useAppState();
   const c = useController();
@@ -27,7 +34,7 @@ export function PlayerPane() {
   if (!cur) {
     return (
       <section className="flex h-full items-center justify-center px-6" aria-label="Player">
-        <p className="max-w-[40ch] text-center text-base/7 text-pretty text-neutral-500 sm:text-sm/6 dark:text-neutral-400">Choose a book from your library to start listening.</p>
+        <p className="max-w-[40ch] text-center text-base/6 text-pretty text-ink-2 sm:text-sm/5">Choose a book from your library to start listening.</p>
       </section>
     );
   }
@@ -43,135 +50,118 @@ export function PlayerPane() {
   const scrubLength = chapter ? chapter.endMs - chapter.startMs : p.durationMs;
   const inChapter = Math.min(scrubLength, Math.max(0, p.positionMs - scrubStart));
   const chapterLeft = remainingAtSpeed(scrubLength - inChapter, p.speed);
-  const chapterNumber = chapter ? `${p.chapterIndex + 1} of ${book.chapters.length}` : "";
-  // An anthology says which story this chapter belongs to, and whose it is when the book is by several hands.
   const storyIndex = partAt(book.parts, p.positionMs);
   const story = book.parts[storyIndex] ?? null;
-  const storyLine = story ? `${story.title}${story.author && story.author !== book.book.author ? ` · ${story.author}` : ""} · Story ${storyIndex + 1} of ${book.parts.length}` : "";
+  const percent = p.durationMs > 0 ? Math.floor((p.positionMs / p.durationMs) * 100) : 0;
+  const where = story ? `Story ${storyIndex + 1} of ${book.parts.length}` : chapter && book.chapters.length > 1 ? `Chapter ${p.chapterIndex + 1} of ${book.chapters.length}` : null;
+  const sentence = `${where ? `${where}, ` : ""}${percent}% through, ${formatLeft(bookLeft)} left${p.speed !== 1 ? ` at ${formatSpeed(p.speed)}` : ""}.`;
+  const status = p.error ?? (p.reconnecting ? "Reconnecting to the file…" : p.buffering ? "Loading…" : p.skippingGap ? "Shortening a pause" : null);
 
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Player">
-      <div className="flex items-center gap-2 px-3 pt-3">
-        <Button icon size="sm" variant="ghost" aria-label="Back to the shelf" onClick={() => c.collapsePlayer()}>
-          <ChevronDownIcon className="size-4 fill-current" />
-        </Button>
-        <p className="min-w-0 flex-1 truncate text-sm/6 text-neutral-500 dark:text-neutral-400">Now playing</p>
-      </div>
+      <header className="flex shrink-0 items-start gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
+        <IconButton label="Back to the shelf" icon={ChevronDownIcon} onClick={() => c.collapsePlayer()} />
+        <div className="min-w-0 flex-1 pt-1">
+          <p className="truncate text-[0.8125rem]/5 text-ink-3">
+            <button type="button" onClick={() => c.collapsePlayer()} className="rounded-sm focus-ring hover:text-ink">
+              Library
+            </button>
+            <span aria-hidden="true"> › </span>
+            <span className="text-ink-2">{book.book.title}</span>
+          </p>
+          <h1 tabIndex={-1} data-autofocus className="mt-1.5 border-l border-line-strong pl-3 text-base/6 font-normal text-ink tabular-nums outline-none sm:text-[0.9375rem]/6">{sentence}</h1>
+        </div>
+      </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 pt-6 pb-8 sm:px-8">
-          <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-end">
-            <Cover url={c.coverUrl(book)} title={book.book.title} className="w-48 sm:w-40 lg:w-48" />
-            <div className="min-w-0 flex-1 text-center sm:text-left">
-              <h2 className="text-2xl font-semibold tracking-tight text-balance text-neutral-950 dark:text-white">{book.book.title}</h2>
-              <p className="mt-1 text-base/6 text-neutral-600 sm:text-sm/6 dark:text-neutral-400">
+      <div className="min-h-0 flex-1 overflow-y-auto quiet-scroll">
+        <div className="mx-auto flex w-full max-w-md flex-col gap-8 px-4 pt-8 pb-12">
+          <div className="flex flex-col items-center gap-5 text-center">
+            <Cover url={c.coverUrl(book)} title={book.book.title} className="w-56 sm:w-64" />
+            <div className="min-w-0">
+              <h2 className="text-xl font-semibold text-balance text-ink">{book.book.title}</h2>
+              <p className="mt-1 text-base/6 text-ink-2 sm:text-sm/5">
                 {book.book.author || "Unknown author"}
-                {book.book.narrator ? ` · read by ${book.book.narrator}` : ""}
+                {book.book.narrator ? `, read by ${book.book.narrator}` : ""}
               </p>
             </div>
           </div>
-          {about && (
-            <div>
-              <p className={clsx("text-base/7 text-pretty whitespace-pre-line text-neutral-700 sm:text-sm/6 dark:text-neutral-300", !moreAbout && "line-clamp-4")}>{about.description}</p>
-              <button type="button" onClick={() => setMoreAbout((v) => !v)} className="mt-1 text-sm/6 text-neutral-500 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 dark:text-neutral-400">
-                {moreAbout ? "Less" : "More"}
-              </button>
-            </div>
-          )}
 
           {state.resumeOffer && <ResumeOffer />}
 
-          <div>
-            {chapter && (
-              <button
-                type="button"
-                onClick={() => setDrawer("chapters")}
-                className="mb-2 flex w-full flex-col items-center gap-0.5 rounded-md px-2 py-1 text-center hover:bg-neutral-950/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 sm:items-start sm:text-left dark:hover:bg-white/5"
-                aria-label={`${storyLine ? `${storyLine}. ` : ""}Chapter ${chapterNumber}: ${chapter.title}. Open the chapter list`}
-              >
-                {storyLine && <span className="block max-w-full truncate text-sm/5 text-neutral-500 dark:text-neutral-400">{storyLine}</span>}
-                <span className="flex max-w-full items-baseline gap-2">
-                  <span className="min-w-0 truncate text-base/6 font-medium text-neutral-950 sm:text-sm/6 dark:text-white">{chapter.title}</span>
-                  <span className="shrink-0 text-sm/5 text-neutral-500 tabular-nums dark:text-neutral-400">{chapterNumber}</span>
-                </span>
-              </button>
-            )}
-            <Scrubber positionMs={inChapter} durationMs={scrubLength} chapters={[]} onSeek={(ms) => c.seek(scrubStart + ms)} label={chapter ? "Position in chapter" : "Position in book"} />
-            <div className="mt-2 grid grid-cols-3 text-sm/5 text-neutral-500 tabular-nums dark:text-neutral-400">
-              <span>{formatDuration(inChapter)}</span>
-              <span className="text-center">
-                {formatLeft(bookLeft)} left{p.speed !== 1 ? ` at ${p.speed}×` : ""}
-                {p.skippingGap ? " · skipping silence" : ""}
-              </span>
-              <span className="text-right">-{formatDuration(chapterLeft)}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-center gap-2 sm:gap-3">
-            <Button icon variant="ghost" aria-label="Previous chapter" onClick={() => c.previousChapter()} disabled={book.chapters.length === 0}>
-              <SkipIcon direction="back" />
-            </Button>
-            <Button icon variant="ghost" aria-label="Back 30 seconds" onClick={() => c.skip(-30_000)}>
-              <BackwardIcon className="size-4 fill-current" />
-            </Button>
-            <button
-              type="button"
-              onClick={() => c.togglePlay()}
-              aria-label={p.playing || p.reconnecting ? "Pause" : "Play"}
-                className={clsx(
-                "flex size-16 items-center justify-center rounded-full bg-amber-500 text-neutral-950 hover:bg-amber-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 disabled:opacity-50 dark:bg-amber-400 dark:hover:bg-amber-300",
+          <div className="flex flex-col gap-5">
+            <div>
+              {chapter && (
+                <button type="button" onClick={() => setDrawer("chapters")} className="mb-2 flex w-full items-baseline gap-2 rounded-md text-left focus-ring" aria-label={`${story ? `${story.title}. ` : ""}${chapter.title}. Open the chapter list`}>
+                  <span className="min-w-0 flex-1 truncate text-base/6 font-medium text-ink hover:underline hover:underline-offset-2 sm:text-sm/5">{story && story.title !== chapter.title ? `${story.title} · ${chapter.title}` : chapter.title}</span>
+                  <span className="shrink-0 text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">-{formatDuration(chapterLeft)}</span>
+                </button>
               )}
-            >
-              {p.playing || p.reconnecting ? <PauseIcon className="size-6 fill-current" /> : <PlayIcon className="size-6 translate-x-px fill-current" />}
-            </button>
-            <Button icon variant="ghost" aria-label="Forward 30 seconds" onClick={() => c.skip(30_000)}>
-              <ForwardIcon className="size-4 fill-current" />
-            </Button>
-            <Button icon variant="ghost" aria-label="Next chapter" onClick={() => c.nextChapter()} disabled={book.chapters.length === 0}>
-              <SkipIcon direction="forward" />
-            </Button>
-          </div>
-
-          {p.error ? (
-            <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">{p.error}</p>
-          ) : p.reconnecting ? (
-            <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">Reconnecting…</p>
-          ) : p.buffering ? (
-            <p className="text-center text-sm/6 text-neutral-500 dark:text-neutral-400">Loading…</p>
-          ) : null}
-
-          <div className="grid grid-cols-3 gap-2 border-t border-neutral-950/10 pt-5 dark:border-white/10">
-            <div className="flex justify-start">
-              <Button variant="ghost" onClick={() => setDrawer("speed")} className="flex-col gap-0.5 px-3 py-1.5" aria-haspopup="dialog">
-                <span className="text-base/5 font-semibold tabular-nums">{formatSpeed(p.speed)}</span>
-                <span className="text-xs/4">Speed</span>
-              </Button>
+              <Scrubber positionMs={inChapter} durationMs={scrubLength} chapters={[]} onSeek={(ms) => c.seek(scrubStart + ms)} label={chapter ? "Position in chapter" : "Position in book"} />
+              <div className="mt-1.5 flex justify-between text-[0.75rem]/4 text-ink-3 tabular-nums">
+                <span>{formatDuration(inChapter)}</span>
+                <span>{formatDuration(scrubLength)}</span>
+              </div>
             </div>
             <div className="flex justify-center">
-              <Button variant="ghost" onClick={() => setDrawer("chapters")} className="flex-col gap-0.5 px-3 py-1.5" aria-haspopup="dialog">
-                <ListBulletIcon className="size-5 fill-current" />
-                <span className="text-xs/4">Chapters</span>
-              </Button>
+              <Transport size="md" />
             </div>
-            <div className="flex justify-end">
-              <Button variant="ghost" onClick={() => setNoteOpen((v) => !v)} aria-expanded={noteOpen} className="flex-col gap-0.5 px-3 py-1.5">
-                <BookmarkIcon className="size-5 fill-current" />
-                <span className="text-xs/4">Bookmark</span>
-              </Button>
-            </div>
+            <p className={clsx("-mt-1 h-5 text-center text-sm/5 sm:text-[0.8125rem]/5", p.error ? "text-ink" : "text-ink-3")} role="status" aria-live="polite">
+              {status}
+            </p>
           </div>
-          {noteOpen && <BookmarkNote onDone={() => setNoteOpen(false)} />}
-          <SleepControl />
+
+          <Group label="Listening">
+            <Row
+              title="Speed"
+              description={p.speed !== 1 ? `Kept for this book. ${formatLeft(bookLeft)} left at this speed.` : "Kept for this book."}
+              aside={
+                <span className="flex items-center gap-1">
+                  <IconButton size="sm" label="Slower" icon={MinusIcon} onClick={() => void c.setSpeed(p.speed - SPEED_STEP)} />
+                  <button type="button" onClick={() => setDrawer("speed")} className="w-12 rounded-md py-0.5 text-center font-medium text-ink tabular-nums focus-ring hover:bg-line" aria-label={`Speed ${formatSpeed(p.speed)}. More speeds`}>
+                    {formatSpeed(p.speed)}
+                  </button>
+                  <IconButton size="sm" label="Faster" icon={PlusIcon} onClick={() => void c.setSpeed(p.speed + SPEED_STEP)} />
+                </span>
+              }
+            />
+            <Row title="Trim silences" description="Shortens pauses longer than a second to about half a second." aside={<Toggle label="Trim silences" checked={cur.settings.trimSilence} onChange={(on) => void c.setTrimSilence(on)} />} />
+            <div className="rounded-md bg-raised px-3 py-2.5">
+              <SleepControl />
+            </div>
+          </Group>
+
+          <Group label="This book">
+            <Row title="Chapters" aside={book.chapters.length > 1 && chapter ? `${p.chapterIndex + 1} of ${book.chapters.length}` : String(book.chapters.length)} onClick={() => setDrawer("chapters")} />
+            <Row title="Bookmarks" aside={String(cur.bookmarks.length)} onClick={() => setDrawer("bookmarks")} />
+            {about && (
+              <div className="rounded-md bg-raised px-3 py-2.5">
+                <p className="text-base/6 font-medium text-ink sm:text-sm/5">About</p>
+                <p className={clsx("mt-1 text-base/6 text-pretty whitespace-pre-line text-ink-2 sm:text-sm/6", !moreAbout && "line-clamp-4")}>{about.description}</p>
+                <button type="button" onClick={() => setMoreAbout((v) => !v)} className="mt-1 rounded-sm text-sm/5 text-ink-3 focus-ring hover:text-ink sm:text-[0.8125rem]/5">
+                  {moreAbout ? "Less" : "More"}
+                </button>
+              </div>
+            )}
+          </Group>
         </div>
       </div>
 
+      <footer className="flex shrink-0 flex-wrap items-center gap-3 border-t border-line px-4 py-3 sm:px-5">
+        <PlaceKept />
+        {noteOpen ? (
+          <BookmarkNote onDone={() => setNoteOpen(false)} />
+        ) : (
+          <Button size="sm" leading={BookmarkIcon} onClick={() => setNoteOpen(true)}>
+            Add a bookmark
+          </Button>
+        )}
+      </footer>
+
       <Drawer open={drawer === "speed"} onClose={() => setDrawer(null)} title="Speed">
-        <div className="py-2">
-          <SpeedControl />
-        </div>
+        <SpeedControl />
       </Drawer>
       <Drawer open={drawer === "chapters" || drawer === "bookmarks"} onClose={() => setDrawer(null)} title={drawer === "bookmarks" ? "Bookmarks" : "Chapters"}>
-        <div className="mb-3 flex gap-1 border-b border-neutral-950/10 dark:border-white/10" role="tablist">
+        <div className="mb-3 flex gap-5 border-b border-line" role="tablist">
           {(["chapters", "bookmarks"] as const).map((t) => (
             <button
               key={t}
@@ -179,18 +169,37 @@ export function PlayerPane() {
               role="tab"
               aria-selected={drawer === t}
               onClick={() => setDrawer(t)}
-              className={clsx(
-                "-mb-px border-b-2 px-2 py-2 text-base/6 sm:text-sm/6 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500",
-                drawer === t ? "border-amber-500 text-neutral-950 dark:text-white" : "border-transparent text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white",
-              )}
+              className={clsx("-mb-px border-b py-2 text-base/6 focus-ring sm:text-sm/5", drawer === t ? "border-ink text-ink" : "border-transparent text-ink-2 hover:text-ink")}
             >
-              {t === "chapters" ? `Chapters (${book.chapters.length})` : `Bookmarks (${cur.bookmarks.length})`}
+              {t === "chapters" ? "Chapters" : "Bookmarks"} <span className="text-ink-3 tabular-nums">{t === "chapters" ? book.chapters.length : cur.bookmarks.length}</span>
             </button>
           ))}
         </div>
         {drawer === "bookmarks" ? <BookmarkList /> : <ChapterList />}
       </Drawer>
     </section>
+  );
+}
+
+/** Where the listener's place is kept, in a sentence. */
+function PlaceKept() {
+  const state = useAppState();
+  const kept = state.placeKept;
+  const text =
+    kept === null
+      ? "Your place is saved as you listen."
+      : kept.pendingShare > 0
+        ? kept.shareFailing
+          ? "Your place is saved on this machine. The folder is out of reach; it gets the place when it is back."
+          : "Your place is saved on this machine and is on its way to the folder."
+        : kept.local
+          ? "Your place is saved on this machine and beside the book."
+          : "Your place is saved beside the book.";
+  return (
+    <p className="flex min-w-0 flex-1 items-center gap-2 text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
+      <span className={clsx("size-1.5 shrink-0 rounded-full", kept && kept.pendingShare > 0 && kept.shareFailing ? "bg-ink-3" : "bg-place")} aria-hidden="true" />
+      <span className="min-w-0">{text}</span>
+    </p>
   );
 }
 
@@ -201,7 +210,7 @@ function BookmarkNote({ onDone }: { onDone: () => void }) {
   const [saving, setSaving] = useState(false);
   return (
     <form
-      className="flex flex-col gap-2 sm:flex-row"
+      className="flex w-full items-center gap-2 sm:w-auto"
       onSubmit={(e) => {
         e.preventDefault();
         setSaving(true);
@@ -220,17 +229,22 @@ function BookmarkNote({ onDone }: { onDone: () => void }) {
         autoFocus
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder={`Note at ${formatDuration(state.player.positionMs)}`}
-        className="min-w-0 flex-1 rounded-md bg-white px-3 py-2 text-base/6 text-neutral-950 ring-1 ring-neutral-950/10 placeholder:text-neutral-400 focus:outline-2 focus:-outline-offset-1 focus:outline-amber-500 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:ring-white/10"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            onDone();
+          }
+        }}
+        placeholder={`A note at ${formatDuration(state.player.positionMs)}`}
+        className="min-w-0 flex-1 rounded-md bg-raised px-2.5 py-1 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:w-64 sm:text-[0.8125rem]/[1.125rem]"
       />
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={saving}>
-          {saving ? "Saving…" : "Save bookmark"}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onDone}>
-          Cancel
-        </Button>
-      </div>
+      <Button type="submit" size="sm" disabled={saving}>
+        {saving ? "Saving…" : "Save"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onDone}>
+        Cancel
+      </Button>
     </form>
   );
 }

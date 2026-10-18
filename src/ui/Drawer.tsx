@@ -1,6 +1,6 @@
 import { XMarkIcon } from "@heroicons/react/16/solid";
 import { useEffect, useRef, type ReactNode } from "react";
-import { Button } from "./Button";
+import { IconButton } from "./Button";
 
 interface Props {
   open: boolean;
@@ -10,10 +10,10 @@ interface Props {
 }
 
 /**
- * A bottom sheet on a native dialog: focus is trapped, Escape closes,
- * the backdrop closes, and screen readers see a modal. It rises from
- * the bottom edge and is at most 85% of the viewport tall, so the
- * player stays in view behind it.
+ * A panel on a native dialog: focus is trapped, Escape and the backdrop
+ * close it, and screen readers see a modal. On a wide window it is a
+ * column along the right edge, so the player stays in view beside it;
+ * on a narrow one it rises from the bottom.
  */
 export function Drawer({ open, onClose, title, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -21,7 +21,11 @@ export function Drawer({ open, onClose, title, children }: Props) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (open && !el.open) el.showModal();
+    if (open && !el.open) {
+      el.showModal();
+      // showModal focuses the first control; the title is the calmer place to start.
+      el.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    }
     else if (!open && el.open) el.close();
   }, [open]);
 
@@ -40,19 +44,13 @@ export function Drawer({ open, onClose, title, children }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
       aria-label={title}
-      className="fixed inset-x-0 top-auto bottom-0 m-0 mx-auto hidden max-h-[85dvh] open:flex w-full max-w-lg flex-col rounded-t-2xl bg-white p-0 text-neutral-950 shadow-2xl ring-1 ring-neutral-950/10 transition-transform duration-200 ease-out backdrop:bg-neutral-950/40 backdrop:backdrop-blur-sm open:translate-y-0 starting:open:translate-y-full dark:bg-neutral-900 dark:text-white dark:ring-white/10"
+      className="fixed inset-x-0 top-auto bottom-0 m-0 hidden max-h-[85dvh] w-full max-w-none flex-col rounded-t-[10px] bg-surface p-0 text-ink ring-1 ring-line backdrop:bg-black/40 open:flex sm:inset-y-0 sm:right-0 sm:left-auto sm:h-dvh sm:max-h-none sm:w-[26rem] sm:rounded-none sm:ring-0 sm:border-l sm:border-line starting:open:max-sm:translate-y-full starting:open:sm:translate-x-8 starting:open:sm:opacity-0 transition-[translate,opacity] duration-200 ease-out"
     >
-      <div className="flex shrink-0 flex-col items-center px-4 pt-2">
-        <span className="mb-2 h-1 w-10 rounded-full bg-neutral-950/15 dark:bg-white/20" aria-hidden="true" />
-        <div className="flex w-full items-center">
-          <span className="size-9" aria-hidden="true" />
-          <h2 className="min-w-0 flex-1 truncate text-center text-base/6 font-semibold sm:text-sm/6">{title}</h2>
-          <Button icon size="sm" variant="ghost" aria-label="Close" onClick={onClose}>
-            <XMarkIcon className="size-4 fill-current" />
-          </Button>
-        </div>
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-line pr-2 pl-4">
+        <h2 tabIndex={-1} data-autofocus className="min-w-0 flex-1 truncate text-base/6 font-semibold text-ink outline-none sm:text-sm/5">{title}</h2>
+        <IconButton size="sm" label="Close" icon={XMarkIcon} onClick={onClose} />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">{open && children}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto quiet-scroll px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">{open && children}</div>
     </dialog>
   );
 }

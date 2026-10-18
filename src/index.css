@@ -1,13 +1,61 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/newsreader/opsz.css";
-@import "@fontsource-variable/newsreader/opsz-italic.css";
 @import "tailwindcss";
 
-@theme {
+/*
+ * Ribbon's ground, surfaces, lines and inks (docs/DESIGN.md). Components
+ * use these tokens; light and dark come from the operating system.
+ */
+@theme inline {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-sans--font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  /* The reader page: a book's page reads better in a serif. */
+  /* A book's title on its own page, and nowhere else. */
   --font-serif: "Newsreader Variable", Georgia, "Times New Roman", serif;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  /* The inverted ink of the one primary action. */
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  /* Amber is your place: the played part, progress, the focus ring. */
+  --color-place: var(--place);
+}
+
+:root {
+  color-scheme: light dark;
+  --canvas: #fafaf9;
+  --surface: #ffffff;
+  --raised: #f4f4f3;
+  --line: rgb(10 10 10 / 0.08);
+  --line-strong: rgb(10 10 10 / 0.14);
+  --ink: #0a0a0a;
+  --ink-2: #5f5f5f;
+  --ink-3: #8f8f8f;
+  --primary: #0a0a0a;
+  --on-primary: #fafafa;
+  --place: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #0a0a0a;
+    --surface: #141414;
+    --raised: #1c1c1c;
+    --line: rgb(255 255 255 / 0.08);
+    --line-strong: rgb(255 255 255 / 0.14);
+    --ink: #ededed;
+    --ink-2: #a1a1a1;
+    --ink-3: #6e6e6e;
+    --primary: #ededed;
+    --on-primary: #0a0a0a;
+    --place: #f5a524;
+  }
 }
 
 html,
@@ -18,35 +66,55 @@ body,
 
 body {
   overscroll-behavior: none;
+  background: var(--canvas);
 }
 
-/* The scrubber uses a native range input so keyboard and screen readers work. */
+/* The focus ring is the place colour, everywhere. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--place);
+    outline-offset: 2px;
+  }
+}
+
+/* Thin scrollbars that sit on the canvas instead of fighting it. */
+@utility quiet-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/*
+ * The scrubber is a native range input, so keyboard and screen readers
+ * work. A hairline track, the played part in the place colour, and a
+ * small thumb that grows when you reach for it.
+ */
 @utility scrubber {
   appearance: none;
   background: transparent;
   cursor: pointer;
   &::-webkit-slider-runnable-track {
-    height: --spacing(1.5);
+    height: 3px;
     border-radius: 9999px;
-    background: linear-gradient(to right, var(--color-amber-500) var(--progress), --alpha(var(--color-neutral-950) / 10%) var(--progress));
+    background: linear-gradient(to right, var(--place) var(--progress), var(--line-strong) var(--progress));
   }
   &::-webkit-slider-thumb {
     appearance: none;
-    width: --spacing(3.5);
-    height: --spacing(3.5);
-    margin-top: calc(--spacing(-1));
+    width: --spacing(3);
+    height: --spacing(3);
+    margin-top: calc(--spacing(-1.5) + 1.5px);
     border-radius: 9999px;
-    background: white;
-    box-shadow: 0 0 0 1px --alpha(var(--color-neutral-950) / 15%), 0 1px 2px --alpha(var(--color-neutral-950) / 20%);
+    background: var(--ink);
+    transform: scale(0.6);
+    transition: transform 150ms ease-out;
+  }
+  &:hover::-webkit-slider-thumb,
+  &:focus-visible::-webkit-slider-thumb,
+  &:active::-webkit-slider-thumb {
+    transform: scale(1);
   }
   &:focus-visible {
-    outline: 2px solid var(--color-amber-500);
-    outline-offset: 4px;
+    outline: 2px solid var(--place);
+    outline-offset: 6px;
     border-radius: 9999px;
-  }
-  @variant dark {
-    &::-webkit-slider-runnable-track {
-      background: linear-gradient(to right, var(--color-amber-400) var(--progress), --alpha(white / 15%) var(--progress));
-    }
   }
 }

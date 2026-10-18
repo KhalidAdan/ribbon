@@ -8,21 +8,24 @@ function describeAway(ms: number): string {
   return "a day";
 }
 
+/** After a long break: offer the start of the chapter, once, quietly. */
 export function ResumeOffer() {
   const state = useAppState();
   const c = useController();
   const offer = state.resumeOffer;
   if (!offer) return null;
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-neutral-950/5 p-4 sm:flex-row sm:items-center dark:bg-white/5">
-      <p className="min-w-0 flex-1 text-base/6 text-pretty text-neutral-950 sm:text-sm/6 dark:text-white">You were away for {describeAway(offer.awayMs)}. Start this chapter over?</p>
-      <div className="flex shrink-0 gap-2">
-        <Button size="sm" onClick={() => c.restartChapter()}>
-          Restart chapter
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => c.dismissResumeOffer()}>
-          Keep going
-        </Button>
+    <div className="rounded-[10px] bg-surface p-1 ring-1 ring-line">
+      <div className="flex flex-wrap items-center gap-3 rounded-md bg-raised px-3 py-2.5">
+        <p className="min-w-0 flex-1 text-base/6 text-pretty text-ink sm:text-sm/5">You were away for {describeAway(offer.awayMs)}. Start this chapter over?</p>
+        <div className="flex shrink-0 gap-1">
+          <Button size="sm" variant="ghost" onClick={() => c.dismissResumeOffer()}>
+            Keep going
+          </Button>
+          <Button size="sm" onClick={() => c.restartChapter()}>
+            Start it over
+          </Button>
+        </div>
       </div>
     </div>
   );

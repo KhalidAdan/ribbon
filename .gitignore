@@ -7,3 +7,4 @@ books/
 .DS_Store
 test/fixtures/generated/
 *.local
+shots/

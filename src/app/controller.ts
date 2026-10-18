@@ -8,7 +8,7 @@ import { sameRoot, sourceFrom, type Source, type SourceEntry } from "../core/sou
 import { AboutLookup, type LookupStatus } from "./about";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
-import { PositionKeeper } from "./positions";
+import { PositionKeeper, type KeeperStatus } from "./positions";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
@@ -137,6 +137,8 @@ export interface AppState {
   playerExpanded: boolean;
   /** Which drawer the full player shows, if any. */
   playerDrawer: "chapters" | "bookmarks" | "speed" | null;
+  /** Where the open book's place is kept right now, for the player's footer. */
+  placeKept: KeeperStatus | null;
 }
 
 /**
@@ -248,6 +250,7 @@ export class AppController {
       readerBookId: null,
       playerExpanded: false,
       playerDrawer: null,
+      placeKept: null,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -460,6 +463,9 @@ export class AppController {
         local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
         share: (p) => lib.writePositionRecord(p),
         log: (m) => log.warn(source.name + ":", m),
+        onStatus: (status) => {
+          if (this.state.current?.book.source === source.id) this.set({ placeKept: status });
+        },
       }),
       seriesKeys: new Set(),
       assetsReady: false,
@@ -870,7 +876,7 @@ export class AppController {
     const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
     if (seq !== this.openSeq) return;
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
-    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
+    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null, placeKept: this.openedOf(book)?.keeper.status() ?? null });
     const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     if (seq !== this.openSeq) return;
