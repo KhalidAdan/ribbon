@@ -18,6 +18,7 @@ import { TopBar, Tabs, type Crumb } from "./Shell";
 import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
+import { StatsPane } from "./StatsPane";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
@@ -84,6 +85,8 @@ function Ready() {
   const crumbs: Crumb[] =
     state.pane === "settings"
       ? [{ label: "Settings" }]
+      : state.pane === "stats"
+        ? [{ label: "Stats" }]
       : reader
         ? [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name }] : []), { label: reader.book.title }]
         : [{ label: folders }];
@@ -99,8 +102,8 @@ function Ready() {
       <EditBookHost />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
       <Tabs
-        current={state.pane === "settings" ? "settings" : "library"}
-        onSelect={(t) => (t === "settings" ? c.showSettings() : c.showLibrary())}
+        current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}
+        onSelect={(t) => (t === "settings" ? c.showSettings() : t === "stats" ? c.showStats() : c.showLibrary())}
         badges={state.problems.length > 0 ? { settings: <span className="size-1.5 rounded-full bg-place" aria-label={`${state.problems.length} files could not be read`} /> } : {}}
       />
       <div className="min-h-0 flex-1">
@@ -108,6 +111,8 @@ function Ready() {
           <Loading />
         ) : state.pane === "settings" ? (
           <SettingsPane />
+        ) : state.pane === "stats" ? (
+          <StatsPane />
         ) : state.pane === "reader" ? (
           <ReaderPage />
         ) : (

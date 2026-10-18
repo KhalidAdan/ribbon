@@ -180,6 +180,17 @@ export function SettingsPane() {
           </Group>
         </section>
 
+        <section aria-labelledby="settings-history" className="flex flex-col gap-4">
+          <SectionHeader id="settings-history" title="History" description="What Ribbon keeps about your listening, in the position log beside your books." />
+          <Group footer="Each stretch of listening of thirty seconds or more: when, which book, how long. Turning this off keeps what is there and adds no more. Finished books and your place are always kept.">
+            <Row
+              title="Keep listening sessions"
+              description={`${state.history.sessions.length.toLocaleString()} ${state.history.sessions.length === 1 ? "session" : "sessions"} so far, behind the Stats page.`}
+              aside={<Toggle label="Keep listening sessions" checked={state.history.recording} onChange={(on) => void c.setRecordSessions(on)} />}
+            />
+          </Group>
+        </section>
+
         {homePath && (
           <section aria-labelledby="settings-home" className="flex flex-col gap-4">
             <SectionHeader id="settings-home" title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a copy of each library's records, your places, the covers, and the log." />

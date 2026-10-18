@@ -11,6 +11,8 @@ import { LibraryService } from "./library";
 import { PositionKeeper, type KeeperStatus } from "./positions";
 import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
+import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "../core/poslog";
+import { finishedByRead, openRead } from "../core/stats";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "../core/resume";
@@ -132,7 +134,7 @@ export interface AppState {
   coverVersion: number;
   error: string | null;
   /** What fills the window above the player bar. */
-  pane: "library" | "settings" | "reader";
+  pane: "library" | "settings" | "reader" | "stats";
   /** The book the reader page shows. */
   readerBookId: string | null;
   /** The full player is open over everything. */
@@ -145,6 +147,17 @@ export interface AppState {
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
   view: LibraryView;
+  /** Listen-throughs and listening sessions from every device's log. */
+  history: { reads: ReadRecord[]; sessions: SessionRecord[]; recording: boolean };
+}
+
+/** The same history record, written here and read back from the log. */
+function sameRecord(a: LogRecord, b: LogRecord): boolean {
+  if (a.k !== b.k || a.t !== b.t) return false;
+  if (a.k === "read" && b.k === "read") return a.id === b.id && a.finished === b.finished && a.started === b.started;
+  if (a.k === "del" && b.k === "del") return a.of === b.of;
+  if (a.k === "session" && b.k === "session") return a.start === b.start;
+  return false;
 }
 
 /**
@@ -182,6 +195,10 @@ interface Opened {
   keeper: PositionKeeper;
   /** Hand edits to books' details, by book id. */
   edits: Map<string, BookEdits>;
+  /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
+  log: LogRecord[];
+  /** Records written here that a read of the log has not shown yet. */
+  pendingLog: LogRecord[];
   /** Series keys whose record lives beside this source's books. */
   seriesKeys: Set<string>;
   assetsReady: boolean;
@@ -205,6 +222,10 @@ export class AppController {
   private pausedAt: number | null = null;
   /** Bumped by every openBook, so a slow open that lost the race stops. */
   private openSeq = 0;
+  /** Sequence for history shown before the log is read back; only ever increases. */
+  private localSeq = 0;
+  /** The stretch of playing going on now, for the session record. */
+  private listening: { bookId: string; start: number; fromMs: number; speed: number } | null = null;
   private lastWrite = 0;
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
@@ -263,6 +284,7 @@ export class AppController {
       placeKept: null,
       editBook: null,
       view: DEFAULT_VIEW,
+      history: { reads: [], sessions: [], recording: true },
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -374,7 +396,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView) });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false } });
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
@@ -486,6 +508,8 @@ export class AppController {
       lib,
       books: [],
       edits: new Map(),
+      log: [],
+      pendingLog: [],
       keeper: new PositionKeeper({
         local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
         share: (p) => lib.writePositionRecord(p),
@@ -548,7 +572,7 @@ export class AppController {
         await allowed;
         await migrate();
         const [positions, problems, series, about] = await Promise.all([
-          lib.readAllPositions().catch((e: unknown) => {
+          lib.readPositionLog().catch((e: unknown) => {
             log.warn("could not read positions beside the books; using the ones kept here:", describe(e));
             return null;
           }),
@@ -557,7 +581,10 @@ export class AppController {
           lib.readAbout().catch(() => new Map<string, BookAbout>()),
         ]);
         if (!alive()) return;
-        if (positions) this.takeSharePositions(o, positions);
+        if (positions) {
+          this.takeSharePositions(o, positions.places);
+          this.takeLog(o, positions.records);
+        }
         await this.takeEdits(o);
         this.absorb(o, problems, series, about);
         this.publishBooks();
@@ -717,8 +744,11 @@ export class AppController {
     // Positions are one directory read; start it now and apply it to
     // every set of books that comes through.
     const positionsReady = lib
-      .readAllPositions()
-      .then((m) => this.takeSharePositions(o, m))
+      .readPositionLog()
+      .then((l) => {
+        this.takeSharePositions(o, l.places);
+        this.takeLog(o, l.records);
+      })
       .catch((e: unknown) => log.warn("could not read positions beside the books:", describe(e)));
     let painted = false;
     let lastTick = 0;
@@ -928,6 +958,8 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
+    if (player.playing && !prev.playing && player.bookId) this.beginListening(player.bookId, player.positionMs, player.speed);
+    if (this.listening && (!player.playing || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
     // Stopped for any reason (the listener, the system, the end of a
     // preview, a file that failed): keep the place now.
     if (prev.playing && !player.playing && player.bookId === prev.bookId) {
@@ -1202,6 +1234,8 @@ export class AppController {
 
   private onBookEnded(): void {
     this.pausedAt = Date.now();
+    const id = this.state.current?.book.book.id;
+    if (id) void this.markFinished(id);
     void this.persistPosition("end");
   }
 
@@ -1350,6 +1384,124 @@ export class AppController {
 
   showSettings(): void {
     this.set({ pane: "settings" });
+  }
+
+  showStats(): void {
+    this.set({ pane: "stats", playerExpanded: false });
+  }
+
+  // History -------------------------------------------------------------
+
+  /** A source's log records, apart from places, into the shelf's history. */
+  private takeLog(o: Opened, records: LogRecord[]): void {
+    if (this.opened.get(o.source.id) !== o) return;
+    const disk = records.filter((r) => r.k !== "pos");
+    // A read that started before a write landed must not undo it: keep what it has not seen.
+    o.pendingLog = o.pendingLog.filter((p) => !disk.some((d) => sameRecord(d, p)));
+    o.log = [...disk, ...o.pendingLog];
+    this.publishHistory();
+  }
+
+  private publishHistory(): void {
+    const all = this.openedInOrder().flatMap((o) => o.log);
+    const seen = new Set<string>();
+    const sessions: SessionRecord[] = [];
+    for (const r of all) {
+      if (r.k !== "session") continue;
+      const key = `${r.dev}:${r.seq}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sessions.push(r);
+    }
+    this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions } });
+  }
+
+  /** Write a history record to the log of the book's source, and show it at once. */
+  private async writeHistory(bookId: string, r: { k: "read"; id: string; started: string; finished?: string } | { k: "del"; of: string } | Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" }): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    const t = new Date().toISOString();
+    const book = { ids: claimsFor(b.original ?? b.book), dur_ms: b.book.durationMs };
+    // Shown at once; the next read of the log replaces it with what was written.
+    this.localSeq = Math.max(this.localSeq + 1, Date.now());
+    const shown = { v: 1, dev: "local", seq: this.localSeq, t, book, ...r } as LogRecord;
+    o.pendingLog = [...o.pendingLog, shown];
+    o.log = [...o.log, shown];
+    this.publishHistory();
+    try {
+      await o.lib.appendRecord({ ...r, t, book });
+    } catch (e) {
+      log.warn("could not write history beside the books:", describe(e));
+    }
+  }
+
+  /** Mark a book finished: the listen-through in progress closes now, or one is recorded that does. */
+  async markFinished(bookId: string): Promise<void> {
+    const open = openRead(this.state.history.reads, bookId);
+    const now = new Date().toISOString();
+    await this.writeHistory(bookId, { k: "read", id: open?.id ?? `urn:uuid:${globalThis.crypto.randomUUID()}`, started: open?.started ?? now, finished: now });
+  }
+
+  /** Mark a book not finished: the last listen-through opens again. */
+  async markUnfinished(bookId: string): Promise<void> {
+    const reads = this.state.history.reads.filter((r) => r.book.ids.includes(`urn:ribbon:${bookId}`));
+    const last = reads.sort((a, b) => Date.parse(a.started) - Date.parse(b.started)).pop();
+    if (last) await this.writeHistory(bookId, { k: "read", id: last.id, started: last.started });
+    else await this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+  }
+
+  /** Start a book again from the beginning, as a new listen-through; the old one stays in the history. */
+  async listenAgain(bookId: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    if (!b) return;
+    await this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+    await this.openBook(b, { expand: false });
+    this.seek(0);
+    await this.play();
+  }
+
+  /** Correct the dates of a listen-through. A null finish means it is still going. */
+  async editRead(bookId: string, readId: string, started: string, finished: string | null): Promise<void> {
+    await this.writeHistory(bookId, { k: "read", id: readId, started, ...(finished ? { finished } : {}) });
+  }
+
+  async deleteRead(bookId: string, readId: string): Promise<void> {
+    await this.writeHistory(bookId, { k: "del", of: readId });
+  }
+
+  /** Keep a record of listening sessions, or stop. Turning it off writes no more of them. */
+  async setRecordSessions(on: boolean): Promise<void> {
+    this.appSettings = { ...this.appSettings, recordSessions: on };
+    this.set({ history: { ...this.state.history, recording: on } });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** Playing started: a listen-through opens if none is, and a session begins. */
+  private beginListening(bookId: string, positionMs: number, speed: number): void {
+    this.listening = { bookId, start: Date.now(), fromMs: positionMs, speed };
+    const reads = this.state.history.reads;
+    if (!openRead(reads, bookId) && !finishedByRead(reads, bookId)) {
+      void this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+    }
+  }
+
+  /** Playing stopped: a session of thirty seconds or more goes in the log, if sessions are kept. */
+  private endListening(positionMs: number): void {
+    const s = this.listening;
+    this.listening = null;
+    if (!s || !this.state.history.recording) return;
+    const end = Date.now();
+    if (end - s.start < 30_000) return;
+    void this.writeHistory(s.bookId, {
+      k: "session",
+      start: new Date(s.start).toISOString(),
+      end: new Date(end).toISOString(),
+      from_ms: Math.round(s.fromMs),
+      to_ms: Math.round(positionMs),
+      listened_ms: end - s.start,
+      speed: s.speed,
+    });
   }
 
   homePath(): Promise<string | null> {

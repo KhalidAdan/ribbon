@@ -11,6 +11,7 @@ import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
+import { ReadHistory } from "./ReadHistory";
 import { tintFromImage } from "./tint";
 import { progressOf as progressIn } from "./progress";
 import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
@@ -151,7 +152,7 @@ export function ReaderPage() {
             {me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
 
             <div className="mt-6 flex flex-wrap items-center gap-2">
-              <Button variant="primary" leading={PlayIcon} onClick={() => void c.playBook(book)}>
+              <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))}>
                 {me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"}
               </Button>
               <Button leading={ListBulletIcon} onClick={() => setDrawer("chapters")}>
@@ -167,6 +168,8 @@ export function ReaderPage() {
                 title={book.book.title}
                 align="left"
                 items={[
+                  me.finished ? { label: "Mark as not finished", onSelect: () => void c.markUnfinished(book.book.id) } : { label: "Mark as finished", onSelect: () => void c.markFinished(book.book.id) },
+                  ...(me.started && !me.finished ? [{ label: "Start again from the beginning", onSelect: () => void c.listenAgain(book.book.id) }] : []),
                   { label: "Edit details and cover…", onSelect: () => c.openEditBook(book.book.id) },
                   ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
                   ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
@@ -192,6 +195,7 @@ export function ReaderPage() {
                 </p>
               )}
             </div>
+            <ReadHistory book={book} />
           </div>
         </div>
 
