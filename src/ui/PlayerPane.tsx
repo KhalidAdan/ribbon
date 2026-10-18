@@ -41,7 +41,7 @@ export function PlayerPane() {
 
   const { book } = cur;
   const p = state.player;
-  const about = c.aboutFor(book);
+  const about = book.book.description ? { description: book.book.description } : c.aboutFor(book);
   const chapter = book.chapters[p.chapterIndex] ?? null;
   const bookLeft = remainingAtSpeed(p.durationMs - p.positionMs, p.speed);
   // The timeline is the current chapter. Books run ten hours and more;

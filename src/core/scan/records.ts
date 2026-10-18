@@ -15,7 +15,17 @@ export const LIBRARY_HEADERS = [
   "duration_ms",
   "size_bytes",
   "file_count",
+  "subtitle",
+  "genres",
+  "publisher",
+  "language",
+  "isbn",
+  "asin",
+  "description",
 ];
+
+/** A library.csv without these columns was written before the scan read them: read every file's tags once more. */
+export const LIBRARY_DETAIL_COLUMN = "genres";
 
 export const FILE_HEADERS = ["book_id", "order", "path", "duration_ms", "size_bytes", "mtime_ms", "title", "part", "part_author", "disc", "track", "has_cover", "cover_file", "chapters", "probed"];
 
@@ -37,6 +47,13 @@ export function booksToBytes(books: readonly Book[]): Promise<Uint8Array> {
       duration_ms: String(b.durationMs),
       size_bytes: String(b.sizeBytes),
       file_count: String(b.fileCount),
+      subtitle: b.subtitle ?? "",
+      genres: (b.genres ?? []).join("; "),
+      publisher: b.publisher ?? "",
+      language: b.language ?? "",
+      isbn: b.isbn ?? "",
+      asin: b.asin ?? "",
+      description: b.description ?? "",
     })),
     LIBRARY_HEADERS,
   );
@@ -60,7 +77,21 @@ export async function bytesToBooks(bytes: Uint8Array): Promise<Book[]> {
       durationMs: int(r.duration_ms),
       sizeBytes: int(r.size_bytes),
       fileCount: int(r.file_count),
+      ...detailsFrom(r),
     }));
+}
+
+/** The optional fields, present only when the record says something. */
+function detailsFrom(r: Row): Partial<Book> {
+  const out: Partial<Book> = {};
+  if (r.subtitle) out.subtitle = r.subtitle;
+  if (r.genres) out.genres = r.genres.split(/\s*;\s*/).filter(Boolean);
+  if (r.publisher) out.publisher = r.publisher;
+  if (r.language) out.language = r.language;
+  if (r.isbn) out.isbn = r.isbn;
+  if (r.asin) out.asin = r.asin;
+  if (r.description) out.description = r.description;
+  return out;
 }
 
 /** Embedded chapters are packed into one cell as `start:end:title|...` with `|` and `:` escaped. */

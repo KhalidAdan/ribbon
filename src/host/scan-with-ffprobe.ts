@@ -1,6 +1,7 @@
 import { pipe, collect, flatMap, from } from "@culvert/stream";
 import type { Host, KnownFile, ScanOutput, ScanProgress, ScannedFile } from "./host";
 import { walk, isAudio, type FileEntry } from "../core/scan/walk";
+import { isSideFileName } from "../core/scan/sidefiles";
 import { probe } from "../core/scan/probe";
 
 /**
@@ -38,7 +39,7 @@ export async function scanWithFfprobe(
   const baseOf = (entry: FileEntry): ScannedFile => ({
     path: entry.relPath,
     name: entry.name,
-    kind: isAudio(entry.name) ? "audio" : "image",
+    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : "image",
     sizeBytes: entry.sizeBytes,
     mtimeMs: entry.mtimeMs,
     fresh: false,
@@ -67,6 +68,14 @@ export async function scanWithFfprobe(
       ({ entry, index }: { entry: FileEntry; index: number }) =>
         (async function* () {
           const base = baseOf(entry);
+          if (base.kind === "text" && entry.sizeBytes <= 256 * 1024) {
+            try {
+              base.tags = { text: new TextDecoder().decode(await host.readFile(entry.absPath)) };
+              base.fresh = true;
+            } catch {
+              /* a side file that cannot be read is no side file */
+            }
+          }
           if (base.kind === "audio") {
             if (isUnchanged(entry)) {
               reused++;

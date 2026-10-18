@@ -189,6 +189,8 @@ fn id3_key(id: &str) -> Option<&'static str> {
         "TIT1" | "TT1" => "grouping",
         "TIT3" | "TT3" => "subtitle",
         "TPUB" | "TPB" => "publisher",
+        "TLAN" | "TLA" => "language",
+        "TCOP" | "TCR" => "copyright",
         _ => return None,
     })
 }
@@ -347,6 +349,16 @@ fn read_id3_frames(f: &mut LazyFile, ver: u8, tag_flags: u8, start: u64, end: u6
                     "TXXX" | "TXX" => {
                         let (desc, value) = split_terminated(enc, text);
                         put(&mut out.tags, &decode(enc, desc), &decode(enc, value));
+                    }
+                    "COMM" | "COM" if text.len() > 3 => {
+                        // Language, then a short description, then the comment.
+                        // Only an untitled comment, or one called a description,
+                        // is about the book; iTunes keeps its own data in the rest.
+                        let (desc, value) = split_terminated(enc, &text[3..]);
+                        let desc = decode(enc, desc);
+                        if desc.is_empty() || desc.eq_ignore_ascii_case("description") {
+                            put(&mut out.tags, if desc.is_empty() { "comment" } else { "description" }, &decode(enc, value));
+                        }
                     }
                     "COMM" | "COM" => {}
                     _ => {
@@ -577,6 +589,11 @@ fn mp4_key(kind: &[u8; 4]) -> Option<&'static str> {
         b"\xa9mvi" => "mvin",
         b"tvsh" => "show",
         b"\xa9pub" => "publisher",
+        b"desc" => "desc",
+        b"ldes" => "ldes",
+        b"\xa9des" => "description",
+        b"\xa9cmt" => "comment",
+        b"cprt" => "copyright",
         b"trkn" => "track",
         b"disk" => "disc",
         _ => return None,
@@ -843,6 +860,8 @@ pub fn read_asf(f: &mut LazyFile) -> Option<Probed> {
                 match i {
                     0 => put(&mut out.tags, "title", &s),
                     1 => put(&mut out.tags, "artist", &s),
+                    2 => put(&mut out.tags, "copyright", &s),
+                    3 => put(&mut out.tags, "description", &s),
                     _ => {}
                 }
                 p += l;

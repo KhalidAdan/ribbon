@@ -1,4 +1,5 @@
 import { isAudio, isImage, type FileEntry } from "./walk";
+import { isSideFileName } from "./sidefiles";
 import { parseNumbered } from "./metadata";
 
 export interface BookPart {
@@ -17,6 +18,8 @@ export interface BookGroup {
   audio: FileEntry[];
   /** Image files in the folder, best candidate first. */
   covers: FileEntry[];
+  /** metadata.opf, desc.txt, reader.txt beside the book. */
+  side?: FileEntry[];
   /**
    * Set when the book is an anthology: a numbered folder holding only
    * numbered subfolders, one per part. Parts are in their numbered order
@@ -93,7 +96,7 @@ function findAnthologies(foldersWithAudio: Set<string>, byFolder: Map<string, { 
  * with parts. Order of the returned groups follows the walk.
  */
 export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
-  const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[] }>();
+  const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[] }>();
   const folderOrder: string[] = [];
   const foldersWithAudio = new Set<string>();
 
@@ -101,7 +104,7 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     const folder = parentOf(f.relPath);
     let bucket = byFolder.get(folder);
     if (!bucket) {
-      bucket = { audio: [], images: [] };
+      bucket = { audio: [], images: [], side: [] };
       byFolder.set(folder, bucket);
       folderOrder.push(folder);
     }
@@ -110,6 +113,8 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
       foldersWithAudio.add(folder);
     } else if (isImage(f.name)) {
       bucket.images.push(f);
+    } else if (isSideFileName(f.name)) {
+      bucket.side.push(f);
     }
   }
 
@@ -125,7 +130,7 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     if (anthology !== undefined) {
       let g = anthologyGroups.get(anthology);
       if (!g) {
-        g = { path: anthology, name: baseName(anthology), audio: [], covers: sortedImages(byFolder.get(anthology)?.images ?? []), parts: [] };
+        g = { path: anthology, name: baseName(anthology), audio: [], covers: sortedImages(byFolder.get(anthology)?.images ?? []), side: byFolder.get(anthology)?.side ?? [], parts: [] };
         anthologyGroups.set(anthology, g);
         groups.push(g);
       }
@@ -149,7 +154,7 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
         groups.push({ path: a.relPath, name: stem(a.name), audio: [a], covers: [] });
       }
     } else {
-      groups.push({ path: folder, name: baseName(folder), audio: [...bucket.audio], covers: images });
+      groups.push({ path: folder, name: baseName(folder), audio: [...bucket.audio], covers: images, side: bucket.side });
     }
   }
   // Parts in their numbered order; the anthology's audio is the parts' audio in that order.

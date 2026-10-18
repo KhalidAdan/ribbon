@@ -7,10 +7,11 @@ import { natcompare } from "../natsort";
 import { RIBBON_DIR } from "./walk";
 import { groupBooks, type BookGroup } from "./group";
 import { probe } from "./probe";
-import { orderKeys, parseNumbered, resolveMetadata, stripUnabridged } from "./metadata";
+import { orderKeys, parseNumbered, resolveMetadata, stripUnabridged, withSideFiles, type ResolvedMetadata } from "./metadata";
+import { folderMarks, readSideFiles } from "./sidefiles";
 import { buildChapters, applyCorrections, rowsToCorrections, type Correction } from "./chapters";
 import { buildParts } from "./parts";
-import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows } from "./records";
+import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, LIBRARY_DETAIL_COLUMN } from "./records";
 import { bytesToRows, type Row } from "../csv";
 import { coverArgs } from "./cover";
 
@@ -398,7 +399,7 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
   // names it, and a numbered folder still wins.
   const isLooseRootFile = group.audio.length === 1 && group.path === group.audio[0]!.relPath;
   const parentName = group.path.includes("/") ? group.path.slice(0, group.path.lastIndexOf("/")).split("/").pop() ?? "" : "";
-  const meta =
+  const metaFromFiles =
     freshTags.length > 0
       ? resolveMetadata(
           freshTags.map((tags) => ({ durationMs: 0, tags, hasCover: false, chapters: [], codec: "", sampleRate: 0, channels: 0 })),
@@ -407,6 +408,9 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
           isLooseRootFile ? "" : parentName,
         )
       : cachedMetadata(records.previousBooks.get(group.path), group.name, isLooseRootFile ? "" : parentName);
+  // What metadata.opf, desc.txt and reader.txt say goes over the tags.
+  const sideTexts = (group.side ?? []).map((f) => ({ name: f.name, text: byPath.get(f.relPath)?.tags.text ?? "" })).filter((f) => f.text);
+  const meta = sideTexts.length > 0 ? withSideFiles(metaFromFiles, readSideFiles(sideTexts), !!parseNumbered(folderMarks(group.name).name)) : metaFromFiles;
 
   // An anthology by several hands is by "Various"; by one hand, by that hand.
   const distinctAuthors = new Set(partAuthors.filter(Boolean));
@@ -433,6 +437,7 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     series: meta.series,
     seriesIndex: meta.seriesIndex,
     year: meta.year,
+    ...details(meta),
     cover,
     durationMs,
     sizeBytes,
@@ -518,7 +523,10 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
     host.readTextDir(host.join(dir, "corrections")),
   ]);
   const previous = new Map<string, AudioFile>();
-  if (filesCsv) {
+  // Records from before the scan kept descriptions, genres and the rest
+  // carry none of them: read every file's tags once more, this once.
+  const detailed = !libraryCsv || new TextDecoder().decode(libraryCsv.subarray(0, 512)).split("\n", 1)[0]!.includes(LIBRARY_DETAIL_COLUMN);
+  if (filesCsv && detailed) {
     try {
       for (const list of (await bytesToFiles(filesCsv)).values()) for (const f of list) previous.set(f.path, f);
     } catch {
@@ -551,15 +559,30 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
  * folder-name rule is re-applied here so a curated numbered folder wins
  * even when the record was written before that rule existed.
  */
-function cachedMetadata(b: Book | undefined, folderName: string, parentFolderName = "") {
+function cachedMetadata(b: Book | undefined, rawFolderName: string, parentFolderName = ""): ResolvedMetadata {
+  const marks = folderMarks(rawFolderName);
+  const folderName = marks.name;
   const numbered = parseNumbered(folderName);
   const parent = parentFolderName ? (parseNumbered(parentFolderName)?.name ?? parentFolderName) : "";
   const verbatim = folderName.trim();
   if (!b) {
-    return { title: verbatim, rawTitle: verbatim, author: "", narrator: "", series: numbered ? parent : "", seriesIndex: numbered ? numbered.index : null, year: null };
+    return { title: verbatim, rawTitle: verbatim, author: "", narrator: marks.narrator ?? "", series: numbered ? parent : "", seriesIndex: numbered ? numbered.index : null, year: marks.year ?? null, ...(marks.asin ? { asin: marks.asin } : {}) };
   }
-  if (!numbered) return { title: b.title, rawTitle: b.rawTitle, author: b.author, narrator: b.narrator, series: b.series, seriesIndex: b.seriesIndex, year: b.year };
-  return { title: verbatim, rawTitle: verbatim, author: b.author, narrator: b.narrator, series: b.series || parent, seriesIndex: numbered.index, year: b.year };
+  if (!numbered) return { title: b.title, rawTitle: b.rawTitle, author: b.author, narrator: b.narrator, series: b.series, seriesIndex: b.seriesIndex, year: b.year, ...details(b) };
+  return { title: verbatim, rawTitle: verbatim, author: b.author, narrator: b.narrator, series: b.series || parent, seriesIndex: numbered.index, year: b.year, ...details(b) };
+}
+
+/** The optional fields of a book or its metadata, only those that say something. */
+function details(m: Partial<ResolvedMetadata>): Partial<Book> {
+  const out: Partial<Book> = {};
+  if (m.subtitle) out.subtitle = m.subtitle;
+  if (m.genres && m.genres.length > 0) out.genres = m.genres;
+  if (m.publisher) out.publisher = m.publisher;
+  if (m.description) out.description = m.description;
+  if (m.language) out.language = m.language;
+  if (m.isbn) out.isbn = m.isbn;
+  if (m.asin) out.asin = m.asin;
+  return out;
 }
 
 async function readCorrections(host: Host, root: string, id: string) {

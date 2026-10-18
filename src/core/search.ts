@@ -2,14 +2,15 @@ import { create, insertMultiple, search, type Orama } from "@orama/orama";
 import type { Book, Part } from "./types";
 
 /**
- * Full-text search over the shelf with Orama: title, author, narrator,
- * series, and an anthology's stories and their authors, prefix matching
+ * Full-text search over the shelf with Orama: title and subtitle, author,
+ * narrator, series, genres and publisher, and an anthology's stories and
+ * their authors, prefix matching
  * with one typo of tolerance. Text is folded to plain lower-case letters
  * on the way in and on the way out, so "Béla" finds "bela" and vice
  * versa. Everything is in memory; the index is rebuilt whenever the
  * shelf changes, which takes a few milliseconds for a few hundred books.
  */
-const schema = { title: "string", author: "string", narrator: "string", series: "string", stories: "string" } as const;
+const schema = { title: "string", author: "string", narrator: "string", series: "string", stories: "string", more: "string" } as const;
 
 export type BookIndex = Orama<typeof schema>;
 
@@ -34,6 +35,7 @@ export async function indexBooks(books: readonly { book: Book; parts: readonly P
       narrator: fold(b.narrator),
       series: fold(b.series),
       stories: fold(parts.map((p) => `${p.title} ${p.author}`).join(" ")),
+      more: fold([b.subtitle ?? "", ...(b.genres ?? []), b.publisher ?? ""].join(" ")),
     })),
   );
   return db;
@@ -43,6 +45,6 @@ export async function indexBooks(books: readonly { book: Book; parts: readonly P
 export async function searchBooks(index: BookIndex, query: string, limit = 500): Promise<string[]> {
   const term = fold(query);
   if (!term) return [];
-  const result = await search(index, { term, properties: "*", tolerance: 1, limit, boost: { title: 2 } });
+  const result = await search(index, { term, properties: "*", tolerance: 1, limit, boost: { title: 2, more: 0.5 } });
   return result.hits.map((h) => String(h.id));
 }

@@ -40,7 +40,8 @@ export interface ScannedFile {
   /** Library-relative, forward slashes. */
   path: string;
   name: string;
-  kind: "audio" | "image";
+  /** Side files (metadata.opf, desc.txt, reader.txt) come back as "text" with their contents in tags.text. */
+  kind: "audio" | "image" | "text";
   sizeBytes: number;
   mtimeMs: number;
   /** True when tags were read on this pass; false means "unchanged, reuse". */

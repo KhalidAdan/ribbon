@@ -1,4 +1,5 @@
 import type { ProbeResult } from "./probe";
+import { folderMarks, splitList, type SideMeta } from "./sidefiles";
 
 export interface ResolvedMetadata {
   title: string;
@@ -8,6 +9,13 @@ export interface ResolvedMetadata {
   series: string;
   seriesIndex: number | null;
   year: number | null;
+  subtitle?: string;
+  genres?: string[];
+  publisher?: string;
+  description?: string;
+  language?: string;
+  isbn?: string;
+  asin?: string;
 }
 
 export interface FileOrderKeys {
@@ -98,26 +106,95 @@ function mode(values: string[]): string {
  */
 export function resolveMetadata(probes: readonly ProbeResult[], folderName: string, fileTitleFallback: string, parentFolderName = ""): ResolvedMetadata {
   const tagSets = probes.map((p) => p.tags);
-  const numbered = parseNumbered(folderName);
+  // "{Narrator}", "[ASIN]" and a leading year are marks, not the name.
+  const marks = folderMarks(folderName);
+  const folder = folderName ? marks.name : "";
+  const numbered = parseNumbered(folder);
   const albumTitle = mode(tagSets.map((t) => first(t, "album"))) || (probes.length === 1 ? first(tagSets[0]!, "title") : "");
-  const rawTitle = numbered ? folderName.trim() : albumTitle || folderName || fileTitleFallback;
+  const rawTitle = numbered ? folder.trim() : albumTitle || folder || fileTitleFallback;
   const author = mode(tagSets.map((t) => first(t, "artist", "album_artist", "albumartist", "author")));
-  const narrator = mode(tagSets.map((t) => first(t, "composer", "narrator", "performer")));
+  const narrator = mode(tagSets.map((t) => first(t, "composer", "narrator", "performer"))) || marks.narrator || "";
   const parent = parentFolderName ? (parseNumbered(parentFolderName)?.name ?? parentFolderName) : "";
   const series = mode(tagSets.map((t) => first(t, "series", "mvnm", "grouping", "show"))) || (numbered ? parent : "");
   const indexText = mode(tagSets.map((t) => first(t, "series-part", "series_part", "seriespart", "mvin", "part")));
   const seriesIndex = numbered ? numbered.index : indexText ? parseIndex(indexText) : null;
   const yearText = mode(tagSets.map((t) => first(t, "date", "year", "originaldate")));
   const yearMatch = yearText.match(/\d{4}/);
-  return {
+  const pick = (...keys: string[]) => mode(tagSets.map((t) => first(t, ...keys)));
+  const out: ResolvedMetadata = {
     title: numbered ? rawTitle : stripUnabridged(rawTitle),
     rawTitle,
     author,
     narrator,
     series,
     seriesIndex,
-    year: yearMatch ? Number(yearMatch[0]) : null,
+    year: yearMatch ? Number(yearMatch[0]) : (marks.year ?? null),
   };
+  const subtitle = pick("subtitle");
+  if (subtitle && subtitle !== out.title) out.subtitle = subtitle;
+  const genres = splitList(pick("genre"));
+  if (genres.length > 0) out.genres = genres;
+  const publisher = pick("publisher", "label", "organization");
+  if (publisher) out.publisher = publisher;
+  const language = pick("language", "lang");
+  if (language) out.language = language;
+  const isbn = pick("isbn").replace(/[^0-9xX]/g, "");
+  if (isbn.length === 10 || isbn.length === 13) out.isbn = isbn;
+  const asin = pick("asin", "audible_asin", "audible asin") || marks.asin || "";
+  if (asin) out.asin = asin.trim();
+  const description = describe(tagSets);
+  if (description) out.description = description;
+  return out;
+}
+
+/** Words that open a comment written by a tool, not about the book. */
+const TOOL_COMMENT = /^(encoded|ripped|downloaded|converted|created|amazon|itunes|purchased|audible\.com|https?:|www\.)/i;
+
+/**
+ * The longest description any file carries: the long description atom,
+ * then a description, then a synopsis; a comment only when it reads
+ * like prose about the book.
+ */
+function describe(tagSets: readonly Record<string, string>[]): string {
+  let best = "";
+  for (const t of tagSets) {
+    for (const k of ["ldes", "description", "desc", "synopsis"]) {
+      const v = (t[k] ?? "").trim();
+      if (v.length > best.length) best = v;
+    }
+  }
+  if (best) return best;
+  for (const t of tagSets) {
+    const v = (t.comment ?? "").trim();
+    if (v.length >= 60 && /\s/.test(v) && !TOOL_COMMENT.test(v) && v.length > best.length) best = v;
+  }
+  return best;
+}
+
+/**
+ * What the side files say goes over what the tags say: someone wrote
+ * them on purpose. A numbered folder keeps its name and its number,
+ * because that was on purpose too.
+ */
+export function withSideFiles(meta: ResolvedMetadata, side: SideMeta, numberedFolder: boolean): ResolvedMetadata {
+  const out = { ...meta };
+  if (side.title && !numberedFolder) {
+    out.title = side.title;
+    out.rawTitle = side.title;
+  }
+  if (side.subtitle) out.subtitle = side.subtitle;
+  if (side.authors && side.authors.length > 0) out.author = side.authors.join(", ");
+  if (side.narrators && side.narrators.length > 0) out.narrator = side.narrators.join(", ");
+  if (side.series) out.series = side.series;
+  if (side.seriesIndex !== undefined && !numberedFolder) out.seriesIndex = side.seriesIndex;
+  if (side.year) out.year = side.year;
+  if (side.description) out.description = side.description;
+  if (side.publisher) out.publisher = side.publisher;
+  if (side.language) out.language = side.language;
+  if (side.genres && side.genres.length > 0) out.genres = side.genres;
+  if (side.isbn) out.isbn = side.isbn;
+  if (side.asin) out.asin = side.asin;
+  return out;
 }
 
 function parseIndex(text: string): number | null {
