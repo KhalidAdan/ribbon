@@ -9,6 +9,8 @@
     "core:default",
     "log:default",
     "core:window:allow-set-title",
+    "core:window:allow-destroy",
+    "core:window:allow-close",
     "dialog:allow-open",
     "os:allow-hostname",
     "os:allow-platform",

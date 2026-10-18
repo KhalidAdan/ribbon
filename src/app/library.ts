@@ -102,12 +102,14 @@ export class LibraryService {
   }
 
   /**
-   * Every book's merged position in one directory read. The result is
-   * also copied to the local mirror, where the next open reads it before
-   * the share has answered.
+   * Every book's merged position beside the books, in one directory read.
+   * Rejects when the folder cannot be read, so a share that is away is
+   * never mistaken for a library with no positions.
    */
   async readAllPositions(): Promise<Map<string, Position>> {
     const files = await this.host.readTextDir(this.dir("positions"));
+    // An empty answer from a folder that is not there is a share that is away.
+    if (files.length === 0 && !(await this.host.exists(this.root))) throw new Error(`${this.root} is not reachable`);
     const encoder = new TextEncoder();
     const byBook = new Map<string, Position[]>();
     for (const f of files) {
@@ -128,14 +130,23 @@ export class LibraryService {
       const best = mergePositions(list, id);
       if (best) out.set(id, best);
     }
-    if (this.host.recordsMirror) {
-      try {
-        await this.host.recordsMirror.write(this.root, { positions: new TextDecoder().decode(await serializePositions([...out.values()])) });
-      } catch {
-        /* the mirror is a convenience */
-      }
-    }
     return out;
+  }
+
+  /** True when positions can be kept on this machine as well as beside the books. */
+  get keepsLocalPositions(): boolean {
+    return !!this.host.recordsMirror;
+  }
+
+  /**
+   * Keep every position of this folder on this machine, in the local
+   * mirror, flushed to disk. This copy is written first and survives the
+   * share being away, the app quitting, and the machine losing power.
+   */
+  async writeLocalPositions(all: readonly Position[]): Promise<void> {
+    const mirror = this.host.recordsMirror;
+    if (!mirror) return;
+    await mirror.write(this.root, { positions: new TextDecoder().decode(await serializePositions(all)) });
   }
 
   /** What the local mirror holds beyond the records: positions for the first paint, and covers. */
@@ -181,11 +192,21 @@ export class LibraryService {
     }
   }
 
+  /** A position for this device, now. Not written anywhere. */
+  async positionAt(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {
+    return { bookId, offsetMs: Math.max(0, Math.round(Number.isFinite(offsetMs) ? offsetMs : 0)), updatedAt: nowIso(nowMs), device: await this.deviceName() };
+  }
+
   async writePosition(bookId: string, offsetMs: number, nowMs = Date.now()): Promise<Position> {
-    const p: Position = { bookId, offsetMs: Math.max(0, Math.round(offsetMs)), updatedAt: nowIso(nowMs), device: await this.deviceName() };
-    await this.host.mkdir(this.dir("positions"));
-    await this.host.writeFile(this.dir("positions", `${bookId}.csv`), await serializePosition(p));
+    const p = await this.positionAt(bookId, offsetMs, nowMs);
+    await this.writePositionRecord(p);
     return p;
+  }
+
+  /** Write one position beside the books, as given. */
+  async writePositionRecord(p: Position): Promise<void> {
+    await this.host.mkdir(this.dir("positions"));
+    await this.host.writeFile(this.dir("positions", `${p.bookId}.csv`), await serializePosition(p));
   }
 
   // Problems -----------------------------------------------------------

@@ -753,8 +753,17 @@ pub async fn mirror_write(root: String, library: Option<String>, files: Option<S
         let parts = [("library.csv", library), ("files.csv", files), ("positions.csv", positions)];
         for (name, text) in parts.into_iter().filter_map(|(n, t)| t.map(|t| (n, t))) {
             let target = dir.join(name);
-            let tmp = dir.join(format!("{name}.tmp"));
-            std::fs::write(&tmp, text.as_bytes()).map_err(|e| e.to_string())?;
+            let tmp = dir.join(format!("{name}.{}.tmp", std::process::id()));
+            {
+                use std::io::Write;
+                let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+                f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+                // Positions are the one thing that must survive a crash or a
+                // power cut: on disk before the rename makes them current.
+                if name == "positions.csv" {
+                    f.sync_all().map_err(|e| e.to_string())?;
+                }
+            }
             std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
         }
         Ok(())

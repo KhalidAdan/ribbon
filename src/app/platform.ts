@@ -76,6 +76,27 @@ export async function detectPlatform(): Promise<Platform> {
       },
       defaultRoot: envLibrary,
       uptimeMs,
+      onWindowClose(flush) {
+        // Tauri waits for this handler, then closes the window: the
+        // position is on disk before the webview goes away.
+        let unlisten: (() => void) | null = null;
+        let gone = false;
+        void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
+          getCurrentWindow()
+            .onCloseRequested(async () => {
+              log.info("window closing; keeping positions");
+              await flush().catch((e: unknown) => log.warn("could not flush positions on close:", String(e)));
+            })
+            .then((u) => {
+              if (gone) u();
+              else unlisten = u;
+            }),
+        );
+        return () => {
+          gone = true;
+          unlisten?.();
+        };
+      },
       appSettings: { read: appSettingsRead, write: appSettingsWrite },
       home: {
         path: async () => (await homeInfo()).path,

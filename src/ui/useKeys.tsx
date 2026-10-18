@@ -7,7 +7,15 @@ export function useKeys(c: AppController): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // A held key repeats: one toggle per press, or play and pause flicker.
+      if (e.repeat && (e.key === " " || e.key === "k")) {
+        e.preventDefault();
+        return;
+      }
+      // A focused slider moves itself with the arrows.
+      if (t?.getAttribute("role") === "slider" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
       const s = c.getState();
       if (!s.current) return;
       switch (e.key) {
