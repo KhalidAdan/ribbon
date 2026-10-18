@@ -21,9 +21,14 @@ export interface SeriesGroup {
 
 export interface SeriesChoice {
   bookId: string;
+  /** False leaves the book off the shelf (a novella you will not listen to). */
   included: boolean;
   /** 1-based position among the included and excluded alike. */
   order: number;
+  /** The book's number in the series when the listener set one: 2.5 sits between 2 and 3. */
+  number?: number;
+  /** True takes the book out of this series altogether, without hiding it. */
+  removed?: boolean;
 }
 
 export interface SeriesRecord {
@@ -127,11 +132,18 @@ export function mergeSeries(detected: readonly SeriesGroup[], records: Iterable<
   const byKey = new Map<string, SeriesGroup>();
   for (const g of detected) byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
   for (const r of records) {
-    const ids = normalizeChoices(r.choices)
+    const ids = normalizeChoices(r.choices.filter((c) => !c.removed))
       .map((c) => c.bookId)
       .filter((id) => onShelf.has(id));
+    const removed = new Set(r.choices.filter((c) => c.removed).map((c) => c.bookId));
     const have = byKey.get(r.key);
     if (have) {
+      // The listener's name for a series it found, and its members minus the ones taken out.
+      if (r.name.trim()) have.name = r.name.trim();
+      if (removed.size > 0) {
+        have.bookIds = have.bookIds.filter((id) => !removed.has(id));
+        if (have.added) have.added = have.added.filter((id) => !removed.has(id));
+      }
       const added = ids.filter((id) => !have.bookIds.includes(id));
       if (added.length > 0) {
         have.bookIds.push(...added);
@@ -162,8 +174,26 @@ export function normalizeChoices(choices: readonly SeriesChoice[]): SeriesChoice
 /** Ids of every book a record leaves out. */
 export function hiddenBookIds(records: Iterable<SeriesRecord>): Set<string> {
   const out = new Set<string>();
-  for (const r of records) for (const c of r.choices) if (!c.included) out.add(c.bookId);
+  for (const r of records) for (const c of r.choices) if (!c.included && !c.removed) out.add(c.bookId);
   return out;
+}
+
+/** What to call a book's place in a series: the number the listener gave it, or its position. */
+export function seriesNumber(record: SeriesRecord | undefined, bookId: string, position: number): string {
+  const n = record?.choices.find((c) => c.bookId === bookId)?.number;
+  return n !== undefined ? String(n) : String(position);
+}
+
+/**
+ * Put choices in order after a number changed: a numbered book by its
+ * number, the rest by their position, which is the number they show.
+ * On a tie the book that was first stays first.
+ */
+export function sortByNumber(choices: readonly SeriesChoice[]): SeriesChoice[] {
+  return normalizeChoices(choices)
+    .map((c) => ({ c, k: c.number ?? c.order }))
+    .sort((a, b) => a.k - b.k || a.c.order - b.c.order)
+    .map(({ c }, i) => ({ ...c, order: i + 1 }));
 }
 
 /**
@@ -174,7 +204,7 @@ export function hiddenBookIds(records: Iterable<SeriesRecord>): Set<string> {
 export function orderBySeries<T>(sorted: readonly T[], idOf: (item: T) => string, records: Iterable<SeriesRecord>): T[] {
   const out = [...sorted];
   for (const r of records) {
-    const rank = new Map(r.choices.map((c) => [c.bookId, c.order]));
+    const rank = new Map(r.choices.filter((c) => !c.removed).map((c) => [c.bookId, c.order]));
     const slots: number[] = [];
     out.forEach((item, i) => {
       if (rank.has(idOf(item))) slots.push(i);
@@ -186,11 +216,11 @@ export function orderBySeries<T>(sorted: readonly T[], idOf: (item: T) => string
   return out;
 }
 
-export const SERIES_HEADERS = ["series", "book_id", "included", "order", "decided_at"];
+export const SERIES_HEADERS = ["series", "book_id", "included", "order", "decided_at", "number", "removed"];
 
 export function seriesToBytes(r: SeriesRecord): Promise<Uint8Array> {
   return rowsToBytes(
-    r.choices.map((c) => ({ series: r.name, book_id: c.bookId, included: c.included ? "1" : "0", order: String(c.order), decided_at: r.decidedAt })),
+    r.choices.map((c) => ({ series: r.name, book_id: c.bookId, included: c.included ? "1" : "0", order: String(c.order), decided_at: r.decidedAt, number: c.number === undefined ? "" : String(c.number), removed: c.removed ? "1" : "" })),
     SERIES_HEADERS,
   );
 }
@@ -204,7 +234,11 @@ export async function bytesToSeries(key: string, bytes: Uint8Array): Promise<Ser
     if (!r.book_id) continue;
     name = name || r.series || "";
     decidedAt = decidedAt || r.decided_at || "";
-    choices.push({ bookId: r.book_id, included: bool(r.included), order: int(r.order) });
+    const choice: SeriesChoice = { bookId: r.book_id, included: bool(r.included), order: int(r.order) };
+    const n = r.number ? Number(r.number) : NaN;
+    if (Number.isFinite(n)) choice.number = n;
+    if (bool(r.removed)) choice.removed = true;
+    choices.push(choice);
   }
   if (choices.length === 0) return null;
   return { key, name, choices: normalizeChoices(choices), decidedAt };

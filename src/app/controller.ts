@@ -1419,6 +1419,8 @@ export class AppController {
   /** Write a record beside the books in every source that holds one of its members. */
   private async writeSeriesRecord(record: SeriesRecord): Promise<void> {
     const members = new Set(record.choices.map((c) => c.bookId));
+    // A record whose members were all taken out still has to reach where it lived.
+    for (const o of this.openedInOrder()) if (o.seriesKeys.has(record.key)) for (const b of o.books.slice(0, 1)) members.add(b.book.id);
     const holders = this.openedInOrder().filter((o) => o.books.some((b) => members.has(b.book.id)));
     for (const o of holders) {
       o.seriesKeys.add(record.key);
@@ -1497,13 +1499,44 @@ export class AppController {
     this.set({ seriesSetup: null });
   }
 
-  /** Save the decisions beside the books, in every source that holds one, and apply them to the shelf. */
-  async saveSeries(choices: SeriesChoice[]): Promise<void> {
+  /**
+   * Save the decisions beside the books, in every source that holds one,
+   * and apply them to the shelf: the order, the numbers, what is on the
+   * shelf, a new name, and books moved into other series.
+   */
+  async saveSeries(choices: SeriesChoice[], opts: { name?: string; moves?: { bookId: string; toKey: string }[] } = {}): Promise<void> {
     const g = this.state.seriesSetup;
     if (!g) return;
-    const record: SeriesRecord = { key: g.key, name: g.name, choices: normalizeChoices(choices), decidedAt: new Date().toISOString() };
-    this.set({ series: { ...this.state.series, [g.key]: record }, seriesSetup: null });
+    const now = new Date().toISOString();
+    const moved = new Set((opts.moves ?? []).map((m) => m.bookId));
+    const name = opts.name?.trim() || this.state.series[g.key]?.name || g.name;
+    const record: SeriesRecord = { key: g.key, name, choices: normalizeChoices(choices.map((c) => (moved.has(c.bookId) ? { ...c, removed: true } : c))), decidedAt: now };
+    const series = { ...this.state.series, [g.key]: record };
+    const others: SeriesRecord[] = [];
+    const groups = this.detectedSeries();
+    for (const m of opts.moves ?? []) {
+      if (m.toKey === g.key) continue;
+      const target = groups.find((x) => x.key === m.toKey);
+      const base = series[m.toKey] ?? (target ? { key: target.key, name: target.name, choices: defaultChoices(target), decidedAt: now } : null);
+      if (!base) continue;
+      const have = base.choices.find((c) => c.bookId === m.bookId);
+      const choices2 = have
+        ? base.choices.map((c) => (c.bookId === m.bookId ? { bookId: c.bookId, included: true, order: c.order, ...(c.number !== undefined ? { number: c.number } : {}) } : c))
+        : [...base.choices, { bookId: m.bookId, included: true, order: base.choices.length + 1 }];
+      const next: SeriesRecord = { ...base, choices: normalizeChoices(choices2), decidedAt: now };
+      series[m.toKey] = next;
+      others.push(next);
+    }
+    if (name !== g.name) log.info("rename series:", g.name, "→", name);
+    if (moved.size > 0) log.info("moved", moved.size, "book(s) out of", name);
+    this.set({ series, seriesSetup: null });
     await this.writeSeriesRecord(record);
+    for (const r of others) await this.writeSeriesRecord(r);
+  }
+
+  /** Forget the listener's decisions about a series: detection, or nothing, takes over again. */
+  async forgetSeries(key: string): Promise<void> {
+    return this.deleteSeries(key);
   }
 
   /** Skip: everything stays on the shelf in detected order, and the question is not asked again. */
