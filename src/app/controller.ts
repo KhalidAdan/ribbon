@@ -29,10 +29,10 @@ import type { Correction } from "../core/scan/chapters";
 import { log } from "./log";
 import { openEbook, readerOnly, type Ebook } from "../core/ebook";
 import type { Why } from "../core/poslog";
-import { placeOf, type TextPlace } from "../core/reading/place";
+import { BookText, type TextPlace } from "../core/reading/booktext";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
-import { alignBook, byOverlay, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
+import { alignBook, byOverlay, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
 import { matchTranscript, type Said } from "../core/reading/transcript";
@@ -1212,6 +1212,7 @@ export class AppController {
       return;
     }
     const ebook = result.ebook;
+    const text = new BookText(ebook);
     const rd: ReadingData = known ?? {
       ...emptyReading(),
       fixes: fixes!,
@@ -1223,15 +1224,15 @@ export class AppController {
     };
     this.readingData.set(bookId, rd);
     this.rd = rd;
-    this.rd.overlay = overlayAnchors(ebook, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
+    this.rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
     if (this.rd.overlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${this.rd.overlay.length} passages`);
     // A book that is only its EPUB has no audio to pair the text with.
     const paired = performance.now();
-    const alignment = readerOnly(book.book) ? undefined : this.pairUp(ebook, withChapters);
+    const alignment = readerOnly(book.book) ? undefined : this.pairUp(text, withChapters);
     steps.push(`pair ${Math.round(performance.now() - paired)}`);
     if (alignment) log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
-    const place = openingPlace(ebook, this.keptPlaces()[bookId], shared, alignment && this.narratorPlace(bookId, ebook, alignment));
-    this.readingKeeper = new ReadingKeeper(ebook, place, {
+    const place = openingPlace(text, this.keptPlaces()[bookId], shared, alignment && this.narratorPlace(bookId, text, alignment));
+    this.readingKeeper = new ReadingKeeper(text, place, {
       keepLocal: (kept) => {
         this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: kept } };
         this.saveAppSettingsSoon();
@@ -1240,15 +1241,15 @@ export class AppController {
       // The pairing can be fixed while the book is open: always the latest.
       toMs: (p) => {
         const a = this.state.reading?.alignment ?? alignment;
-        return a ? textToMs(a, globalOffset(ebook, p)) : null;
+        return a ? textToMs(a, text.chars(p)) : null;
       },
     });
     log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections; done at (ms) ${steps.join(", ")}`);
     // Opened while its audio plays: the pages follow the narrator.
     const following = this.state.current?.book.book.id === bookId && this.state.player.playing;
     const highlights = this.highlightsFor(bookId);
-    this.set({ reading: { bookId, status: "ready", ebook, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
-    this.readingCtx = { o, book: withChapters, ebook, rd };
+    this.set({ reading: { bookId, status: "ready", text, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
+    this.readingCtx = { o, book: withChapters, text, rd };
     this.prepareAudio(o.lib, withChapters);
     void this.hearPlaces();
   }
@@ -1280,9 +1281,9 @@ export class AppController {
     const ctx = this.readingCtx;
     const r = this.state.reading;
     const host = ctx?.o.lib.host;
-    if (!ctx || !r?.ebook || !r.alignment || r.exporting || !host?.exportEbook || !ctx.book.book.ebook) return;
+    if (!ctx || !r?.text || !r.alignment || r.exporting || !host?.exportEbook || !ctx.book.book.ebook) return;
     const { o, book } = ctx;
-    const plan = exportPlan(r.ebook, r.alignment, book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })), o.lib.absPath(book.book.ebook!));
+    const plan = exportPlan(r.text, r.alignment, book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })), o.lib.absPath(book.book.ebook!));
     const started = performance.now();
     const { exported: _, ...rest } = r;
     this.set({ reading: { ...rest, exporting: { done: 0, total: plan.sections.length } } });
@@ -1324,8 +1325,8 @@ export class AppController {
    */
   private rd: ReadingData = emptyReading();
   private readingData = new Map<string, ReadingData>();
-  private readingIndex: { ebook: Ebook; index: WordAt[] } | null = null;
-  private readingCtx: { o: Opened; book: ScannedBook; ebook: Ebook; rd: ReadingData } | null = null;
+  private readingIndex: { text: BookText; index: WordAt[] } | null = null;
+  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData } | null = null;
   private hearing = false;
   /** How long a clip took to hear, last measured: a fast machine hears the whole book, a slow one only around the reader. */
   private msPerClip: number | null = null;
@@ -1335,14 +1336,14 @@ export class AppController {
   }
 
   /** The open book's text paired with its audio: by its Media Overlay when it has one for this recording, else by chapters, with every checkpoint heard. */
-  private pairUp(ebook: Ebook, book: ScannedBook, rd = this.rd): Alignment {
-    const a = alignBook(ebook, book.chapters, book.book.durationMs, { generated: generatedTitles(book.chapters), fixes: rd.fixes, heard: rd.heard, anchors: this.anchorList(rd) });
-    return rd.overlay ? byOverlay(ebook, a, rd.overlay, book.book.durationMs) : a;
+  private pairUp(text: BookText, book: ScannedBook, rd = this.rd): Alignment {
+    const a = alignBook(text, book.chapters, book.book.durationMs, { generated: generatedTitles(book.chapters), fixes: rd.fixes, heard: rd.heard, anchors: this.anchorList(rd) });
+    return rd.overlay ? byOverlay(text, a, rd.overlay, book.book.durationMs) : a;
   }
 
   /** The open book paired again with everything heard and fixed so far. */
-  private realign(ebook: Ebook, book: ScannedBook, rd = this.rd): Alignment {
-    return this.pairUp(ebook, this.state.books.find((b) => b.book.id === book.book.id) ?? book, rd);
+  private realign(text: BookText, book: ScannedBook, rd = this.rd): Alignment {
+    return this.pairUp(text, this.state.books.find((b) => b.book.id === book.book.id) ?? book, rd);
   }
 
   /**
@@ -1394,14 +1395,14 @@ export class AppController {
    * text (#57): every phrase found becomes a checkpoint, a few seconds
    * apart, so read-along can mark the sentence being read.
    */
-  private async alignStretches(ctx: { o: Opened; book: ScannedBook; ebook: Ebook; rd: ReadingData }, model: string, language: string | null, stretches: { startMs: number; endMs: number; file: number; offset: number }[]): Promise<void> {
-    const { o, book, ebook, rd } = ctx;
+  private async alignStretches(ctx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData }, model: string, language: string | null, stretches: { startMs: number; endMs: number; file: number; offset: number }[]): Promise<void> {
+    const { o, book, text, rd } = ctx;
     const host = o.lib.host;
     const batch = stretches.slice(0, SPANS_PER_CALL);
     const clips = batch.map((x) => ({ path: o.lib.absPath(book.files[x.file]!.path), startMs: x.offset }));
     const said = await host.speechTranscribe!.call(host, model, clips, SPAN_MS / 1000, language);
     const a = this.state.reading?.alignment;
-    if (this.readingIndex?.ebook !== ebook) this.readingIndex = { ebook, index: wordIndex(ebook) };
+    if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
     const index = this.readingIndex.index;
     batch.forEach((x, i) => {
       rd.spans.set(x.startMs, x.endMs);
@@ -1420,10 +1421,10 @@ export class AppController {
   }
 
   /** Find heard words in the text near where the pairing puts them, and keep them as a checkpoint when found. */
-  private anchorHeard(rd: ReadingData, ebook: Ebook, alignment: Alignment, ms: number, words: string): boolean {
+  private anchorHeard(rd: ReadingData, text: BookText, alignment: Alignment, ms: number, words: string): boolean {
     const pair = alignment.pairs.find((p) => ms >= p.audio.startMs && ms < p.audio.endMs);
     if (!pair || alignment.how !== "chapter") return false;
-    if (this.readingIndex?.ebook !== ebook) this.readingIndex = { ebook, index: wordIndex(ebook) };
+    if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
     const pace = (pair.text.end - pair.text.start) / Math.max(1, pair.audio.endMs - pair.audio.startMs);
     const found = locate(this.readingIndex.index, words, msToText(alignment, ms), Math.max(1500, SEARCH_MS * pace));
     if (found) rd.anchors.set(ms, found.chars);
@@ -1455,10 +1456,10 @@ export class AppController {
     if (!hear) return;
     // A Media Overlay is exact: nothing to hear.
     if (this.state.reading?.alignment?.how === "overlay") return;
-    const { o, book, ebook, rd } = ctx;
+    const { o, book, text, rd } = ctx;
     const bookId = book.book.id;
     const durations = book.files.map((f) => f.durationMs);
-    const language = (ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
+    const language = (text.ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
     const still = () => this.readingCtx === ctx && this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
     const heardNear = (ms: number) => [...rd.heard.keys()].some((h) => Math.abs(h - ms) < HEARD_NEAR_MS);
     // A machine that hears a clip quickly (a GPU) hears every chapter's opening, and transcribes the whole narration.
@@ -1477,7 +1478,7 @@ export class AppController {
       const a = this.state.reading?.alignment;
       const place = this.state.reading?.place;
       if (!a || a.how !== "chapter" || !place || transcribes()) return [];
-      const here = globalOffset(ebook, place);
+      const here = text.chars(place);
       const readerMs = textToMs(a, here);
       let at = a.pairs.findIndex((p) => here >= p.text.start && here < p.text.end);
       if (at < 0) at = Math.max(0, a.pairs.findIndex((p) => here < p.text.start));
@@ -1499,7 +1500,7 @@ export class AppController {
       const a = this.state.reading?.alignment;
       const place = this.state.reading?.place;
       if (this.state.current?.book.book.id === bookId) return this.state.player.positionMs;
-      return a && place ? textToMs(a, globalOffset(ebook, place)) : 0;
+      return a && place ? textToMs(a, text.chars(place)) : 0;
     };
     const stretches = (): { startMs: number; endMs: number; file: number; offset: number }[] => {
       const a = this.state.reading?.alignment;
@@ -1558,7 +1559,7 @@ export class AppController {
           spans += Math.min(SPANS_PER_CALL, close.length);
           await this.keepAligned(rd, bookId, o.lib);
           if (!still()) break;
-          this.set({ reading: { ...this.state.reading!, alignment: this.realign(ebook, book, rd) } });
+          this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
           if (near().length === 0) ready();
           continue;
         }
@@ -1572,7 +1573,7 @@ export class AppController {
             spans += Math.min(SPANS_PER_CALL, left.length);
             await this.keepAligned(rd, bookId, o.lib);
             if (!still()) break;
-            this.set({ reading: { ...this.state.reading!, alignment: this.realign(ebook, book, rd) } });
+            this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
             continue;
           }
         }
@@ -1595,12 +1596,12 @@ export class AppController {
         batch.forEach((ms, i) => {
           const w = (words[i] ?? "").trim();
           rd.heard.set(ms, w);
-          if (what === "checkpoints" && before && this.anchorHeard(rd, ebook, before, ms, w)) found++;
+          if (what === "checkpoints" && before && this.anchorHeard(rd, text, before, ms, w)) found++;
         });
         done += batch.length;
         await o.lib.writeHeard(bookId, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
         if (!still()) break;
-        this.set({ reading: { ...this.state.reading!, alignment: this.realign(ebook, book, rd) } });
+        this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
       }
       log.info(`heard ${done} places in ${book.book.title} (${found} found in the text) and transcribed ${spans} minutes in ${Math.round((performance.now() - started) / 1000)} s, ${Math.round(this.msPerClip ?? 0)} ms a clip`);
     } catch (e) {
@@ -1634,17 +1635,17 @@ export class AppController {
     if (!ctx || !model || !hear || !r?.alignment || r.alignment.how !== "chapter") return false;
     const rd = ctx?.rd ?? this.rd;
     if (this.anchorList(rd).some((a) => Math.abs(a.ms - ms) < PINPOINT_MS)) return false;
-    const { o, book, ebook } = ctx;
+    const { o, book, text } = ctx;
     const at = locate_(book.files.map((f) => f.durationMs), ms);
     this.set({ reading: { ...r, finding: true } });
     try {
-      const language = (ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
+      const language = (text.ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
       const [w] = await hear.call(o.lib.host, model, [{ path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) }], HEAR_SECONDS, language);
       const words = (w ?? "").trim();
       rd.heard.set(ms, words);
-      const found = this.anchorHeard(rd, ebook, r.alignment, ms, words);
+      const found = this.anchorHeard(rd, text, r.alignment, ms, words);
       void o.lib.writeHeard(book.book.id, rd.heard, rd.anchors).catch(() => undefined);
-      if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(ebook, book, rd) } });
+      if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(text, book, rd) } });
       return found;
     } catch (e) {
       log.warn("could not pinpoint the place:", describe(e));
@@ -1706,11 +1707,11 @@ export class AppController {
     const r = this.state.reading;
     const book = r && this.state.books.find((b) => b.book.id === r.bookId);
     const o = book && this.openedOf(book);
-    if (!r?.ebook || !book || !o) return;
+    if (!r?.text || !book || !o) return;
     const fixes = this.rd.fixes.filter((f) => f.text !== textRef);
     if (choice !== "auto") fixes.push({ text: textRef, audioMs: choice });
     this.rd.fixes = fixes;
-    const alignment = this.pairUp(r.ebook, book);
+    const alignment = this.pairUp(r.text, book);
     this.set({ reading: { ...r, alignment } });
     try {
       await o.lib.writePairing(r.bookId, fixes);
@@ -1736,20 +1737,20 @@ export class AppController {
   }
 
   /** Where the narrator is in a book, mapped into its text, and when that was so. */
-  private narratorPlace(bookId: string, ebook: Ebook, alignment: Alignment): { place: TextPlace; t: string } | undefined {
+  private narratorPlace(bookId: string, text: BookText, alignment: Alignment): { place: TextPlace; t: string } | undefined {
     const live = this.state.current?.book.book.id === bookId && this.engine?.current.bookId === bookId;
     const ms = live ? this.engine!.positionMs() : this.state.positions[bookId]?.offsetMs;
     if (ms === undefined) return undefined;
     // Playing now is now; paused, it is when it paused.
     const t = live && this.state.player.playing ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
-    return { place: placeAtGlobal(ebook, msToText(alignment, ms)), t };
+    return { place: text.place(msToText(alignment, ms)), t };
   }
 
   /** In the reader: the narrator's place in the text, or null when this book's audio is not loaded. */
   narratorInText(): TextPlace | null {
     const r = this.state.reading;
-    if (!r?.ebook || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
-    return placeAtGlobal(r.ebook, msToText(r.alignment, this.state.player.positionMs));
+    if (!r?.text || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
+    return r.text.place(msToText(r.alignment, this.state.player.positionMs));
   }
 
   /** In the reader: turn to where the narrator is, heard first when no checkpoint is near, and follow it from there. */
@@ -1775,10 +1776,10 @@ export class AppController {
   /** In the reader: play this book's audio from a place in the text, the top of the page unless one is given (a tapped sentence). */
   async listenFromHere(at?: TextPlace): Promise<void> {
     const r = this.state.reading;
-    if (!r?.ebook || !r.alignment || !r.place) return;
+    if (!r?.text || !r.alignment || !r.place) return;
     const book = this.state.books.find((b) => b.book.id === r.bookId);
     if (!book) return;
-    const chars = globalOffset(r.ebook, at ?? r.place);
+    const chars = r.text.chars(at ?? r.place);
     // Heard first when no checkpoint is near, so the narrator starts on the page's first words.
     await this.pinpoint(textToMs(r.alignment, chars));
     const alignment = this.state.reading?.alignment ?? r.alignment;
@@ -1832,7 +1833,7 @@ export class AppController {
 
   /** A URL for an image in the open book's text, when it was kept on this machine. */
   readingImageUrl(src: string): string | undefined {
-    const abs = this.state.reading?.ebook?.files?.[src];
+    const abs = this.state.reading?.text?.ebook.files?.[src];
     return abs ? this.platform.fileUrl(abs) : undefined;
   }
 
@@ -2163,11 +2164,11 @@ export class AppController {
     const r = this.state.reading;
     const book = r && this.state.books.find((x) => x.book.id === r.bookId);
     const lib = book && this.libOf(book);
-    if (!r?.ebook || !book || !lib) return null;
-    const range = trimRange(r.ebook, a, b);
+    if (!r?.text || !book || !lib) return null;
+    const range = trimRange(r.text, a, b);
     if (!range) return null;
-    const text = highlightOf(r.ebook, book.book.id, range);
-    const ms = r.alignment && book.book.durationMs > 0 ? Math.max(0, Math.round(textToMs(r.alignment, globalOffset(r.ebook, range.from)))) : null;
+    const text = highlightOf(r.text, book.book.id, range);
+    const ms = r.alignment && book.book.durationMs > 0 ? Math.max(0, Math.round(textToMs(r.alignment, r.text.chars(range.from)))) : null;
     const clip =
       ms === null
         ? ""
@@ -2204,8 +2205,8 @@ export class AppController {
     if (!h) return;
     if (this.state.reading?.bookId !== bookId || this.state.reading.status !== "ready") await this.openReading(bookId);
     const r = this.state.reading;
-    if (r?.bookId !== bookId || !r.ebook) return;
-    this.moveReading(placeOf(r.ebook, h.text.start), "seek");
+    if (r?.bookId !== bookId || !r.text) return;
+    this.moveReading(r.text.fromLocator(h.text.start), "seek");
   }
 
   /** Change a bookmark's note. */

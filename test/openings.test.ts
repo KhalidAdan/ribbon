@@ -3,6 +3,7 @@ import { openingMatch, words } from "../src/core/reading/openings";
 import { alignBook } from "../src/core/reading/align";
 import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
 import type { Chapter } from "../src/core/types";
+import { BookText } from "../src/core/reading/booktext";
 
 describe("the narrator's opening words", () => {
   it("are words: lower case, numbers as digits, apostrophes kept inside words", () => {
@@ -42,7 +43,7 @@ describe("pairing by what the narrator says", () => {
       [chapters[3]!.startMs, "Part C. By noon the captain had gone ashore alone"],
       [chapters[4]!.startMs, "Part D. The old woman at the well watched him come"],
     ]);
-    const a = alignBook(ebook, chapters, durationMs, { generated: true, heard });
+    const a = alignBook(new BookText(ebook), chapters, durationMs, { generated: true, heard });
     expect(a.pairs.map((p) => `${p.textLabel}=${p.audioTitle}`)).toEqual(["Part A=Track 2", "Part B=Track 3", "Part C=Track 4", "Part D=Track 5"]);
     // Heard and agreed: sure.
     expect(a.pairs.every((p) => p.confidence > 0.9)).toBe(true);

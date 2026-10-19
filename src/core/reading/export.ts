@@ -1,7 +1,6 @@
-import type { Ebook } from "../ebook";
+import type { BookText } from "./booktext";
 import { locate } from "../timeline";
-import { globalOffset, textToMs, type Alignment } from "./align";
-import { sentencesOf } from "./sentences";
+import { textToMs, type Alignment } from "./align";
 
 /**
  * The read-along export (docs/READING.md, section 6): what Rust needs to
@@ -47,23 +46,23 @@ export function exportPath(epub: string): string {
  * each chapter's audio cut where its first sentence begins and its last
  * ends. `files` are the audiobook's files in order, by absolute path.
  */
-export function exportPlan(ebook: Ebook, alignment: Alignment, files: readonly { path: string; durationMs: number }[], epub: string): ExportPlan {
+export function exportPlan(book: BookText, alignment: Alignment, files: readonly { path: string; durationMs: number }[], epub: string): ExportPlan {
   const durations = files.map((f) => f.durationMs);
   const narrated = (chars: number) => alignment.pairs.some((p) => chars >= p.text.start && chars < p.text.end);
   const sections: ExportSection[] = [];
-  ebook.sections.forEach((section, s) => {
+  book.ebook.sections.forEach((section, s) => {
     if (!section.linear) return;
     const found: { block: number; start: number; end: number; chars: number; ms: number }[] = [];
-    section.blocks.forEach((block, b) => {
-      for (const sentence of sentencesOf(block, ebook.meta.language)) {
-        const chars = globalOffset(ebook, { section: s, block: b, offset: sentence.start });
+    section.blocks.forEach((_, b) => {
+      for (const sentence of book.sentences(s, b)) {
+        const chars = book.chars({ section: s, block: b, offset: sentence.start });
         if (narrated(chars)) found.push({ block: b, start: sentence.start, end: sentence.end, chars, ms: textToMs(alignment, chars) });
       }
     });
     if (found.length === 0) return;
     // The chapter's last sentence ends where the text after it begins to be read.
     const last = found[found.length - 1]!;
-    const lastEnd = textToMs(alignment, globalOffset(ebook, { section: s, block: last.block, offset: last.end }));
+    const lastEnd = textToMs(alignment, book.chars({ section: s, block: last.block, offset: last.end }));
     const timed: ExportSentence[] = [];
     found.forEach((f, i) => {
       const endMs = i + 1 < found.length ? found[i + 1]!.ms : lastEnd;

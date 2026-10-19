@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { wordIndex } from "../src/core/reading/anchors";
 import { matchTranscript } from "../src/core/reading/transcript";
 import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
+import { BookText } from "../src/core/reading/booktext";
 
 const paras = [
   "The waygate hung in the void before them. It was a giant circle of wraithbone, and at fully forty feet across it dwarfed the Aeldari who stood before it.",
@@ -23,7 +24,7 @@ const at = (s: string) => paras.join("").indexOf(s);
 
 describe("matching a transcribed stretch to the text", () => {
   it("puts a checkpoint where each phrase begins, through mishearings and skipped words", () => {
-    const index = wordIndex(book());
+    const index = wordIndex(new BookText(book()));
     const said = [
       { startMs: 61_000, endMs: 64_200, words: " The waygate hung in the void before them." },
       { startMs: 64_200, endMs: 70_000, words: " It was a giant circle of wraith bone and at fully 40 feet across it dwarfed the Eldar who stood before it." },
@@ -42,7 +43,7 @@ describe("matching a transcribed stretch to the text", () => {
   });
 
   it("finds nothing in text the stretch is not from", () => {
-    const index = wordIndex(book());
+    const index = wordIndex(new BookText(book()));
     const m = matchTranscript(index, [{ startMs: 0, endMs: 9000, words: "This is Audible. Voidscarred, by Mike Brooks, narrated by somebody else entirely, copyright twenty twenty five." }], 0, 10_000);
     expect(m.anchors).toEqual([]);
   });

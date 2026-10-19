@@ -225,6 +225,24 @@ in the cache, so books cached before are read again.
 
 ## 5. Places
 
+A place in the text is a `TextPlace`: a section of the spine, a block in
+it, and a UTF-16 offset in the block's text. Everything that points into
+a book speaks it: the reader, reading places, highlights, read-along and
+the export. Two objects turn places into everything else, one on each
+side:
+
+- **`BookText`** (`src/core/reading/booktext.ts`), made once when a book
+  opens: a place's characters in the reading order (`chars`, `place`:
+  read-along's timing), its words (`text`, `sentenceAt`), how far through
+  the book it is, the contents entry it is under, and the forms others
+  use, Readium Locators (`locator`, `fromLocator`) and links by id
+  (`fromHref`, `idAt`). It works out where every block begins up front,
+  so finding a place is a lookup.
+- **`ChapterSource`** (`src-tauri/src/ebook/source.rs`): a chapter's
+  XHTML and where in it each character of the model was read from, so a
+  stretch of text can be marked in the book's own file (`bytes`, `wrap`).
+  The read-along export wraps every sentence with it.
+
 The text is its own edition in the position log
 ([POSITION-FORMAT.md](POSITION-FORMAT.md)): its claims are its own
 (`urn:isbn:` of the EPUB, its `urn:uuid:`, and `urn:ribbon:<book>-text`),

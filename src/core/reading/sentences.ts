@@ -1,5 +1,4 @@
-import { blockText, type Ebook, type EbookBlock } from "../ebook";
-import type { TextPlace } from "./place";
+import { blockText, type EbookBlock } from "../ebook";
 
 /**
  * The sentences of a block, as the reader marks them: where listening
@@ -48,13 +47,4 @@ export function sentencesOf(block: EbookBlock, language?: string): Sentence[] {
   }
   cache.set(block, out);
   return out;
-}
-
-/** The sentence a place is in: the one it falls in, or the next one after a space between two. */
-export function sentenceAt(ebook: Ebook, p: TextPlace): Sentence | null {
-  const block = ebook.sections[p.section]?.blocks[p.block];
-  if (!block) return null;
-  const all = sentencesOf(block, ebook.meta.language);
-  for (const s of all) if (p.offset < s.end) return s;
-  return all[all.length - 1] ?? null;
 }

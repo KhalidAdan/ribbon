@@ -39,8 +39,9 @@ fn sentences(xhtml: &str) -> Vec<(usize, u32, u32, String)> {
 #[test]
 fn tags_each_sentence_where_it_is_and_changes_nothing_else() {
     let wanted = sentences(CHAPTER);
-    let (_, spots) = read_chapter_traced(CHAPTER, "OEBPS/Text/one.xhtml", &mut NoFiles, &mut Cache::default());
-    let (tagged, wrapped) = tag_sentences(CHAPTER, &spots, &wanted);
+    let chapter = ChapterSource::read(CHAPTER, "OEBPS/Text/one.xhtml", &mut NoFiles, &mut Cache::default());
+    let marks: Vec<Mark> = wanted.iter().map(|(block, start, end, id)| Mark { range: BlockRange { block: *block, start: *start, end: *end }, open: format!("<span id=\"{id}\">"), close: "</span>".into() }).collect();
+    let (tagged, wrapped) = chapter.wrap(&marks);
     assert!(wrapped.iter().all(|w| *w));
     // Read back: the same text, and each sentence's id where the sentence begins.
     let before = read_chapter(CHAPTER, "OEBPS/Text/one.xhtml", &mut NoFiles, &mut Cache::default());

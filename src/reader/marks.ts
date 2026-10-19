@@ -1,4 +1,4 @@
-import type { TextPlace } from "../core/reading/place";
+import type { TextPlace } from "../core/reading/booktext";
 
 /** What a mark is: the sentence a tap would listen from or the narrator is reading, or words bookmarked from a highlight. */
 export type Tone = "sentence" | "saved";

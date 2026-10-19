@@ -12,7 +12,8 @@
 //! they start in the audiobook (`-at-<ms>ms`), so Ribbon maps the export
 //! back onto the recording beside it exactly.
 
-use super::content::{read_chapter_traced, Cache, Spot};
+use super::content::Cache;
+use super::source::{BlockRange, ChapterSource, Mark};
 use super::paths::resolve;
 use super::{package_file, Zip};
 use serde::Deserialize;
@@ -66,40 +67,6 @@ pub struct Plan {
     pub epub: String,
     pub out: String,
     pub sections: Vec<SectionPlan>,
-}
-
-/// Wrap sentences in spans with these ids where they sit in a chapter's XHTML. Returns the new
-/// XHTML and which sentences were wrapped (a sentence with no traced text, in a `pre` say, is not).
-pub fn tag_sentences(xhtml: &str, spots: &[Vec<Spot>], sentences: &[(usize, u32, u32, String)]) -> (String, Vec<bool>) {
-    // (byte, 0 for a close and 1 for an open, so a sentence ending where the next begins closes first, text)
-    let mut cuts: Vec<(usize, u8, String)> = Vec::new();
-    let mut wrapped = Vec::with_capacity(sentences.len());
-    for (block, start, end, id) in sentences {
-        let Some(sp) = spots.get(*block) else {
-            wrapped.push(false);
-            continue;
-        };
-        let inside: Vec<&Spot> = sp.iter().filter(|s| s.at >= *start && s.at < *end).collect();
-        let Some(first) = inside.first() else {
-            wrapped.push(false);
-            continue;
-        };
-        // Up to where its first run of text ends, if it runs across a tag.
-        let to = inside.iter().filter(|s| s.node == first.node).map(|s| s.to).max().unwrap_or(first.to);
-        cuts.push((first.from, 1, format!("<span id=\"{id}\">")));
-        cuts.push((to, 0, "</span>".to_string()));
-        wrapped.push(true);
-    }
-    cuts.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
-    let mut out = String::with_capacity(xhtml.len() + cuts.len() * 24);
-    let mut at = 0;
-    for (pos, _, text) in &cuts {
-        out.push_str(&xhtml[at..*pos]);
-        out.push_str(text);
-        at = *pos;
-    }
-    out.push_str(&xhtml[at..]);
-    (out, wrapped)
 }
 
 /// A link to a stylesheet, put at the end of the head.
@@ -276,10 +243,11 @@ pub fn export(plan: &Plan, progress: &(dyn Fn(usize, usize) + Sync)) -> Result<(
     let mut jobs: Vec<(Vec<Segment>, String)> = Vec::new();
     for (n, section) in plan.sections.iter().enumerate() {
         let Some(xhtml) = zip.text(&section.href) else { continue };
-        let (_, spots) = read_chapter_traced(&xhtml, &section.href, &mut zip, &mut cache);
-        let ids: Vec<(usize, u32, u32, String)> = section.sentences.iter().enumerate().map(|(i, s)| (s.block, s.start, s.end, format!("ribbon-s{}-{}", n + 1, i + 1))).collect();
-        let (tagged, wrapped) = tag_sentences(&xhtml, &spots, &ids);
-        let clips: Vec<(String, u64, u64)> = ids.iter().zip(&section.sentences).zip(&wrapped).filter(|(_, w)| **w).map(|((id, s), _)| (id.3.clone(), s.begin_ms, s.end_ms)).collect();
+        let chapter = ChapterSource::read(&xhtml, &section.href, &mut zip, &mut cache);
+        let ids: Vec<String> = (1..=section.sentences.len()).map(|i| format!("ribbon-s{}-{i}", n + 1)).collect();
+        let marks: Vec<Mark> = section.sentences.iter().zip(&ids).map(|(s, id)| Mark { range: BlockRange { block: s.block, start: s.start, end: s.end }, open: format!("<span id=\"{id}\">"), close: "</span>".into() }).collect();
+        let (tagged, wrapped) = chapter.wrap(&marks);
+        let clips: Vec<(String, u64, u64)> = ids.iter().zip(&section.sentences).zip(&wrapped).filter(|(_, w)| **w).map(|((id, s), _)| (id.clone(), s.begin_ms, s.end_ms)).collect();
         if clips.is_empty() {
             continue;
         }

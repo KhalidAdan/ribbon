@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { flow, pageOf, paginate, placeAtY, yOfPlace, type LaidBlock, type Line } from "../src/core/reading/pages";
-import { bookProgress, locatorOf, placeAtProgress, placeOf, sectionProgress, tocEntryAt } from "../src/core/reading/place";
+import { BookText } from "../src/core/reading/booktext";
 import { EBOOK_FORMAT, type Ebook, type EbookBlock } from "../src/core/ebook";
 
 const LH = 10;
@@ -90,37 +90,37 @@ for (const s of book.sections) s.chars = s.blocks.reduce((n, b) => n + (b.runs ?
 
 describe("places in the text", () => {
   it("say how far through the section and the book they are, counting only the reading order", () => {
-    expect(sectionProgress(book, { section: 1, block: 0, offset: 0 })).toBe(0);
-    expect(bookProgress(book, { section: 2, block: 0, offset: 0 })).toBeCloseTo(book.sections[1]!.chars / (book.sections[1]!.chars + book.sections[2]!.chars), 3);
+    expect(new BookText(book).sectionProgress({ section: 1, block: 0, offset: 0 })).toBe(0);
+    expect(new BookText(book).progress({ section: 2, block: 0, offset: 0 })).toBeCloseTo(book.sections[1]!.chars / (book.sections[1]!.chars + book.sections[2]!.chars), 3);
   });
 
   it("become a Readium Locator with the words at the place, and come back from it", () => {
     const place = { section: 1, block: 2, offset: 9 };
-    const loc = locatorOf(book, place);
+    const loc = new BookText(book).locator(place);
     expect(loc.href).toBe("one.xhtml");
     expect(loc.type).toBe("application/xhtml+xml");
     expect(loc.locations?.fragments).toEqual(["mid"]);
     expect(loc.text?.highlight?.startsWith("was not one of those giants")).toBe(true);
     expect(loc.text?.highlight?.endsWith(" ")).toBe(false);
-    expect(placeOf(book, loc)).toEqual(place);
+    expect(new BookText(book).fromLocator(loc)).toEqual(place);
   });
 
   it("are found by their words even when the progression has drifted, and by progression when the words are gone", () => {
-    const loc = locatorOf(book, { section: 1, block: 1, offset: 9 });
-    expect(placeOf(book, { ...loc, locations: { progression: 0.9 } })).toEqual({ section: 1, block: 1, offset: 9 });
-    const lost = placeOf(book, { href: "one.xhtml", locations: { progression: 0.6 }, text: { highlight: "nowhere in this book" } });
+    const loc = new BookText(book).locator({ section: 1, block: 1, offset: 9 });
+    expect(new BookText(book).fromLocator({ ...loc, locations: { progression: 0.9 } })).toEqual({ section: 1, block: 1, offset: 9 });
+    const lost = new BookText(book).fromLocator({ href: "one.xhtml", locations: { progression: 0.6 }, text: { highlight: "nowhere in this book" } });
     expect(lost.section).toBe(1);
     expect(lost.block).toBe(2);
     const text = book.sections[1]!.blocks[2]!.runs![0]!.t;
     expect(lost.offset === 0 || /\s/.test(text[lost.offset - 1]!)).toBe(true);
     // An href this book does not have: by how far through the book.
-    expect(placeOf(book, { href: "elsewhere.xhtml", locations: { totalProgression: 0.95 } }).section).toBe(2);
-    expect(placeAtProgress(book, 2, 1).block).toBe(0);
+    expect(new BookText(book).fromLocator({ href: "elsewhere.xhtml", locations: { totalProgression: 0.95 } }).section).toBe(2);
+    expect(new BookText(book).placeAtProgress(2, 1).block).toBe(0);
   });
 
   it("know which contents entry they are under", () => {
-    expect(tocEntryAt(book, { section: 1, block: 2, offset: 0 })).toBe(0);
-    expect(tocEntryAt(book, { section: 2, block: 0, offset: 3 })).toBe(1);
-    expect(tocEntryAt(book, { section: 0, block: 0, offset: 0 })).toBe(-1);
+    expect(new BookText(book).tocEntryAt({ section: 1, block: 2, offset: 0 })).toBe(0);
+    expect(new BookText(book).tocEntryAt({ section: 2, block: 0, offset: 3 })).toBe(1);
+    expect(new BookText(book).tocEntryAt({ section: 0, block: 0, offset: 0 })).toBe(-1);
   });
 });

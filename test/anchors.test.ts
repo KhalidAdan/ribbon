@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { locate, wordIndex } from "../src/core/reading/anchors";
 import { alignBook, msToText, textToMs } from "../src/core/reading/align";
 import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
+import { BookText } from "../src/core/reading/booktext";
 
 const MIN = 60_000;
 
@@ -18,7 +19,7 @@ function book(): { ebook: Ebook; text: string } {
 describe("checkpoints inside chapters", () => {
   it("find heard words where they begin, not a few words early", () => {
     const { ebook, text } = book();
-    const index = wordIndex(ebook);
+    const index = wordIndex(new BookText(ebook));
     const truth = text.indexOf("Sentence 200 ");
     const heard = "Sentence 200 tells of the red ship number 1400 sailing north. Sentence 201 tells of the grey ship";
     const found = locate(index, heard, truth + 900, 3000);
@@ -31,15 +32,15 @@ describe("checkpoints inside chapters", () => {
   it("map between checkpoints instead of across the whole chapter", () => {
     const { ebook, text } = book();
     const chapters = [{ title: "Chapter 1", startMs: 0, endMs: 40 * MIN }];
-    const plain = alignBook(ebook, chapters, 40 * MIN);
+    const plain = alignBook(new BookText(ebook), chapters, 40 * MIN);
     // The narrator was slow for the first half: the middle of the text is read at 30 minutes, not 20.
     const middle = Math.round(text.length / 2);
-    const anchored = alignBook(ebook, chapters, 40 * MIN, { anchors: [{ ms: 30 * MIN, chars: middle }] });
+    const anchored = alignBook(new BookText(ebook), chapters, 40 * MIN, { anchors: [{ ms: 30 * MIN, chars: middle }] });
     expect(Math.abs(textToMs(plain, middle) - 20 * MIN)).toBeLessThan(1000);
     expect(textToMs(anchored, middle)).toBe(30 * MIN);
     expect(msToText(anchored, 15 * MIN)).toBe(Math.round(middle / 2));
     // A checkpoint that runs backwards against another is left out.
-    const crossed = alignBook(ebook, chapters, 40 * MIN, { anchors: [{ ms: 10 * MIN, chars: middle }, { ms: 20 * MIN, chars: Math.round(middle / 2) }] });
+    const crossed = alignBook(new BookText(ebook), chapters, 40 * MIN, { anchors: [{ ms: 10 * MIN, chars: middle }, { ms: 20 * MIN, chars: Math.round(middle / 2) }] });
     expect(crossed.pairs[0]!.points).toHaveLength(3);
   });
 });

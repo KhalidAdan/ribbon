@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sentenceAt, sentencesOf } from "../src/core/reading/sentences";
+import { sentencesOf } from "../src/core/reading/sentences";
+import { BookText } from "../src/core/reading/booktext";
 import { cut, spansIn, type Span } from "../src/reader/marks";
 import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
 
@@ -24,13 +25,13 @@ describe("sentences", () => {
   it("find the sentence a place is in, and the next one from the space between", () => {
     const b = book();
     const at = (offset: number) => {
-      const s = sentenceAt(b, { section: 0, block: 0, offset });
+      const s = new BookText(b).sentenceAt({ section: 0, block: 0, offset });
       return s && para.slice(s.start, s.end);
     };
     expect(at(0)).toBe("The waygate hung before them.");
     expect(at(para.indexOf("circle"))).toBe("It was a giant circle of wraithbone!");
     expect(at(para.indexOf(" It"))).toBe("It was a giant circle of wraithbone!");
-    expect(sentenceAt(b, { section: 0, block: 3, offset: 0 })).toBeNull();
+    expect(new BookText(b).sentenceAt({ section: 0, block: 3, offset: 0 })).toBeNull();
   });
 });
 
