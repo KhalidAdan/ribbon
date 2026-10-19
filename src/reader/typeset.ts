@@ -3,6 +3,8 @@ import { clearCache, setLocale } from "@chenglou/pretext";
 import type { Ebook, EbookBlock, EbookRun } from "../core/ebook";
 import type { LaidBlock, Line, LineFrag } from "../core/reading/pages";
 import type { Metrics } from "../core/reading/typography";
+import { hyphenateRuns, insertHyphens, toModel, type WordBreaks } from "../core/reading/hyphens";
+import { hyphenatorFor } from "./hyphenate";
 
 /**
  * The text set in lines with pretext (docs/READING.md, section 1): every
@@ -22,16 +24,29 @@ export function fontFor(r: Pick<EbookRun, "i" | "b" | "sc" | "sup" | "sub">, siz
   return `${r.i ? "italic " : ""}${r.sc ? "small-caps " : ""}${r.b ? 650 : weight} ${px}px ${FAMILY}`;
 }
 
-/** Wait until the faces the reader uses are loaded, so the first measurements are of the real font. */
+// The hyphenation patterns the latest typesetter is loading, which the first layout waits for.
+let patterns: Promise<unknown> = Promise.resolve();
+
+/**
+ * Wait until the faces the reader uses are loaded, so the first
+ * measurements are of the real font, and the open book's hyphenation
+ * patterns, so its first lines break as all the later ones do.
+ */
 export async function loadFaces(size: number): Promise<void> {
-  if (typeof document === "undefined" || !document.fonts) return;
-  await Promise.all([fontFor({}, size), fontFor({ i: true }, size), fontFor({ b: true }, size), fontFor({}, size, 500)].map((f) => document.fonts.load(f).catch(() => [])));
+  const waiting = patterns;
+  if (typeof document === "undefined" || !document.fonts) return void (await waiting);
+  await Promise.all([waiting, ...[fontFor({}, size), fontFor({ i: true }, size), fontFor({ b: true }, size), fontFor({}, size, 500)].map((f) => document.fonts.load(f).catch(() => []))]);
   // Anything measured before the faces arrived was measured in a fallback.
   clearCache();
 }
 
 export class Typesetter {
-  private prepared = new Map<string, PreparedRichInline>();
+  /** Each paragraph prepared, with the soft hyphens added to each of its runs (core/reading/hyphens.ts). */
+  private prepared = new Map<string, { prepared: PreparedRichInline; added: number[][] }>();
+  /** Where words break in the book's language, once loaded; null without patterns for it. */
+  private hyphens: WordBreaks | null = null;
+  /** Settles when the book's hyphenation patterns are loaded, or known to be missing. */
+  readonly ready: Promise<void>;
 
   constructor(
     private readonly ebook: Ebook,
@@ -39,6 +54,15 @@ export class Typesetter {
     private readonly imageUrl: (src: string) => string | undefined,
   ) {
     setLocale(ebook.meta.language || undefined);
+    this.ready = hyphenatorFor(ebook.meta.language).then((h) => {
+      this.hyphens = h;
+    });
+    patterns = this.ready;
+  }
+
+  /** Whether justified paragraphs are hyphenated: the book's language has patterns, and they are loaded. */
+  get hyphenates(): boolean {
+    return this.hyphens !== null;
   }
 
   /** Lay out one section in a column of `m.column` px. */
@@ -83,15 +107,21 @@ export class Typesetter {
     const inset = b.quote ? Math.round(m.size * 1.5) : b.list ? Math.round(m.size) : 0;
     const indent = b.indent && !heading ? Math.round(m.size * 1.5) : 0;
     const pre = b.k === "pre" || b.table === true || runs.some((r) => r.t.includes("\n"));
-    const key = `${section}:${index}:${size}`;
-    let prepared = this.prepared.get(key);
-    if (!prepared) {
-      prepared = prepareRichInline(
-        runs.map((r) => ({ text: r.t, font: fontFor(r, size, weight) })),
+    // Justified paragraphs are hyphenated: pretext breaks at the soft hyphens added, and each
+    // run's list of them maps its offsets back to the model's (core/reading/hyphens.ts).
+    const hyphenate = justify && this.hyphens !== null && b.k === "p" && !pre && !b.align;
+    const key = `${section}:${index}:${size}:${hyphenate ? "h" : ""}`;
+    let kept = this.prepared.get(key);
+    if (!kept) {
+      const added = hyphenate ? hyphenateRuns(runs.map((r) => r.t), this.hyphens!) : runs.map(() => []);
+      const prepared = prepareRichInline(
+        runs.map((r, k) => ({ text: insertHyphens(r.t, added[k]!), font: fontFor(r, size, weight) })),
         pre ? { whiteSpace: "pre-wrap" } : undefined,
       );
-      this.prepared.set(key, prepared);
+      kept = { prepared, added };
+      this.prepared.set(key, kept);
     }
+    const { prepared, added } = kept;
     const starts: number[] = [];
     let at = 0;
     for (const r of runs) {
@@ -107,7 +137,9 @@ export class Typesetter {
       const line = materializeRichInlineLineRange(prepared, range);
       const frags: LineFrag[] = line.fragments.map((f) => {
         const r = runs[f.itemIndex]!;
-        const frag: LineFrag = { text: f.text, gap: f.gapBefore > 0, start: starts[f.itemIndex]! + f.sourceStart, end: starts[f.itemIndex]! + f.sourceEnd };
+        const shy = added[f.itemIndex]!;
+        // pretext leaves soft hyphens out of a fragment's text, and draws the one a line ends at as "-".
+        const frag: LineFrag = { text: f.text, gap: f.gapBefore > 0, start: starts[f.itemIndex]! + toModel(shy, f.sourceStart), end: starts[f.itemIndex]! + toModel(shy, f.sourceEnd) };
         if (r.i) frag.i = true;
         if (r.b) frag.b = true;
         if (r.sc) frag.sc = true;

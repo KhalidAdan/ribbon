@@ -254,8 +254,8 @@ function useLayout(ebook: Ebook, settings: ReadingSettings, viewport: { width: n
     };
   }, [metrics?.size, metrics]);
   const cache = useRef(new Map<number, SectionLayout>());
-  // Without hyphenation, justified lines in a narrow column open rivers: narrow columns stay ragged.
-  const justify = !!metrics && settings.justify && metrics.column >= metrics.size * 24;
+  // Justified lines in a narrow column open rivers unless words can break: hyphenated, a phone's column (16 ems) can be justified.
+  const justify = !!metrics && settings.justify && metrics.column >= metrics.size * (typesetter.hyphenates ? 16 : 24);
   const key = metrics ? `${metrics.size}:${metrics.lineHeight}:${metrics.column}:${metrics.pageHeight}:${justify}` : "";
   const keyRef = useRef(key);
   if (keyRef.current !== key) {
