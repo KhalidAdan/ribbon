@@ -36,7 +36,7 @@ import { generatedTitles } from "../core/chapternames";
 import { locate } from "../core/timeline";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
-const HEAR_SECONDS = 12;
+const HEAR_SECONDS = 8;
 /** A pairing this sure of every pair is not worth hearing. */
 const DOUBT = 0.6;
 
@@ -1155,47 +1155,48 @@ export class AppController {
   private hearing = false;
 
   /**
-   * Hear the opening words of each audio chapter not yet heard, a few at a
-   * time, in the background, and pair again as they come in (#65). Kept
-   * beside the book after every few, so closing the book loses little.
+   * Hear what the narrator says where the pairing is in doubt (#65): the
+   * starts of the doubtful pairs' audio chapters, a few at a time in the
+   * background, pairing again after each few and hearing whatever is still
+   * in doubt, until nothing is or everything doubtful was heard. A book
+   * with no pairs at all is heard throughout. Kept beside the book after
+   * every few, so closing the book loses little.
    */
   private async hearOpenings(o: Opened, book: ScannedBook, ebook: Ebook): Promise<void> {
     const model = this.state.speech.model;
     const hear = o.lib.host.speechOpenings;
     if (!model || !hear || this.hearing) return;
     const bookId = book.book.id;
-    // Only when the pairing has doubts: a book whose names and lengths agree is not worth the machine's time.
-    const now = this.state.reading?.alignment;
-    if (now && now.how === "chapter" && now.pairs.every((p) => p.confidence >= DOUBT)) return;
-    // The doubtful chapters first, then the rest in order.
-    const doubtful = new Set((now?.pairs ?? []).filter((p) => p.confidence < DOUBT).map((p) => p.audio.startMs));
-    const todo = book.chapters
-      .filter((c) => !this.readingHeard.has(c.startMs))
-      .sort((a, b) => Number(doubtful.has(b.startMs)) - Number(doubtful.has(a.startMs)) || a.startMs - b.startMs)
-      .slice(0, 200);
-    if (todo.length === 0) return;
-    this.hearing = true;
     const durations = book.files.map((f) => f.durationMs);
     const language = (ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
+    const still = () => this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
+    /** What to hear next: unheard starts of the audio chapters of doubtful pairs, or every chapter when nothing pairs. */
+    const next = (): number[] => {
+      const a = this.state.reading?.alignment;
+      const latest = this.state.books.find((b) => b.book.id === bookId) ?? book;
+      const starts = !a || a.how === "proportion" ? latest.chapters.map((c) => c.startMs) : a.pairs.filter((p) => p.confidence < DOUBT && !p.fixed).map((p) => p.audio.startMs);
+      return [...new Set(starts)].filter((ms) => !this.readingHeard.has(ms)).sort((x, y) => x - y);
+    };
+    if (next().length === 0) return;
+    this.hearing = true;
     const started = performance.now();
     let done = 0;
-    const still = () => this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
     try {
-      for (let k = 0; k < todo.length && still(); k += 3) {
-        const batch = todo.slice(k, k + 3);
-        const clips = batch.map((c) => {
-          const at = locate(durations, c.startMs);
+      for (let todo = next(); todo.length > 0 && still() && done < 200; todo = next()) {
+        const batch = todo.slice(0, 4);
+        const clips = batch.map((ms) => {
+          const at = locate(durations, ms);
           return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
         });
-        this.set({ reading: { ...this.state.reading!, listening: { done, total: todo.length } } });
+        this.set({ reading: { ...this.state.reading!, listening: { done, total: done + todo.length } } });
         const words = await hear.call(o.lib.host, model, clips, HEAR_SECONDS, language);
-        batch.forEach((c, i) => this.readingHeard.set(c.startMs, (words[i] ?? "").trim()));
+        batch.forEach((ms, i) => this.readingHeard.set(ms, (words[i] ?? "").trim()));
         done += batch.length;
         await o.lib.writeHeard(bookId, this.readingHeard).catch((e: unknown) => log.warn("could not keep the heard openings:", describe(e)));
         if (!still()) break;
         const latest = this.state.books.find((b) => b.book.id === bookId) ?? book;
         const alignment = alignBook(ebook, latest.chapters, latest.book.durationMs, { generated: generatedTitles(latest.chapters), fixes: this.readingFixes, heard: this.readingHeard });
-        this.set({ reading: { ...this.state.reading!, alignment, listening: { done, total: todo.length } } });
+        this.set({ reading: { ...this.state.reading!, alignment } });
       }
       log.info(`heard ${done} chapter openings of ${book.book.title} in ${Math.round((performance.now() - started) / 1000)} s`);
     } catch (e) {

@@ -62,9 +62,13 @@ impl Listener {
         let mut state = self.ctx.create_state().map_err(|e| e.to_string())?;
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(language);
-        // Half the machine at most: this runs while someone reads.
-        params.set_n_threads(std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4)) as i32);
+        // Half the machine at most, six threads: this runs while someone reads.
+        params.set_n_threads(std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 6)) as i32);
         params.set_no_context(true);
+        // whisper encodes a 30-second window (1,500 frames) whatever the clip; a short clip needs only its own
+        // frames, 50 a second, plus a little room. Several times faster for a few seconds of speech.
+        let frames = (samples.len() as f32 / RATE as f32 * 50.0).ceil() as i32 + 64;
+        params.set_audio_ctx(frames.min(1500));
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -94,9 +98,15 @@ pub fn opening_words(model: &Path, clips: &[Clip], seconds: f32, language: Optio
         *slot = Some(Listener::load(model)?);
     }
     let listener = slot.as_ref().expect("loaded");
+    // Every clip is a round trip to the share: fetch them all at once while whisper waits, then hear them in turn.
+    let decoded: Vec<Result<Vec<f32>, String>> = std::thread::scope(|s| {
+        let jobs: Vec<_> = clips.iter().map(|c| s.spawn(move || decode_clip(Path::new(&c.path), c.start_ms, seconds))).collect();
+        jobs.into_iter().map(|j| j.join().unwrap_or_else(|_| Err("decoding panicked".into()))).collect()
+    });
     Ok(clips
         .iter()
-        .map(|c| match decode_clip(Path::new(&c.path), c.start_ms, seconds).and_then(|s| listener.words(&s, language)) {
+        .zip(decoded)
+        .map(|(c, samples)| match samples.and_then(|s| listener.words(&s, language)) {
             Ok(t) => t,
             Err(e) => {
                 log::warn!("could not hear {} at {} ms: {e}", c.path, c.start_ms);
