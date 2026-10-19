@@ -6,7 +6,7 @@ import { SPEED_STEP } from "../core/speed";
 export function useKeys(c: AppController): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
+      const t = e.target instanceof HTMLElement ? e.target : null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       // A held key repeats: one toggle per press, or play and pause flicker.

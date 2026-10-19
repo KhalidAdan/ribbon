@@ -24,6 +24,8 @@ pub struct Cache {
 }
 
 pub struct Chapter {
+    /** What the publisher says the section is (`epub:type` or a `doc-` role): chapter, epilogue, appendix… */
+    pub kind: Option<String>,
     pub blocks: Vec<Block>,
     /// Text length in UTF-16 code units.
     pub chars: usize,
@@ -81,10 +83,12 @@ struct Walker<'a> {
     pending_ids: Vec<String>,
     /// The next block is set apart: a margin after the last one, or an empty spacer paragraph.
     next_space: bool,
+    /// The section's kind, from the outermost element that says.
+    kind: Option<String>,
 }
 
 pub fn read_chapter(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mut Cache) -> Chapter {
-    let mut w = Walker { href, sheet: Sheet::default(), stack: vec![Frame::default()], open: None, blocks: Vec::new(), pending_ids: Vec::new(), next_space: false };
+    let mut w = Walker { href, sheet: Sheet::default(), stack: vec![Frame::default()], open: None, blocks: Vec::new(), pending_ids: Vec::new(), next_space: false, kind: None };
     let mut reader = Reader::from_str(xhtml);
     let config = reader.config_mut();
     config.check_end_names = false;
@@ -121,7 +125,7 @@ pub fn read_chapter(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mu
     }
     w.flush();
     let chars = w.blocks.iter().map(|b| b.runs.iter().map(|r| r.t.encode_utf16().count()).sum::<usize>()).sum();
-    Chapter { blocks: w.blocks, chars }
+    Chapter { kind: w.kind, blocks: w.blocks, chars }
 }
 
 impl Walker<'_> {
@@ -152,6 +156,9 @@ impl Walker<'_> {
             style = style.over(parse_declarations(inline));
         }
         let skip = hidden || style.hidden == Some(true) || parent.svg && tag != "image";
+        if self.kind.is_none() && !skip && matches!(tag.as_str(), "body" | "section" | "article" | "div" | "aside" | "nav") {
+            self.kind = section_kind(&attrs);
+        }
 
         if !skip {
             if let Some(id) = attrs.get("id").or_else(|| if tag == "a" { attrs.get("name") } else { None }) {
@@ -392,6 +399,14 @@ impl Walker<'_> {
         self.next_space = false;
         self.push(Block { k: "img", src: Some(path), w: Some(w), h: Some(h), alt: Some(alt), space, ..Block::default() });
     }
+}
+
+/// The structural kind an element declares: the first `epub:type` token
+/// (without a vocabulary prefix), else a `doc-` role.
+fn section_kind(attrs: &HashMap<String, String>) -> Option<String> {
+    let from_type = attrs.get("type").and_then(|t| t.split_whitespace().next()).map(|t| t.rsplit(':').next().unwrap_or(t).to_ascii_lowercase());
+    let from_role = attrs.get("role").and_then(|r| r.split_whitespace().find_map(|t| t.strip_prefix("doc-"))).map(str::to_ascii_lowercase);
+    from_type.or(from_role).filter(|k| !k.is_empty())
 }
 
 /// Add text to the open block, merging with the last run when the style matches.

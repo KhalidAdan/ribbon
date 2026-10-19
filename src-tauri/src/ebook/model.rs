@@ -52,6 +52,9 @@ pub struct Section {
     pub linear: bool,
     /// The SMIL file of the section's Media Overlay, when the book has read-along.
     pub overlay: Option<String>,
+    /// What the publisher says the section is (`epub:type` or a `doc-` role), when it says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     pub chars: usize,
     pub blocks: Vec<Block>,
 }

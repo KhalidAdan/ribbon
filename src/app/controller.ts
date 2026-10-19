@@ -31,7 +31,7 @@ import type { Why } from "../core/poslog";
 import type { TextPlace } from "../core/reading/place";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
-import { alignBook, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment } from "../core/reading/align";
+import { alignBook, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { generatedTitles } from "../core/chapternames";
 
 export interface Platform {
@@ -1112,7 +1112,8 @@ export class AppController {
     const ebook = result.ebook;
     // The audio's chapters, read from the file if they never were, to pair with the text's.
     const withChapters = await this.chaptersOf(o, book);
-    const alignment = alignBook(ebook, withChapters.chapters, withChapters.book.durationMs, generatedTitles(withChapters.chapters));
+    this.readingFixes = await o.lib.readPairing(bookId);
+    const alignment = alignBook(ebook, withChapters.chapters, withChapters.book.durationMs, { generated: generatedTitles(withChapters.chapters), fixes: this.readingFixes });
     log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
     const shared = await o.lib
       .readTextPlaces()
@@ -1129,10 +1130,42 @@ export class AppController {
         this.saveAppSettingsSoon();
       },
       share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
-      toMs: (p) => textToMs(alignment, globalOffset(ebook, p)),
+      // The pairing can be fixed while the book is open: always the latest.
+      toMs: (p) => textToMs(this.state.reading?.alignment ?? alignment, globalOffset(ebook, p)),
     });
     log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections`);
     this.set({ reading: { bookId, status: "ready", ebook, place, alignment } });
+  }
+
+  private readingFixes: PairingFix[] = [];
+
+  /** The open book's pairing, as fixed by hand. */
+  pairingFixes(): readonly PairingFix[] {
+    return this.readingFixes;
+  }
+
+  /**
+   * In the reader: pair a contents entry with an audio chapter by hand
+   * (its start), say it is not narrated (null), or give it back to the
+   * automatic pairing ("auto"). Kept beside the book; the rest re-pairs
+   * around it.
+   */
+  async fixPairing(textRef: string, choice: number | null | "auto"): Promise<void> {
+    const r = this.state.reading;
+    const book = r && this.state.books.find((b) => b.book.id === r.bookId);
+    const o = book && this.openedOf(book);
+    if (!r?.ebook || !book || !o) return;
+    const fixes = this.readingFixes.filter((f) => f.text !== textRef);
+    if (choice !== "auto") fixes.push({ text: textRef, audioMs: choice });
+    this.readingFixes = fixes;
+    const alignment = alignBook(r.ebook, book.chapters, book.book.durationMs, { generated: generatedTitles(book.chapters), fixes });
+    this.set({ reading: { ...r, alignment } });
+    try {
+      await o.lib.writePairing(r.bookId, fixes);
+    } catch (e) {
+      log.warn("could not keep the pairing beside the book:", describe(e));
+      this.set({ error: "The pairing could not be saved beside the book. It holds until you close the book." });
+    }
   }
 
   /** A book with its chapters read from its file, kept on the shelf when they were not before. */

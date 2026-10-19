@@ -15,6 +15,7 @@ import { aboutToBytes, bytesToAbout, type BookAbout } from "../core/about";
 import { locate } from "../core/timeline";
 import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
+import type { PairingFix } from "../core/reading/align";
 
 /**
  * Everything the UI needs from a library folder, over a Host. Each
@@ -493,6 +494,27 @@ export class LibraryService {
   async writeNameRecords(list: readonly NameRecord[]): Promise<void> {
     await this.host.mkdir(this.dir());
     await this.host.writeFile(this.dir("chapter-names.csv"), await nameRecordsToBytes(list));
+  }
+
+  // Pairing ------------------------------------------------------------
+
+  /**
+   * How a book's text and audio chapters were paired by hand: one row per
+   * contents entry (`href#block`), with the audio chapter's start, or
+   * empty for "not narrated". Beside the books, so every device agrees.
+   */
+  async readPairing(bookId: string): Promise<PairingFix[]> {
+    try {
+      const { rows } = await bytesToRows(await this.host.readFile(this.dir("pairing", `${bookId}.csv`)));
+      return rows.filter((r) => r.text).map((r) => ({ text: r.text!, audioMs: r.audio_ms ? int(r.audio_ms) : null }));
+    } catch {
+      return [];
+    }
+  }
+
+  async writePairing(bookId: string, fixes: readonly PairingFix[]): Promise<void> {
+    await this.host.mkdir(this.dir("pairing"));
+    await this.host.writeFile(this.dir("pairing", `${bookId}.csv`), await rowsToBytes(fixes.map((f) => ({ text: f.text, audio_ms: f.audioMs === null ? "" : String(Math.round(f.audioMs)) })), ["text", "audio_ms"]));
   }
 
   // Edits --------------------------------------------------------------

@@ -44,6 +44,8 @@ export interface EbookSection {
   href: string;
   linear: boolean;
   overlay: string | null;
+  /** What the publisher says the section is (`epub:type` or a `doc-` role), when it says. */
+  kind?: string;
   chars: number;
   blocks: EbookBlock[];
 }

@@ -14,7 +14,7 @@ import { FAMILY, loadFaces, Typesetter } from "./typeset";
 import { PlayButton } from "../ui/PlayerBar";
 import { formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
-import { globalOffset } from "../core/reading/align";
+import { globalOffset, type Alignment } from "../core/reading/align";
 
 /** What the reader shows: from the first character on screen to the last. */
 interface Visible {
@@ -84,27 +84,91 @@ export function ReadingView() {
 
       {ebook && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
-          <ol className="flex flex-col">
-            {ebook.toc.map((t, i) => (
-              <li key={i}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    c.moveReading({ section: t.section, block: t.block, offset: 0 }, "seek");
-                    setContents(false);
-                  }}
-                  aria-current={i === entry ? "true" : undefined}
-                  className={clsx("flex w-full rounded-md py-1.5 pr-2 text-left text-base/6 focus-ring hover:bg-raised sm:text-sm/5", i === entry ? "font-medium text-ink" : "text-ink-2")}
-                  style={{ paddingLeft: `${0.5 + t.depth * 1}rem` }}
-                >
-                  {i === entry && <span className="mt-2 mr-2 -ml-3 size-1.5 shrink-0 rounded-full bg-place" aria-hidden="true" />}
-                  {t.label}
-                </button>
-              </li>
-            ))}
-          </ol>
+          <Contents ebook={ebook} alignment={r.alignment} entry={entry} c={c} onGo={() => setContents(false)} />
         </Drawer>
       )}
+    </div>
+  );
+}
+
+/** Below this, a pair is shown as a guess. */
+const UNSURE = 0.4;
+
+/**
+ * The contents, each entry with the audio chapter it is paired with.
+ * Fixing the pairing puts a choice on each entry: automatic, not in the
+ * audio, or a chapter of the recording; it is kept beside the book.
+ */
+function Contents({ ebook, alignment, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; entry: number; c: AppController; onGo: () => void }) {
+  const [fixing, setFixing] = useState(false);
+  const units = new Map((alignment?.text ?? []).map((u) => [u.ref, u]));
+  const paired = alignment?.how === "chapter";
+  const fixedRefs = new Set(c.pairingFixes().map((f) => f.text));
+  const fixOf = (ref: string) => c.pairingFixes().find((f) => f.text === ref);
+  const clock = (ms: number) => {
+    const t = Math.round(ms / 1000);
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    return h > 0 ? `${h}:${String(m).padStart(2, "0")}` : `${m} min`;
+  };
+  return (
+    <div className="flex flex-col gap-3">
+      {alignment && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">{paired ? "Paired with the audiobook’s chapters" : "Matched to the audiobook by length"}</p>
+          <Button size="sm" variant={fixing ? "secondary" : "ghost"} aria-pressed={fixing} onClick={() => setFixing((v) => !v)}>
+            {fixing ? "Done" : "Fix pairing"}
+          </Button>
+        </div>
+      )}
+      <ol className="flex flex-col">
+        {ebook.toc.map((t, i) => {
+          const ref = `${ebook.sections[t.section]?.href}#${t.block}`;
+          const unit = units.get(ref);
+          const pair = unit && unit.pair >= 0 ? alignment!.pairs[unit.pair] : undefined;
+          const unsure = !!pair && !pair.fixed && pair.confidence < UNSURE;
+          const fix = fixOf(ref);
+          return (
+            <li key={i} className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  c.moveReading({ section: t.section, block: t.block, offset: 0 }, "seek");
+                  onGo();
+                }}
+                aria-current={i === entry ? "true" : undefined}
+                className={clsx("flex min-w-0 flex-1 items-baseline gap-2 rounded-md py-1.5 pr-2 text-left text-base/6 focus-ring hover:bg-raised sm:text-sm/5", i === entry ? "font-medium text-ink" : "text-ink-2")}
+                style={{ paddingLeft: `${0.5 + t.depth * 1}rem` }}
+              >
+                {i === entry && <span className="mr-0 -ml-3 size-1.5 shrink-0 self-center rounded-full bg-place" aria-hidden="true" />}
+                <span className="min-w-0 flex-1 truncate">{t.label}</span>
+                {paired && unit && !fixing && (
+                  <span className={clsx("shrink-0 text-xs/4 font-normal", unsure ? "text-place" : "text-ink-3")} title={unsure ? "A guess: fix it if it is wrong" : undefined}>
+                    {pair ? pair.audioTitle.split(" + ")[0] : "Not in the audio"}
+                    {unsure ? " ?" : ""}
+                  </span>
+                )}
+              </button>
+              {fixing && unit && alignment && (
+                <select
+                  aria-label={`Audio chapter for ${t.label}`}
+                  value={fix ? (fix.audioMs === null ? "none" : String(fix.audioMs)) : "auto"}
+                  onChange={(e) => void c.fixPairing(ref, e.target.value === "auto" ? "auto" : e.target.value === "none" ? null : Number(e.target.value))}
+                  className={clsx("w-40 shrink-0 rounded-md bg-raised px-2 py-1 text-sm/5 ring-1 ring-line focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:text-[0.8125rem]/5", fixedRefs.has(ref) ? "text-ink" : "text-ink-2")}
+                >
+                  <option value="auto">Auto · {pair ? pair.audioTitle.split(" + ")[0] : "not in the audio"}</option>
+                  <option value="none">Not in the audio</option>
+                  {alignment.audio.map((a) => (
+                    <option key={a.startMs} value={String(a.startMs)}>
+                      {a.title} · {clock(a.startMs)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
