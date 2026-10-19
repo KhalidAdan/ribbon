@@ -1,4 +1,4 @@
-import { CheckIcon, FolderOpenIcon, FunnelIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/16/solid";
+import { BookOpenIcon, CheckIcon, FolderOpenIcon, FunnelIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { memo, useMemo } from "react";
 import type { ScannedBook } from "../core/scan/scan";
@@ -6,7 +6,8 @@ import { formatLeft } from "../core/speed";
 import { compareBooks } from "../core/order";
 import { chapterAt } from "../core/scan/chapters";
 import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } from "../core/series";
-import { progressOf, type Progress } from "./progress";
+import { howFar, lengthOf, progressOf, type Progress } from "./progress";
+import { readerOnly } from "../core/ebook";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
@@ -24,6 +25,7 @@ import { applyView, filterCount, SORT_LABELS } from "../core/view";
 export function LibraryPane({ query, onQuery, found }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null }) {
   const state = useAppState();
   const c = useController();
+  const reading = (id: string) => c.readingProgress(id);
   const listenedAt = (b: ScannedBook) => {
     const p = state.positions[b.book.id];
     return p ? Date.parse(p.updatedAt) : 0;
@@ -42,12 +44,12 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
     () =>
       [...state.books]
         .filter((b) => !hidden.has(b.book.id))
-        .map((b) => ({ b, p: progressOf(b, state) }))
+        .map((b) => ({ b, p: progressOf(b, state, reading) }))
         .filter(({ p }) => p.started && !p.finished)
         .sort((x, y) => (state.current?.book.book.id === y.b.book.id ? 1 : 0) - (state.current?.book.book.id === x.b.book.id ? 1 : 0) || listenedAt(y.b) - listenedAt(x.b))
         .slice(0, 6),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.books, state.positions, state.current, hidden],
+    [state.books, state.positions, state.current, state.reading, hidden],
   );
 
   const facts = useShelfFacts();
@@ -93,7 +95,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
             ) : (
               <BookGrid>
                 {results.map((b) => (
-                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state)} />
+                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state, reading)} />
                 ))}
               </BookGrid>
             )}
@@ -112,7 +114,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
             ) : (
               <BookGrid>
                 {shown.map((b) => (
-                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state)} />
+                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state, reading)} />
                 ))}
               </BookGrid>
             )}
@@ -121,7 +123,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
           <>
             {inProgress.length > 0 && (
               <section aria-labelledby="continue-title" className="flex flex-col gap-4">
-                <SectionHeader id="continue-title" title="Continue listening" description={inProgress.length === 1 ? "One book in progress." : `${inProgress.length} books in progress, most recent first.`} />
+                <SectionHeader id="continue-title" title={inProgress.some(({ b }) => readerOnly(b.book)) ? "Continue" : "Continue listening"} description={inProgress.length === 1 ? "One book in progress." : `${inProgress.length} books in progress, most recent first.`} />
                 <ul role="list" className="grid grid-cols-[repeat(auto-fill,minmax(19rem,1fr))] gap-3">
                   {inProgress.map(({ b, p }) => (
                     <ContinueCard key={b.book.id} book={b} progress={p} coverUrl={c.coverUrl(b)} playing={state.current?.book.book.id === b.book.id && state.player.playing} />
@@ -159,7 +161,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
                 />
                 <BookGrid>
                   {standalone.map((b) => (
-                    <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state)} />
+                    <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state, reading)} />
                   ))}
                 </BookGrid>
               </section>
@@ -182,8 +184,8 @@ function BookGrid({ children }: { children: React.ReactNode }) {
 /** What a book's card says under its title: how far, or how long. */
 function standing(book: ScannedBook, p: Progress): string {
   if (p.finished) return "Finished";
-  if (p.started) return `${Math.max(1, Math.round(p.fraction * 100))}% · ${formatLeft(book.book.durationMs - p.posMs)} left`;
-  return book.parts.length > 0 ? `${book.parts.length} stories · ${formatLeft(book.book.durationMs)}` : formatLeft(book.book.durationMs);
+  if (p.started) return howFar(book, p);
+  return book.parts.length > 0 ? `${book.parts.length} stories · ${formatLeft(book.book.durationMs)}` : lengthOf(book);
 }
 
 /** A book: the cover, the title, the author, and how far along. */
@@ -209,11 +211,12 @@ const BookCard = memo(function BookCard({ book, coverUrl, progress }: { book: Sc
   );
 });
 
-/** A book you are in the middle of: where, how long is left, and play. */
+/** A book you are in the middle of: where, how long is left, and play; or, for a book that is only its EPUB, how far and read. */
 function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook; progress: Progress; coverUrl: string | null; playing: boolean }) {
   const c = useController();
   const ch = book.chapters[chapterAt(book.chapters, progress.posMs)];
   const where = book.chapters.length > 1 && ch ? `Chapter ${book.chapters.indexOf(ch) + 1} of ${book.chapters.length}` : `${Math.round(progress.fraction * 100)}% in`;
+  const toRead = readerOnly(book.book);
   return (
     <li className="relative flex items-center gap-3 rounded-[10px] bg-surface p-2 pr-3 ring-1 ring-line hover:ring-line-strong">
       <button type="button" onClick={() => c.openReader(book.book.id)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${book.book.title}: open its page`} />
@@ -221,18 +224,18 @@ function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook
       <div className="pointer-events-none min-w-0 flex-1">
         <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{book.book.title}</p>
         <p className="truncate text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
-          {where} · {formatLeft(book.book.durationMs - progress.posMs)} left
+          {toRead ? howFar(book, progress) : `${where} · ${formatLeft(book.book.durationMs - progress.posMs)} left`}
         </p>
         <ProgressLine fraction={progress.fraction} className="mt-2" />
       </div>
       <button
         type="button"
-        onClick={() => (playing ? c.pause() : void c.playBook(book))}
-        aria-label={playing ? `Pause ${book.book.title}` : `Continue ${book.book.title}`}
+        onClick={() => (toRead ? void c.openReading(book.book.id) : playing ? c.pause() : void c.playBook(book))}
+        aria-label={toRead ? `Continue reading ${book.book.title}` : playing ? `Pause ${book.book.title}` : `Continue ${book.book.title}`}
         className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary"
       >
         <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
-        {playing ? <PauseGlyph /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
+        {toRead ? <BookOpenIcon className="size-4 fill-current" aria-hidden="true" /> : playing ? <PauseGlyph /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
       </button>
     </li>
   );
@@ -251,12 +254,13 @@ function PauseGlyph() {
 function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: SeriesRecord | undefined; byId: Map<string, ScannedBook> }) {
   const state = useAppState();
   const c = useController();
+  const reading = (id: string) => c.readingProgress(id);
   const hidden = hiddenBookIds(record ? [record] : []);
   const ordered = orderBySeries(group.bookIds, (id) => id, record ? [record] : [])
     .filter((id) => !hidden.has(id))
     .map((id) => byId.get(id))
     .filter((b): b is ScannedBook => !!b);
-  const progress = ordered.map((b) => progressOf(b, state));
+  const progress = ordered.map((b) => progressOf(b, state, reading));
   const finished = progress.filter((p) => p.finished).length;
   const nextIndex = progress.findIndex((p) => !p.finished);
   const next = ordered[nextIndex] ?? ordered[0];
@@ -278,7 +282,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
           {ordered.length} books · {allDone ? "all finished" : finished > 0 ? `${finished} finished · ${formatLeft(left).replace(/ \d+m$/, "")} to go` : `${formatLeft(left).replace(/ \d+m$/, "")}`}
         </p>
         <p className="mt-2 truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-          {allDone ? "Every book finished" : nextProgress?.started ? `Listening to ${next.book.title}` : `Up next: ${next.book.title}`}
+          {allDone ? "Every book finished" : nextProgress?.started ? `${readerOnly(next.book) ? "Reading" : "Listening to"} ${next.book.title}` : `Up next: ${next.book.title}`}
         </p>
         <div className="mt-auto pt-3">
           <SegmentedProgress parts={progress.map((p) => (p.finished ? 1 : p.fraction))} />
@@ -301,7 +305,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
             className={clsx("relative flex size-9 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary")}
           >
             <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
-            <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />
+            {readerOnly(next.book) ? <BookOpenIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
           </button>
         )}
       </div>

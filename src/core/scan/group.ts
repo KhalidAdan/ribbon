@@ -109,7 +109,8 @@ function findAnthologies(foldersWithAudio: Set<string>, byFolder: Map<string, { 
  * A folder that directly contains audio is one book. Audio files at the
  * library root, or in a folder that also has book subfolders, are each
  * their own book. A numbered folder of numbered subfolders is one book
- * with parts. Order of the returned groups follows the walk.
+ * with parts. An EPUB with no audio to pair with is a book with no
+ * audio, after the rest. Order of the returned groups follows the walk.
  */
 export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
   const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[]; ebooks: FileEntry[] }>();
@@ -204,5 +205,30 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     g.audio = g.parts!.flatMap((p) => p.audio);
     if (g.covers.length === 0) g.covers = sortedImages(g.parts!.flatMap((p) => byFolder.get(p.path)?.images ?? []));
   }
-  return groups.filter((g) => g.audio.length > 0);
+  const books = groups.filter((g) => g.audio.length > 0);
+
+  // An EPUB folder pairing left alone is a book of its own, to read: one
+  // not in an audiobook's folder and not beside a loose file it pairs
+  // with. The scan may still pair it with an audiobook elsewhere by its
+  // metadata. The other EPUBs of a book's folder stay with that book.
+  const taken = new Set(books.map((g) => g.ebook).filter((e): e is string => !!e));
+  const bookFolders = new Set<string>();
+  for (const g of books) {
+    if (g.audio.length === 1 && g.path === g.audio[0]!.relPath) continue;
+    bookFolders.add(g.path);
+    for (const p of g.parts ?? []) bookFolders.add(p.path);
+  }
+  for (const folder of folderOrder) {
+    if (bookFolders.has(folder)) continue;
+    for (const e of byFolder.get(folder)!.ebooks) {
+      if (taken.has(e.relPath)) continue;
+      books.push({ path: e.relPath, name: stem(e.name), audio: [], covers: [], ebook: e.relPath });
+    }
+  }
+  return books;
+}
+
+/** A group that is only an EPUB: a book to read, with no audio. */
+export function isReaderOnlyGroup(g: BookGroup): boolean {
+  return g.audio.length === 0 && !!g.ebook;
 }

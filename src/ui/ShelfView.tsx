@@ -19,13 +19,15 @@ export function useShelfFacts(): BookFacts {
     for (const g of c.detectedSeries()) for (const id of g.bookIds) if (!m.has(id)) m.set(id, g.name);
     return m;
   }, [c, state.books, state.series, state.sources]);
+  // A book that is only its EPUB is as far along as its reading place.
+  const reading = (id: string) => c.readingProgress(id);
   return useMemo<BookFacts>(
     () => ({
       standing: (b) => {
-        const p = progressOf(b, state);
+        const p = progressOf(b, state, reading);
         return p.finished ? "finished" : p.started ? "started" : "new";
       },
-      fraction: (b) => progressOf(b, state).fraction,
+      fraction: (b) => progressOf(b, state, reading).fraction,
       listenedAt: (b) => {
         const p = state.positions[b.book.id];
         return p ? Date.parse(p.updatedAt) : 0;
@@ -33,7 +35,7 @@ export function useShelfFacts(): BookFacts {
       seriesOf: (b) => seriesById.get(b.book.id) ?? null,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.positions, state.current, state.player.positionMs, seriesById],
+    [state.positions, state.current, state.player.positionMs, state.reading, seriesById],
   );
 }
 

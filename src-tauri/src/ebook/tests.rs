@@ -343,3 +343,45 @@ fn caches_the_model_and_images_and_opens_the_last_copy_when_the_file_is_away() {
     assert!(open_cached("notes.txt", &base).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn reads_only_the_package_for_a_scan() {
+    // No chapters at all: a scan never needs them.
+    let opf = OPF.replace(r#"<item id="icon" href="image/icon.png" media-type="image/png"/>"#, r#"<item id="icon" href="image/icon.png" media-type="image/png"/><item id="c" href="image/front.png" media-type="image/png" properties="cover-image"/>"#);
+    let bytes = epub(&[("META-INF/container.xml", CONTAINER), ("OEBPS/content.opf", opf.as_bytes())]);
+    let p = read_package(Cursor::new(bytes)).expect("a package");
+    assert_eq!(p.meta.title, "Voidscarred");
+    assert_eq!(p.meta.authors, vec!["Mike Brooks"]);
+    assert_eq!(p.cover.as_deref(), Some("OEBPS/image/front.png"));
+    let tags = p.tags();
+    assert_eq!(tags.get("title").map(String::as_str), Some("Voidscarred"));
+    assert_eq!(tags.get("author").map(String::as_str), Some("Mike Brooks"));
+    // ISBNs only: the uuid and the publisher's own number stay out.
+    assert_eq!(tags.get("isbn").map(String::as_str), Some("9781836093152"));
+    assert_eq!(tags.get("date").map(String::as_str), Some("2025-08-05"));
+    assert!(read_package(Cursor::new(b"not a zip".to_vec())).is_none());
+}
+
+#[test]
+fn finds_the_cover_the_way_epub_2_names_it_and_copies_it() {
+    let opf = OPF.replace("<dc:language>", r#"<meta name="cover" content="icon"/><dc:language>"#);
+    let png = png();
+    let bytes = epub(&[("META-INF/container.xml", CONTAINER), ("OEBPS/content.opf", opf.as_bytes()), ("OEBPS/image/icon.png", &png)]);
+    assert_eq!(read_package(Cursor::new(bytes.clone())).unwrap().cover.as_deref(), Some("OEBPS/image/icon.png"));
+    // Named nowhere: no cover, rather than the first picture.
+    assert_eq!(read_package(Cursor::new(epub(&[("META-INF/container.xml", CONTAINER), ("OEBPS/content.opf", OPF.as_bytes())]))).unwrap().cover, None);
+
+    let dir = std::env::temp_dir().join(format!("ribbon-ebook-cover-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("Book.epub");
+    std::fs::write(&file, &bytes).unwrap();
+    let target = dir.join("covers").join("abc.jpg");
+    assert!(extract_cover(&file, &target).unwrap());
+    assert_eq!(std::fs::read(&target).unwrap(), png);
+    assert_eq!(read_package_at(&file).unwrap().meta.title, "Voidscarred");
+    let bare = dir.join("Bare.epub");
+    std::fs::write(&bare, epub(&[("META-INF/container.xml", CONTAINER), ("OEBPS/content.opf", OPF.as_bytes())])).unwrap();
+    assert!(!extract_cover(&bare, &dir.join("covers").join("bare.jpg")).unwrap());
+    let _ = std::fs::remove_dir_all(&dir);
+}

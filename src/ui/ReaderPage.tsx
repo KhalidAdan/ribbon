@@ -13,7 +13,8 @@ import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
 import { ReadHistory } from "./ReadHistory";
 import { tintFromImage } from "./tint";
-import { progressOf as progressIn } from "./progress";
+import { howFar, lengthOf, progressOf as progressIn } from "./progress";
+import { readerOnly } from "../core/ebook";
 import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
 
 /**
@@ -26,6 +27,7 @@ import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
 export function ReaderPage() {
   const state = useAppState();
   const c = useController();
+  const reading = (id: string) => c.readingProgress(id);
   const book = state.books.find((b) => b.book.id === state.readerBookId) ?? null;
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
   const [drawer, setDrawer] = useState<"chapters" | null>(null);
@@ -72,7 +74,7 @@ export function ReaderPage() {
 
   if (!book) return null;
 
-  const me = progressIn(book, state);
+  const me = progressIn(book, state, reading);
   const index = orderedIds.indexOf(book.book.id);
   const shelfIds = orderedIds.filter((id) => !hidden.has(id));
   const nextId = index >= 0 ? orderedIds.slice(index + 1).find((id) => !hidden.has(id)) : undefined;
@@ -87,19 +89,27 @@ export function ReaderPage() {
   const story = stories[storyNow] ?? null;
   const contents = groupByPart(book.chapters, stories);
   const isCurrent = state.current?.book.book.id === book.book.id;
+  // A book that is only its EPUB: read, never played.
+  const toRead = readerOnly(book.book);
   const left = book.book.durationMs - me.posMs;
   const where = story ? `story ${storyNow + 1} of ${stories.length}, ${story.title}` : book.chapters.length > 1 ? `chapter ${chapterNow + 1} of ${book.chapters.length}` : null;
   const sentence = hidden.has(book.book.id)
     ? "Left off the shelf for this series. It is still here when you want it."
-    : me.finished
-      ? "Finished. Listen again any time; your place starts over."
-      : me.started
-        ? `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through${where ? `, in ${where}` : ""}. ${formatLeft(left)} left.`
-        : `Not started. ${formatLeft(book.book.durationMs)}${book.chapters.length > 1 ? ` in ${book.chapters.length} chapters` : ""}.`;
+    : toRead
+      ? me.finished
+        ? "Finished. Read it again any time."
+        : me.started
+          ? `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through.`
+          : "Not started. An EPUB to read; there is no audio for it."
+      : me.finished
+        ? "Finished. Listen again any time; your place starts over."
+        : me.started
+          ? `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through${where ? `, in ${where}` : ""}. ${formatLeft(left)} left.`
+          : `Not started. ${formatLeft(book.book.durationMs)}${book.chapters.length > 1 ? ` in ${book.chapters.length} chapters` : ""}.`;
 
   const seriesProgress = shelfIds.map((id) => {
     const b = byId.get(id);
-    return b ? progressIn(b, state) : null;
+    return b ? progressIn(b, state, reading) : null;
   });
   const seriesFinished = seriesProgress.filter((p) => p?.finished).length;
   const seriesLeft = shelfIds.reduce((s, id, i) => {
@@ -109,13 +119,12 @@ export function ReaderPage() {
   }, 0);
 
   const facts: { term: string; value: string }[] = [
-    { term: "Length", value: formatLeft(book.book.durationMs) },
-    stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) },
+    ...(toRead ? [] : [{ term: "Length", value: formatLeft(book.book.durationMs) }, stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) }]),
     ...(book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
-    { term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) },
+    ...(toRead ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
   ];
 
   const wash = { "--tone": tone.accent } as CSSProperties;
@@ -153,17 +162,21 @@ export function ReaderPage() {
             {me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
 
             <div className="mt-6 flex flex-wrap items-center gap-2">
-              <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))}>
-                {me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"}
-              </Button>
+              {!toRead && (
+                <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))}>
+                  {me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"}
+                </Button>
+              )}
               {book.book.ebook && (
-                <Button leading={BookOpenIcon} onClick={() => void c.openReading(book.book.id)}>
+                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} onClick={() => void c.openReading(book.book.id)}>
                   {(c.readingProgress(book.book.id) ?? 0) > 0 ? "Continue reading" : "Read"}
                 </Button>
               )}
-              <Button leading={ListBulletIcon} onClick={() => setDrawer("chapters")}>
-                {stories.length > 0 ? "Contents" : "Chapters"}
-              </Button>
+              {!toRead && (
+                <Button leading={ListBulletIcon} onClick={() => setDrawer("chapters")}>
+                  {stories.length > 0 ? "Contents" : "Chapters"}
+                </Button>
+              )}
               {isCurrent && state.current && state.current.bookmarks.length > 0 && (
                 <Button variant="ghost" leading={BookmarkIcon} onClick={() => c.expandPlayer("bookmarks")}>
                   {state.current.bookmarks.length} {state.current.bookmarks.length === 1 ? "bookmark" : "bookmarks"}
@@ -175,7 +188,7 @@ export function ReaderPage() {
                 align="left"
                 items={[
                   me.finished ? { label: "Mark as not finished", onSelect: () => void c.markUnfinished(book.book.id) } : { label: "Mark as finished", onSelect: () => void c.markFinished(book.book.id) },
-                  ...(me.started && !me.finished ? [{ label: "Start again from the beginning", onSelect: () => void c.listenAgain(book.book.id) }] : []),
+                  ...(me.started && !me.finished && !toRead ? [{ label: "Start again from the beginning", onSelect: () => void c.listenAgain(book.book.id) }] : []),
                   { label: "Edit details and cover…", onSelect: () => c.openEditBook(book.book.id) },
                   ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
                   ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
@@ -274,8 +287,8 @@ export function ReaderPage() {
 function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: string; now: boolean; off: boolean }) {
   const state = useAppState();
   const c = useController();
-  const p = progressIn(book, state);
-  const standing = off ? "Left off the shelf" : p.finished ? "Finished" : p.started ? `${Math.max(1, Math.floor(p.fraction * 100))}% · ${formatLeft(book.book.durationMs - p.posMs)} left` : formatLeft(book.book.durationMs);
+  const p = progressIn(book, state, (id) => c.readingProgress(id));
+  const standing = off ? "Left off the shelf" : p.finished ? "Finished" : p.started ? howFar(book, p, Math.max(1, Math.floor(p.fraction * 100))) : lengthOf(book);
   return (
     <li className="border-b border-line">
       <button

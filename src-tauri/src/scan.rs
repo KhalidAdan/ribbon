@@ -31,7 +31,9 @@ use tauri::{AppHandle, Emitter};
 
 const AUDIO: &[&str] = &["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"];
 const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
-/// The text of a book, read when the book is read, never during a scan.
+/// The text of a book. A scan reads only its package (title, authors,
+/// identifiers, cover), to pair it with its audiobook or make it a book
+/// of its own; the chapters are read when the book is read.
 const EBOOK: &[&str] = &["epub"];
 const RIBBON_DIR: &str = ".ribbon";
 const LEGACY_DIR: &str = ".odio";
@@ -562,8 +564,9 @@ fn parent_of(rel: &str) -> &str {
 /// caller reuses its cache.
 ///
 /// Results stream out as `BATCH_EVENT` events tagged with `token`: first
-/// every file the walk found, with unread audio marked pending, so the
-/// caller can put the books on screen from folder names alone; then the
+/// every file the walk found, with unread audio and EPUBs marked
+/// pending, so the caller can put the books on screen from folder names
+/// alone; then the
 /// first file of each folder, which carries the book's author and
 /// series; then everything else. Every file is sent exactly once in its
 /// final form, so the batches together are the complete list and the
@@ -584,7 +587,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
         log::info!("scan_library: walked {} files in {:?}", walked, started.elapsed());
         let known: HashMap<String, (u64, i64)> = known.into_iter().map(|k| (k.path, (k.size_bytes, k.mtime_ms))).collect();
 
-        // Everything the walk found, unread audio marked pending.
+        // Everything the walk found, unread audio and EPUBs marked pending.
         let mut files: Vec<ScannedFile> = Vec::with_capacity(walked);
         let mut to_probe: Vec<usize> = Vec::new();
         let mut reused = 0;
@@ -609,7 +612,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
                     file.fresh = true;
                 }
             }
-            if e.kind == "audio" {
+            if e.kind == "audio" || e.kind == "ebook" {
                 let unchanged = known.get(&rel).map(|(s, m)| *s == e.size && (*m - e.mtime_ms).abs() <= 1000).unwrap_or(false);
                 if unchanged {
                     reused += 1;
@@ -634,6 +637,18 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
         for pass in [firsts, rest] {
             pool.install(|| pass.into_par_iter().for_each(|i| {
                 let e = &entries[i];
+                if e.kind == "ebook" {
+                    let mut file = files[i].clone();
+                    file.fresh = true;
+                    file.pending = false;
+                    if let Some(p) = crate::ebook::read_package_at(&e.abs) {
+                        file.has_cover = p.cover.is_some();
+                        file.tags = p.tags();
+                    }
+                    done.fetch_add(1, Ordering::Relaxed);
+                    batcher.push(file);
+                    return;
+                }
                 let (p, fell_back) = probe(&e.abs, Some(e.size));
                 if fell_back {
                     fallbacks.fetch_add(1, Ordering::Relaxed);
@@ -671,10 +686,15 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
 
 /// Copy the picture embedded in `src` to `target`, reading only the
 /// picture bytes. Ok(false) when the file has no picture the minimal
-/// readers can locate; the caller may then try ffmpeg.
+/// readers can locate; the caller may then try ffmpeg. For an EPUB, the
+/// picture is the cover image its package names.
 #[tauri::command]
 pub async fn extract_cover(src: String, target: String) -> Result<bool, String> {
-    tauri::async_runtime::spawn_blocking(move || tags::extract_picture(Path::new(&src), Path::new(&target)).map_err(|e| e.to_string()))
+    tauri::async_runtime::spawn_blocking(move || {
+        let (src, target) = (Path::new(&src), Path::new(&target));
+        let copied = if ext_of(src) == "epub" { crate::ebook::extract_cover(src, target) } else { tags::extract_picture(src, target) };
+        copied.map_err(|e| e.to_string())
+    })
         .await
         .map_err(|e| e.to_string())?
 }
