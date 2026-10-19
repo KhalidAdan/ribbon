@@ -140,8 +140,9 @@ Blocks:
 | `pre` | Text set as it is        | `runs`, whitespace kept                                    |
 
 Style flags, all optional: `indent` (first line indented), `align`
-(`center`, `end`, `justify`), `space` (set apart from the paragraph before
-it), `quote` (inset on both sides), `list` (a list item; its marker is the
+(`center` or `end`; justifying is the reader's setting, not the
+publisher's), `space` (set apart from the paragraph before it, by a margin
+or an empty paragraph), `quote` (inset), `list` (a list item; its marker is the
 first run), `table` (a table row, cells joined by tabs, until tables are
 drawn properly). `ids` lists the element ids inside a block with their text
 offsets, so links, the table of contents and Media Overlays can point into
