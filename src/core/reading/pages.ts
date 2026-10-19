@@ -45,7 +45,8 @@ export interface LaidBlock {
   /** Inset on each side, px. */
   inset: number;
   align: "start" | "center" | "end" | "justify";
-  image?: { src: string; width: number; height: number; alt: string };
+  /** `tone` says how the image is drawn in dark mode (EbookBlock.tone). */
+  image?: { src: string; width: number; height: number; alt: string; tone: "ink" | "picture" };
 }
 
 /** One line, image or break, where it goes. */

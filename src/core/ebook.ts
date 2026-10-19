@@ -38,6 +38,12 @@ export interface EbookBlock {
   w?: number;
   h?: number;
   alt?: string;
+  /**
+   * What the image is, for dark mode: "ink" is line art, ornaments,
+   * diagrams or text on a light or clear ground; "picture" is anything
+   * else. Absent when the host did not look, which reads as a picture.
+   */
+  tone?: "ink" | "picture";
 }
 
 export interface EbookSection {

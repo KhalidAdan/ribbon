@@ -72,7 +72,7 @@ export class Typesetter {
         width = (width * most) / height;
         height = most;
       }
-      return { ...base, kind: "img", lineHeight: Math.round(height), before: Math.round(m.lineHeight * (b.space ? 1 : 0.5)), align: "center", image: { src: url, width: Math.round(width), height: Math.round(height), alt: b.alt ?? "" } };
+      return { ...base, kind: "img", lineHeight: Math.round(height), before: Math.round(m.lineHeight * (b.space ? 1 : 0.5)), align: "center", image: { src: url, width: Math.round(width), height: Math.round(height), alt: b.alt ?? "", tone: b.tone ?? "picture" } };
     }
     const runs = (b.runs ?? []).filter((r) => r.t.length > 0);
     if (runs.length === 0) return null;

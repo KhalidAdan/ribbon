@@ -117,7 +117,7 @@ counts, so the drawing side indexes text without converting.
       "overlay": null,             // the SMIL file, when the book has read-along
       "chars": 28412,              // text length, for progress through the book
       "blocks": [
-        { "k": "img", "src": "OEBPS/image/Aeldari-Icon.jpg", "w": 120, "h": 120, "alt": "" },
+        { "k": "img", "src": "OEBPS/image/Aeldari-Icon.jpg", "w": 120, "h": 120, "alt": "", "tone": "ink" },
         { "k": "h", "level": 1, "runs": [{ "t": "TWO" }], "ids": [{ "id": "_idParaDest-7", "at": 0 }] },
         { "k": "p", "runs": [{ "t": "Eluadhri was one of only three planets…" }] },
         { "k": "p", "indent": true, "runs": [
@@ -135,13 +135,13 @@ counts, so the drawing side indexes text without converting.
 
 Blocks:
 
-| `k`   | What                     | Fields                                                     |
-| ----- | ------------------------ | ---------------------------------------------------------- |
-| `p`   | A paragraph              | `runs`, and the style flags below                          |
-| `h`   | A heading                | `level` 1–6, `runs`, style flags                           |
-| `img` | An image on its own line | `src` (path in the EPUB), `w`, `h` in pixels, `alt`        |
-| `hr`  | A break between scenes   | none                                                       |
-| `pre` | Text set as it is        | `runs`, whitespace kept                                    |
+| `k`   | What                     | Fields                                                       |
+| ----- | ------------------------ | ------------------------------------------------------------ |
+| `p`   | A paragraph              | `runs`, and the style flags below                            |
+| `h`   | A heading                | `level` 1–6, `runs`, style flags                             |
+| `img` | An image on its own line | `src` (path in the EPUB), `w`, `h` in pixels, `alt`, `tone`  |
+| `hr`  | A break between scenes   | none                                                         |
+| `pre` | Text set as it is        | `runs`, whitespace kept                                      |
 
 Style flags, all optional: `indent` (first line indented), `align`
 (`center` or `end`; justifying is the reader's setting, not the
@@ -164,6 +164,17 @@ tag, a class, or a tag with classes, and reads only `text-indent`,
 `text-align`, `margin-top`, `margin-left`, `font-style`, `font-weight`,
 `font-variant` and `display: none`. Class rules beat tag rules; anything
 more complicated is ignored.
+
+Images in the dark. Built: when the cache keeps a book's images, Rust
+looks at each one (the `image` crate, PNG, JPEG, GIF and WebP only, at
+most 64 by 64 points of it) and sets its `tone`. `ink` is line art,
+ornaments, diagrams and pictures of text: little colour, few greys, and
+a light or clear ground. Anything else is a `picture`, and so is an image
+that will not decode. In dark mode the reader inverts ink and turns its
+hue back (`invert(1) hue-rotate(180deg)`), so black marks become light and
+a red rule stays red; pictures are dimmed to 85% so a white page does not
+glare. In light mode both are drawn as they are. The model is version 3
+in the cache, so books cached before are read again.
 
 ## 5. Places
 

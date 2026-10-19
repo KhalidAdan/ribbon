@@ -88,6 +88,9 @@ pub struct Block {
     pub h: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alt: Option<String>,
+    /// An image's tone for dark mode, "ink" or "picture" (tone.rs). Set by the cache.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone: Option<&'static str>,
 }
 
 #[cfg(test)]
