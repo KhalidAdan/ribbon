@@ -34,6 +34,9 @@ impl OpenError {
     }
 }
 
+/// Bumped when the model gains something, so books cached by an older Ribbon are read again.
+const MODEL_VERSION: u32 = 2;
+
 /// The most any one file inside an EPUB may unpack to.
 const ENTRY_MAX: u64 = 256 * 1024 * 1024;
 
@@ -146,6 +149,7 @@ fn open_zip<R: Read + Seek>(zip: &mut Zip<R>) -> Result<Ebook, OpenError> {
             href: item.href.clone(),
             linear: itemref.attr("linear") != Some("no"),
             overlay: item.overlay.as_ref().and_then(|id| items.get(id)).map(|o| o.href.clone()),
+            kind: chapter.kind,
             chars: chapter.chars,
             blocks: chapter.blocks,
         });
@@ -327,7 +331,7 @@ pub fn open_cached(path: &str, base: &Path) -> Result<String, String> {
         // The file cannot be reached: the last copy, when there is one.
         return newest_model(&dir).ok_or_else(|| "unreadable: the EPUB cannot be reached".to_string());
     };
-    let model = dir.join(format!("model-{stamp}.json"));
+    let model = dir.join(format!("model-v{MODEL_VERSION}-{stamp}.json"));
     if let Ok(text) = std::fs::read_to_string(&model) {
         return Ok(text);
     }
@@ -354,7 +358,7 @@ pub fn open_cached(path: &str, base: &Path) -> Result<String, String> {
         }
     }
     let json = serde_json::to_string(&book).map_err(|e| e.to_string())?;
-    let tmp = dir.join(format!("model-{stamp}.json.tmp"));
+    let tmp = dir.join(format!("model-v{MODEL_VERSION}-{stamp}.json.tmp"));
     if std::fs::write(&tmp, &json).is_ok() && std::fs::rename(&tmp, &model).is_ok() {
         for old in models(&dir) {
             if old != model {
@@ -372,7 +376,11 @@ fn models(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn newest_model(dir: &Path) -> Option<String> {
-    let newest = models(dir).into_iter().max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())?;
+    let current = format!("model-v{MODEL_VERSION}-");
+    let newest = models(dir)
+        .into_iter()
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&current)))
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())?;
     std::fs::read_to_string(newest).ok()
 }
 

@@ -86,7 +86,7 @@ const CH1: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head><title>Chapter</title><link href="../css/book.css" rel="stylesheet" type="text/css"/></head>
-<body><section epub:type="chapter"><div>
+<body><section epub:type="chapter" role="doc-chapter"><div>
   <p class="Icon"><img src="../image/icon.png" alt=""/></p>
   <h1 id="h" class="Chapter">ONE</h1>
   <p class="No_Indent">First &#8216;line&#8217;&nbsp;here, <i class="Italic">Light of Heaven</i>, planet&#173;oid.</p>
@@ -141,6 +141,9 @@ fn reads_the_package() {
     let hrefs: Vec<(&str, bool)> = book.sections.iter().map(|s| (s.href.as_str(), s.linear)).collect();
     assert_eq!(hrefs, vec![("OEBPS/Text/ch1.xhtml", true), ("OEBPS/Text/ch 2.xhtml", true), ("OEBPS/Text/notes.xhtml", false)]);
     assert_eq!(book.sections[0].overlay.as_deref(), Some("OEBPS/Audio/ch1.smil"));
+    // What each section is, from epub:type; a section that does not say has none.
+    assert_eq!(book.sections[0].kind.as_deref(), Some("chapter"));
+    assert_eq!(book.sections[1].kind, None);
 }
 
 #[test]

@@ -89,12 +89,55 @@ describe("pairing the text's chapters with the audio's", () => {
     expect(msToText(a, 10_000)).toBe(a.pairs[0]!.text.start);
   });
 
-  it("does not trust generated audio titles to number the book's chapters, and falls back to the whole book", () => {
+  it("pairs by pace alone when the audio's titles are only generated numbers, which never number the book", () => {
     const { ebook, chapters, durationMs } = voidscarred();
+    // Every marker "Chapter N": the book's One is the audio's third marker.
     const generated = chapters.map((c, i) => ({ ...c, title: `Chapter ${i + 1}` }));
-    const a = alignBook(ebook, generated, durationMs, true);
+    const a = alignBook(ebook, generated, durationMs, { generated: true });
+    expect(a.how).toBe("chapter");
+    const pairs = a.pairs.map((p) => `${p.textLabel}=${p.audioTitle}`);
+    expect(pairs).toContain("One=Chapter 3");
+    expect(pairs).toContain("Twelve=Chapter 14");
+    expect(pairs).not.toContain("One=Chapter 1");
+  });
+
+  it("falls back to the whole book when nothing pairs", () => {
+    const { ebook, durationMs } = voidscarred();
+    const a = alignBook(ebook, [{ title: "End Credits", startMs: 0, endMs: durationMs }], durationMs);
     expect(a.how).toBe("proportion");
     expect(textToMs(a, 0)).toBe(0);
+  });
+
+  it("lets one audio chapter cover two of the text's, as a coarser recording does", () => {
+    const { ebook, chapters, durationMs } = voidscarred();
+    // The recording runs Chapters 4 and 5 together.
+    const i = chapters.findIndex((c) => c.title === "Chapter 4");
+    const merged = [...chapters.slice(0, i), { title: "Chapters 4 and 5", startMs: chapters[i]!.startMs, endMs: chapters[i + 1]!.endMs }, ...chapters.slice(i + 2)];
+    const a = alignBook(ebook, merged, durationMs);
+    expect(a.pairs.map((p) => `${p.textLabel}=${p.audioTitle}`)).toContain("Four + Five=Chapters 4 and 5");
+  });
+
+  it("keeps pairs set by hand, and pairs the rest around them", () => {
+    const { ebook, chapters, durationMs } = voidscarred();
+    const plain = alignBook(ebook, chapters, durationMs);
+    const cast = plain.text.find((t) => t.label === "Dramatis Personae")!;
+    const three = plain.text.find((t) => t.label === "Three")!;
+    expect(cast.pair).toBe(-1);
+    // Say the cast list is the opening credits, and Three is not narrated.
+    const a = alignBook(ebook, chapters, durationMs, { fixes: [{ text: cast.ref, audioMs: chapters[0]!.startMs }, { text: three.ref, audioMs: null }] });
+    const pairs = a.pairs.map((p) => `${p.textLabel}=${p.audioTitle}`);
+    expect(pairs[0]).toBe("Dramatis Personae=Opening Credits");
+    expect(a.pairs[0]!.fixed).toBe(true);
+    expect(a.text.find((t) => t.label === "Three")!.pair).toBe(-1);
+    expect(pairs).toContain("Four=Chapter 4");
+  });
+
+  it("is surer of a pair that agrees by name and pace than of one by pace alone", () => {
+    const { ebook, chapters, durationMs } = voidscarred();
+    const a = alignBook(ebook, chapters, durationMs);
+    const named = a.pairs.find((p) => p.textLabel === "Three")!;
+    const byPace = a.pairs.find((p) => p.textLabel === "Journal extract")!;
+    expect(named.confidence).toBeGreaterThan(byPace.confidence);
   });
 
   it("finds places by characters of the reading order", () => {

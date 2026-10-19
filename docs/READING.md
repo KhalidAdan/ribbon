@@ -204,12 +204,24 @@ the fraction of its time listened. Voidscarred pairs every chapter one to
 one, and its narrator holds 160 words a minute within ±5% across most
 chapters, so a switch should land within about a minute.
 
-Built (#55): names compare as numbers ("Twenty-one", "Chapter 21",
-"XXI"); between named pairs, chapters pair by order only where the pace
-agrees with the book's within 35%, and audio named credits never pairs.
-Generated audio titles do not number the book; with no pairs, the whole
-text maps to the whole recording. Voidscarred pairs 35 chapters: the
-journal extract with the epigraph, One to Thirty-three, the epilogue.
+Built (#55, #63): pairing is one search for the best-scoring pairing in
+order. Pace is the backbone: a pair's narratable characters per minute
+against the book's own. A name that matches adds confidence (names
+compare as numbers: "Twenty-one", "Chapter 21", "XXI"). What the
+publisher says a section is (`epub:type`: chapter, epilogue, credits…)
+sets how much skipping it costs, and text in sections never narrated (a
+contents page) does not count toward pace. One audio chapter may cover up
+to three of the text's, and the other way round. Audio named credits never
+pairs; with generated titles, a short first or last track is taken for
+credits. With no pairs, the whole text maps to the whole recording.
+Voidscarred pairs the same 35 chapters with Audible's names or with only
+"Chapter 1" to "Chapter 37": the journal extract with the epigraph, One
+to Thirty-three, the epilogue.
+
+The contents show each entry's audio chapter, a guess marked with a
+question mark. **Fix pairing** puts a choice on each entry (automatic,
+not in the audio, or a chapter of the recording), kept beside the book in
+`.ribbon/pairing/<book>.csv`; the rest re-pairs around it.
 
 The listening bar sits under the text, which shortens to make room. It
 shows itself while the book's audio is loaded; a header button shows or
