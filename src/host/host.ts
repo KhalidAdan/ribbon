@@ -142,6 +142,11 @@ export interface Host {
    * heard. Optional: hosts without the Rust side leave it out.
    */
   speechOpenings?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<string[]>;
+  /**
+   * Everything said in stretches of audio, `seconds` from each clip's start,
+   * phrase by phrase with times in ms of its file (#57). Optional, as above.
+   */
+  speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<{ startMs: number; endMs: number; words: string }[][]>;
   /** Download the speech model into the app's own folder; resolves to its path. */
   downloadSpeechModel?(onProgress: (done: number, total: number) => void): Promise<string>;
   /** True when a file looks like a whisper.cpp model. */

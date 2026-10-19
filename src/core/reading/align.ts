@@ -20,7 +20,8 @@ import type { Anchor } from "./anchors";
  * - pairs set by hand are kept, and the rest is paired around them.
  */
 
-export type How = "chapter" | "proportion";
+/** How the text maps to the audio: by paired chapters, by the book's Media Overlay (exact), or by proportion of the whole. */
+export type How = "chapter" | "overlay" | "proportion";
 
 export interface Pair {
   /** Text range, in characters of the reading order. */
@@ -461,18 +462,49 @@ function withPoints(p: Pair, anchors: readonly Anchor[] | undefined): Pair {
   return { ...p, points };
 }
 
+/** The first point past a value, by binary search: a pair transcribed whole has a point every few seconds. */
+function after(points: readonly [number, number][], value: number, from: 0 | 1): number {
+  let lo = 1;
+  let hi = points.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (value < points[mid]![from]) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
 /** Between two points of a pair, by proportion. */
 function between(points: readonly [number, number][], value: number, from: 0 | 1): number {
   const to = from === 0 ? 1 : 0;
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1]!;
-    const b = points[i]!;
-    if (value < b[from] || i === points.length - 1) {
-      const f = (value - a[from]) / Math.max(1, b[from] - a[from]);
-      return Math.round(a[to] + Math.max(0, Math.min(1, f)) * (b[to] - a[to]));
-    }
-  }
-  return points[0]![to];
+  if (points.length < 2) return points[0]![to];
+  const i = after(points, value, from);
+  const a = points[i - 1]!;
+  const b = points[i]!;
+  const f = (value - a[from]) / Math.max(1, b[from] - a[from]);
+  return Math.round(a[to] + Math.max(0, Math.min(1, f)) * (b[to] - a[to]));
+}
+
+/** Closer together than this, the points around a moment place it to the sentence: read-along can highlight. */
+export const PRECISE_MS = 20_000;
+
+/** True when a moment of the recording is placed in the text to the sentence: between points close together, from a Media Overlay or a transcription. */
+export function precise(a: Alignment, ms: number): boolean {
+  const p = a.pairs.find((x) => ms >= x.audio.startMs && ms < x.audio.endMs);
+  if (!p || p.points.length < 3) return false;
+  const i = after(p.points, ms, 0);
+  return p.points[i]![0] - p.points[i - 1]![0] <= PRECISE_MS;
+}
+
+/**
+ * The text mapped to the audio by the book's own Media Overlay (level 3):
+ * every narrated passage is a point, exact, so the chapters are not
+ * paired at all. The contents keep their units, all in the one pair.
+ */
+export function byOverlay(ebook: Ebook, base: Alignment, anchors: readonly Anchor[], durationMs: number): Alignment {
+  const total = totalChars(ebook);
+  const pair = withPoints({ text: { start: 0, end: total }, audio: { startMs: 0, endMs: durationMs }, textLabel: "", audioTitle: "", confidence: 1, fixed: false, points: [] }, anchors);
+  return { how: "overlay", pairs: [pair], text: base.text.map((t) => ({ ...t, pair: 0 })), audio: base.audio.map((x) => ({ ...x, pair: 0 })) };
 }
 
 /** Where in the recording a character of the text is read. Text only one side has maps to the start of what follows. */

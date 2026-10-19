@@ -29,6 +29,11 @@ const GAP = -1;
 /** Below this share of its words found, a stretch is not the text it was thought to be (credits, a wrong guess). */
 const ENOUGH = 0.35;
 
+/** The same word, as heard: alike, checked only for words that could be (the same first letter, about as long), which keeps the search fast. */
+function same(a: string, b: string): boolean {
+  return a === b || (a[0] === b[0] && Math.abs(a.length - b.length) <= 2 && alike(a, b));
+}
+
 /** The first word at or after a character, by binary search. */
 function firstAt(index: readonly WordAt[], chars: number): number {
   let lo = 0;
@@ -68,7 +73,7 @@ export function matchTranscript(index: readonly WordAt[], said: readonly Said[],
     cur[0] = 0;
     const hw = heard[i - 1]!.w;
     for (let j = 1; j <= m; j++) {
-      const d = prev[j - 1]! + (alike(hw, text[j - 1]!.w) ? MATCH : MISS);
+      const d = prev[j - 1]! + (same(hw, text[j - 1]!.w) ? MATCH : MISS);
       const u = prev[j]! + GAP;
       const l = cur[j - 1]! + GAP;
       let v = 0;
@@ -89,7 +94,7 @@ export function matchTranscript(index: readonly WordAt[], said: readonly Said[],
   for (let i = bi, j = bj; i > 0 && j > 0; ) {
     const w = way[i * (m + 1) + j];
     if (w === 1) {
-      if (alike(heard[i - 1]!.w, text[j - 1]!.w)) {
+      if (same(heard[i - 1]!.w, text[j - 1]!.w)) {
         at[i - 1] = j - 1;
         matched++;
       }

@@ -254,6 +254,16 @@ spoken. Rust reads the SMIL files into a list of (block, text range) and
 switching is exact, and the reader highlights the sentence being
 narrated, turning pages with the narrator.
 
+Built (#56): Rust reads each chapter's SMIL file into the model as its
+`narration`: the id of each passage's element, its audio file in the
+book, and when it is read. A passage's element id is a place in the
+text, since the model keeps every id with its offset. When the overlay's
+audio files have the audiobook's file names, each passage lands in that
+file; otherwise the files are taken in order, when together they are as
+long as the audiobook (within 1.5% or 30 s), each as long as its last
+passage, stretched to fit. Every passage is then a point mapping text to
+audio, and the chapters are not paired at all; nothing is heard.
+
 **Level 2: Ribbon's own alignment.** For a book without Media Overlays,
 Rust transcribes the narration on the machine (whisper.cpp) and matches
 the transcript to the text, the way Storyteller does, writing the result
@@ -291,6 +301,32 @@ more than 45 s from one. A machine that hears a clip in under 1.2 s (a
 GPU) checks the whole book; a slower one, the chapters around the reader.
 "Listen from here" and "Go to the narrator" hear the place itself first
 when no checkpoint is within 45 s.
+
+**The whole narration, on a GPU (#57).** A machine that hears a clip in
+under 1.2 s transcribes the whole recording instead of hearing
+checkpoints: minutes of audio, three at once (an RTX 2070 does 8
+minutes in 7.5 s; a 10-hour book in about ten minutes), from just
+before the narrator or the reader onward first. whisper gives each
+phrase with its time. The phrases of a minute are matched word by word
+to the text around where the pairing puts them, the best local
+alignment of the two (whisper hears "Eloadri" for "Eluadhri" and "2"
+for "Two"); each phrase whose first words are found is a checkpoint.
+On Voidscarred's first 20 minutes, 96% of heard words were found and
+a checkpoint fell every 6 s. The transcript is kept beside the book in
+`aligned/<book>.csv`, with which minutes were done, so it is made once
+for every device.
+
+**Read-along.** Where the points around the narrator are less than 20 s
+apart (an overlay, or a transcribed stretch), the mapping places it to
+the sentence. Following the narrator, the reader marks the sentence
+being read and turns the page (or scrolls) when the narrator reads past
+it. Opening the reader while the book plays, **Listen from here**, and
+**Go to the narrator** start following; **Follow along** in the
+listening bar toggles it; turning a page or scrolling by hand stops it.
+The mark can be turned off in the text settings. Sentences come from
+the browser's sentence breaking, with dialogue kept whole (a sentence
+that starts lowercase, as in “Who made it?” asked Jurilan., joins the
+one before).
 
 **On the GPU.** whisper.cpp runs on Vulkan (`whisper-rs` feature
 `vulkan`), which every current graphics driver supports. vulkan-1.dll is

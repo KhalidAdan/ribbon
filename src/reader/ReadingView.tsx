@@ -14,7 +14,7 @@ import { FAMILY, loadFaces, Typesetter } from "./typeset";
 import { PlayButton } from "../ui/PlayerBar";
 import { formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
-import { globalOffset, type Alignment } from "../core/reading/align";
+import { globalOffset, msToText, placeAtGlobal, precise, type Alignment } from "../core/reading/align";
 import { sentenceAt, type Sentence } from "../core/reading/sentences";
 import { cut } from "./marks";
 
@@ -88,7 +88,19 @@ export function ReadingView() {
           <p className="mt-1 max-w-md text-base/6 text-ink-2 sm:text-sm/5">{r.message}</p>
         </Middle>
       )}
-      {r.status === "ready" && ebook && place && <Text key={ebook.meta.title + r.bookId} bookId={r.bookId} ebook={ebook} place={place} settings={state.readingSettings} bar={barOpen} listen={!!r.alignment && !!book && book.book.durationMs > 0} c={c} />}
+      {r.status === "ready" && ebook && place && (
+        <Text
+          key={ebook.meta.title + r.bookId}
+          bookId={r.bookId}
+          ebook={ebook}
+          place={place}
+          settings={state.readingSettings}
+          bar={barOpen}
+          listen={!!r.alignment && !!book && book.book.durationMs > 0}
+          narrator={loadedHere && r.alignment ? { ms: state.player.positionMs, alignment: r.alignment, following: !!r.following } : null}
+          c={c}
+        />
+      )}
 
       {ebook && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
@@ -107,7 +119,7 @@ const UNSURE = 0.4;
  * Fixing the pairing puts a choice on each entry: automatic, not in the
  * audio, or a chapter of the recording; it is kept beside the book.
  */
-function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; listening: { done: number; total: number; what: "openings" | "checkpoints" } | undefined; entry: number; c: AppController; onGo: () => void }) {
+function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; listening: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" } | undefined; entry: number; c: AppController; onGo: () => void }) {
   const [fixing, setFixing] = useState(false);
   const units = new Map((alignment?.text ?? []).map((u) => [u.ref, u]));
   const paired = alignment?.how === "chapter";
@@ -124,11 +136,21 @@ function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Eboo
       {alignment && (
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
-            {listening ? `${listening.what === "openings" ? "Listening to chapter openings" : "Placing checkpoints"}… ${listening.done} of ${listening.total}` : paired ? "Paired with the audiobook’s chapters" : "Matched to the audiobook by length"}
+            {listening
+              ? listening.what === "aligning"
+                ? `Following the narration for read-along… ${Math.floor((100 * listening.done) / Math.max(1, listening.total))}%`
+                : `${listening.what === "openings" ? "Listening to chapter openings" : "Placing checkpoints"}… ${listening.done} of ${listening.total}`
+              : alignment.how === "overlay"
+                ? "Read-along from the book’s own narration timing"
+                : paired
+                  ? "Paired with the audiobook’s chapters"
+                  : "Matched to the audiobook by length"}
           </p>
-          <Button size="sm" variant={fixing ? "secondary" : "ghost"} aria-pressed={fixing} onClick={() => setFixing((v) => !v)}>
-            {fixing ? "Done" : "Fix pairing"}
-          </Button>
+          {alignment.how !== "overlay" && (
+            <Button size="sm" variant={fixing ? "secondary" : "ghost"} aria-pressed={fixing} onClick={() => setFixing((v) => !v)}>
+              {fixing ? "Done" : "Fix pairing"}
+            </Button>
+          )}
         </div>
       )}
       <ol className="flex flex-col">
@@ -228,6 +250,10 @@ function TypeSettings({ settings, onChange, onClose }: { settings: ReadingSettin
         <span className="text-base/6 text-ink-2 sm:text-sm/5">Justify</span>
         <Toggle label="Justify the text" checked={settings.justify} onChange={(justify) => onChange({ justify })} />
       </div>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-base/6 text-ink-2 sm:text-sm/5">Mark the sentence read aloud</span>
+        <Toggle label="Mark the sentence read aloud" checked={settings.highlight} onChange={(highlight) => onChange({ highlight })} />
+      </div>
     </div>
   );
 }
@@ -293,7 +319,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, ebook, place, settings, bar, listen, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; c: AppController }) {
+function Text({ bookId, ebook, place, settings, bar, listen, narrator, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean } | null; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -342,7 +368,28 @@ function Text({ bookId, ebook, place, settings, bar, listen, c }: { bookId: stri
     const line = t.closest("[data-block]")!.getBoundingClientRect();
     setTap({ mark: { section: p.section, block: p.block, ...sentence }, x: e.clientX - rect.left, y: line.bottom - rect.top });
   };
-  const mark = tap?.mark ?? null;
+  // Following the narrator: the sentence being read, marked when the mapping is close enough to say which.
+  const nMs = narrator?.ms;
+  const nAlignment = narrator?.alignment;
+  const following = !!narrator?.following;
+  const reading = useMemo(() => {
+    if (nMs === undefined || !nAlignment) return null;
+    const p = placeAtGlobal(ebook, msToText(nAlignment, nMs));
+    const s = sentenceAt(ebook, p);
+    return { place: p, chars: globalOffset(ebook, p), sentence: s ? { section: p.section, block: p.block, ...s } : null, precise: precise(nAlignment, nMs) };
+  }, [ebook, nMs, nAlignment]);
+  const readKey = reading?.sentence && following && reading.precise && settings.highlight ? `${reading.sentence.section}:${reading.sentence.block}:${reading.sentence.start}` : "";
+  // The same sentence keeps the same mark, so the pages draw again only when the narrator moves on.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const readMark = useMemo(() => (readKey ? reading!.sentence : null), [readKey]);
+  // The narrator read past the page: turn it.
+  useEffect(() => {
+    if (!following || !reading || !visible) return;
+    if (reading.chars >= globalOffset(ebook, visible.from) && reading.chars <= globalOffset(ebook, visible.to)) return;
+    // To the word being read: a sentence across two pages turns with the narrator, not before.
+    c.moveReading(reading.place, "periodic", "follow");
+  }, [following, reading, visible, ebook, c]);
+  const mark = tap?.mark ?? readMark;
   const dropTap = useCallback(() => setTap((t) => (t ? null : t)), []);
 
   // Copying gives back the book's text, paragraphs whole, not the drawn lines.
@@ -538,6 +585,8 @@ const Scroll = memo(function Scroll({ ebook, place, metrics, layout, mark, c, on
     if (el) onVisible({ from: placeAtStackY(el.scrollTop + metrics.margin), to: placeAtStackY(el.scrollTop + el.clientHeight - metrics.lineHeight) });
   });
 
+  const byHand = () => c.setFollowing(false);
+
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
@@ -550,7 +599,7 @@ const Scroll = memo(function Scroll({ ebook, place, metrics, layout, mark, c, on
     const p = { section: s, ...placeAtY(l.blocks, l.flow, top - tops[i]!) };
     onVisible({ from: p, to: placeAtStackY(el.scrollTop + el.clientHeight - metrics.lineHeight) });
     lastPlace.current = p;
-    c.moveReading(p);
+    c.moveReading(p, "periodic", "scroll");
     if (s !== center) {
       // Re-centre on the section now being read, keeping the text where it is on screen.
       anchor.current = { section: s, y: top - tops[i]! };
@@ -574,7 +623,18 @@ const Scroll = memo(function Scroll({ ebook, place, metrics, layout, mark, c, on
   }, [c]);
 
   return (
-    <div ref={scroller} tabIndex={-1} className="absolute inset-0 overflow-y-auto quiet-scroll outline-none" onScroll={onScroll} style={{ fontFamily: FAMILY }}>
+    <div
+      ref={scroller}
+      tabIndex={-1}
+      className="absolute inset-0 overflow-y-auto quiet-scroll outline-none"
+      onScroll={onScroll}
+      // Scrolling by hand, by wheel, touch, keys or the scrollbar, stops following the narrator.
+      onWheel={byHand}
+      onTouchMove={byHand}
+      onKeyDown={(e) => ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(e.key) && byHand()}
+      onPointerDown={(e) => e.target === scroller.current && byHand()}
+      style={{ fontFamily: FAMILY }}
+    >
       <div className="relative mx-auto" style={{ width: metrics.column, height: total }}>
         {sections.map((s, i) => {
           const l = layout(s);
@@ -608,6 +668,7 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
   const p = state.player;
   const narrator = here ? c.narratorInText() : null;
   const finding = !!state.reading?.finding;
+  const following = !!state.reading?.following;
   const onPage = (() => {
     if (!narrator || !visible) return true;
     const n = globalOffset(ebook, narrator);
@@ -637,6 +698,11 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
         </p>
       ) : (
         <>
+          {here && onPage && (
+            <Button size="sm" variant={following ? "secondary" : "ghost"} aria-pressed={following} onClick={() => (following ? c.setFollowing(false) : void c.goToNarrator())}>
+              Follow along
+            </Button>
+          )}
           {here && !onPage && (
             <Button size="sm" variant="ghost" onClick={() => void c.goToNarrator()}>
               Go to the narrator

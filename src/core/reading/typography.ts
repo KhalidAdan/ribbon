@@ -12,6 +12,8 @@ export interface ReadingSettings {
   width: number;
   layout: "pages" | "scroll";
   justify: boolean;
+  /** Read-along: mark the sentence being read while following the narrator. */
+  highlight: boolean;
 }
 
 /** Text sizes in CSS pixels. */
@@ -21,7 +23,7 @@ export const LEADINGS = [1.45, 1.6, 1.75];
 /** The widest a column of text gets, in ems: about 60, 70 and 85 characters. */
 export const MEASURES = [27, 32, 38];
 
-export const DEFAULT_READING: ReadingSettings = { size: 2, spacing: 1, width: 1, layout: "pages", justify: true };
+export const DEFAULT_READING: ReadingSettings = { size: 2, spacing: 1, width: 1, layout: "pages", justify: true, highlight: true };
 
 const within = (v: unknown, list: readonly unknown[], fallback: number) => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v < list.length ? v : fallback);
 
@@ -33,6 +35,7 @@ export function parseReading(v: unknown): ReadingSettings {
     width: within(o.width, MEASURES, DEFAULT_READING.width),
     layout: o.layout === "scroll" ? "scroll" : "pages",
     justify: o.justify !== false,
+    highlight: o.highlight !== false,
   };
 }
 

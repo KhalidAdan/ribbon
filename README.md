@@ -83,6 +83,7 @@ Everything durable lives beside the books in `.ribbon/`, all CSV:
 | `covers/<id>.jpg`             | Cover art pulled out of the files.            |
 | `pairing/<id>.csv`            | How you paired the EPUB's chapters with the audio's, by hand. Sync this. |
 | `heard/<id>.csv`              | What the narrator says at chapter starts and checkpoints, and where each is in the EPUB, heard on a machine with a speech model. |
+| `aligned/<id>.csv`            | The whole narration transcribed for read-along, phrase by phrase, with where each phrase is in the EPUB, and which minutes were transcribed. |
 
 A book id is the CRC-32 of its library-relative path and total size, so
 the same folder on another machine gets the same id.

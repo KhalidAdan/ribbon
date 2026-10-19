@@ -54,6 +54,8 @@ export interface EbookSection {
   kind?: string;
   chars: number;
   blocks: EbookBlock[];
+  /** Its Media Overlay (level 3 of read-along): the element with each id is read in a file of the book's own audio, from `begin` to `end` ms. */
+  narration?: { id: string; audio: string; begin: number; end: number }[];
 }
 
 export interface EbookTocEntry {
