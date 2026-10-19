@@ -1233,6 +1233,36 @@ export class AppController {
     return this.pairUp(ebook, this.state.books.find((b) => b.book.id === book.book.id) ?? book);
   }
 
+  /**
+   * Time how long this machine takes to hear a clip, the way it hears
+   * them: one clip first to load the model and wake the GPU (seconds, once
+   * a session), then six at once, as fetching them over a share is what
+   * one at a time would measure.
+   */
+  private async timeClips(ctx: { o: Opened; book: ScannedBook }, model: string, language: string | null): Promise<void> {
+    const { o, book } = ctx;
+    const hear = o.lib.host.speechOpenings;
+    const total = book.book.durationMs;
+    if (!hear || total <= 0) return;
+    const durations = book.files.map((f) => f.durationMs);
+    const clip = (ms: number) => {
+      const at = locate_(durations, ms);
+      return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
+    };
+    try {
+      await hear.call(o.lib.host, model, [clip(total / 2)], HEAR_SECONDS, language);
+      const six = [1, 2, 3, 4, 5, 6].map((k) => clip((total * k) / 7));
+      const t0 = performance.now();
+      await hear.call(o.lib.host, model, six, HEAR_SECONDS, language);
+      this.msPerClip = (performance.now() - t0) / six.length;
+      this.appSettings = { ...this.appSettings, speechClipMs: Math.round(this.msPerClip) };
+      this.saveAppSettingsSoon();
+      log.info(`hearing takes ${Math.round(this.msPerClip)} ms a clip on this machine`);
+    } catch (e) {
+      log.warn("could not time hearing on this machine:", describe(e));
+    }
+  }
+
   /** How long a clip took to hear on this machine, as last measured in any book. */
   private clipMs(): number | null {
     if (this.msPerClip !== null) return this.msPerClip;
@@ -1359,6 +1389,17 @@ export class AppController {
       const key = (x: { startMs: number }) => (x.startMs >= focus - SPAN_MS ? x.startMs - focus : 2 * (focus - x.startMs));
       return out.sort((x, y) => key(x) - key(y));
     };
+    // Never timed on this machine (an older Ribbon heard everything near already): time it now, so a
+    // machine that can transcribes the whole narration rather than waiting for something to hear.
+    if (this.clipMs() === null) {
+      this.hearing = true;
+      try {
+        await this.timeClips(ctx, model, language);
+      } finally {
+        this.hearing = false;
+      }
+      if (!still()) return;
+    }
     if (doubts().length === 0 && checkpoints().length === 0 && stretches().length === 0) return;
     this.hearing = true;
     const started = performance.now();
@@ -1394,6 +1435,7 @@ export class AppController {
         const words = await hear.call(o.lib.host, model, clips, HEAR_SECONDS, language);
         this.msPerClip = (performance.now() - t0) / batch.length;
         this.appSettings = { ...this.appSettings, speechClipMs: Math.round(this.msPerClip) };
+        this.saveAppSettingsSoon();
         const before = this.state.reading?.alignment;
         batch.forEach((ms, i) => {
           const w = (words[i] ?? "").trim();
