@@ -3,6 +3,8 @@
  * round-trips through CSV and structured clone without ceremony.
  */
 
+import type { Locator } from "./poslog";
+
 export interface AudioFile {
   /** Library-relative path with forward slashes. */
   path: string;
@@ -96,6 +98,26 @@ export interface Bookmark {
   note: string;
   /** Filename of the audio clip beside the bookmark row, or empty. */
   clip: string;
+  /** The words it marks in the book's text, for a bookmark made from a highlight. */
+  text?: HighlightText;
+}
+
+/**
+ * Words marked in a text edition (docs/POSITION-FORMAT.md, section 3.4):
+ * the edition's claims, Locators of where the words start and end, and
+ * the words themselves.
+ */
+export interface HighlightText {
+  ids: string[];
+  start: Locator;
+  end: Locator;
+  quote: string;
+}
+
+/** A bookmark made from a highlight: in a book with no audio, it has no time. */
+export interface Highlight extends Omit<Bookmark, "offsetMs" | "text"> {
+  offsetMs: number | null;
+  text: HighlightText;
 }
 
 export interface LoudnessMeasurement {

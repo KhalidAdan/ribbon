@@ -1,6 +1,6 @@
 import type { Host, ScanProgress } from "../host/host";
 import { extractMissingCovers, type ScannedBook } from "../core/scan/scan";
-import type { Bookmark, BookSettings, Position, SilenceRange } from "../core/types";
+import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "../core/types";
 import type { Problem } from "../core/problems";
 import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
 import type { BookAbout } from "../core/about";
@@ -20,7 +20,8 @@ import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from ".
 import { resumePosition, rewindFor } from "../core/resume";
 import { snapSpeed } from "../core/speed";
 import { defaultSettings } from "../core/settings";
-import { bookmarksOf, clipRange, markFields, markId, type MarkFields } from "../core/bookmarks";
+import { bookmarksOf, clipRange, highlightId, highlightsOf, markFields, markId, type MarkFields } from "../core/bookmarks";
+import { highlightOf, trimRange } from "../core/reading/highlights";
 import { chapterAt } from "../core/scan/chapters";
 import { partAt } from "../core/scan/parts";
 import * as sleep from "../core/sleep";
@@ -28,7 +29,7 @@ import type { Correction } from "../core/scan/chapters";
 import { log } from "./log";
 import { openEbook, readerOnly, type Ebook } from "../core/ebook";
 import type { Why } from "../core/poslog";
-import type { TextPlace } from "../core/reading/place";
+import { placeOf, type TextPlace } from "../core/reading/place";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
 import { alignBook, byOverlay, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
@@ -1196,7 +1197,8 @@ export class AppController {
     log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections`);
     // Opened while its audio plays: the pages follow the narrator.
     const following = this.state.current?.book.book.id === bookId && this.state.player.playing;
-    this.set({ reading: { bookId, status: "ready", ebook, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}) } });
+    const highlights = this.highlightsFor(bookId);
+    this.set({ reading: { bookId, status: "ready", ebook, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
     this.readingCtx = { o, book: withChapters, ebook };
     void this.hearPlaces();
   }
@@ -1997,6 +1999,60 @@ export class AppController {
     return bm;
   }
 
+  /**
+   * Bookmark the words selected in the reader: where they start and end
+   * and the words, and, when the book has audio, the time they map to,
+   * so the bookmark is in the player's list too, with its clip.
+   */
+  async addHighlight(a: TextPlace, b: TextPlace): Promise<Highlight | null> {
+    const r = this.state.reading;
+    const book = r && this.state.books.find((x) => x.book.id === r.bookId);
+    const lib = book && this.libOf(book);
+    if (!r?.ebook || !book || !lib) return null;
+    const range = trimRange(r.ebook, a, b);
+    if (!range) return null;
+    const text = highlightOf(r.ebook, book.book.id, range);
+    const ms = r.alignment && book.book.durationMs > 0 ? Math.max(0, Math.round(textToMs(r.alignment, globalOffset(r.ebook, range.from)))) : null;
+    const clip =
+      ms === null
+        ? ""
+        : await lib.cutClip(book, ms).catch((e: unknown) => {
+            log.warn("could not cut a bookmark's clip:", describe(e));
+            return "";
+          });
+    const h: Highlight = { id: highlightId(book.book.id, text.start, text.quote), bookId: book.book.id, offsetMs: ms, createdAt: new Date().toISOString(), note: "", clip, text };
+    await this.writeHistory(book.book.id, markFields(h), h.createdAt);
+    return h;
+  }
+
+  /** A book's bookmarks made from highlights, from the log as read so far. */
+  highlightsFor(bookId: string): Highlight[] {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return [];
+    return highlightsOf(o.log, { id: bookId, claims: claimsFor(b.original ?? b.book) });
+  }
+
+  /** The reader's highlights, again from the log, when they changed. */
+  private refreshHighlights(): void {
+    const r = this.state.reading;
+    if (!r || r.status !== "ready") return;
+    const highlights = this.highlightsFor(r.bookId);
+    if (JSON.stringify(highlights) === JSON.stringify(r.highlights ?? [])) return;
+    const { highlights: _, ...rest } = r;
+    this.set({ reading: { ...rest, ...(highlights.length > 0 ? { highlights } : {}) } });
+  }
+
+  /** Open a highlight's words in the reader. */
+  async readHighlight(bookId: string, id: string): Promise<void> {
+    const h = this.highlightsFor(bookId).find((x) => x.id === id);
+    if (!h) return;
+    if (this.state.reading?.bookId !== bookId || this.state.reading.status !== "ready") await this.openReading(bookId);
+    const r = this.state.reading;
+    if (r?.bookId !== bookId || !r.ebook) return;
+    this.moveReading(placeOf(r.ebook, h.text.start), "seek");
+  }
+
   /** Change a bookmark's note. */
   async editBookmark(bookId: string, id: string, note: string): Promise<void> {
     if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
@@ -2032,9 +2088,9 @@ export class AppController {
     const lib = b && this.libOf(b);
     if (!b || !lib) return;
     if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
-    const bm = this.bookmarksFor(bookId).find((x) => x.id === id);
+    const bm = this.bookmarksFor(bookId).find((x) => x.id === id) ?? this.highlightsFor(bookId).find((x) => x.id === id);
     if (!bm) return;
-    if (this.state.current?.book.book.id === bookId && this.state.previewing === bm.offsetMs) this.pause();
+    if (this.state.current?.book.book.id === bookId && bm.offsetMs !== null && this.state.previewing === bm.offsetMs) this.pause();
     await this.writeHistory(bookId, { k: "del", of: id });
     await lib.removeClip(bm.clip);
     await this.writeBookmarkRows(bookId);
@@ -2066,7 +2122,7 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const lib = b && this.libOf(b);
     if (!lib || !this.bookmarkRows.has(bookId)) return;
-    const list = this.bookmarksFor(bookId);
+    const list = this.bookmarksFor(bookId).filter((x) => !x.text);
     try {
       await lib.writeBookmarks(bookId, list);
       this.bookmarkRows.set(bookId, list);
@@ -2176,6 +2232,7 @@ export class AppController {
     }
     this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions } });
     this.refreshBookmarks();
+    this.refreshHighlights();
   }
 
   /** Write a history record or a mark to the log of the book's source, and show it at once. */

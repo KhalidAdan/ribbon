@@ -1,9 +1,10 @@
 # The Ribbon position log
 
-**Version 1.1. A file format for keeping your place in a book, which any
+**Version 1.2. A file format for keeping your place in a book, which any
 player, reader or read-along app can read and write.** Version 1.1 adds
-places in text editions (section 3.6); everything written by version 1
-is still version 1.1.
+places in text editions (section 3.6), and version 1.2 bookmarks made
+from words highlighted in a text (section 3.4); everything written by an
+earlier version is still version 1.2.
 
 Your place in a book belongs to you, not to an app or a server. This
 format stores it as plain files beside the books. Any file sync you
@@ -168,6 +169,39 @@ A W3C Web Annotation, kept compact. `id` is stable. `motivation` is
  "body":"The Warmaster's first doubt"}
 ```
 
+#### Highlights (1.2)
+
+A bookmark can mark words in a text edition, such as a passage selected
+in an EPUB. Its `target` then has a `text`:
+
+```json
+"target":{"ms":15834000,"selector":{"type":"FragmentSelector","conformsTo":"http://www.w3.org/TR/media-frags/","value":"t=15804,15834"},
+          "text":{"ids":["urn:ribbon:aec8d2c8-text","urn:isbn:9781836093152"],
+                  "start":{"href":"OEBPS/08-40k-Content-3.xhtml","type":"application/xhtml+xml",
+                           "locations":{"progression":0.412,"totalProgression":0.061},
+                           "text":{"before":"the waygate hung. ","highlight":"It was a giant circle of wraithbone"}},
+                  "end":{"href":"OEBPS/08-40k-Content-3.xhtml","type":"application/xhtml+xml",
+                         "locations":{"progression":0.4123,"totalProgression":0.0611},
+                         "text":{"before":"circle of wraithbone","highlight":", and at fully"}},
+                  "quote":"It was a giant circle of wraithbone"}}
+```
+
+- `ids` are the claims of the text edition the words are in (section
+  3.6). The record's own `book` claims are the book's, as for any
+  bookmark, so a highlight in a book with audio is one of its bookmarks.
+- `start` and `end` are Locators (section 3.6) of where the words start
+  and where they end. A reader finds `start` as it finds any place, then
+  walks `quote` through the text from there; when the text there is not
+  `quote`, it finds `end` the same way.
+- `quote` is the words, paragraphs apart by a blank line (`\n\n`), soft
+  hyphens left out.
+- `ms` and its selector are the same words in the recording, as the
+  writer maps them, when the book has audio. A highlight in a book with
+  no audio leaves them out, and a reader that needs `ms` skips it.
+
+A reader of version 1.1 that shows bookmarks shows a highlight with `ms`
+as a bookmark at that time, and skips one without.
+
 ### 3.5 `del`: taking something back
 
 ```json
@@ -293,9 +327,9 @@ working. A later version will stop.
   stop new `session` records. Deleting one's own log removes one's
   history from the folder.
 
-## 7. Not in version 1.1
+## 7. Not in version 1.2
 
-- **Mapping between editions, and between text and audio.** Version 1.1
+- **Mapping between editions, and between text and audio.** Version 1.2
   records what the writer knows, `text` anchors included when it has
   them. A future version may record how a place was mapped (a Media
   Overlay, a transcript match, chapter and progression, or proportion)
@@ -331,10 +365,17 @@ working. A later version will stop.
 - Each bookmark keeps a 30-second Opus clip in `bookmarks/clips/`, named
   `<book-id>-<offset_ms>.opus`. A `mark` names its clip in
   `x["urn:ribbon:clip"]`, relative to `bookmarks/`.
+- A bookmark made from a highlight in the reader is the same `mark` with
+  a `target.text`, its `ms` mapped from where the words start, and its
+  clip cut there. Its `id` is made the same way from the book id, the
+  start's `href` and `progression`, and the words, so the same words
+  marked on two devices are one bookmark. Selections are taken whole
+  words, without the spaces and punctuation around them.
 - Ribbon 0.5 still writes `bookmarks/<book-id>.csv` (columns
   `book_id,offset_ms,created_at,note,clip`) after every change, so
   Ribbon 0.4 on other machines keeps working. Readers merge its rows
   into the marks as `mark` records of a device of their own, written at
   `created_at`, with the id above. A note edited or a bookmark deleted
   later wins over the row. A bookmark that Ribbon 0.4 deletes leaves the
-  CSV but stays in the log.
+  CSV but stays in the log. Highlights are never rows: a row's id is
+  made from its offset, so it would come back as another bookmark.

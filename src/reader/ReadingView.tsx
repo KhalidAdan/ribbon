@@ -1,22 +1,24 @@
-import { ArrowLeftIcon, BackwardIcon, ForwardIcon, ListBulletIcon, PlayIcon, SpeakerWaveIcon } from "@heroicons/react/16/solid";
+import { ArrowLeftIcon, BackwardIcon, BookmarkIcon, ForwardIcon, ListBulletIcon, PlayIcon, SpeakerWaveIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "../core/ebook";
+import type { Highlight } from "../core/types";
 import { flow, pageOf, paginate, placeAtY, yOfPlace, type Flow, type LaidBlock, type Page, type Placed } from "../core/reading/pages";
-import { bookProgress, placeOfHref, tocEntryAt, textBetween, type TextPlace } from "../core/reading/place";
+import { bookProgress, placeOf, placeOfHref, tocEntryAt, textBetween, type TextPlace } from "../core/reading/place";
+import { comparePlaces, inRange, rangeOf, type TextRange } from "../core/reading/highlights";
 import { LEADINGS, MEASURES, metricsFor, SIZES, type Metrics, type ReadingSettings } from "../core/reading/typography";
 import type { AppController } from "../app/controller";
 import { useAppState, useController } from "../ui/store";
 import { Button, IconButton } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
-import { ProgressLine, Toggle } from "../ui/kit";
+import { EmptyState, ProgressLine, Toggle } from "../ui/kit";
 import { FAMILY, loadFaces, Typesetter } from "./typeset";
 import { PlayButton } from "../ui/PlayerBar";
-import { formatLeft } from "../core/speed";
+import { formatDuration, formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
 import { globalOffset, msToText, placeAtGlobal, precise, type Alignment } from "../core/reading/align";
 import { sentenceAt, type Sentence } from "../core/reading/sentences";
-import { cut } from "./marks";
+import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
 
 /** A sentence marked in the text: the one a tap would listen from, or the one being read aloud. */
 interface Mark extends Sentence {
@@ -46,6 +48,7 @@ export function ReadingView() {
   const c = useController();
   const r = state.reading;
   const [contents, setContents] = useState(false);
+  const [bookmarks, setBookmarks] = useState(false);
   const [type, setType] = useState(false);
   // The listening bar shows itself while this book's audio is loaded; the header button shows or hides it either way.
   const [barPref, setBarPref] = useState<"auto" | "shown" | "hidden">("auto");
@@ -57,6 +60,7 @@ export function ReadingView() {
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
   const loadedHere = state.current?.book.book.id === r.bookId;
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
+  const listen = !!r.alignment && !!book && book.book.durationMs > 0;
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
@@ -70,6 +74,7 @@ export function ReadingView() {
         </div>
         <IconButton label={barOpen ? "Hide the listening controls" : "Show the listening controls"} icon={SpeakerWaveIcon} aria-pressed={barOpen} disabled={!ebook} onClick={() => setBarPref(barOpen ? "hidden" : "shown")} />
         <IconButton label="Contents" icon={ListBulletIcon} disabled={!ebook} onClick={() => setContents(true)} />
+        <IconButton label="Bookmarks" icon={BookmarkIcon} disabled={!ebook} onClick={() => setBookmarks(true)} />
         <div className="relative">
           <Button variant={type ? "secondary" : "ghost"} aria-expanded={type} aria-haspopup="dialog" disabled={!ebook} onClick={() => setType((v) => !v)}>
             <span aria-hidden="true" className="font-serif text-base/5">
@@ -96,8 +101,9 @@ export function ReadingView() {
           place={place}
           settings={state.readingSettings}
           bar={barOpen}
-          listen={!!r.alignment && !!book && book.book.durationMs > 0}
+          listen={listen}
           narrator={loadedHere && r.alignment ? { ms: state.player.positionMs, alignment: r.alignment, following: !!r.following } : null}
+          highlights={r.highlights ?? NO_HIGHLIGHTS}
           c={c}
         />
       )}
@@ -105,6 +111,11 @@ export function ReadingView() {
       {ebook && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
           <Contents ebook={ebook} alignment={r.alignment} listening={r.listening} entry={entry} c={c} onGo={() => setContents(false)} />
+        </Drawer>
+      )}
+      {ebook && (
+        <Drawer open={bookmarks} onClose={() => setBookmarks(false)} title="Bookmarks">
+          <HighlightList ebook={ebook} highlights={r.highlights ?? NO_HIGHLIGHTS} listen={listen} c={c} onGo={() => setBookmarks(false)} />
         </Drawer>
       )}
     </div>
@@ -202,6 +213,58 @@ function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Eboo
         })}
       </ol>
     </div>
+  );
+}
+
+const NO_HIGHLIGHTS: Highlight[] = [];
+
+/** The bookmarks made from highlights, in the order of the book: their words, where they are, listen, delete. */
+function HighlightList({ ebook, highlights, listen, c, onGo }: { ebook: Ebook; highlights: Highlight[]; listen: boolean; c: AppController; onGo: () => void }) {
+  if (highlights.length === 0) {
+    return (
+      <EmptyState icon={BookmarkIcon} title="No bookmarks in the text yet">
+        Select words in the text and choose Bookmark to keep them here{listen ? ", and in the audiobook’s bookmarks" : ""}.
+      </EmptyState>
+    );
+  }
+  return (
+    <ul role="list" className="flex flex-col">
+      {highlights.map((h) => {
+        const at = placeOf(ebook, h.text.start);
+        const entry = tocEntryAt(ebook, at);
+        const where = [entry >= 0 ? ebook.toc[entry]!.label : "", h.offsetMs !== null ? formatDuration(h.offsetMs) : ""].filter(Boolean).join(" · ");
+        return (
+          <li key={h.id} className="flex items-start gap-1 rounded-md">
+            <button
+              type="button"
+              onClick={() => {
+                c.moveReading(at, "seek");
+                onGo();
+              }}
+              className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-md py-2 pr-2 pl-3 text-left focus-ring hover:bg-raised"
+            >
+              <span className="line-clamp-3 text-base/6 text-pretty text-ink sm:text-sm/5">{h.text.quote.replace(/\s+/g, " ")}</span>
+              {h.note && <span className="text-base/6 text-ink-2 sm:text-sm/5">{h.note}</span>}
+              {where && <span className="text-xs/4 text-ink-3 tabular-nums">{where}</span>}
+            </button>
+            <div className="flex shrink-0 py-1">
+              {listen && (
+                <IconButton
+                  size="sm"
+                  label="Listen from here"
+                  icon={PlayIcon}
+                  onClick={() => {
+                    onGo();
+                    void c.listenFromHere(at);
+                  }}
+                />
+              )}
+              <IconButton size="sm" label="Delete the bookmark" icon={TrashIcon} onClick={() => void c.removeBookmark(h.bookId, h.id)} />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -319,7 +382,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, ebook, place, settings, bar, listen, narrator, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean } | null; c: AppController }) {
+function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlights, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean } | null; highlights: Highlight[]; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -336,22 +399,63 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, c }: { bo
   const { metrics, ready, layout } = useLayout(ebook, settings, viewport, c);
   const progress = bookProgress(ebook, place);
 
-  // A tap on the text offers to listen from the sentence tapped, marked until the offer goes.
-  const [tap, setTap] = useState<{ mark: Mark; x: number; y: number } | null>(null);
-  useEffect(() => setTap(null), [place, settings]);
+  // Bookmarks made from highlights, found in this book's text as ranges of places, so they survive any layout.
+  const saved = useMemo(() => highlights.map((h) => ({ id: h.id, ...rangeOf(ebook, h.text) })), [ebook, highlights]);
+
+  // A tap on the text offers to listen from the sentence tapped, marked until the offer goes; on a highlight, to take its bookmark back.
+  const [tap, setTap] = useState<{ mark: Mark | null; saved: string | null; x: number; y: number } | null>(null);
+  // Words selected offer to be bookmarked.
+  const [chosen, setChosen] = useState<(TextRange & { x: number; y: number }) | null>(null);
   useEffect(() => {
-    if (!tap) return;
+    setTap(null);
+    setChosen(null);
+  }, [place, settings]);
+  useEffect(() => {
+    if (!tap && !chosen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
       e.preventDefault();
       setTap(null);
+      if (chosen) window.getSelection()?.removeAllRanges();
+      setChosen(null);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [tap]);
+  }, [tap, chosen]);
+  // The selection is read once the pointer is up (a drag), or as it changes otherwise (keys, a double click).
+  const dragging = useRef(false);
+  const readSelection = useCallback(() => {
+    const sel = window.getSelection();
+    const el = box.current;
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !el) return setChosen((v) => (v ? null : v));
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return setChosen((v) => (v ? null : v));
+    const a = placeAt(sel.anchorNode, sel.anchorOffset);
+    const b = placeAt(sel.focusNode, sel.focusOffset);
+    const rects = range.getClientRects();
+    const last = rects[rects.length - 1];
+    if (!a || !b || !last) return setChosen((v) => (v ? null : v));
+    const rect = el.getBoundingClientRect();
+    const [from, to] = comparePlaces(a, b) <= 0 ? [a, b] : [b, a];
+    setTap(null);
+    setChosen({ from, to, x: last.right - rect.left, y: last.bottom - rect.top });
+  }, []);
+  useEffect(() => {
+    const onChange = () => !dragging.current && readSelection();
+    const onUp = () => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      readSelection();
+    };
+    document.addEventListener("selectionchange", onChange);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      document.removeEventListener("selectionchange", onChange);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [readSelection]);
   const onClick = (e: React.MouseEvent) => {
-    if (!listen) return;
     const t = e.target as HTMLElement;
     if (tap) {
       if (!t.closest("[data-tap]")) setTap(null);
@@ -362,11 +466,13 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, c }: { bo
     if (sel && !sel.isCollapsed) return;
     const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
     const p = range ? placeAt(range.startContainer, range.startOffset) : null;
-    const sentence = p && sentenceAt(ebook, p);
     const rect = box.current?.getBoundingClientRect();
-    if (!p || !sentence || !rect) return;
+    if (!p || !rect) return;
+    const sentence = listen ? sentenceAt(ebook, p) : null;
+    const on = saved.find((r) => inRange(r, p));
+    if (!sentence && !on) return;
     const line = t.closest("[data-block]")!.getBoundingClientRect();
-    setTap({ mark: { section: p.section, block: p.block, ...sentence }, x: e.clientX - rect.left, y: line.bottom - rect.top });
+    setTap({ mark: sentence ? { section: p.section, block: p.block, ...sentence } : null, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top });
   };
   // Following the narrator: the sentence being read, marked when the mapping is close enough to say which.
   const nMs = narrator?.ms;
@@ -390,6 +496,10 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, c }: { bo
     c.moveReading(reading.place, "periodic", "follow");
   }, [following, reading, visible, ebook, c]);
   const mark = tap?.mark ?? readMark;
+  const marks = useMemo<Marked[]>(
+    () => [...saved.map((r) => ({ from: r.from, to: r.to, tone: "saved" as const })), ...(mark ? [{ from: { section: mark.section, block: mark.block, offset: mark.start }, to: { section: mark.section, block: mark.block, offset: mark.end }, tone: "sentence" as const }] : [])],
+    [saved, mark],
+  );
   const dropTap = useCallback(() => setTap((t) => (t ? null : t)), []);
 
   // Copying gives back the book's text, paragraphs whole, not the drawn lines.
@@ -405,21 +515,56 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, c }: { bo
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick}>
-        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages ebook={ebook} place={place} metrics={metrics} viewport={viewport} layout={layout} mark={mark} c={c} onVisible={onVisible} /> : <Scroll ebook={ebook} place={place} metrics={metrics} layout={layout} mark={mark} c={c} onVisible={onVisible} onScrolled={dropTap} />)}
+      <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
+        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages ebook={ebook} place={place} metrics={metrics} viewport={viewport} layout={layout} marks={marks} c={c} onVisible={onVisible} /> : <Scroll ebook={ebook} place={place} metrics={metrics} layout={layout} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />)}
         {tap && viewport && (
-          <div data-tap className="absolute z-10" style={{ left: Math.max(8, Math.min(viewport.width - 168, tap.x - 80)), top: tap.y + 6 }}>
+          <div data-tap className="absolute z-10 flex gap-1" style={{ left: Math.max(8, Math.min(viewport.width - (tap.mark && tap.saved ? 300 : 168), tap.x - 80)), top: tap.y + 6 }}>
+            {tap.mark && (
+              <Button
+                size="sm"
+                leading={PlayIcon}
+                className="shadow-lg"
+                onClick={() => {
+                  const { section, block, start } = tap.mark!;
+                  setTap(null);
+                  void c.listenFromHere({ section, block, offset: start });
+                }}
+              >
+                Listen from here
+              </Button>
+            )}
+            {tap.saved && (
+              <Button
+                size="sm"
+                variant="secondary"
+                leading={TrashIcon}
+                className="shadow-lg"
+                onClick={() => {
+                  const id = tap.saved!;
+                  setTap(null);
+                  void c.removeBookmark(bookId, id);
+                }}
+              >
+                Delete bookmark
+              </Button>
+            )}
+          </div>
+        )}
+        {chosen && viewport && (
+          // Pressing it keeps the selection; the click bookmarks it.
+          <div data-tap className="absolute z-10" style={{ left: Math.max(8, Math.min(viewport.width - 128, chosen.x - 56)), top: Math.min(viewport.height - 40, chosen.y + 6) }} onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()}>
             <Button
               size="sm"
-              leading={PlayIcon}
+              leading={BookmarkIcon}
               className="shadow-lg"
               onClick={() => {
-                const { section, block, start } = tap.mark;
-                setTap(null);
-                void c.listenFromHere({ section, block, offset: start });
+                const { from, to } = chosen;
+                setChosen(null);
+                window.getSelection()?.removeAllRanges();
+                void c.addHighlight(from, to);
               }}
             >
-              Listen from here
+              Bookmark
             </Button>
           </div>
         )}
@@ -446,7 +591,7 @@ function placeAt(node: Node | null, offset: number): TextPlace | null {
   return { section, block, offset: Number(frag.dataset.start) + Math.max(0, (node === frag ? 0 : offset) - gap) };
 }
 
-const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mark, c, onVisible }: { ebook: Ebook; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; mark: Mark | null; c: AppController; onVisible: (v: Visible) => void }) {
+const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, marks, c, onVisible }: { ebook: Ebook; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
   const l = layout(place.section);
   const at = pageOf(l.pages, place);
   const per = metrics.columns;
@@ -517,7 +662,7 @@ const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mar
       {shown.map((page, i) => (
         <div key={`${page.section}:${first + i}`} className="absolute" style={{ top: metrics.margin, left: left + i * (metrics.column + metrics.gap), width: metrics.column, height: metrics.pageHeight }}>
           {page.items.map((it) => (
-            <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} mark={markOf(mark, l.blocks[it.at]!)} ebook={ebook} c={c} />
+            <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} ebook={ebook} c={c} />
           ))}
         </div>
       ))}
@@ -532,7 +677,7 @@ const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mar
 });
 
 /** The sections in view while scrolling: the one being read and its neighbours, stacked. */
-const Scroll = memo(function Scroll({ ebook, place, metrics, layout, mark, c, onVisible, onScrolled }: { ebook: Ebook; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; mark: Mark | null; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
+const Scroll = memo(function Scroll({ ebook, place, metrics, layout, marks, c, onVisible, onScrolled }: { ebook: Ebook; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [center, setCenter] = useState(place.section);
   const sections = [neighbour(ebook, center, -1), center, neighbour(ebook, center, 1)].filter((s): s is number => s !== null);
@@ -641,7 +786,7 @@ const Scroll = memo(function Scroll({ ebook, place, metrics, layout, mark, c, on
           return (
             <div key={s} className="absolute inset-x-0" style={{ top: tops[i] }}>
               {l.flow.items.map((it) => (
-                <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} mark={markOf(mark, l.blocks[it.at]!)} ebook={ebook} c={c} />
+                <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} ebook={ebook} c={c} />
               ))}
             </div>
           );
@@ -720,14 +865,21 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
 }
 
 /** The mark, when it is in this block. */
-function markOf(mark: Mark | null, b: LaidBlock): Sentence | undefined {
-  return mark && mark.section === b.section && mark.block === b.block ? mark : undefined;
+function markOf(marks: readonly Marked[], b: LaidBlock): Span[] {
+  return marks.length === 0 ? NO_SPANS : spansIn(marks, b.section, b.block);
 }
 
-const MARKED = "rounded-[2px] bg-place/20 box-decoration-clone";
+const NO_SPANS: Span[] = [];
+
+/** The sentence a tap would listen from, or being read, is washed in amber; words bookmarked are underlined in it, and washed faintly. */
+function marked(on: Tone[]): string | undefined {
+  if (on.length === 0) return undefined;
+  const sentence = on.includes("sentence");
+  return clsx("rounded-[2px] box-decoration-clone", sentence ? "bg-place/20" : "bg-place/10", on.includes("saved") && "underline decoration-place/70 decoration-2 underline-offset-[0.2em]");
+}
 
 /** One line, image or break, drawn where the layout put it. */
-function Item({ b, it, column, mark, ebook, c }: { b: LaidBlock; it: Placed; column: number; mark?: Sentence | undefined; ebook: Ebook; c: AppController }) {
+function Item({ b, it, column, marks, ebook, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; ebook: Ebook; c: AppController }) {
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
     const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
@@ -765,12 +917,12 @@ function Item({ b, it, column, mark, ebook, c }: { b: LaidBlock; it: Placed; col
         if (f.b) s.fontWeight = 650;
         if (f.sc) s.fontVariantCaps = "small-caps";
         if (f.sup || f.sub) Object.assign(s, { fontSize: "0.7em", lineHeight: 0, verticalAlign: f.sup ? "super" : "sub" });
-        const pieces = cut(f.start, f.text, !!f.gap, mark);
+        const pieces = cut(f.start, f.text, !!f.gap, marks);
         const inner =
-          pieces.length === 1 && !pieces[0]!.on
+          pieces.length === 1 && pieces[0]!.on.length === 0
             ? (f.gap ? " " : "") + f.text
             : pieces.map((p, j) => (
-                <span key={j} data-start={p.start} data-gap={p.gap ? "1" : undefined} className={p.on ? MARKED : undefined}>
+                <span key={j} data-start={p.start} data-gap={p.gap ? "1" : undefined} className={marked(p.on)}>
                   {(p.gap ? " " : "") + p.text}
                 </span>
               ));

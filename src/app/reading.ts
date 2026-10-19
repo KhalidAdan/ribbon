@@ -1,5 +1,6 @@
 import type { Ebook } from "../core/ebook";
 import type { Alignment } from "../core/reading/align";
+import type { Highlight } from "../core/types";
 import type { Locator, Why } from "../core/poslog";
 import { locatorOf, placeOf, startOf, type TextPlace } from "../core/reading/place";
 import { log } from "./log";
@@ -19,6 +20,8 @@ export interface ReadingState {
   following?: boolean;
   /** Hearing one place before "Listen from here" or "Go to the narrator" acts. */
   finding?: boolean;
+  /** Bookmarks made from highlights in this book, drawn in its text. */
+  highlights?: Highlight[];
 }
 
 /** The reading places this machine keeps, from the app's settings, by book id. */
