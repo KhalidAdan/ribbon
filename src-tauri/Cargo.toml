@@ -30,7 +30,7 @@ reqwest = { version = "0.13", default-features = false, features = ["native-tls"
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 quick-xml = "0.39.4"
 imagesize = "0.15.0"
-whisper-rs = "0.16"
+whisper-rs = { version = "0.16", features = ["vulkan"] }
 
 # Dev builds still scan at full speed: the tag reader and our own
 # scanner are optimized even when the rest of the tree is not.

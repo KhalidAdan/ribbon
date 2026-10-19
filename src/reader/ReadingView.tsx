@@ -99,7 +99,7 @@ const UNSURE = 0.4;
  * Fixing the pairing puts a choice on each entry: automatic, not in the
  * audio, or a chapter of the recording; it is kept beside the book.
  */
-function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; listening: { done: number; total: number } | undefined; entry: number; c: AppController; onGo: () => void }) {
+function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; listening: { done: number; total: number; what: "openings" | "checkpoints" } | undefined; entry: number; c: AppController; onGo: () => void }) {
   const [fixing, setFixing] = useState(false);
   const units = new Map((alignment?.text ?? []).map((u) => [u.ref, u]));
   const paired = alignment?.how === "chapter";
@@ -116,7 +116,7 @@ function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Eboo
       {alignment && (
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
-            {listening ? `Listening to chapter openings… ${listening.done} of ${listening.total}` : paired ? "Paired with the audiobook’s chapters" : "Matched to the audiobook by length"}
+            {listening ? `${listening.what === "openings" ? "Listening to chapter openings" : "Placing checkpoints"}… ${listening.done} of ${listening.total}` : paired ? "Paired with the audiobook’s chapters" : "Matched to the audiobook by length"}
           </p>
           <Button size="sm" variant={fixing ? "secondary" : "ghost"} aria-pressed={fixing} onClick={() => setFixing((v) => !v)}>
             {fixing ? "Done" : "Fix pairing"}
@@ -547,6 +547,7 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
   const here = cur?.book.book.id === bookId;
   const p = state.player;
   const narrator = here ? c.narratorInText() : null;
+  const finding = !!state.reading?.finding;
   const onPage = (() => {
     if (!narrator || !visible) return true;
     const n = globalOffset(ebook, narrator);
@@ -570,15 +571,23 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
       <p className="min-w-0 flex-1 truncate text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
         {here ? where : cur ? <>Playing <span className="text-ink">{cur.book.book.title}</span></> : "The audiobook is not playing."}
       </p>
-      {here && !onPage && (
-        <Button size="sm" variant="ghost" onClick={() => c.goToNarrator()}>
-          Go to the narrator
-        </Button>
-      )}
-      {(!here || !onPage) && (
-        <Button size="sm" variant={here && p.playing ? "secondary" : "primary"} onClick={() => void c.listenFromHere()}>
-          Listen from here
-        </Button>
+      {finding ? (
+        <p className="shrink-0 text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
+          Finding the place…
+        </p>
+      ) : (
+        <>
+          {here && !onPage && (
+            <Button size="sm" variant="ghost" onClick={() => void c.goToNarrator()}>
+              Go to the narrator
+            </Button>
+          )}
+          {(!here || !onPage) && (
+            <Button size="sm" variant={here && p.playing ? "secondary" : "primary"} onClick={() => void c.listenFromHere()}>
+              Listen from here
+            </Button>
+          )}
+        </>
       )}
     </div>
   );

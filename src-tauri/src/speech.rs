@@ -44,6 +44,25 @@ pub fn decode_clip(path: &Path, start_ms: u64, seconds: f32) -> Result<Vec<f32>,
     Ok(bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect())
 }
 
+/// True when this machine has a Vulkan driver, which whisper.cpp needs to run on the GPU. Ribbon
+/// loads vulkan-1.dll only when speech is first used (build.rs); without it, hearing is refused
+/// rather than crashing.
+#[cfg(windows)]
+pub fn vulkan_available() -> bool {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
+    }
+    let name: Vec<u16> = "vulkan-1.dll\0".encode_utf16().collect();
+    // Kept loaded: whisper.cpp is about to use it.
+    !unsafe { LoadLibraryW(name.as_ptr()) }.is_null()
+}
+
+#[cfg(not(windows))]
+pub fn vulkan_available() -> bool {
+    true
+}
+
 /// A loaded whisper model, kept while it is in use: loading takes a second or more.
 pub struct Listener {
     ctx: WhisperContext,
@@ -93,6 +112,9 @@ pub struct Clip {
 /// Transcribe the start of each clip, `seconds` long. One answer per clip, in order; a clip that
 /// could not be heard gives an empty answer rather than failing the rest.
 pub fn opening_words(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>) -> Result<Vec<String>, String> {
+    if !vulkan_available() {
+        return Err("speech needs a graphics driver with Vulkan, and this machine has none".into());
+    }
     let mut slot = LISTENER.lock().map_err(|_| "the speech model is busy".to_string())?;
     if slot.as_ref().map_or(true, |l| l.path != model) {
         *slot = Some(Listener::load(model)?);

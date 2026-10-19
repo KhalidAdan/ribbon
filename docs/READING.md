@@ -248,14 +248,14 @@ Nothing leaves the machine. Slow, so it runs in the background, once per
 book.
 
 Built first (#65): the narrator's opening words. whisper.cpp is built into
-Ribbon (whisper-rs); ffmpeg decodes the first 12 seconds of each audio
-chapter, and whisper hears them, on half the machine's cores. The words
+Ribbon (whisper-rs); ffmpeg decodes the first 8 seconds of each audio
+chapter, and whisper hears them, encoding only the clip's own frames. The words
 are matched against each contents entry's opening, loosely (whisper spells
 "Eluadhri" as "Eloadri" and says "2" for "Two"; the commonest words are
 left out), and a match is the strongest evidence in the pairing score.
 It runs only when the pairing has doubts, the doubtful chapters first,
 while the book is open to read, and keeps what it heard beside the book
-in `openings/<book>.csv`, so each book is heard once. The model is any
+in `heard/<book>.csv`, so each book is heard once. The model is any
 whisper.cpp `ggml` file (Settings → Read-along), or Ribbon's download of
 whisper base (about 57 MB, from Hugging Face). On Voidscarred with
 SayIt's small model: 34 of 35 pairs confirmed by their words; with only
@@ -263,6 +263,25 @@ generated titles, mean confidence rose from 0.53 to 0.99.
 
 whisper.cpp is compiled with AVX2 and FMA (`src-tauri/.cargo/config.toml`);
 without them MSVC builds it unoptimised and a clip takes a minute.
+
+**Checkpoints inside chapters.** Chapter and proportion, measured on
+Voidscarred by hearing 27 places a quarter, half and three quarters into
+nine chapters and finding the words in the text: a median of 15 s off,
+52 s at worst. A page is about two minutes. So after the doubts, Ribbon
+hears a clip every 90 s of audio, nearest the reader first, finds each in
+the text near where the pairing puts it (the matching window's latest
+start, where the heard words begin), and maps between those checkpoints.
+Held out, checkpoints at a quarter and three quarters alone took the
+error at the half from a median of 15 s to 6 s; at 90 s apart no place is
+more than 45 s from one. A machine that hears a clip in under 1.2 s (a
+GPU) checks the whole book; a slower one, the chapters around the reader.
+"Listen from here" and "Go to the narrator" hear the place itself first
+when no checkpoint is within 45 s.
+
+**On the GPU.** whisper.cpp runs on Vulkan (`whisper-rs` feature
+`vulkan`), which every current graphics driver supports. vulkan-1.dll is
+loaded only when speech is first used, so Ribbon starts on a machine with
+no graphics driver, and speech says it cannot run there.
 
 ## 7. The order of the work
 
