@@ -361,6 +361,8 @@ fn caches_the_model_and_images_and_opens_the_last_copy_when_the_file_is_away() {
     assert_eq!(std::fs::read(&image).unwrap(), png);
     // Once: the icon appears twice in the book.
     assert_eq!(first["files"].as_object().unwrap().len(), 1);
+    // A header with no pixels cannot be decoded, so it is a picture, wherever it appears.
+    assert_eq!(image_tones(&first), vec!["picture", "picture"]);
 
     // Unchanged: the same answer, from the cache.
     let again: serde_json::Value = serde_json::from_str(&open_cached(&path, &base).unwrap()).unwrap();
@@ -371,5 +373,88 @@ fn caches_the_model_and_images_and_opens_the_last_copy_when_the_file_is_away() {
     assert_eq!(away["meta"]["title"], "Voidscarred");
     assert!(open_cached(&dir.join("Other.epub").to_string_lossy(), &base).unwrap_err().starts_with("unreadable:"));
     assert!(open_cached("notes.txt", &base).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The tone of each image block in a cached model, in reading order.
+fn image_tones(model: &serde_json::Value) -> Vec<String> {
+    let blocks = model["sections"].as_array().unwrap().iter().flat_map(|s| s["blocks"].as_array().unwrap());
+    blocks.filter(|b| b["k"] == "img").map(|b| b["tone"].as_str().unwrap_or("none").to_string()).collect()
+}
+
+fn encode(img: image::DynamicImage, format: image::ImageFormat) -> Vec<u8> {
+    let mut out = Cursor::new(Vec::new());
+    img.write_to(&mut out, format).unwrap();
+    out.into_inner()
+}
+
+/// Black rules and a diagonal on white paper, 48 by 32: a diagram, or a page of text.
+fn line_art() -> image::RgbImage {
+    image::RgbImage::from_fn(48, 32, |x, y| if y % 8 < 2 || x / 2 == y { image::Rgb([0, 0, 0]) } else { image::Rgb([255, 255, 255]) })
+}
+
+/// Black strokes on nothing, 40 by 40: an ornament made for a white page.
+fn strokes() -> image::RgbaImage {
+    image::RgbaImage::from_fn(40, 40, |x, y| {
+        let (dx, dy) = (x as i32 - 20, y as i32 - 20);
+        let ring = (dx * dx + dy * dy - 225).abs() < 40;
+        if ring || (18..22).contains(&x) { image::Rgba([0, 0, 0, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+    })
+}
+
+#[test]
+fn line_art_is_ink() {
+    use image::{DynamicImage, ImageFormat};
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageRgb8(line_art()), ImageFormat::Png)), "ink");
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageRgb8(line_art()), ImageFormat::Jpeg)), "ink");
+    // Black on clear, in each format that carries clearness.
+    for format in [ImageFormat::Png, ImageFormat::Gif, ImageFormat::WebP] {
+        assert_eq!(tone::tone(&encode(DynamicImage::ImageRgba8(strokes()), format)), "ink", "{format:?}");
+    }
+    // Sepia ink on yellowed paper is still ink.
+    let scan = image::RgbImage::from_fn(32, 32, |_, y| if y % 6 == 0 { image::Rgb([60, 45, 30]) } else { image::Rgb([240, 228, 200]) });
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageRgb8(scan), ImageFormat::Png)), "ink");
+}
+
+#[test]
+fn photos_and_colour_are_pictures() {
+    use image::{DynamicImage, ImageFormat};
+    // A colour photograph.
+    let photo = image::RgbImage::from_fn(48, 32, |x, y| image::Rgb([(x * 5) as u8, (y * 8) as u8, 128]));
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageRgb8(photo), ImageFormat::Jpeg)), "picture");
+    // A grey photograph: greys all through, even with white margins.
+    let grey = image::GrayImage::from_fn(48, 48, |x, y| image::Luma([if x < 8 || x >= 40 { 255 } else { (60 + (x + y) * 2) as u8 }]));
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageLuma8(grey), ImageFormat::Png)), "picture");
+    // White letters on a black plate already suit a dark page.
+    let plate = image::RgbImage::from_fn(40, 20, |_, y| if y == 10 { image::Rgb([255, 255, 255]) } else { image::Rgb([0, 0, 0]) });
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageRgb8(plate), ImageFormat::Png)), "picture");
+    // A red mark on clear is colour, not ink.
+    let red = image::RgbaImage::from_fn(40, 40, |x, _| if x < 20 { image::Rgba([200, 20, 20, 255]) } else { image::Rgba([0, 0, 0, 0]) });
+    assert_eq!(tone::tone(&encode(DynamicImage::ImageRgba8(red), ImageFormat::Png)), "picture");
+    // What cannot be decoded is drawn as it is.
+    assert_eq!(tone::tone(&png()), "picture");
+    assert_eq!(tone::tone(b"not an image"), "picture");
+}
+
+#[test]
+fn cached_images_carry_their_tone() {
+    let dir = std::env::temp_dir().join(format!("ribbon-ebook-tone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let ink = encode(image::DynamicImage::ImageRgba8(strokes()), image::ImageFormat::Png);
+    let bytes = epub(&[
+        ("META-INF/container.xml", CONTAINER),
+        ("OEBPS/content.opf", OPF.as_bytes()),
+        ("OEBPS/Text/ch1.xhtml", CH1.as_bytes()),
+        ("OEBPS/Text/ch 2.xhtml", CH2.as_bytes()),
+        ("OEBPS/Text/notes.xhtml", NOTES.as_bytes()),
+        ("OEBPS/image/icon.png", &ink),
+    ]);
+    let file = dir.join("Book.epub");
+    std::fs::write(&file, &bytes).unwrap();
+    let model: serde_json::Value = serde_json::from_str(&open_cached(&file.to_string_lossy(), &dir.join("cache")).unwrap()).unwrap();
+    assert_eq!(image_tones(&model), vec!["ink", "ink"]);
+    // Not looked at outside the cache: the reader takes no tone as a picture.
+    assert_eq!(open_bytes(bytes).unwrap().sections[0].blocks[0].tone, None);
     let _ = std::fs::remove_dir_all(&dir);
 }
