@@ -289,6 +289,17 @@ is, and, when the narrator is not on the page, **Go to the narrator** and
 text marks the sentence tapped and offers **Listen from here** for it,
 so the narrator starts where the eyes are. Another book playing shows
 under its own title.
+
+Selecting words offers **Bookmark**. The bookmark keeps the words and
+where they start and end in the text, taken whole words, and, when the
+book has audio, the time they map to, so it is one of the audiobook's
+bookmarks too, with its thirty-second clip and a way back to the words.
+Bookmarked words are underlined in amber in the text, in pages and in
+scroll, at any text size: a highlight is a range of places (section 5),
+found again by its words, never by where it was drawn. Tapping them
+offers to delete the bookmark. The header's bookmark button lists the
+book's highlights in the order of the book. The stored form is section
+3.4 of [POSITION-FORMAT.md](POSITION-FORMAT.md) (version 1.2).
 Opening the book to read starts where the narrator is when listening was
 more recent; pressing play outside the reader starts where the reading
 stopped when pages were turned after the audio last paused. Opening and
@@ -394,7 +405,8 @@ no graphics driver, and speech says it cannot run there.
 
 Pairing an EPUB with its audiobook by hand; fixed layout; vertical
 writing; drawn tables; footnotes as pop-ups; search inside the book;
-highlights and notes (the Lexical or Tiptap work, much later). A book
-that is only its EPUB keeps its reading progress on each machine; only
-its place goes in the position log. Right-to-left text is laid
+notes on highlights and highlights in colours (the Lexical or Tiptap
+work, much later). A book that is only its EPUB keeps its reading
+progress on each machine; only its place and its highlights go in the
+position log. Right-to-left text is laid
 out, but each line is painted as one element so the browser orders it.

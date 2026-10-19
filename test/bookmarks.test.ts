@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bookmarksOf, clipArgs, clipName, clipRange, CLIP_X, markFields, markId, parseBookmarks, serializeBookmarks } from "../src/core/bookmarks";
+import { bookmarksOf, clipArgs, clipName, clipRange, CLIP_X, highlightId, highlightsOf, highlightText, markFields, markId, parseBookmarks, serializeBookmarks } from "../src/core/bookmarks";
 import { encodeRecord, parseLog, ribbonClaim, type DelRecord, type LogRecord, type MarkRecord } from "../src/core/poslog";
-import type { Bookmark } from "../src/core/types";
+import type { Bookmark, Highlight, HighlightText } from "../src/core/types";
 
 describe("bookmarks", () => {
   it("round-trips hostile notes and sorts by offset", async () => {
@@ -140,5 +140,71 @@ describe("bookmarks in the position log", () => {
     // The laptop's view of the folder is the desktop's log, its own, and a CSV not rewritten yet.
     expect(bookmarksOf([...desktopLog, ...laptopLog], BOOK, [shared], NOW)).toEqual([]);
     expect(bookmarksOf([...laptopLog, ...desktopLog], BOOK, [shared], NOW)).toEqual([]);
+  });
+});
+
+const WORDS: HighlightText = {
+  ids: ["urn:ribbon:b1-text", "urn:isbn:9781836093152"],
+  start: { href: "OEBPS/c3.xhtml", type: "application/xhtml+xml", locations: { progression: 0.412, totalProgression: 0.061 }, text: { before: "the waygate hung. ", highlight: "It was a giant circle of wraithbone" } },
+  end: { href: "OEBPS/c3.xhtml", type: "application/xhtml+xml", locations: { progression: 0.4123, totalProgression: 0.0611 }, text: { before: "circle of wraithbone", highlight: ", and at fully" } },
+  quote: "It was a giant circle of wraithbone",
+};
+
+function hl(offsetMs: number | null, min = 0, text: HighlightText = WORDS): Highlight {
+  return { id: highlightId("b1", text.start, text.quote), bookId: "b1", offsetMs, createdAt: at(min), note: "", clip: "", text };
+}
+
+describe("bookmarks made from highlights", () => {
+  it("ids are stable per book and words, and never a bookmark by time's", () => {
+    const id = highlightId("b1", WORDS.start, WORDS.quote);
+    expect(id).toMatch(/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(highlightId("b1", { ...WORDS.start }, WORDS.quote)).toBe(id);
+    expect(highlightId("b1", WORDS.start, "It was a giant")).not.toBe(id);
+    expect(highlightId("b2", WORDS.start, WORDS.quote)).not.toBe(id);
+  });
+
+  it("a mark keeps the words in the text beside the time, which earlier versions read as a bookmark", () => {
+    const written = mark("d", 1, hl(15_834_000) as Bookmark);
+    const [back] = parseLog(encodeRecord(written)).records as MarkRecord[];
+    expect(back).toMatchObject({ motivation: "bookmarking", target: { ms: 15_834_000, selector: { value: "t=15804,15834" }, text: WORDS } });
+    // What Ribbon 0.9 reads of it: a bookmark at that time.
+    expect(bookmarksOf([back!], BOOK, [], NOW).map((b) => [b.offsetMs, b.text?.quote])).toEqual([[15_834_000, WORDS.quote]]);
+  });
+
+  it("in a book with no audio, the mark has no time: only the reader's list has it", () => {
+    const written = mark("d", 1, hl(null) as unknown as Bookmark);
+    expect(written.target).toEqual({ text: WORDS });
+    const [back] = parseLog(encodeRecord(written)).records;
+    expect(bookmarksOf([back!], BOOK, [], NOW)).toEqual([]);
+    expect(highlightsOf([back!], BOOK, NOW)).toEqual([hl(null)]);
+  });
+
+  it("lists highlights in the order of the book, apart from bookmarks by time, and deletes them", () => {
+    const later = { ...WORDS, start: { ...WORDS.start, locations: { progression: 0.9, totalProgression: 0.5 } }, quote: "later words" };
+    const a = hl(null, 1, later);
+    const b = hl(60_000, 2);
+    const records: LogRecord[] = [mark("d", 1, a as unknown as Bookmark), mark("d", 2, b as Bookmark), mark("d", 3, bm(30_000, "by time"))];
+    expect(highlightsOf(records, BOOK, NOW).map((h) => h.text.quote)).toEqual([WORDS.quote, "later words"]);
+    expect(bookmarksOf(records, BOOK, [], NOW).map((x) => [x.offsetMs, !!x.text])).toEqual([
+      [30_000, false],
+      [60_000, true],
+    ]);
+    records.push(del("d", 4, 5, a.id));
+    expect(highlightsOf(records, BOOK, NOW).map((h) => h.id)).toEqual([b.id]);
+  });
+
+  it("skips a text target that is not whole", () => {
+    expect(highlightText({ ...WORDS, end: undefined })).toBeNull();
+    expect(highlightText({ ...WORDS, quote: 3 })).toBeNull();
+    expect(highlightText("words")).toBeNull();
+    const broken = { ...mark("d", 1, bm(0)), target: { text: { quote: "x" } } };
+    expect(highlightsOf([broken], BOOK, NOW)).toEqual([]);
+    expect(bookmarksOf([broken], BOOK, [], NOW)).toEqual([]);
+  });
+
+  it("keeps highlights out of the CSV, where their ids would come back as other bookmarks", async () => {
+    const bytes = await serializeBookmarks([bm(10_000, "by time"), { ...(hl(20_000) as Bookmark) }]);
+    const { bookmarks } = await parseBookmarks(bytes);
+    expect(bookmarks.map((b) => b.offsetMs)).toEqual([10_000]);
   });
 });

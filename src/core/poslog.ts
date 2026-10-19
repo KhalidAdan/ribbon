@@ -77,7 +77,8 @@ export interface MarkRecord extends Base {
   motivation: string;
   created: string;
   modified?: string;
-  target: { ms: number; selector?: unknown };
+  /** `ms` is left out of a highlight in a book with no audio (section 3.4). */
+  target: { ms?: number; selector?: unknown; text?: unknown };
   body?: string;
 }
 
