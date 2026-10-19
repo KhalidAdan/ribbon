@@ -25,6 +25,8 @@ const MIME: Record<string, string> = {
   jpeg: "image/jpeg",
   png: "image/png",
   webp: "image/webp",
+  gif: "image/gif",
+  svg: "image/svg+xml",
   csv: "text/csv",
 };
 
@@ -133,6 +135,21 @@ export function devLibrary(root: string | undefined): Plugin {
             case "scan": {
               const out = await host.scan(inside(String(args.root)), (args.known as { path: string; sizeBytes: number; mtimeMs: number }[]) ?? []);
               return json(res, 200, out);
+            }
+            case "ebook": {
+              // The Rust parser, as the app runs it, through its example binary; the cache lives inside the library so its images can be served.
+              const epub = inside(String(args.path));
+              const cache = path.join(absRoot, ".ribbon", "dev-ebooks");
+              const tauriDir = path.resolve(import.meta.dirname, "..", "src-tauri");
+              const built = path.join(tauriDir, "target", "debug", "examples", process.platform === "win32" ? "ebook_json.exe" : "ebook_json");
+              const [cmd, cmdArgs] = await fs
+                .access(built)
+                .then(() => [built, [epub, cache]] as const)
+                .catch(() => ["cargo", ["run", "--quiet", "--example", "ebook_json", "--", epub, cache]] as const);
+              const out = await new Promise<{ ok: boolean; text: string }>((resolve) => {
+                execFile(cmd, [...cmdArgs], { cwd: tauriDir, maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => resolve(err ? { ok: false, text: String(stderr).trim() } : { ok: true, text: String(stdout) }));
+              });
+              return out.ok ? json(res, 200, out.text) : json(res, 500, { error: out.text });
             }
             case "catalog":
               return json(res, 200, await host.catalogSearch!(String(args.title ?? ""), String(args.author ?? ""), String(args.region ?? "us")));

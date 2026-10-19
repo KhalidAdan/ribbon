@@ -3,7 +3,7 @@ import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasuremen
 import { RIBBON_DIR, LEGACY_DIR } from "../core/scan/walk";
 import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
 import { nowIso, parsePositions, serializePosition, serializePositions } from "../core/position";
-import { claimsFor, compact, COMPACT_BYTES, deviceFileName, encodeRecord, FORMAT, fromLegacy, locatorFor, LOG_EXT, logName, mergePlaces, nextSeq, parseLog, ribbonClaim, toPosition, type DeviceInfo, type LogRecord } from "../core/poslog";
+import { claimsFor, compact, COMPACT_BYTES, deviceFileName, encodeRecord, FORMAT, fromLegacy, locatorFor, LOG_EXT, logName, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, toPosition, type DeviceInfo, type Locator, type LogRecord, type TextPosRecord, type Why } from "../core/poslog";
 import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../core/scan/chapters";
@@ -257,6 +257,20 @@ export class LibraryService {
       ...(loc ? { loc } : {}),
     });
     await this.host.writeFile(this.dir("positions", `${p.bookId}.csv`), await serializePosition(p));
+  }
+
+  /**
+   * A reading place in a book's text edition (format 1.1): a `pos` record
+   * with a Locator into the EPUB and no time, claimed by the text, never
+   * by the audiobook.
+   */
+  writeTextPlace(bookId: string, identifiers: readonly { scheme: string; value: string }[], loc: Locator, why: Why, nowMs = Date.now()): Promise<void> {
+    return this.appendRecord({ k: "pos", t: nowIso(nowMs), book: { ids: textClaimsFor(bookId, identifiers) }, why, loc });
+  }
+
+  /** Every book's reading place, merged from every device's log. Rejects when the folder cannot be read. */
+  async readTextPlaces(nowMs = Date.now()): Promise<Map<string, TextPosRecord>> {
+    return mergeTextPlaces((await this.readPositionLog(nowMs)).records, nowMs);
   }
 
   /** Add a record to this device's log, stamped with the device and the next sequence number. */

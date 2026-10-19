@@ -1,4 +1,4 @@
-mod ebook;
+pub mod ebook;
 mod home;
 mod online;
 mod scan;

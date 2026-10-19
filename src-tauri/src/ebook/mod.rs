@@ -11,8 +11,9 @@ pub mod xml;
 use content::{read_chapter, Cache, Source};
 use model::{Ebook, Identifier, Meta, Section, TocEntry, FORMAT};
 use paths::{resolve, split_fragment};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read, Seek};
+use std::path::{Path, PathBuf};
 use xml::Node;
 use zip::ZipArchive;
 
@@ -74,7 +75,10 @@ pub fn open_bytes(bytes: Vec<u8>) -> Result<Ebook, OpenError> {
 
 pub fn open_reader<R: Read + Seek>(reader: R) -> Result<Ebook, OpenError> {
     let archive = ZipArchive::new(reader).map_err(|e| OpenError::NotEpub(format!("not a zip file ({e})")))?;
-    let mut zip = Zip { archive };
+    open_zip(&mut Zip { archive })
+}
+
+fn open_zip<R: Read + Seek>(zip: &mut Zip<R>) -> Result<Ebook, OpenError> {
 
     if let Some(enc) = zip.text("META-INF/encryption.xml") {
         let doc = xml::parse(&enc);
@@ -137,7 +141,7 @@ pub fn open_reader<R: Read + Seek>(reader: R) -> Result<Ebook, OpenError> {
     for itemref in spine.map(|s| s.children_named("itemref").collect::<Vec<_>>()).unwrap_or_default() {
         let Some(item) = itemref.attr("idref").and_then(|id| items.get(id)) else { continue };
         let Some(text) = zip.text(&item.href) else { continue };
-        let chapter = read_chapter(&text, &item.href, &mut zip, &mut cache);
+        let chapter = read_chapter(&text, &item.href, zip, &mut cache);
         sections.push(Section {
             href: item.href.clone(),
             linear: itemref.attr("linear") != Some("no"),
@@ -170,7 +174,7 @@ pub fn open_reader<R: Read + Seek>(reader: R) -> Result<Ebook, OpenError> {
     }
     let toc = raw.into_iter().filter_map(|(label, href, depth)| place(&sections, &href).map(|(section, block)| TocEntry { label, section, block, depth })).collect();
 
-    Ok(Ebook { format: FORMAT, meta, layout: if layout { "pre-paginated" } else { "reflowable" }.to_string(), sections, toc })
+    Ok(Ebook { format: FORMAT, meta, layout: if layout { "pre-paginated" } else { "reflowable" }.to_string(), sections, toc, files: BTreeMap::new() })
 }
 
 fn read_meta(package: &Node) -> Meta {
@@ -305,21 +309,91 @@ fn place(sections: &[Section], href: &str) -> Option<(usize, usize)> {
     Some((s, block))
 }
 
-/// Open an EPUB where it sits and give back its book model as JSON.
-/// The whole file is read in one request, then parsed in memory.
+/// Open an EPUB through this machine's cache, and give back its book
+/// model as JSON. The cache keeps the model and the book's images under
+/// `base`, one folder per EPUB, keyed by the file's size and modified
+/// time: an unchanged book opens without reading it again, and a book
+/// whose share is away opens from its last copy.
+pub fn open_cached(path: &str, base: &Path) -> Result<String, String> {
+    if !path.to_ascii_lowercase().ends_with(".epub") {
+        return Err("unreadable: not an EPUB".to_string());
+    }
+    let dir = base.join(fnv(&path.replace('\\', "/").to_lowercase()));
+    let stamp = std::fs::metadata(path).ok().map(|m| {
+        let mtime = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis());
+        format!("{}-{}", m.len(), mtime)
+    });
+    let Some(stamp) = stamp else {
+        // The file cannot be reached: the last copy, when there is one.
+        return newest_model(&dir).ok_or_else(|| "unreadable: the EPUB cannot be reached".to_string());
+    };
+    let model = dir.join(format!("model-{stamp}.json"));
+    if let Ok(text) = std::fs::read_to_string(&model) {
+        return Ok(text);
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("unreadable: {e}"))?;
+    let archive = ZipArchive::new(Cursor::new(bytes)).map_err(|e| OpenError::NotEpub(format!("not a zip file ({e})")).message())?;
+    let mut zip = Zip { archive };
+    let mut book = open_zip(&mut zip).map_err(|e| e.message())?;
+
+    // Images once, beside the model, named by their order so no book path reaches the disk.
+    let images_dir = dir.join("images");
+    let _ = std::fs::remove_dir_all(&images_dir);
+    std::fs::create_dir_all(&images_dir).map_err(|e| e.to_string())?;
+    let mut srcs: Vec<String> = book.sections.iter().flat_map(|s| s.blocks.iter().filter_map(|b| b.src.clone())).collect();
+    srcs.dedup();
+    for (i, src) in srcs.iter().enumerate() {
+        if book.files.contains_key(src) {
+            continue;
+        }
+        let Some(data) = zip.read(src) else { continue };
+        let ext = src.rsplit('.').next().filter(|e| e.len() <= 4 && e.chars().all(|c| c.is_ascii_alphanumeric())).unwrap_or("bin").to_ascii_lowercase();
+        let file = images_dir.join(format!("{i}.{ext}"));
+        if std::fs::write(&file, data).is_ok() {
+            book.files.insert(src.clone(), file.to_string_lossy().into_owned());
+        }
+    }
+    let json = serde_json::to_string(&book).map_err(|e| e.to_string())?;
+    let tmp = dir.join(format!("model-{stamp}.json.tmp"));
+    if std::fs::write(&tmp, &json).is_ok() && std::fs::rename(&tmp, &model).is_ok() {
+        for old in models(&dir) {
+            if old != model {
+                let _ = std::fs::remove_file(old);
+            }
+        }
+    }
+    Ok(json)
+}
+
+fn models(dir: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("model-") && n.ends_with(".json"))).collect())
+        .unwrap_or_default()
+}
+
+fn newest_model(dir: &Path) -> Option<String> {
+    let newest = models(dir).into_iter().max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())?;
+    std::fs::read_to_string(newest).ok()
+}
+
+fn fnv(s: &str) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Where opened books are cached: inside the mirror folder, which the page may already load files from.
+pub fn cache_base() -> PathBuf {
+    crate::home::mirror_base().join("ebooks")
+}
+
+/// Open an EPUB where it sits, through the cache, and give back its book model as JSON.
 #[tauri::command]
 pub async fn ebook_open(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        // Only ever an EPUB: this reads outside the webview's file scope.
-        if !path.to_ascii_lowercase().ends_with(".epub") {
-            return Err("unreadable: not an EPUB".to_string());
-        }
-        let bytes = std::fs::read(&path).map_err(|e| format!("unreadable: {e}"))?;
-        let book = open_bytes(bytes).map_err(|e| e.message())?;
-        serde_json::to_string(&book).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || open_cached(&path, &cache_base())).await.map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

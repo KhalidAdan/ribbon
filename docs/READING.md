@@ -230,3 +230,9 @@ Reader-only books; pairing by ISBN; fixed layout; vertical writing;
 drawn tables; footnotes as pop-ups; search inside the book; highlights and
 notes (the Lexical or Tiptap work, much later). Right-to-left text is laid
 out, but each line is painted as one element so the browser orders it.
+
+Hyphenation. Only the publisher's soft hyphens break words today, so a
+column narrower than 24 ems (a phone) is set ragged-right even with
+Justify on: justified lines that cannot hyphenate open wide gaps. Adding
+hyphenation means putting soft hyphens into the text before pretext
+prepares it, by language, which pretext supports.

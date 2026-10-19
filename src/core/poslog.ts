@@ -43,6 +43,17 @@ export interface PosRecord extends Base {
   loc?: Locator;
 }
 
+/**
+ * A place in a text edition (format 1.1): no `ms`, and a Locator into the
+ * text. Readers of 1.0 skip it, and its writer's compaction keeps it.
+ */
+export interface TextPosRecord extends Base {
+  k: "pos";
+  ms?: undefined;
+  why: Why;
+  loc: Locator;
+}
+
 export interface ReadRecord extends Base {
   k: "read";
   id: string;
@@ -75,7 +86,7 @@ export interface DelRecord extends Base {
   of: string;
 }
 
-export type LogRecord = PosRecord | ReadRecord | SessionRecord | MarkRecord | DelRecord;
+export type LogRecord = PosRecord | TextPosRecord | ReadRecord | SessionRecord | MarkRecord | DelRecord;
 
 export interface DeviceInfo {
   id: string;
@@ -87,6 +98,21 @@ export interface DeviceInfo {
 /** Ribbon's own claim for a book id. */
 export function ribbonClaim(bookId: string): string {
   return `urn:ribbon:${bookId}`;
+}
+
+/** Ribbon's own claim for a book's text edition, the EPUB beside it. */
+export function textClaim(bookId: string): string {
+  return `urn:ribbon:${bookId}-text`;
+}
+
+/** Every claim for a book's text edition: Ribbon's, and the EPUB's own ISBN and uuid. Never the audiobook's: a claim names an edition. */
+export function textClaimsFor(bookId: string, identifiers: readonly { scheme: string; value: string }[]): string[] {
+  const ids = [textClaim(bookId)];
+  for (const i of identifiers) {
+    if (i.scheme === "isbn") ids.push(`urn:isbn:${i.value}`);
+    if (i.scheme === "uuid") ids.push(`urn:uuid:${i.value}`);
+  }
+  return [...new Set(ids)];
 }
 
 /** Every claim Ribbon knows for a book. */
@@ -138,7 +164,9 @@ function isRecord(r: Record<string, unknown>): r is LogRecord & Record<string, u
   if (!book || !Array.isArray(book.ids) || !book.ids.every((x) => typeof x === "string")) return false;
   switch (r.k) {
     case "pos":
-      return typeof r.ms === "number" && Number.isFinite(r.ms) && typeof r.why === "string";
+      if (typeof r.why !== "string") return false;
+      if (r.ms === undefined) return isLocator(r.loc);
+      return typeof r.ms === "number" && Number.isFinite(r.ms);
     case "read":
       return typeof r.id === "string" && typeof r.started === "string";
     case "session":
@@ -150,6 +178,15 @@ function isRecord(r: Record<string, unknown>): r is LogRecord & Record<string, u
     default:
       return false;
   }
+}
+
+function isLocator(l: unknown): l is Locator {
+  return typeof l === "object" && l !== null && typeof (l as Locator).href === "string";
+}
+
+/** True for a place in a text edition rather than a time in an audiobook. */
+export function isTextPos(r: LogRecord): r is TextPosRecord {
+  return r.k === "pos" && r.ms === undefined;
 }
 
 /** A legacy per-book CSV position, read as a `pos` record of a device of its own. */
@@ -179,24 +216,59 @@ function effectiveTime(r: Base, nowMs: number): number {
  * greater device), and a fresh start never beats real progress.
  */
 export function mergePlace(records: readonly PosRecord[], nowMs = Date.now()): PosRecord | null {
-  const latest = new Map<string, PosRecord>();
+  return latestPlace(records, weak, nowMs);
+}
+
+/** The merge of section 5, for any kind of place: `isWeak` says which records are fresh starts. */
+function latestPlace<T extends Base>(records: readonly T[], isWeak: (r: T) => boolean, nowMs: number): T | null {
+  const latest = new Map<string, T>();
   for (const r of records) {
     const have = latest.get(r.dev);
     if (!have || r.seq > have.seq || (r.seq === have.seq && Date.parse(r.t) > Date.parse(have.t))) latest.set(r.dev, r);
   }
-  const better = (a: PosRecord, b: PosRecord) => {
+  const better = (a: T, b: T) => {
     const ta = effectiveTime(a, nowMs);
     const tb = effectiveTime(b, nowMs);
     if (ta !== tb) return ta > tb;
     return a.dev > b.dev;
   };
-  let best: PosRecord | null = null;
-  let bestStrong: PosRecord | null = null;
+  let best: T | null = null;
+  let bestStrong: T | null = null;
   for (const r of latest.values()) {
     if (!best || better(r, best)) best = r;
-    if (!weak(r) && (!bestStrong || better(r, bestStrong))) bestStrong = r;
+    if (!isWeak(r) && (!bestStrong || better(r, bestStrong))) bestStrong = r;
   }
   return bestStrong ?? best;
+}
+
+/** A text place written before the reader did anything, at the very start. */
+function weakText(r: TextPosRecord): boolean {
+  return (r.loc.locations?.totalProgression ?? 0) <= 0 && (r.why === "open" || r.why === "periodic" || r.why === "import");
+}
+
+/**
+ * The reading place in each book's text edition, merged across devices
+ * the same way as listening places, keyed by Ribbon book id. Audio
+ * records never take part: they are another edition.
+ */
+export function mergeTextPlaces(records: readonly LogRecord[], nowMs = Date.now()): Map<string, TextPosRecord> {
+  const byBook = new Map<string, TextPosRecord[]>();
+  for (const r of records) {
+    if (!isTextPos(r)) continue;
+    for (const id of r.book.ids) {
+      const m = /^urn:ribbon:(.+)-text$/.exec(id);
+      if (!m) continue;
+      const list = byBook.get(m[1]!) ?? [];
+      list.push(r);
+      byBook.set(m[1]!, list);
+    }
+  }
+  const out = new Map<string, TextPosRecord>();
+  for (const [id, list] of byBook) {
+    const place = latestPlace(list, weakText, nowMs);
+    if (place) out.set(id, place);
+  }
+  return out;
 }
 
 /**
@@ -205,7 +277,7 @@ export function mergePlace(records: readonly PosRecord[], nowMs = Date.now()): P
  * groups that carry one.
  */
 export function mergePlaces(records: readonly LogRecord[], nowMs = Date.now()): Map<string, PosRecord> {
-  const pos = records.filter((r): r is PosRecord => r.k === "pos");
+  const pos = records.filter((r): r is PosRecord => r.k === "pos" && typeof r.ms === "number");
   // Union-find over claims.
   const parent = new Map<string, string>();
   const find = (x: string): string => {

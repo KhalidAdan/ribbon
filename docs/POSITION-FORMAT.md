@@ -1,7 +1,9 @@
 # The Ribbon position log
 
-**Version 1. A file format for keeping your place in a book, which any
-player, reader or read-along app can read and write.**
+**Version 1.1. A file format for keeping your place in a book, which any
+player, reader or read-along app can read and write.** Version 1.1 adds
+places in text editions (section 3.6); everything written by version 1
+is still version 1.1.
 
 Your place in a book belongs to you, not to an app or a server. This
 format stores it as plain files beside the books. Any file sync you
@@ -104,7 +106,7 @@ compacting its own log MUST keep them.
 
 | Field  | Meaning                                                                          |
 | ------ | -------------------------------------------------------------------------------- |
-| `ms`   | Milliseconds from the start of the book as the writer has it. The canonical place. |
+| `ms`   | Milliseconds from the start of the book as the writer has it. The canonical place. Left out for a text edition (section 3.6). |
 | `why`  | What made the write (below).                                                     |
 | `loc`  | OPTIONAL. A Readium Locator for the same place.                                  |
 
@@ -174,6 +176,43 @@ A W3C Web Annotation, kept compact. `id` is stable. `motivation` is
 
 This removes the `mark` or `read` with that `id`, as of `t`. A record
 with the same `id` written after `t` brings it back.
+
+### 3.6 Places in a text (1.1)
+
+A reader keeps its place in a text edition, such as an EPUB, as a `pos`
+record without `ms`. Its `loc` is REQUIRED, and is a Readium Locator
+into the text:
+
+```json
+{"v":1,"k":"pos","dev":"urn:uuid:5f0c…","seq":1760830000000,"t":"2026-10-18T23:46:40.000Z",
+ "book":{"ids":["urn:ribbon:aec8d2c8-text","urn:isbn:9781836093152","urn:uuid:9c3e2701-97e8-4a84-8845-fac671bbf378"]},
+ "why":"close",
+ "loc":{"href":"OEBPS/08-40k-Content-6.xhtml","type":"application/xhtml+xml",
+        "locations":{"progression":0.1068,"totalProgression":0.1338,"fragments":["_idTextAnchor009"]},
+        "text":{"before":"break out on his ship due to ","highlight":"misunderstandings."}}}
+```
+
+- `href` is the content document, as a path from the root of the EPUB.
+- `progression` is how far through that document the place is, and
+  `totalProgression` how far through the book, both by characters of
+  text, counting only the reading order.
+- `fragments` MAY name the nearest element id at or before the place.
+- `text` SHOULD quote the words at the place. A reader finds a place by
+  its words first, nearest the progression given, then by progression
+  alone, so a place survives another text size, window or layout.
+
+The claims name the text edition (section 4): the EPUB's own ISBN and
+`urn:uuid:` identifier, and for Ribbon `urn:ribbon:<book>-text`. They
+never include the audiobook's claims: a text and its narration are two
+editions, each with its own place. Places in a text merge exactly as
+places in audio do (section 5), with records of the same edition only.
+A fresh start is a `totalProgression` of 0 with a `why` of `open`,
+`periodic` or `import`.
+
+A reader of version 1 skips a `pos` record without `ms` as one it does
+not understand, and a device compacting its own log keeps the latest
+`pos` for each set of claims, so text and audio places never displace
+each other.
 
 ## 4. Which book
 
@@ -254,9 +293,9 @@ working. A later version will stop.
   stop new `session` records. Deleting one's own log removes one's
   history from the folder.
 
-## 7. Not in version 1
+## 7. Not in version 1.1
 
-- **Mapping between editions, and between text and audio.** Version 1
+- **Mapping between editions, and between text and audio.** Version 1.1
   records what the writer knows, `text` anchors included when it has
   them. A future version may record how a place was mapped (a Media
   Overlay, a transcript match, chapter and progression, or proportion)
@@ -272,6 +311,10 @@ working. A later version will stop.
   close. A share that is away gets them when it is back.
 - The device identifier is made once and kept in the Ribbon folder's
   `settings.json`.
+- Reading places are kept on the machine first too, in `settings.json`
+  as the reader moves. They reach the log five seconds after the reader
+  settles on a page, and at once on a jump (the contents, a link) or on
+  closing the book.
 - `read` records start and finish listen-throughs. Sessions are on by
   default and can be turned off in Settings.
 - Bookmarks are `mark` records with a `motivation` of `bookmarking`.

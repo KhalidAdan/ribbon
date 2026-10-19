@@ -19,6 +19,7 @@ import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
 import { StatsPane } from "./StatsPane";
+import { ReadingView } from "../reader/ReadingView";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
@@ -95,6 +96,9 @@ function Ready() {
     if (q && state.pane !== "library") c.showLibrary();
   };
 
+  // The reader covers the window: nothing under it is drawn, so a page turn never waits on the shelf.
+  if (state.reading) return <ReadingView />;
+
   return (
     <main className="flex h-full flex-col">
       <SeriesSetup />
@@ -123,6 +127,7 @@ function Ready() {
       <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
         <PlayerPane />
       </PlayerSheet>
+
       {state.error && (
         <div role="alert" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg items-start gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong">
           <p className="min-w-0 flex-1 py-0.5 text-base/6 text-pretty text-ink sm:text-sm/5">{state.error}</p>

@@ -1,4 +1,4 @@
-import { BookmarkIcon, CheckIcon, ListBulletIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { BookOpenIcon, BookmarkIcon, CheckIcon, ListBulletIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ScannedBook } from "../core/scan/scan";
@@ -156,6 +156,11 @@ export function ReaderPage() {
               <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))}>
                 {me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"}
               </Button>
+              {book.book.ebook && (
+                <Button leading={BookOpenIcon} onClick={() => void c.openReading(book.book.id)}>
+                  {(c.readingProgress(book.book.id) ?? 0) > 0 ? "Continue reading" : "Read"}
+                </Button>
+              )}
               <Button leading={ListBulletIcon} onClick={() => setDrawer("chapters")}>
                 {stories.length > 0 ? "Contents" : "Chapters"}
               </Button>

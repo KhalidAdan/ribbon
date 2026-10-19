@@ -26,6 +26,11 @@ import { partAt } from "../core/scan/parts";
 import * as sleep from "../core/sleep";
 import type { Correction } from "../core/scan/chapters";
 import { log } from "./log";
+import { openEbook } from "../core/ebook";
+import type { Why } from "../core/poslog";
+import type { TextPlace } from "../core/reading/place";
+import { parseReading, type ReadingSettings } from "../core/reading/typography";
+import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
 
 export interface Platform {
   host: Host;
@@ -153,6 +158,10 @@ export interface AppState {
   history: { reads: ReadRecord[]; sessions: SessionRecord[]; recording: boolean };
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
+  /** The book open in the reader, over everything but the player bar. */
+  reading: ReadingState | null;
+  /** How the reader sets text on this machine. */
+  readingSettings: ReadingSettings;
 }
 
 /** The same history record, written here and read back from the log. */
@@ -295,6 +304,8 @@ export class AppController {
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], recording: true },
       namedChapters: {},
+      reading: null,
+      readingSettings: parseReading(undefined),
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -406,7 +417,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false } });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading) });
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
@@ -1042,6 +1053,111 @@ export class AppController {
     return this.openBook(book, { expand: false, autoplay: true });
   }
 
+  // Reading ------------------------------------------------------------
+
+  private readingKeeper: ReadingKeeper | null = null;
+  private settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  private settingsWrite: Promise<void> = Promise.resolve();
+
+  /** Write the app's settings soon: a run of changes, like turning pages, makes one write. */
+  private saveAppSettingsSoon(delayMs = 500): void {
+    if (this.settingsTimer) clearTimeout(this.settingsTimer);
+    this.settingsTimer = setTimeout(() => void this.saveAppSettingsNow(), delayMs);
+  }
+
+  private saveAppSettingsNow(): Promise<void> {
+    if (this.settingsTimer) clearTimeout(this.settingsTimer);
+    this.settingsTimer = null;
+    const write = this.platform.appSettings?.write;
+    if (!write) return Promise.resolve();
+    const snapshot = this.appSettings;
+    this.settingsWrite = this.settingsWrite.then(() => write(snapshot)).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    return this.settingsWrite;
+  }
+
+  private keptPlaces(): Record<string, KeptPlace> {
+    return parseKeptPlaces(this.appSettings.readingPlaces);
+  }
+
+  /** How far through a book's text this machine last read, or null when it has not. */
+  readingProgress(bookId: string): number | null {
+    const kept = this.keptPlaces()[bookId];
+    return kept ? (kept.loc.locations?.totalProgression ?? 0) : null;
+  }
+
+  /**
+   * Open a book's EPUB in the reader, at the newer of this machine's
+   * reading place and the log's, or at its start.
+   */
+  async openReading(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o) return;
+    if (this.state.reading) await this.closeReading();
+    this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
+    const started = performance.now();
+    const result = await openEbook(o.lib.host, o.lib.root, book.book);
+    if (this.state.reading?.bookId !== bookId) return;
+    if (!result.ok) {
+      log.warn(`could not open the text of ${book.book.title}: ${result.message}`);
+      this.set({ reading: { bookId, status: "failed", message: result.message } });
+      return;
+    }
+    const ebook = result.ebook;
+    const shared = await o.lib
+      .readTextPlaces()
+      .then((m) => {
+        const r = m.get(bookId);
+        return r ? { loc: r.loc, t: r.t } : undefined;
+      })
+      .catch(() => undefined);
+    if (this.state.reading?.bookId !== bookId) return;
+    const place = openingPlace(ebook, this.keptPlaces()[bookId], shared);
+    this.readingKeeper = new ReadingKeeper(ebook, place, {
+      keepLocal: (kept) => {
+        this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: kept } };
+        this.saveAppSettingsSoon();
+      },
+      share: (loc, why, at) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at),
+    });
+    log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections`);
+    this.set({ reading: { bookId, status: "ready", ebook, place } });
+  }
+
+  /** The reader is on a new page, or scrolled to a new line. */
+  moveReading(place: TextPlace, why: Why = "periodic"): void {
+    const r = this.state.reading;
+    if (!r || r.status !== "ready" || !this.readingKeeper) return;
+    const p = r.place;
+    if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
+    this.readingKeeper.move(place, why);
+    this.set({ reading: { ...r, place } });
+  }
+
+  /** Close the reader, keeping its place everywhere first. */
+  async closeReading(): Promise<void> {
+    const keeper = this.readingKeeper;
+    this.readingKeeper = null;
+    if (this.state.reading) this.set({ reading: null });
+    if (keeper) {
+      keeper.move(keeper.current, "close");
+      await Promise.all([keeper.flush(), this.saveAppSettingsNow()]);
+    }
+  }
+
+  /** A URL for an image in the open book's text, when it was kept on this machine. */
+  readingImageUrl(src: string): string | undefined {
+    const abs = this.state.reading?.ebook?.files?.[src];
+    return abs ? this.platform.fileUrl(abs) : undefined;
+  }
+
+  setReadingSettings(patch: Partial<ReadingSettings>): void {
+    const next = parseReading({ ...this.state.readingSettings, ...patch });
+    this.appSettings = { ...this.appSettings, reading: next };
+    this.set({ readingSettings: next });
+    this.saveAppSettingsSoon();
+  }
+
   /** Show a book's page, with its series along the side when it has one. */
   openReader(bookId: string): void {
     this.set({ pane: "reader", readerBookId: bookId, playerExpanded: false });
@@ -1210,7 +1326,9 @@ export class AppController {
   async flushPositions(timeoutMs = 4_000): Promise<void> {
     if (this.state.player.playing) this.engine?.pause();
     await this.persistPosition("close");
-    const all = Promise.all(this.openedInOrder().map((o) => o.keeper.flush()));
+    const reading = this.readingKeeper;
+    if (reading) reading.move(reading.current, "close");
+    const all = Promise.all([...this.openedInOrder().map((o) => o.keeper.flush()), reading?.flush(), this.saveAppSettingsNow()]);
     await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
   }
 

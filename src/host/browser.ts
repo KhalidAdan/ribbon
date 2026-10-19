@@ -9,7 +9,18 @@ import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanPr
 export function browserHost(base = "/__ribbon"): Host {
   async function call<T>(op: string, body: unknown): Promise<T> {
     const r = await fetch(`${base}/${op}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error(`${op}: ${r.status} ${await r.text()}`);
+    if (!r.ok) {
+      const text = await r.text();
+      // The ebook op answers errors in the app's own words ("drm: …"); pass those through as they are.
+      const said = (() => {
+        try {
+          return (JSON.parse(text) as { error?: string }).error;
+        } catch {
+          return undefined;
+        }
+      })();
+      throw new Error(said && /^(drm|unreadable):/.test(said) ? said : `${op}: ${r.status} ${text}`);
+    }
     return (await r.json()) as T;
   }
   return {
@@ -42,6 +53,7 @@ export function browserHost(base = "/__ribbon"): Host {
     },
     readTextDir: (dir) => call<TextFile[]>("readTextDir", { dir }),
     catalogSearch: (title, author, region) => call<string>("catalog", { title, author, region }),
+    openEbook: (path) => call<string>("ebook", { path }),
   };
 }
 

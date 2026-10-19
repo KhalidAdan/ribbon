@@ -301,3 +301,42 @@ fn real_epub() {
     }
     assert!(blocks > 0);
 }
+
+#[test]
+fn caches_the_model_and_images_and_opens_the_last_copy_when_the_file_is_away() {
+    let dir = std::env::temp_dir().join(format!("ribbon-ebook-cache-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let png = png();
+    let bytes = epub(&[
+        ("META-INF/container.xml", CONTAINER),
+        ("OEBPS/content.opf", OPF.as_bytes()),
+        ("OEBPS/toc.xhtml", NAV.as_bytes()),
+        ("OEBPS/Text/ch1.xhtml", CH1.as_bytes()),
+        ("OEBPS/Text/ch 2.xhtml", CH2.as_bytes()),
+        ("OEBPS/Text/notes.xhtml", NOTES.as_bytes()),
+        ("OEBPS/css/book.css", CSS.as_bytes()),
+        ("OEBPS/image/icon.png", &png),
+    ]);
+    let file = dir.join("Book.epub");
+    std::fs::write(&file, &bytes).unwrap();
+    let base = dir.join("cache");
+    let path = file.to_string_lossy().into_owned();
+
+    let first: serde_json::Value = serde_json::from_str(&open_cached(&path, &base).unwrap()).unwrap();
+    let image = first["files"]["OEBPS/image/icon.png"].as_str().expect("the image is on disk").to_string();
+    assert_eq!(std::fs::read(&image).unwrap(), png);
+    // Once: the icon appears twice in the book.
+    assert_eq!(first["files"].as_object().unwrap().len(), 1);
+
+    // Unchanged: the same answer, from the cache.
+    let again: serde_json::Value = serde_json::from_str(&open_cached(&path, &base).unwrap()).unwrap();
+    assert_eq!(again, first);
+    // Away: the last copy.
+    std::fs::remove_file(&file).unwrap();
+    let away: serde_json::Value = serde_json::from_str(&open_cached(&path, &base).unwrap()).unwrap();
+    assert_eq!(away["meta"]["title"], "Voidscarred");
+    assert!(open_cached(&dir.join("Other.epub").to_string_lossy(), &base).unwrap_err().starts_with("unreadable:"));
+    assert!(open_cached("notes.txt", &base).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
