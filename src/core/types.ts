@@ -68,6 +68,8 @@ export interface Book {
   asin?: string;
   /** Library-relative path to the cover image, or empty. */
   cover: string;
+  /** Library-relative path to the EPUB that goes with the audio, when there is one. */
+  ebook?: string;
   durationMs: number;
   sizeBytes: number;
   fileCount: number;

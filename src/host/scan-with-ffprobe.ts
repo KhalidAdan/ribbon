@@ -1,6 +1,6 @@
 import { pipe, collect, flatMap, from } from "@culvert/stream";
 import type { Host, KnownFile, ScanOutput, ScanProgress, ScannedFile } from "./host";
-import { walk, isAudio, type FileEntry } from "../core/scan/walk";
+import { walk, isAudio, isEbook, type FileEntry } from "../core/scan/walk";
 import { isSideFileName } from "../core/scan/sidefiles";
 import { probe } from "../core/scan/probe";
 
@@ -39,7 +39,7 @@ export async function scanWithFfprobe(
   const baseOf = (entry: FileEntry): ScannedFile => ({
     path: entry.relPath,
     name: entry.name,
-    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : "image",
+    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : isEbook(entry.name) ? "ebook" : "image",
     sizeBytes: entry.sizeBytes,
     mtimeMs: entry.mtimeMs,
     fresh: false,

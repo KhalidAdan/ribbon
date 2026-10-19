@@ -40,8 +40,8 @@ export interface ScannedFile {
   /** Library-relative, forward slashes. */
   path: string;
   name: string;
-  /** Side files (metadata.opf, desc.txt, reader.txt) come back as "text" with their contents in tags.text. */
-  kind: "audio" | "image" | "text";
+  /** Side files (metadata.opf, desc.txt, reader.txt) come back as "text" with their contents in tags.text. An EPUB is "ebook", found but never opened by a scan. */
+  kind: "audio" | "image" | "text" | "ebook";
   sizeBytes: number;
   mtimeMs: number;
   /** True when tags were read on this pass; false means "unchanged, reuse". */
@@ -129,6 +129,13 @@ export interface Host {
    * it; the host does. Optional: hosts without network access leave it out.
    */
   catalogSearch?(title: string, author: string, region: string): Promise<string>;
+  /**
+   * Open an EPUB where it sits and give back its book model
+   * (docs/READING.md, `ribbon-ebook/1`) as JSON text. Rejects with a
+   * message starting "drm:" for a locked book and "unreadable:" for
+   * anything else. Optional: hosts without the Rust side leave it out.
+   */
+  openEbook?(path: string): Promise<string>;
   /** Every small text file in a directory, in one call. */
   readTextDir(dir: string): Promise<TextFile[]>;
   /**

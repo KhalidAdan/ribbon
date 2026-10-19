@@ -1,4 +1,4 @@
-import { isAudio, isImage, type FileEntry } from "./walk";
+import { isAudio, isEbook, isImage, type FileEntry } from "./walk";
 import { isSideFileName } from "./sidefiles";
 import { parseNumbered } from "./metadata";
 
@@ -20,6 +20,8 @@ export interface BookGroup {
   covers: FileEntry[];
   /** metadata.opf, desc.txt, reader.txt beside the book. */
   side?: FileEntry[];
+  /** Library-relative path of the EPUB that goes with the audio (docs/READING.md, section 2). */
+  ebook?: string;
   /**
    * Set when the book is an anthology: a numbered folder holding only
    * numbered subfolders, one per part. Parts are in their numbered order
@@ -96,7 +98,7 @@ function findAnthologies(foldersWithAudio: Set<string>, byFolder: Map<string, { 
  * with parts. Order of the returned groups follows the walk.
  */
 export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
-  const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[] }>();
+  const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[]; ebooks: FileEntry[] }>();
   const folderOrder: string[] = [];
   const foldersWithAudio = new Set<string>();
 
@@ -104,7 +106,7 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     const folder = parentOf(f.relPath);
     let bucket = byFolder.get(folder);
     if (!bucket) {
-      bucket = { audio: [], images: [], side: [] };
+      bucket = { audio: [], images: [], side: [], ebooks: [] };
       byFolder.set(folder, bucket);
       folderOrder.push(folder);
     }
@@ -115,12 +117,19 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
       bucket.images.push(f);
     } else if (isSideFileName(f.name)) {
       bucket.side.push(f);
+    } else if (isEbook(f.name)) {
+      bucket.ebooks.push(f);
     }
   }
 
   const anthologies = findAnthologies(foldersWithAudio, byFolder);
   const anthologyOf = (folder: string) => [...anthologies].find((a) => folder === a || isUnder(folder, a));
   const sortedImages = (list: FileEntry[]) => [...list].sort((a, b) => coverRank(a.name) - coverRank(b.name));
+  // A folder's EPUB: the first by name when there are several.
+  const ebookIn = (folder: string) => [...(byFolder.get(folder)?.ebooks ?? [])].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))[0]?.relPath;
+  // A loose file's EPUB: the one beside it with the same name.
+  const ebookBeside = (a: FileEntry) => byFolder.get(parentOf(a.relPath))?.ebooks.find((e) => stem(e.name).toLowerCase() === stem(a.name).toLowerCase())?.relPath;
+  const withEbook = (g: BookGroup, ebook: string | undefined): BookGroup => (ebook ? { ...g, ebook } : g);
 
   const groups: BookGroup[] = [];
   const anthologyGroups = new Map<string, BookGroup>();
@@ -130,7 +139,7 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     if (anthology !== undefined) {
       let g = anthologyGroups.get(anthology);
       if (!g) {
-        g = { path: anthology, name: baseName(anthology), audio: [], covers: sortedImages(byFolder.get(anthology)?.images ?? []), side: byFolder.get(anthology)?.side ?? [], parts: [] };
+        g = withEbook({ path: anthology, name: baseName(anthology), audio: [], covers: sortedImages(byFolder.get(anthology)?.images ?? []), side: byFolder.get(anthology)?.side ?? [], parts: [] }, ebookIn(anthology));
         anthologyGroups.set(anthology, g);
         groups.push(g);
       }
@@ -151,10 +160,10 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     const hasBookChildren = [...foldersWithAudio].some((other) => other !== folder && other.startsWith(folder === "" ? "" : folder + "/"));
     if (isRoot || hasBookChildren) {
       for (const a of bucket.audio) {
-        groups.push({ path: a.relPath, name: stem(a.name), audio: [a], covers: [] });
+        groups.push(withEbook({ path: a.relPath, name: stem(a.name), audio: [a], covers: [] }, ebookBeside(a)));
       }
     } else {
-      groups.push({ path: folder, name: baseName(folder), audio: [...bucket.audio], covers: images, side: bucket.side });
+      groups.push(withEbook({ path: folder, name: baseName(folder), audio: [...bucket.audio], covers: images, side: bucket.side }, ebookIn(folder)));
     }
   }
   // Parts in their numbered order; the anthology's audio is the parts' audio in that order.

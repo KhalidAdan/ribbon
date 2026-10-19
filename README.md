@@ -2,7 +2,8 @@
 
 The listener for books you own. Local files, local position, nothing to
 sign in to. See [docs/NORTHSTAR.md](docs/NORTHSTAR.md) for what this is
-and refuses to be, [docs/PLAN.md](docs/PLAN.md) for how it is built, and
+and refuses to be, [docs/PLAN.md](docs/PLAN.md) for how it is built,
+[docs/READING.md](docs/READING.md) for reading the EPUB beside a book, and
 [docs/TEST-PLAN.md](docs/TEST-PLAN.md) for what "correct" means.
 
 ## Run it
