@@ -63,7 +63,11 @@ Version 1 pairs by folder. The audiobook and its EPUB are one book when:
 - the EPUB is in the book's folder (for an anthology, the anthology's
   folder), or
 - the audio is a loose file and the EPUB beside it has the same name
-  (`Voidscarred.m4b` and `Voidscarred.epub`).
+  (`Voidscarred.m4b` and `Voidscarred.epub`), or, since store downloads
+  are rarely named alike, the name whose start is most like the audio
+  file's, at least six letters or digits alike, when no other file or
+  EPUB beside them is as close (`VoidscarredWarhammer40000_ep7.mp3` and
+  `Voidscarred -- Mike Brooks -- 2025 -- Black Library.epub`).
 
 When a folder holds several EPUBs, the first by name is taken. An EPUB
 with no audio beside it is not a book yet; reader-only books come later.
