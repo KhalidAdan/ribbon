@@ -12,7 +12,7 @@ function para(block: number, n: number, extra: Partial<LaidBlock> = {}): LaidBlo
 }
 
 const heading = (block: number) => para(block, 1, { kind: "h", before: 20 });
-const image = (block: number, h: number): LaidBlock => ({ ...para(block, 0), kind: "img", lineHeight: h, image: { src: "a.png", width: 10, height: h, alt: "" } });
+const image = (block: number, h: number): LaidBlock => ({ ...para(block, 0), kind: "img", lineHeight: h, image: { src: "a.png", width: 10, height: h, alt: "", tone: "picture" } });
 
 /** Each page as "block:line" items. */
 const shape = (blocks: LaidBlock[], height: number, sink = 0) => paginate(0, blocks, height, sink).map((p) => p.items.map((i) => `${blocks[i.at]!.block}:${i.line}`));

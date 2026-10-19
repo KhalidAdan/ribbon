@@ -596,7 +596,9 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
 /** One line, image or break, drawn where the layout put it. */
 function Item({ b, it, column, ebook, c }: { b: LaidBlock; it: Placed; column: number; ebook: Ebook; c: AppController }) {
   if (b.kind === "img" && b.image) {
-    return <img src={b.image.src} alt={b.image.alt} draggable={false} className="absolute select-none" style={{ top: it.y, left: Math.round((column - b.image.width) / 2), width: b.image.width, height: b.image.height }} />;
+    // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
+    const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
+    return <img src={b.image.src} alt={b.image.alt} draggable={false} className={`absolute select-none ${dark}`} style={{ top: it.y, left: Math.round((column - b.image.width) / 2), width: b.image.width, height: b.image.height }} />;
   }
   if (b.kind === "hr") {
     return (
