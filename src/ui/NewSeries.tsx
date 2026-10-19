@@ -1,7 +1,7 @@
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { fold } from "../core/search";
-import { formatLeft } from "../core/speed";
+import { lengthOf } from "./progress";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
@@ -100,7 +100,7 @@ export function NewSeries() {
                 <span className="min-w-0 flex-1">
                   <span className={clsx("block truncate text-base/6 sm:text-sm/5", at >= 0 ? "font-medium text-ink" : "text-ink-2")}>{b.book.title}</span>
                   <span className="block truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-                    {b.book.author || "Unknown author"} · {formatLeft(b.book.durationMs)}
+                    {b.book.author || "Unknown author"} · {lengthOf(b)}
                   </span>
                 </span>
               </label>

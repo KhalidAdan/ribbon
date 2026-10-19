@@ -40,7 +40,13 @@ export interface ScannedFile {
   /** Library-relative, forward slashes. */
   path: string;
   name: string;
-  /** Side files (metadata.opf, desc.txt, reader.txt) come back as "text" with their contents in tags.text. An EPUB is "ebook", found but never opened by a scan. */
+  /**
+   * Side files (metadata.opf, desc.txt, reader.txt) come back as "text"
+   * with their contents in tags.text. An EPUB is "ebook": when fresh, its
+   * package's title, author (semicolons between names), isbn (spaces
+   * between), language, publisher, date and description are its tags,
+   * and hasCover says the package names a cover image.
+   */
   kind: "audio" | "image" | "text" | "ebook";
   sizeBytes: number;
   mtimeMs: number;
@@ -116,11 +122,12 @@ export interface Host {
   /** A stable, human-readable name for this machine. */
   deviceName(): Promise<string>;
   /**
-   * Walk a library and read tags from every audio file not in `known`,
-   * in one call. Implementations are free to do this in parallel and
-   * without ffprobe. `onFiles` receives files as they are found and as
-   * they are read: first the whole walk with unread audio marked
-   * pending, then finished files, each replacing its pending entry.
+   * Walk a library and read tags from every audio file and the package
+   * of every EPUB not in `known`, in one call. Implementations are free to
+   * do this in parallel and without ffprobe. `onFiles` receives files as
+   * they are found and as they are read: first the whole walk with
+   * unread audio and EPUBs marked pending, then finished files, each
+   * replacing its pending entry.
    */
   scan(root: string, known: KnownFile[], onProgress?: (p: ScanProgress) => void, onFiles?: (files: ScannedFile[]) => void): Promise<ScanOutput>;
   /**
@@ -136,6 +143,13 @@ export interface Host {
    * anything else. Optional: hosts without the Rust side leave it out.
    */
   openEbook?(path: string): Promise<string>;
+  /**
+   * Read an EPUB's package for a scan: its metadata as tags (see
+   * ScannedFile) and whether it names a cover. Null when it cannot be
+   * read. Only the reference scanner asks; Tauri's scanner reads
+   * packages itself. Optional.
+   */
+  readEbookPackage?(path: string): Promise<{ tags: Record<string, string>; hasCover: boolean } | null>;
   /**
    * Hear the first `seconds` of each clip with a whisper.cpp model on this
    * machine (#65): one answer per clip, empty when a clip could not be
@@ -155,9 +169,10 @@ export interface Host {
   readTextDir(dir: string): Promise<TextFile[]>;
   /**
    * Copy the picture embedded in an audio file to `target`, reading only
-   * the picture bytes. Resolves false when there is none the host can
-   * find; the caller may then try ffmpeg. Optional: hosts without a
-   * native tag reader leave it out.
+   * the picture bytes; for an EPUB, the cover image its package names.
+   * Resolves false when there is none the host can find; the caller may
+   * then try ffmpeg on audio. Optional: hosts without a native tag reader
+   * leave it out.
    */
   extractCover?(src: string, target: string): Promise<boolean>;
   /**

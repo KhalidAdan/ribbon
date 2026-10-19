@@ -94,17 +94,7 @@ fn open_zip<R: Read + Seek>(zip: &mut Zip<R>) -> Result<Ebook, OpenError> {
         }
     }
 
-    let container = zip.text("META-INF/container.xml").ok_or_else(|| OpenError::NotEpub("no META-INF/container.xml".into()))?;
-    let container = xml::parse(&container);
-    let mut rootfiles = Vec::new();
-    container.descendants("rootfile", &mut rootfiles);
-    let opf_path = rootfiles
-        .iter()
-        .find(|r| r.attr("media-type").map_or(true, |t| t == "application/oebps-package+xml"))
-        .and_then(|r| r.attr("full-path"))
-        .map(|p| resolve("", p))
-        .ok_or_else(|| OpenError::NotEpub("the container names no package".into()))?;
-    let opf_text = zip.text(&opf_path).ok_or_else(|| OpenError::NotEpub(format!("{opf_path} is missing")))?;
+    let (opf_path, opf_text) = package_file(zip)?;
     let opf = xml::parse(&opf_text);
     let package = opf.find("package").ok_or_else(|| OpenError::NotEpub("the package file has no package".into()))?;
 
@@ -221,6 +211,102 @@ fn clock(v: &str) -> Option<u64> {
         v.strip_suffix('s').unwrap_or(v).trim().parse::<f64>().ok()?
     };
     (secs.is_finite() && secs >= 0.0).then(|| (secs * 1000.0).round() as u64)
+}
+
+/// The package file's path in the EPUB and its text, as the container names it.
+fn package_file<R: Read + Seek>(zip: &mut Zip<R>) -> Result<(String, String), OpenError> {
+    let container = zip.text("META-INF/container.xml").ok_or_else(|| OpenError::NotEpub("no META-INF/container.xml".into()))?;
+    let container = xml::parse(&container);
+    let mut rootfiles = Vec::new();
+    container.descendants("rootfile", &mut rootfiles);
+    let opf_path = rootfiles
+        .iter()
+        .find(|r| r.attr("media-type").map_or(true, |t| t == "application/oebps-package+xml"))
+        .and_then(|r| r.attr("full-path"))
+        .map(|p| resolve("", p))
+        .ok_or_else(|| OpenError::NotEpub("the container names no package".into()))?;
+    let opf_text = zip.text(&opf_path).ok_or_else(|| OpenError::NotEpub(format!("{opf_path} is missing")))?;
+    Ok((opf_path, opf_text))
+}
+
+/// What a scan learns of an EPUB: its package's metadata and where its
+/// cover image is, without reading a chapter.
+#[derive(Debug, Default)]
+pub struct Package {
+    pub meta: Meta,
+    /// The cover image's path in the EPUB, when the package names one.
+    pub cover: Option<String>,
+}
+
+impl Package {
+    /// What a scan hands the web side, as tags: authors joined by
+    /// semicolons, ISBNs by spaces. Other identifiers are left out.
+    pub fn tags(&self) -> HashMap<String, String> {
+        let m = &self.meta;
+        let isbns: Vec<&str> = m.identifiers.iter().filter(|i| i.scheme == "isbn").map(|i| i.value.as_str()).collect();
+        let fields = [("title", m.title.clone()), ("author", m.authors.join("; ")), ("isbn", isbns.join(" ")), ("language", m.language.clone()), ("publisher", m.publisher.clone()), ("date", m.date.clone()), ("description", m.description.clone())];
+        fields.into_iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (k.to_string(), v)).collect()
+    }
+}
+
+/// Read an EPUB's package: its zip directory, the container and the
+/// package file, a few small reads wherever the file is.
+pub fn read_package<R: Read + Seek>(reader: R) -> Option<Package> {
+    let archive = ZipArchive::new(reader).ok()?;
+    let mut zip = Zip { archive };
+    let (opf_path, text) = package_file(&mut zip).ok()?;
+    let opf = xml::parse(&text);
+    let package = opf.find("package")?;
+    Some(Package { meta: read_meta(package), cover: cover_of(package, &opf_path) })
+}
+
+/// An EPUB's package, read where the file sits in blocks, so a share
+/// across the internet is asked for each block once.
+pub fn read_package_at(path: &Path) -> Option<Package> {
+    let file = std::fs::File::open(path).ok()?;
+    read_package(crate::scan::BlockReader::new(file, PACKAGE_BLOCK).ok()?)
+}
+
+/// Block size for reading a package where it sits: the zip directory and the two small files.
+const PACKAGE_BLOCK: usize = 32 * 1024;
+
+/// The cover image the package names: EPUB 3's `cover-image` item, else
+/// EPUB 2's `<meta name="cover">`, else an image named for a cover.
+fn cover_of(package: &Node, opf_path: &str) -> Option<String> {
+    let manifest = package.find("manifest")?;
+    let items: Vec<&Node> = manifest.children_named("item").collect();
+    let image = |it: &Node| it.attr("media-type").is_some_and(|t| t.starts_with("image/"));
+    let by_property = items.iter().copied().find(|it| it.attr("properties").is_some_and(|p| p.split_whitespace().any(|p| p == "cover-image")));
+    let by_meta = || {
+        let id = package.find("metadata")?.children_named("meta").find(|m| m.attr("name") == Some("cover"))?.attr("content")?;
+        items.iter().copied().find(|it| it.attr("id") == Some(id) && image(it))
+    };
+    let by_name = || items.iter().copied().filter(|it| image(it)).find(|it| [it.attr("id"), it.attr("href")].into_iter().flatten().any(|s| s.to_ascii_lowercase().contains("cover")));
+    let item = by_property.or_else(by_meta).or_else(by_name)?;
+    Some(resolve(opf_path, item.attr("href")?))
+}
+
+/// Copy the cover image an EPUB's package names to `target`, reading
+/// only the zip directory, the package and the image. Ok(false) when it
+/// names none.
+pub fn extract_cover(src: &Path, target: &Path) -> std::io::Result<bool> {
+    let file = std::fs::File::open(src)?;
+    let Ok(archive) = ZipArchive::new(crate::scan::BlockReader::new(file, PACKAGE_BLOCK)?) else { return Ok(false) };
+    let mut zip = Zip { archive };
+    let Ok((opf_path, text)) = package_file(&mut zip) else { return Ok(false) };
+    let opf = xml::parse(&text);
+    let Some(href) = opf.find("package").and_then(|p| cover_of(p, &opf_path)) else { return Ok(false) };
+    let Some(bytes) = zip.read(&href) else { return Ok(false) };
+    if bytes.len() < 16 {
+        return Ok(false);
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = target.with_extension("epub-cover.tmp");
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, target)?;
+    Ok(true)
 }
 
 fn read_meta(package: &Node) -> Meta {
