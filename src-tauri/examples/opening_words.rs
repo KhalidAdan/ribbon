@@ -15,6 +15,18 @@ fn main() {
     let started = std::time::Instant::now();
     let _ = ribbon_lib::speech::opening_words(model, &clips[..1], 1.0, language).expect("load");
     eprintln!("model loaded in {:?}", started.elapsed());
+    // RIBBON_BATCH=6 hears clips in batches, the way the app does: each batch's clips are fetched at once.
+    if let Some(n) = std::env::var("RIBBON_BATCH").ok().and_then(|s| s.parse::<usize>().ok()).filter(|&n| n > 1) {
+        for batch in clips.chunks(n) {
+            let t = std::time::Instant::now();
+            let words = ribbon_lib::speech::opening_words(model, batch, seconds, language).expect("words");
+            let each = t.elapsed().as_secs_f32() / batch.len() as f32;
+            for (c, w) in batch.iter().zip(words) {
+                println!("{:>9} ms  {each:>6.1}s  {w}", c.start_ms);
+            }
+        }
+        return;
+    }
     for c in &clips {
         let t = std::time::Instant::now();
         if let Err(e) = ribbon_lib::speech::decode_clip(std::path::Path::new(&c.path), c.start_ms, seconds) {
