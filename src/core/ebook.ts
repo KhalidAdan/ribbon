@@ -69,6 +69,8 @@ export interface Ebook {
   layout: "reflowable" | "pre-paginated";
   sections: EbookSection[];
   toc: EbookTocEntry[];
+  /** Where each image is on this machine, by its path in the book, when the host kept them. */
+  files?: Record<string, string>;
 }
 
 export type EbookResult = { ok: true; ebook: Ebook } | { ok: false; reason: "drm" | "fixed-layout" | "unreadable" | "unsupported"; message: string };

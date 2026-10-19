@@ -3,6 +3,7 @@
 //! way JavaScript counts.
 
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 pub const FORMAT: &str = "ribbon-ebook/1";
 
@@ -18,6 +19,9 @@ pub struct Ebook {
     pub layout: String,
     pub sections: Vec<Section>,
     pub toc: Vec<TocEntry>,
+    /// Where each image is on this machine, by its path in the book. Set by the cache.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub files: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Debug, Default)]

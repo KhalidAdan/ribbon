@@ -17,6 +17,8 @@ export function useKeys(c: AppController): void {
       // A focused slider moves itself with the arrows.
       if (t?.getAttribute("role") === "slider" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
       const s = c.getState();
+      // The reader has its own keys.
+      if (s.reading) return;
       if (!s.current) return;
       switch (e.key) {
         case " ":
