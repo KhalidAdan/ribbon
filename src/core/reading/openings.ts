@@ -25,28 +25,42 @@ export function words(text: string): string[] {
     .map((w) => NUMBER_WORDS[w] ?? w);
 }
 
-/** Edit distance, for words of a few letters. */
-function distance(a: string, b: string): number {
+/** One row of the edit distance, reused: words are short, and this runs millions of times when a book is paired. */
+const row = new Int32Array(64);
+
+/** Edit distance, for words of a few letters; any answer above `most` is `most + 1`, found as soon as it is sure. */
+function distance(a: string, b: string, most: number): number {
   if (a === b) return 0;
-  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  if (b.length >= row.length) return most + 1;
+  for (let j = 0; j <= b.length; j++) row[j] = j;
   for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0]!;
-    prev[0] = i;
+    let diag = row[0]!;
+    row[0] = i;
+    let least = i;
     for (let j = 1; j <= b.length; j++) {
-      const up = prev[j]!;
-      prev[j] = Math.min(prev[j]! + 1, prev[j - 1]! + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      const up = row[j]!;
+      const v = Math.min(up + 1, row[j - 1]! + 1, diag + (a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1));
+      row[j] = v;
+      if (v < least) least = v;
       diag = up;
     }
+    if (least > most) return most + 1;
   }
-  return prev[b.length]!;
+  return row[b.length]!;
 }
 
 /** The same word as heard: equal, or a name spelled another way (a letter or two off in five). */
 export function alike(a: string, b: string): boolean {
   if (a === b) return true;
   if (a.length < 4 || b.length < 4) return false;
-  return distance(a, b) <= Math.max(1, Math.floor(Math.max(a.length, b.length) / 5));
+  const most = Math.max(1, Math.floor(Math.max(a.length, b.length) / 5));
+  // Words further apart in length than that are never alike.
+  if (Math.abs(a.length - b.length) > most) return false;
+  return distance(a, b, most) <= most;
 }
+
+/** Matches already made: pairing asks for the same opening against the same text again and again (#79). */
+const matched = new Map<string, number>();
 
 /**
  * How well heard words match the start of a text, 0 to 1: the share of
@@ -55,10 +69,32 @@ export function alike(a: string, b: string): boolean {
  * does not have, so the text's window is a little longer than what was heard.
  */
 export function openingMatch(heard: string, text: string): number {
+  const key = heard + "\u0000" + text;
+  const known = matched.get(key);
+  if (known !== undefined) return known;
+  const m = matchOpening(heard, text);
+  if (matched.size > 50_000) matched.clear();
+  matched.set(key, m);
+  return m;
+}
+
+/** A text's words less the commonest, kept: the same openings come back for every pair. */
+const kept = new Map<string, string[]>();
+function meaningful(text: string): string[] {
+  let w = kept.get(text);
+  if (!w) {
+    w = words(text).filter((x) => !COMMON.has(x));
+    if (kept.size > 10_000) kept.clear();
+    kept.set(text, w);
+  }
+  return w;
+}
+
+function matchOpening(heard: string, text: string): number {
   // Words every passage shares say nothing about which passage it is.
-  const h = words(heard).filter((w) => !COMMON.has(w)).slice(0, 24);
+  const h = meaningful(heard).slice(0, 24);
   if (h.length < 3) return 0;
-  const t = words(text).filter((w) => !COMMON.has(w)).slice(0, h.length + 10);
+  const t = meaningful(text).slice(0, h.length + 10);
   const dp = Array.from({ length: h.length + 1 }, () => new Array<number>(t.length + 1).fill(0));
   for (let i = 1; i <= h.length; i++) {
     for (let j = 1; j <= t.length; j++) {

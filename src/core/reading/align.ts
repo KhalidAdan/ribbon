@@ -213,8 +213,9 @@ interface AudioIn {
   startMs: number;
   endMs: number;
   credits: boolean;
-  /** What the narrator says at its start, when it was heard (#65). */
+  /** What the narrator says at its start, when it was heard (#65), and how many words that is. */
   heard?: string;
+  heardWords?: number;
 }
 
 /** Heard openings with at least this many words say something. */
@@ -318,7 +319,8 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
     score -= 0.75 * (ts.length + as.length - 2);
     // What the narrator says: the strongest evidence there is. The first audio chapter opens with the first text chapter.
     const heard = as[0]!.heard;
-    if (heard && words(heard).length >= HEARD_MIN_WORDS) {
+    // Not looked at for a pair pace has already ruled out: hearing is what costs time here.
+    if (heard && as[0]!.heardWords! >= HEARD_MIN_WORDS && off <= Math.log(3)) {
       const m = openingMatch(heard, ts[0]!.opening);
       if (m >= SAME) score += 6;
       else if (m < OTHER) score -= 3;
@@ -379,7 +381,7 @@ export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs
   const text = textUnits(ebook);
   // Audible books open and close with credits; generated titles hide them, so a short first or last track is taken for them.
   const creditsLike = (c: Chapter, j: number) => CREDITS.test(c.title) || (!!opts.generated && (j === 0 || j === chapters.length - 1) && c.endMs - c.startMs < 75_000);
-  const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)! } : {}) }));
+  const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)!, heardWords: words(opts.heard.get(c.startMs)!).length } : {}) }));
   const total = totalChars(ebook);
   const whole = (): Alignment => ({
     how: "proportion",
