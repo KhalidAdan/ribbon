@@ -457,6 +457,7 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
     year: meta.year,
     ...details(meta),
     cover,
+    ...(group.ebook ? { ebook: group.ebook } : {}),
     durationMs,
     sizeBytes,
     fileCount: files.length,

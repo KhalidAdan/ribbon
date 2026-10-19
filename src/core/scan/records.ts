@@ -22,6 +22,7 @@ export const LIBRARY_HEADERS = [
   "isbn",
   "asin",
   "description",
+  "ebook",
 ];
 
 /** A library.csv without these columns was written before the scan read them: read every file's tags once more. */
@@ -54,6 +55,7 @@ export function booksToBytes(books: readonly Book[]): Promise<Uint8Array> {
       isbn: b.isbn ?? "",
       asin: b.asin ?? "",
       description: b.description ?? "",
+      ebook: b.ebook ?? "",
     })),
     LIBRARY_HEADERS,
   );
@@ -91,6 +93,7 @@ function detailsFrom(r: Row): Partial<Book> {
   if (r.isbn) out.isbn = r.isbn;
   if (r.asin) out.asin = r.asin;
   if (r.description) out.description = r.description;
+  if (r.ebook) out.ebook = r.ebook;
   return out;
 }
 

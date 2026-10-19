@@ -1,3 +1,4 @@
+mod ebook;
 mod home;
 mod online;
 mod scan;
@@ -70,6 +71,7 @@ pub fn run() {
             home::app_settings_read,
             home::app_settings_write,
             online::catalog_search,
+            ebook::ebook_open,
             uptime_ms,
             env_library
         ])

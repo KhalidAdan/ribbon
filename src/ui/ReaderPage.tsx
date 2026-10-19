@@ -114,6 +114,7 @@ export function ReaderPage() {
     ...(book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
+    ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
     { term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) },
   ];
 

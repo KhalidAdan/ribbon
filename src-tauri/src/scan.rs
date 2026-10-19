@@ -31,6 +31,8 @@ use tauri::{AppHandle, Emitter};
 
 const AUDIO: &[&str] = &["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"];
 const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
+/// The text of a book, read when the book is read, never during a scan.
+const EBOOK: &[&str] = &["epub"];
 const RIBBON_DIR: &str = ".ribbon";
 const LEGACY_DIR: &str = ".odio";
 /// Block size for the caching reader used by the lofty fallback.
@@ -251,6 +253,8 @@ pub fn walk(root: &Path) -> Vec<Entry> {
                     "audio"
                 } else if IMAGE.contains(&ext.as_str()) {
                     "image"
+                } else if EBOOK.contains(&ext.as_str()) {
+                    "ebook"
                 } else if is_side_file(&name) {
                     "text"
                 } else {

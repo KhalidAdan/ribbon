@@ -35,8 +35,12 @@ friends. The library is the folder.
 Server-backed libraries are a client story for version two, not a reason to
 run a daemon.
 
-**Not a reader.** Read-listen sync is on the radar, but the player stays a
-player. The reading side is a separate product that shares a position format.
+**Not two apps.** A book you own as audio and as an EPUB is one book with one
+place. Ribbon reads the EPUB that sits beside the audio, and the place moves
+between the page and the headphones as you do: read on the train, put the
+headphones on to walk home, read again in bed. Not a store for ebooks, not a
+reader for every format: EPUBs without DRM, the way the audio is files
+without DRM.
 
 ## Principles
 
@@ -64,6 +68,16 @@ publisher got them wrong. Corrections live beside the book as a file.
 
 **The story is more important than the timer.** Sleep timer ends at a
 chapter, fades rather than cuts, and extends with a tap or a shake.
+
+**One place, two editions.** Reading and listening each keep their own exact
+place, in the same position log. Switching maps one onto the other: first by
+chapter and how far through it, then exactly, from the publisher's read-along
+data or from Ribbon's own alignment of the narration to the text. An
+approximate mapping never overwrites an exact place.
+
+**Text is typeset, not displayed.** Ribbon lays out every line itself, in its
+own type, so it knows where every word is on every page. That is what makes
+pages, scrolling, an exact place and a highlighted sentence the same problem.
 
 **Platform plumbing is table stakes, not a feature.** Lock screen controls,
 headphone buttons, background audio, and sample-accurate seeking in AAC must
@@ -100,12 +114,13 @@ build another server, become the client people choose. The position file
 model stays for people without a server; Audiobookshelf becomes a second
 library source with its own progress sync.
 
+**Reading and read-along.** Ribbon reads the EPUB beside the audio, and the
+two keep one place. Then the reader and the player run together: the
+sentence being narrated is highlighted and the page turns with the
+narrator. The plan, in three levels, is in [READING.md](READING.md).
+
 **On the radar, not committed:**
 
-- **Read-listen position sync.** A forced-alignment pipeline from M4B and
-  EPUB to an EPUB 3 Media Overlay, so one position carries across reading and
-  listening. Storyteller already does the alignment; the product work is the
-  shared position format.
 - **Transcript search.** If whisper is already running for alignment, a
   library-wide "where did they say that" search falls out of it.
 - **Listening stats.** Time per book, per week, per narrator. Local only.
@@ -117,7 +132,8 @@ Nothing above gets added until the version one list is boringly reliable.
 You put on your headphones in the car. The book starts where you left it in
 the kitchen, rewinds just enough that you catch the sentence you were in the
 middle of, at the speed you chose for this narrator, at the same volume as
-the last book. You never opened the app to make any of that happen. You have
-not thought about where the files are in months.
+the last book. At night you open the book instead, and it is on the page
+where the narrator stopped. You never opened the app to make any of that
+happen. You have not thought about where the files are in months.
 
 The app disappears. The book is what is left.
