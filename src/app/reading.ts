@@ -16,6 +16,12 @@ export interface ReadingState {
   alignment?: Alignment;
   /** Hearing the narrator, while it runs: chapter openings first (#65), then checkpoints inside chapters. */
   listening?: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" };
+  /**
+   * Getting read-along ready: the minutes around the reader are being
+   * transcribed, so the sentence is marked from the first page. The
+   * reader waits on it, unless it is told to read now.
+   */
+  preparing?: boolean;
   /** The pages follow the narrator: turned as it reads on, the sentence being read marked. A turn by hand stops it. */
   following?: boolean;
   /** Hearing one place before "Listen from here" or "Go to the narrator" acts. */

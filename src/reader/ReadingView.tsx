@@ -93,7 +93,8 @@ export function ReadingView() {
           <p className="mt-1 max-w-md text-base/6 text-ink-2 sm:text-sm/5">{r.message}</p>
         </Middle>
       )}
-      {r.status === "ready" && ebook && place && (
+      {r.status === "ready" && r.preparing && <Preparing listening={r.listening} onReadNow={() => c.readNow()} />}
+      {r.status === "ready" && !r.preparing && ebook && place && (
         <Text
           key={ebook.meta.title + r.bookId}
           bookId={r.bookId}
@@ -102,7 +103,7 @@ export function ReadingView() {
           settings={state.readingSettings}
           bar={barOpen}
           listen={listen}
-          narrator={loadedHere && r.alignment ? { ms: state.player.positionMs, alignment: r.alignment, following: !!r.following } : null}
+          narrator={loadedHere && r.alignment ? { ms: state.player.positionMs, alignment: r.alignment, following: !!r.following, playing: state.player.playing } : null}
           highlights={r.highlights ?? NO_HIGHLIGHTS}
           c={c}
         />
@@ -268,6 +269,36 @@ function HighlightList({ ebook, highlights, listen, c, onGo }: { ebook: Ebook; h
   );
 }
 
+/** While read-along gets the pages around the reader ready: a few seconds, once per book. */
+const READYING = ["Listening to the narrator…", "Finding the words on the page…", "Lining up voice and text…", "Marking where each sentence begins…", "Turning to your page…"];
+
+function Preparing({ listening, onReadNow }: { listening: { done: number; total: number } | undefined; onReadNow: () => void }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((n) => (n + 1) % READYING.length), 2400);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <Middle>
+      <div className="flex w-full max-w-xs flex-col items-center gap-4">
+        <span aria-hidden="true" className="flex gap-1.5">
+          {[0, 1, 2].map((d) => (
+            <span key={d} className="size-1.5 rounded-full bg-place motion-safe:animate-pulse" style={{ animationDelay: `${d * 180}ms` }} />
+          ))}
+        </span>
+        <p key={i} className="font-serif motion-safe:animate-[fade-in_400ms_ease-out] text-lg/7 text-ink" aria-live="polite">
+          {READYING[i]}
+        </p>
+        <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Getting read-along ready. This happens once for each part of a book.</p>
+        {listening && listening.total > 0 && <ProgressLine fraction={Math.min(1, listening.done / listening.total)} className="w-full" />}
+        <Button size="sm" variant="ghost" onClick={onReadNow}>
+          Read now
+        </Button>
+      </div>
+    </Middle>
+  );
+}
+
 function Middle({ children }: { children: ReactNode }) {
   return <div className="flex flex-1 flex-col items-center justify-center px-6 text-center text-base/6 text-ink-2 sm:text-sm/5">{children}</div>;
 }
@@ -382,7 +413,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlights, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean } | null; highlights: Highlight[]; c: AppController }) {
+function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlights, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean; playing: boolean } | null; highlights: Highlight[]; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -474,7 +505,7 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
     const line = t.closest("[data-block]")!.getBoundingClientRect();
     setTap({ mark: sentence ? { section: p.section, block: p.block, ...sentence } : null, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top });
   };
-  // Following the narrator: the sentence being read, marked when the mapping is close enough to say which.
+  // The sentence being read, marked wherever it is on the page (following or not) when the mapping is close enough to say which.
   const nMs = narrator?.ms;
   const nAlignment = narrator?.alignment;
   const following = !!narrator?.following;
@@ -484,7 +515,7 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
     const s = sentenceAt(ebook, p);
     return { place: p, chars: globalOffset(ebook, p), sentence: s ? { section: p.section, block: p.block, ...s } : null, precise: precise(nAlignment, nMs) };
   }, [ebook, nMs, nAlignment]);
-  const readKey = reading?.sentence && following && reading.precise && settings.highlight ? `${reading.sentence.section}:${reading.sentence.block}:${reading.sentence.start}` : "";
+  const readKey = reading?.sentence && reading.precise && settings.highlight ? `${reading.sentence.section}:${reading.sentence.block}:${reading.sentence.start}` : "";
   // The same sentence keeps the same mark, so the pages draw again only when the narrator moves on.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const readMark = useMemo(() => (readKey ? reading!.sentence : null), [readKey]);
@@ -495,6 +526,21 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
     // To the word being read: a sentence across two pages turns with the narrator, not before.
     c.moveReading(reading.place, "periodic", "follow");
   }, [following, reading, visible, ebook, c]);
+  // Turned back to where the narrator is, while it plays: follow it again. Only as it comes into view, so
+  // "Follow along" turned off stays off, and only once the page shown is the one turned to.
+  const playing = !!narrator?.playing;
+  const narratorShown = (() => {
+    if (!reading || !visible) return false;
+    const from = globalOffset(ebook, visible.from);
+    const to = globalOffset(ebook, visible.to);
+    const at = globalOffset(ebook, place);
+    return at >= from && at < to && reading.chars >= from && reading.chars <= to;
+  })();
+  const wasShown = useRef(narratorShown);
+  useEffect(() => {
+    if (narratorShown && !wasShown.current && playing && !following) c.setFollowing(true);
+    wasShown.current = narratorShown;
+  }, [narratorShown, playing, following, c]);
   const mark = tap?.mark ?? readMark;
   const marks = useMemo<Marked[]>(
     () => [...saved.map((r) => ({ from: r.from, to: r.to, tone: "saved" as const })), ...(mark ? [{ from: { section: mark.section, block: mark.block, offset: mark.start }, to: { section: mark.section, block: mark.block, offset: mark.end }, tone: "sentence" as const }] : [])],

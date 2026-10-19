@@ -153,26 +153,28 @@ impl FrameIndex {
         self.sizes.len()
     }
 
-    /// As kept on disk: a tag, the sample rate and frame samples, then every frame's length.
+    /// As kept on disk: a tag, the sample rate and frame samples, the first frame's byte, then every frame's length.
     fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(16 + self.sizes.len() * 2);
-        out.extend_from_slice(b"RBFI0001");
+        let mut out = Vec::with_capacity(24 + self.sizes.len() * 2);
+        out.extend_from_slice(b"RBFI0002");
         out.extend_from_slice(&self.sample_rate.to_le_bytes());
         out.extend_from_slice(&self.samples_per_frame.to_le_bytes());
+        out.extend_from_slice(&self.marks[0].to_le_bytes());
         for s in &self.sizes {
             out.extend_from_slice(&s.to_le_bytes());
         }
         out
     }
 
-    /// Read back from disk, given where the first frame starts.
-    fn from_bytes(b: &[u8], first: u64) -> Option<Self> {
-        if b.len() < 18 || &b[..8] != b"RBFI0001" {
+    /// Read back from disk.
+    fn from_bytes(b: &[u8]) -> Option<Self> {
+        if b.len() < 26 || &b[..8] != b"RBFI0002" {
             return None;
         }
         let sample_rate = u32::from_le_bytes(b[8..12].try_into().ok()?);
         let samples_per_frame = u32::from_le_bytes(b[12..16].try_into().ok()?);
-        let sizes: Vec<u16> = b[16..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        let first = u64::from_le_bytes(b[16..24].try_into().ok()?);
+        let sizes: Vec<u16> = b[24..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         let mut marks = Vec::with_capacity(sizes.len() / MARK + 1);
         let mut at = first;
         for (i, s) in sizes.iter().enumerate() {
@@ -216,13 +218,9 @@ pub fn index_of(path: &Path) -> std::io::Result<Arc<FrameIndex>> {
     }
     let started = std::time::Instant::now();
     let kept = kept_at(&key);
-    // Kept from an earlier session: only where the first frame starts is read from the file.
-    let from_disk = std::fs::read(&kept).ok().and_then(|b| {
-        let mut head = vec![0u8; 64 * 1024];
-        let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
-        let first = FrameIndex::build(std::io::Cursor::new(&head[..n])).ok().map(|i| i.marks[0])?;
-        FrameIndex::from_bytes(&b, first)
-    });
+    // Kept from an earlier session. (0.9 kept where the first frame starts in the file, and looked for it in
+    // the file's first 64 KB: a cover image in the tag put it further, so every session read the whole file.)
+    let from_disk = std::fs::read(&kept).ok().and_then(|b| FrameIndex::from_bytes(&b));
     let idx = match from_disk {
         Some(i) => Arc::new(i),
         None => {
@@ -238,6 +236,20 @@ pub fn index_of(path: &Path) -> std::io::Result<Arc<FrameIndex>> {
         m.get_or_insert_with(HashMap::new).insert(key, idx.clone());
     }
     Ok(idx)
+}
+
+/// Index MP3s ahead of their first seek, in the background: a book was opened.
+#[tauri::command]
+pub async fn audio_prepare(paths: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        for p in paths.iter().filter(|p| p.to_lowercase().ends_with(".mp3")) {
+            if let Err(e) = index_of(Path::new(p)) {
+                log::warn!("could not index {p}: {e}");
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Bytes `from..=to` of the MP3 at `path` as if it began at the frame where `ms` falls.
@@ -341,7 +353,7 @@ mod tests {
         assert!(made.success());
         let idx = FrameIndex::build(std::fs::File::open(&mp3).unwrap()).unwrap();
         // Kept on disk and read back, it is the same index.
-        let back = FrameIndex::from_bytes(&idx.to_bytes(), idx.marks[0]).unwrap();
+        let back = FrameIndex::from_bytes(&idx.to_bytes()).unwrap();
         assert_eq!((back.sizes.len(), back.marks.clone(), back.sample_rate), (idx.sizes.len(), idx.marks.clone(), idx.sample_rate));
         assert_eq!(idx.sample_rate, 44100);
         // 20 s of 1,152-sample frames, give or take the encoder's padding.

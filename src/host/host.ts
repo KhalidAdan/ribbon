@@ -161,6 +161,8 @@ export interface Host {
    * phrase by phrase with times in ms of its file (#57). Optional, as above.
    */
   speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<{ startMs: number; endMs: number; words: string }[][]>;
+  /** Index a book's MP3s ahead of their first seek, in the background. Optional. */
+  audioPrepare?(paths: string[]): Promise<void>;
   /** Download the speech model into the app's own folder; resolves to its path. */
   downloadSpeechModel?(onProgress: (done: number, total: number) => void): Promise<string>;
   /** True when a file looks like a whisper.cpp model. */

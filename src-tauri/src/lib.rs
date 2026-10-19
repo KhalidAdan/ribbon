@@ -81,6 +81,7 @@ pub fn run() {
             ebook::ebook_open,
             speech::speech_openings,
             speech::speech_transcribe,
+            frames::audio_prepare,
             speech::speech_download_model,
             speech::speech_model_ok,
             uptime_ms,
