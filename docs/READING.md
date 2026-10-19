@@ -56,6 +56,29 @@ wide:
   painted lines ran past its column.
 - Painting all 377 pages took 0.7 s, about 2 ms a page.
 
+### Hyphenation
+
+Justified paragraphs are hyphenated. Before pretext prepares a paragraph,
+Ribbon puts soft hyphens into its text where Liang's patterns for the
+book's language allow a break (the `hyphen` package, English when the book
+names no language). Each language's patterns are a separate chunk, loaded
+when a book in it is opened; a language without patterns is not
+hyphenated. Headings, preformatted text, centred and right-aligned
+paragraphs and addresses (URLs, emails, paths) are left alone, and so are words under six letters, words in capitals,
+words with digits, and words the publisher already hyphenated. A break
+keeps two letters before it and three after.
+
+The added hyphens are never part of the text. Each run keeps the list of
+offsets where they went, and every line and fragment pretext gives back is
+mapped to offsets in the model's text before anything else sees it:
+places, links, copying and page starts never see them. A line that ends at
+one shows a hyphen, as at the publisher's own.
+
+With hyphens, a column as narrow as 16 ems (a phone) can be justified.
+Without patterns for the book's language, columns narrower than 24 ems are
+set ragged-right even with Justify on, since lines that cannot hyphenate
+open wide gaps.
+
 ## 2. Which EPUB goes with which book
 
 Version 1 pairs by folder. The audiobook and its EPUB are one book when:
@@ -313,9 +336,3 @@ Reader-only books; pairing by ISBN; fixed layout; vertical writing;
 drawn tables; footnotes as pop-ups; search inside the book; highlights and
 notes (the Lexical or Tiptap work, much later). Right-to-left text is laid
 out, but each line is painted as one element so the browser orders it.
-
-Hyphenation. Only the publisher's soft hyphens break words today, so a
-column narrower than 24 ems (a phone) is set ragged-right even with
-Justify on: justified lines that cannot hyphenate open wide gaps. Adding
-hyphenation means putting soft hyphens into the text before pretext
-prepares it, by language, which pretext supports.
