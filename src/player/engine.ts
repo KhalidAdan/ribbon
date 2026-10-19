@@ -21,6 +21,9 @@ const HAVE_METADATA = 1;
 /** Failed recoveries before the bar says what is wrong rather than only "Reconnecting". */
 const QUIET_ATTEMPTS = 3;
 
+/** Files a media element cannot seek in exactly: MP3s, which may have no seek table (frames.rs). */
+const INEXACT = /\.mp3$/i;
+
 export interface EngineBook {
   id: string;
   files: AudioFile[];
@@ -64,6 +67,14 @@ export interface EngineOptions {
   noWebAudio?: boolean;
   /** Make a media element. Tests pass a fake; the app gets `new Audio()`. */
   createElement?: () => MediaElement;
+  /**
+   * A URL for a file beginning exactly at a moment of it, or null. An MP3
+   * is started from there instead of seeked: an element seeking in an MP3
+   * with no seek table lands where the bitrate says, up to minutes from
+   * where it reports (measured on a 10-hour VBR file: 140 s behind to
+   * 121 s ahead).
+   */
+  exactUrl?: ((relPath: string, fileMs: number) => string | null) | undefined;
 }
 
 /**
@@ -120,6 +131,8 @@ export class PlayerEngine {
   /** When the trusted position last moved forward while playing, for the stall watchdog. */
   private lastProgressAt = 0;
   private lastProgressPos = -1;
+  /** Where in its file each element's time 0 is: a file started from a moment (exactUrl) begins there. */
+  private bases = new WeakMap<MediaElement, number>();
   /** Elements whose next `pause` event is our own doing (a source change), not the system's. */
   private quietPause = new WeakSet<MediaElement>();
   private recovery: { attempts: number; timer: ReturnType<typeof setTimeout> | null; lastFailAt: number; lastFailPos: number } = { attempts: 0, timer: null, lastFailAt: 0, lastFailPos: -1 };
@@ -242,6 +255,10 @@ export class PlayerEngine {
       this.setSource(el, this.fileIndex, loc.fileOffsetMs);
       this.preloadNext();
       if (this.wantPlaying) void this.playActive(this.intent);
+    } else if (this.startsExactly(this.fileIndex)) {
+      // An MP3 is started again from the place rather than seeked.
+      this.setSource(el, this.fileIndex, loc.fileOffsetMs);
+      if (this.wantPlaying) void this.playActive(this.intent);
     } else {
       try {
         el.currentTime = loc.fileOffsetMs / 1000;
@@ -312,7 +329,7 @@ export class PlayerEngine {
     const t = el.currentTime;
     if (!Number.isFinite(t)) return;
     const start = this.starts[this.fileIndex] ?? 0;
-    this.trusted = Math.min(totalDuration(this.durations), start + Math.max(0, Math.round(t * 1000)));
+    this.trusted = Math.min(totalDuration(this.durations), start + (this.bases.get(el) ?? 0) + Math.max(0, Math.round(t * 1000)));
   }
 
   private markProgress(): void {
@@ -333,12 +350,26 @@ export class PlayerEngine {
     }
   }
 
+  /** True when a file is started from a moment rather than seeked. */
+  private startsExactly(index: number): boolean {
+    const path = this.book?.files[index]?.path ?? "";
+    return !!this.opts.exactUrl && INEXACT.test(path);
+  }
+
   private setSource(el: MediaElement, index: number, offsetMs: number): void {
     const file = this.book?.files[index];
     if (!file) return;
+    const exact = offsetMs > 0 && this.startsExactly(index) ? this.opts.exactUrl!(file.path, offsetMs) : null;
+    if (exact) {
+      el.src = exact;
+      el.playbackRate = this.speed;
+      this.bases.set(el, offsetMs);
+      return;
+    }
+    this.bases.set(el, 0);
     // Replacing the source pauses the element without a `pause` event,
     // and rejects its pending play() with AbortError, which playActive ignores.
-    el.src =this.opts.resolveUrl(file.path);
+    el.src = this.opts.resolveUrl(file.path);
     el.playbackRate = this.speed;
     // Setting src starts the load; a seek before metadata is queued by
     // Chromium, but re-apply on loadedmetadata in case it was dropped.
@@ -518,7 +549,7 @@ export class PlayerEngine {
     if (this.book?.silence) {
       const ranges = this.book.silence.get(this.fileIndex);
       if (ranges) {
-        const r = findRange(ranges, Math.round(this.activeEl.currentTime * 1000));
+        const r = findRange(ranges, Math.round(this.activeEl.currentTime * 1000 + (this.bases.get(this.activeEl) ?? 0)));
         if (r) {
           rate = Math.min(16, this.speed * gapRate(r));
           skipping = true;
