@@ -40,7 +40,7 @@ export function memorySources(): Platform["sources"] {
 
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -60,6 +60,7 @@ export async function detectPlatform(): Promise<Platform> {
       },
       allowFolder: allowLibrary,
       fileUrl,
+      exactAudioUrl,
       // The sources live in the Ribbon folder. A root remembered by an
       // older build in the webview's storage becomes the first source once.
       sources: {
