@@ -1,4 +1,4 @@
-//! Exact places in an MP3 (#76). An MP3 frame is a fixed number of samples
+//! Exact places in an MP3 (#75). An MP3 frame is a fixed number of samples
 //! whatever its bitrate, so a moment is a frame number, and the frame's byte
 //! is found by walking the frame headers from the start. The webview's own
 //! seek in an MP3 with no seek table goes by the average bitrate instead: on
