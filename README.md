@@ -9,7 +9,11 @@ and refuses to be, [docs/PLAN.md](docs/PLAN.md) for how it is built,
 ## Run it
 
 Requirements: Node 20 or newer, Rust stable, and `ffmpeg` plus `ffprobe`
-on the PATH.
+on the PATH. Building the speech side (whisper.cpp, for read-along) also
+needs CMake, LLVM (for libclang; `.cargo/config.toml` expects
+it in `C:\Program Files\LLVM`) and the Vulkan SDK with `VULKAN_SDK` set.
+Cargo builds into `target/` at the repository's root, because whisper.cpp's
+shader build is too deep for Windows paths under `src-tauri/target/`.
 
 ```sh
 npm install
@@ -78,7 +82,7 @@ Everything durable lives beside the books in `.ribbon/`, all CSV:
 | `bookmarks/<id>.csv`, `clips/`| Bookmarks and their thirty-second clips.      |
 | `covers/<id>.jpg`             | Cover art pulled out of the files.            |
 | `pairing/<id>.csv`            | How you paired the EPUB's chapters with the audio's, by hand. Sync this. |
-| `openings/<id>.csv`           | What the narrator says at each chapter's start, heard on a machine with a speech model. |
+| `heard/<id>.csv`              | What the narrator says at chapter starts and checkpoints, and where each is in the EPUB, heard on a machine with a speech model. |
 
 A book id is the CRC-32 of its library-relative path and total size, so
 the same folder on another machine gets the same id.

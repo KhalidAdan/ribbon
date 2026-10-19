@@ -2,6 +2,7 @@ import { blockText, type Ebook } from "../ebook";
 import type { Chapter } from "../types";
 import type { TextPlace } from "./place";
 import { openingMatch, OTHER, SAME, words } from "./openings";
+import type { Anchor } from "./anchors";
 
 /**
  * Level 1 of read-along (docs/READING.md, section 6): the text's chapters
@@ -31,6 +32,11 @@ export interface Pair {
   /** How sure the pairing is, 0 to 1; 1 for a pair set by hand. */
   confidence: number;
   fixed: boolean;
+  /**
+   * Checkpoints inside it, as [ms, characters], from its start to its end:
+   * a place maps by the two around it. Just the ends without checkpoints.
+   */
+  points: [number, number][];
 }
 
 /** A contents entry of the text, as paired. */
@@ -368,7 +374,7 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
  * number the book's own chapters. With no pairs at all, the whole text
  * maps to the whole recording by proportion.
  */
-export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[]; heard?: ReadonlyMap<number, string> } = {}): Alignment {
+export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[]; heard?: ReadonlyMap<number, string>; anchors?: readonly Anchor[] } = {}): Alignment {
   const text = textUnits(ebook);
   // Audible books open and close with credits; generated titles hide them, so a short first or last track is taken for them.
   const creditsLike = (c: Chapter, j: number) => CREDITS.test(c.title) || (!!opts.generated && (j === 0 || j === chapters.length - 1) && c.endMs - c.startMs < 75_000);
@@ -376,7 +382,7 @@ export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs
   const total = totalChars(ebook);
   const whole = (): Alignment => ({
     how: "proportion",
-    pairs: [{ text: { start: 0, end: total }, audio: { startMs: 0, endMs: durationMs }, textLabel: "", audioTitle: "", confidence: 0, fixed: false }],
+    pairs: [withPoints({ text: { start: 0, end: total }, audio: { startMs: 0, endMs: durationMs }, textLabel: "", audioTitle: "", confidence: 0, fixed: false, points: [] }, opts.anchors)],
     text: text.map((t) => ({ ref: t.ref, label: t.label, ...(t.kind ? { kind: t.kind } : {}), start: t.start, end: t.end, pair: 0 })),
     audio: audio.map((a) => ({ title: a.title, startMs: a.startMs, endMs: a.endMs, pair: 0 })),
   });
@@ -420,16 +426,53 @@ export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs
     for (let x = s.i; x < s.i + s.step.dt; x++) textOut[x]!.pair = k;
     for (let x = s.j; x < s.j + s.step.da; x++) audioOut[x]!.pair = k;
     const fixed = s.step.score >= 1000;
-    return {
-      text: { start: ts[0]!.start, end: ts[ts.length - 1]!.end },
-      audio: { startMs: as[0]!.startMs, endMs: as[as.length - 1]!.endMs },
-      textLabel: ts.map((t) => t.label).join(" + "),
-      audioTitle: as.map((a) => a.title).join(" + "),
-      confidence: fixed ? 1 : Math.max(0, Math.min(1, s.step.score / 5)),
-      fixed,
-    };
+    return withPoints(
+      {
+        text: { start: ts[0]!.start, end: ts[ts.length - 1]!.end },
+        audio: { startMs: as[0]!.startMs, endMs: as[as.length - 1]!.endMs },
+        textLabel: ts.map((t) => t.label).join(" + "),
+        audioTitle: as.map((a) => a.title).join(" + "),
+        confidence: fixed ? 1 : Math.max(0, Math.min(1, s.step.score / 5)),
+        fixed,
+        points: [],
+      },
+      opts.anchors,
+    );
   });
   return { how: "chapter", pairs, text: textOut, audio: audioOut };
+}
+
+/**
+ * A pair with the checkpoints that fall inside it, in order both ways: a
+ * checkpoint that would run backwards against its neighbours (a phrase
+ * heard twice, found in the wrong place) is left out.
+ */
+function withPoints(p: Pair, anchors: readonly Anchor[] | undefined): Pair {
+  const inside = (anchors ?? [])
+    .filter((x) => x.ms > p.audio.startMs && x.ms < p.audio.endMs && x.chars > p.text.start && x.chars < p.text.end)
+    .sort((x, y) => x.ms - y.ms);
+  const points: [number, number][] = [[p.audio.startMs, p.text.start]];
+  for (const x of inside) {
+    const prev = points[points.length - 1]!;
+    if (x.chars > prev[1] && x.ms > prev[0]) points.push([x.ms, x.chars]);
+  }
+  while (points.length > 1 && points[points.length - 1]![1] >= p.text.end) points.pop();
+  points.push([p.audio.endMs, p.text.end]);
+  return { ...p, points };
+}
+
+/** Between two points of a pair, by proportion. */
+function between(points: readonly [number, number][], value: number, from: 0 | 1): number {
+  const to = from === 0 ? 1 : 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    if (value < b[from] || i === points.length - 1) {
+      const f = (value - a[from]) / Math.max(1, b[from] - a[from]);
+      return Math.round(a[to] + Math.max(0, Math.min(1, f)) * (b[to] - a[to]));
+    }
+  }
+  return points[0]![to];
 }
 
 /** Where in the recording a character of the text is read. Text only one side has maps to the start of what follows. */
@@ -437,10 +480,7 @@ export function textToMs(a: Alignment, chars: number): number {
   const pairs = a.pairs;
   for (const p of pairs) {
     if (chars < p.text.start) return p.audio.startMs;
-    if (chars < p.text.end) {
-      const f = (chars - p.text.start) / Math.max(1, p.text.end - p.text.start);
-      return Math.round(p.audio.startMs + f * (p.audio.endMs - p.audio.startMs));
-    }
+    if (chars < p.text.end) return between(p.points, chars, 1);
   }
   const last = pairs[pairs.length - 1];
   return last ? last.audio.endMs : 0;
@@ -451,10 +491,7 @@ export function msToText(a: Alignment, ms: number): number {
   const pairs = a.pairs;
   for (const p of pairs) {
     if (ms < p.audio.startMs) return p.text.start;
-    if (ms < p.audio.endMs) {
-      const f = (ms - p.audio.startMs) / Math.max(1, p.audio.endMs - p.audio.startMs);
-      return Math.round(p.text.start + f * (p.text.end - p.text.start));
-    }
+    if (ms < p.audio.endMs) return between(p.points, ms, 0);
   }
   const last = pairs[pairs.length - 1];
   return last ? last.text.end : 0;

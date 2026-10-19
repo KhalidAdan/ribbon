@@ -496,26 +496,36 @@ export class LibraryService {
     await this.host.writeFile(this.dir("chapter-names.csv"), await nameRecordsToBytes(list));
   }
 
-  // Heard openings -----------------------------------------------------
+  // Heard -------------------------------------------------------------
 
   /**
-   * What the narrator says at the start of each audio chapter, as heard on
-   * a device with a speech model (#65): one row per chapter start. Beside
-   * the books, so it is heard once for every device.
+   * What the narrator says at moments of a book's recording, as heard on a
+   * device with a speech model: chapter starts (#65) and checkpoints inside
+   * chapters, each with where it was found in the text (characters of the
+   * reading order), when it was. Beside the books, so each place is heard
+   * once, for every device.
    */
-  async readHeard(bookId: string): Promise<Map<number, string>> {
+  async readHeard(bookId: string): Promise<{ heard: Map<number, string>; anchors: Map<number, number> }> {
+    const heard = new Map<number, string>();
+    const anchors = new Map<number, number>();
     try {
-      const { rows } = await bytesToRows(await this.host.readFile(this.dir("openings", `${bookId}.csv`)));
-      return new Map(rows.filter((r) => r.audio_ms).map((r) => [int(r.audio_ms), r.words ?? ""]));
+      const { rows } = await bytesToRows(await this.host.readFile(this.dir("heard", `${bookId}.csv`)));
+      for (const r of rows) {
+        if (!r.audio_ms) continue;
+        const ms = int(r.audio_ms);
+        heard.set(ms, r.words ?? "");
+        if (r.chars) anchors.set(ms, int(r.chars));
+      }
     } catch {
-      return new Map();
+      /* nothing heard yet */
     }
+    return { heard, anchors };
   }
 
-  async writeHeard(bookId: string, heard: ReadonlyMap<number, string>): Promise<void> {
-    await this.host.mkdir(this.dir("openings"));
-    const rows = [...heard].sort((a, b) => a[0] - b[0]).map(([ms, words]) => ({ audio_ms: String(ms), words }));
-    await this.host.writeFile(this.dir("openings", `${bookId}.csv`), await rowsToBytes(rows, ["audio_ms", "words"]));
+  async writeHeard(bookId: string, heard: ReadonlyMap<number, string>, anchors: ReadonlyMap<number, number>): Promise<void> {
+    await this.host.mkdir(this.dir("heard"));
+    const rows = [...heard].sort((a, b) => a[0] - b[0]).map(([ms, words]) => ({ audio_ms: String(ms), words, chars: anchors.has(ms) ? String(anchors.get(ms)) : "" }));
+    await this.host.writeFile(this.dir("heard", `${bookId}.csv`), await rowsToBytes(rows, ["audio_ms", "words", "chars"]));
   }
 
   // Pairing ------------------------------------------------------------
