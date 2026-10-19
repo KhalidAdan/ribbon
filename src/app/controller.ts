@@ -60,6 +60,8 @@ const PINPOINT_MS = 45_000;
 /** Read-along by transcription (#57): the narration is heard in stretches this long, several to a call. */
 const SPAN_MS = 60_000;
 const SPANS_PER_CALL = 8;
+/** Transcribed before the reader shows the text: a minute behind the reader to this far ahead. */
+const READY_MS = 4 * 60_000;
 /** How far either side of where the pairing puts a stretch its words are looked for, in characters: about a minute and a half of reading. */
 const SPAN_SLACK = 2_500;
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
@@ -1098,7 +1100,14 @@ export class AppController {
     this.refreshMediaMetadata();
     if (!loudness || !silence) this.jobs.enqueue(book, true);
     void this.probeChapters(book).then(() => this.maybeNameChapters(book.book.id));
+    this.prepareAudio(lib, book);
     if (opts.autoplay) await this.play();
+  }
+
+  /** Index a book's MP3s in the background, so the first seek in one does not wait for it (frames.rs). */
+  private prepareAudio(lib: Opened["lib"], book: ScannedBook): void {
+    const mp3s = book.files.filter((f) => /\.mp3$/i.test(f.path)).map((f) => lib.absPath(f.path));
+    if (mp3s.length > 0) void lib.host.audioPrepare?.(mp3s).catch(() => undefined);
   }
 
   /** Start or continue a book from its page: the bar appears, the page stays. A book that is only its EPUB opens to read. */
@@ -1200,7 +1209,16 @@ export class AppController {
     const highlights = this.highlightsFor(bookId);
     this.set({ reading: { bookId, status: "ready", ebook, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
     this.readingCtx = { o, book: withChapters, ebook };
+    this.prepareAudio(o.lib, withChapters);
     void this.hearPlaces();
+  }
+
+  /** In the reader: show the text now, while read-along gets ready behind it. */
+  readNow(): void {
+    const r = this.state.reading;
+    if (!r?.preparing) return;
+    const { preparing: _, ...rest } = r;
+    this.set({ reading: rest });
   }
 
   /** What the narrator was heard saying in the open book, by time, and where each was found in the text. */
@@ -1330,10 +1348,17 @@ export class AppController {
    *   quickly (a GPU), the chapters around the reader on one that does not.
    * Kept beside the book after every few, so each place is heard once.
    */
+  private hearAgain = false;
+
   private async hearPlaces(): Promise<void> {
     const ctx = this.readingCtx;
     const model = this.state.speech.model;
-    if (!ctx || !model || this.hearing) return;
+    if (!ctx || !model) return;
+    // Already hearing (another book, or this one before it was reopened): once that stops, start again.
+    if (this.hearing) {
+      this.hearAgain = true;
+      return;
+    }
     const hear = ctx.o.lib.host.speechOpenings;
     if (!hear) return;
     // A Media Overlay is exact: nothing to hear.
@@ -1377,11 +1402,17 @@ export class AppController {
       return out;
     };
     /** Stretches of the narration not yet transcribed, from just before where the narrator or the reader is, onward first. */
-    const stretches = (): { startMs: number; endMs: number; file: number; offset: number }[] => {
+    /** Where the listener is: the narrator, when this book plays, else the reader's place in the audio. */
+    const focusMs = (): number => {
       const a = this.state.reading?.alignment;
       const place = this.state.reading?.place;
+      if (this.state.current?.book.book.id === bookId) return this.state.player.positionMs;
+      return a && place ? textToMs(a, globalOffset(ebook, place)) : 0;
+    };
+    const stretches = (): { startMs: number; endMs: number; file: number; offset: number }[] => {
+      const a = this.state.reading?.alignment;
       if (!transcribes() || !a || a.how !== "chapter") return [];
-      const focus = this.state.current?.book.book.id === bookId ? this.state.player.positionMs : place ? textToMs(a, globalOffset(ebook, place)) : 0;
+      const focus = focusMs();
       const out: { startMs: number; endMs: number; file: number; offset: number }[] = [];
       let t = 0;
       book.files.forEach((f, file) => {
@@ -1391,6 +1422,22 @@ export class AppController {
       const key = (x: { startMs: number }) => (x.startMs >= focus - SPAN_MS ? x.startMs - focus : 2 * (focus - x.startMs));
       return out.sort((x, y) => key(x) - key(y));
     };
+    /** Untranscribed minutes around the listener: what the reader waits for, and what is always transcribed first. */
+    const near = () => {
+      const focus = focusMs();
+      return stretches().filter((x) => x.endMs > focus - SPAN_MS && x.startMs < focus + READY_MS);
+    };
+    const ready = () => {
+      const r = this.state.reading;
+      if (r?.bookId === bookId && r.preparing) {
+        const { preparing: _, ...rest } = r;
+        this.set({ reading: rest });
+      }
+    };
+    // The reader waits for read-along when this machine may transcribe and the minutes around it are not done.
+    const a0 = this.state.reading?.alignment;
+    const mayTranscribe = !!ctx.o.lib.host.speechTranscribe && a0?.how === "chapter" && (this.clipMs() === null || fast());
+    if (mayTranscribe && (this.clipMs() === null || near().length > 0)) this.set({ reading: { ...this.state.reading!, preparing: true } });
     // Never timed on this machine (an older Ribbon heard everything near already): time it now, so a
     // machine that can transcribes the whole narration rather than waiting for something to hear.
     if (this.clipMs() === null) {
@@ -1400,8 +1447,9 @@ export class AppController {
       } finally {
         this.hearing = false;
       }
-      if (!still()) return;
+      if (!still()) return ready();
     }
+    if (near().length === 0) ready();
     if (doubts().length === 0 && checkpoints().length === 0 && stretches().length === 0) return;
     this.hearing = true;
     const started = performance.now();
@@ -1410,6 +1458,19 @@ export class AppController {
     let spans = 0;
     try {
       while (still()) {
+        // The minutes around the listener come first, always: then the reader can show the text.
+        const close = near();
+        if (close.length > 0) {
+          this.set({ reading: { ...this.state.reading!, listening: { done: this.readingSpans.size, total: this.readingSpans.size + stretches().length, what: "aligning" } } });
+          await this.alignStretches(ctx, model, language, close);
+          spans += Math.min(SPANS_PER_CALL, close.length);
+          await this.keepAligned(bookId, o.lib);
+          if (!still()) break;
+          this.set({ reading: { ...this.state.reading!, alignment: this.realign(ebook, book) } });
+          if (near().length === 0) ready();
+          continue;
+        }
+        ready();
         let todo = doubts();
         if (todo.length === 0) {
           const left = stretches();
@@ -1454,6 +1515,11 @@ export class AppController {
       log.warn("could not hear the narrator:", describe(e));
     } finally {
       this.hearing = false;
+      ready();
+      if (this.hearAgain) {
+        this.hearAgain = false;
+        if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
+      }
       await this.keepAligned(bookId, o.lib, true);
       const r = this.state.reading;
       if (r?.bookId === bookId && r.listening) {

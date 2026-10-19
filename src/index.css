@@ -119,3 +119,15 @@ body {
     border-radius: 9999px;
   }
 }
+
+/* The reader's getting-ready phrases come in softly. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
