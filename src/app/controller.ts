@@ -26,7 +26,7 @@ import { partAt } from "../core/scan/parts";
 import * as sleep from "../core/sleep";
 import type { Correction } from "../core/scan/chapters";
 import { log } from "./log";
-import { openEbook, type Ebook } from "../core/ebook";
+import { openEbook, readerOnly, type Ebook } from "../core/ebook";
 import type { Why } from "../core/poslog";
 import type { TextPlace } from "../core/reading/place";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
@@ -1040,7 +1040,8 @@ export class AppController {
    */
   async openBook(book: ScannedBook, opts: { expand?: boolean; autoplay?: boolean } = {}): Promise<void> {
     const lib = this.libOf(book);
-    if (!lib) return;
+    // A book that is only its EPUB has nothing to play.
+    if (!lib || readerOnly(book.book)) return;
     const engine = this.ensureEngine();
     if (!engine) return;
     const expand = opts.expand ?? true;
@@ -1089,8 +1090,9 @@ export class AppController {
     if (opts.autoplay) await this.play();
   }
 
-  /** Start or continue a book from its page: the bar appears, the page stays. */
+  /** Start or continue a book from its page: the bar appears, the page stays. A book that is only its EPUB opens to read. */
   playBook(book: ScannedBook): Promise<void> {
+    if (readerOnly(book.book)) return this.openReading(book.book.id);
     return this.openBook(book, { expand: false, autoplay: true });
   }
 
@@ -1157,8 +1159,9 @@ export class AppController {
     this.readingAligned = new Map(aligned.said.filter((s) => s.chars !== null).map((s) => [s.startMs, s.chars!]));
     this.readingOverlay = overlayAnchors(ebook, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
     if (this.readingOverlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${this.readingOverlay.length} passages`);
-    const alignment = this.pairUp(ebook, withChapters);
-    log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
+    // A book that is only its EPUB has no audio to pair the text with.
+    const alignment = readerOnly(book.book) ? undefined : this.pairUp(ebook, withChapters);
+    if (alignment) log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
     const shared = await o.lib
       .readTextPlaces()
       .then((m) => {
@@ -1167,7 +1170,7 @@ export class AppController {
       })
       .catch(() => undefined);
     if (this.state.reading?.bookId !== bookId) return;
-    const place = openingPlace(ebook, this.keptPlaces()[bookId], shared, this.narratorPlace(bookId, ebook, alignment));
+    const place = openingPlace(ebook, this.keptPlaces()[bookId], shared, alignment && this.narratorPlace(bookId, ebook, alignment));
     this.readingKeeper = new ReadingKeeper(ebook, place, {
       keepLocal: (kept) => {
         this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: kept } };
@@ -1175,12 +1178,15 @@ export class AppController {
       },
       share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
       // The pairing can be fixed while the book is open: always the latest.
-      toMs: (p) => textToMs(this.state.reading?.alignment ?? alignment, globalOffset(ebook, p)),
+      toMs: (p) => {
+        const a = this.state.reading?.alignment ?? alignment;
+        return a ? textToMs(a, globalOffset(ebook, p)) : null;
+      },
     });
     log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections`);
     // Opened while its audio plays: the pages follow the narrator.
     const following = this.state.current?.book.book.id === bookId && this.state.player.playing;
-    this.set({ reading: { bookId, status: "ready", ebook, place, alignment, ...(following ? { following } : {}) } });
+    this.set({ reading: { bookId, status: "ready", ebook, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}) } });
     this.readingCtx = { o, book: withChapters, ebook };
     void this.hearPlaces();
   }
@@ -2129,7 +2135,8 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const book = { ids: claimsFor(b.original ?? b.book), dur_ms: b.book.durationMs };
+    // A book with no audio has no length to give.
+    const book = { ids: claimsFor(b.original ?? b.book), ...(b.book.durationMs > 0 ? { dur_ms: b.book.durationMs } : {}) };
     // Shown at once; the next read of the log replaces it with what was written.
     this.localSeq = Math.max(this.localSeq + 1, Date.now());
     const shown = { v: 1, dev: "local", seq: this.localSeq, t, book, ...r } as LogRecord;
@@ -2163,6 +2170,7 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     if (!b) return;
     await this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+    if (readerOnly(b.book)) return;
     await this.openBook(b, { expand: false });
     this.seek(0);
     await this.play();

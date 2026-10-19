@@ -3,7 +3,8 @@ import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { defaultChoices, excludeShorterThan, isHandMade, normalizeChoices, sortByNumber, type SeriesChoice } from "../core/series";
 import { fold } from "../core/search";
-import { formatLeft } from "../core/speed";
+import { lengthOf } from "./progress";
+import { readerOnly } from "../core/ebook";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { Dialog } from "./Dialog";
@@ -50,7 +51,8 @@ export function SeriesSetup() {
 
   const shown = [...choices].sort((a, b) => a.order - b.order).filter((ch) => !out.has(ch.bookId));
   const included = shown.filter((ch) => ch.included).length;
-  const durations = new Map(state.books.map((b) => [b.book.id, b.book.durationMs]));
+  // A book that is only its EPUB has no length to be too short by.
+  const durations = new Map(state.books.map((b) => [b.book.id, readerOnly(b.book) ? Infinity : b.book.durationMs]));
   const handMade = isHandMade(setup);
 
   const reorder = (fromId: string, toId: string) => {
@@ -209,7 +211,7 @@ export function SeriesSetup() {
               <div className="min-w-0 flex-1">
                 <p className={clsx("truncate text-base/6 sm:text-sm/5", ch.included ? "font-medium text-ink" : "text-ink-2 line-through")}>{b.book.title}</p>
                 <p className="truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-                  {b.book.author || "Unknown author"} · {formatLeft(b.book.durationMs)}
+                  {b.book.author || "Unknown author"} · {lengthOf(b)}
                 </p>
               </div>
               <div className="flex shrink-0 items-center">

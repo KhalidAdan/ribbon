@@ -11,10 +11,12 @@ import { orderKeys, parseNumbered, resolveMetadata, stripUnabridged, withSideFil
 import { folderMarks, readSideFiles } from "./sidefiles";
 import { buildChapters, applyCorrections, rowsToCorrections, type Correction } from "./chapters";
 import { buildParts } from "./parts";
-import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, LIBRARY_DETAIL_COLUMN } from "./records";
+import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, isStale, LIBRARY_DETAIL_COLUMN } from "./records";
 import { bytesToRows, type Row } from "../csv";
 import type { EditValues } from "../edits";
 import { coverArgs } from "./cover";
+import { bytesToEbooks, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
+import { readerOnly } from "../ebook";
 
 export interface ScannedBook {
   book: Book;
@@ -85,9 +87,12 @@ interface Records {
    */
   reread: boolean;
   previousBooks: Map<string, Book>;
+  /** What earlier scans read of each EPUB's package, by path. */
+  previousEbooks: Map<string, EbookPackage>;
   corrections: Map<string, Correction[]>;
   filesCsv: Uint8Array | null;
   libraryCsv: Uint8Array | null;
+  ebooksCsv: Uint8Array | null;
 }
 
 /**
@@ -112,10 +117,12 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const forget = opts.forget ?? [];
   const forgotten = (path: string) => forget.some((f) => path === f || path.startsWith(f.endsWith("/") ? f : `${f}/`));
   for (const path of [...records.previous.keys()]) if (forgotten(path)) records.previous.delete(path);
+  for (const path of [...records.previousEbooks.keys()]) if (forgotten(path)) records.previousEbooks.delete(path);
   // Anthology files recorded before stories had names are read again so theirs can be.
   for (const path of unnamedStories(records.previous)) records.previous.delete(path);
-  // Nothing counts as known when every file is to be read again.
-  const known = records.reread ? [] : [...records.previous.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  // Nothing counts as known when every file is to be read again. An
+  // EPUB whose package was read before is not opened again.
+  const known = [...(records.reread ? [] : records.previous.values()), ...records.previousEbooks.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,
   // and the pipeline folds them into the arrived set, rebuilds the shelf
@@ -175,7 +182,7 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const buildMs = lap();
 
   let saving: Promise<void> | null = null;
-  const save = () => (saving ??= writeRecords(host, root, books, records));
+  const save = () => (saving ??= writeRecords(host, root, books, records, packagesOf(out.files, records)));
   if (opts.write ?? true) {
     stage("Saving the library…");
     await save();
@@ -201,19 +208,111 @@ function deliver<T>(fn: (item: T) => void): Sink<T> {
 }
 
 /** Group a file list into books. Pure, apart from `errors` collecting the unreadable. */
-function buildBooks(host: Host, root: string, files: readonly ScannedFile[], records: Records, errors: ScanResult["errors"]): Promise<ScannedBook[]> {
+async function buildBooks(host: Host, root: string, files: readonly ScannedFile[], records: Records, errors: ScanResult["errors"]): Promise<ScannedBook[]> {
   const groups = groupBooks(files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })));
   const byPath = new Map(files.map((f) => [f.path, f]));
-  return pipe(
+  const packages = packagesOf(files, records);
+  const books = await pipe(
     from(groups),
     async function* (source) {
       for await (const group of source) {
-        const b = buildBook(group, byPath, records, errors);
+        const b = group.audio.length > 0 ? buildBook(group, byPath, records, errors, packages) : buildReaderOnly(group, byPath, packages);
         if (b) yield b;
       }
     },
     collect(),
   );
+  return pairElsewhere(books, packages);
+}
+
+/**
+ * What is known of each EPUB's package, by path: read on this pass, or
+ * by an earlier one when the file is unchanged or still being read.
+ * An EPUB nobody has read yet has none.
+ */
+function packagesOf(files: readonly ScannedFile[], records: Records): Map<string, EbookPackage> {
+  const out = new Map<string, EbookPackage>();
+  for (const f of files) {
+    if (f.kind !== "ebook") continue;
+    if (f.fresh && !f.pending) {
+      out.set(f.path, packageFromTags(f, f.tags, f.hasCover));
+      continue;
+    }
+    // Being read again, it is what it was until it is; changed and not read, it is unknown.
+    const was = records.previousEbooks.get(f.path);
+    if (was && (f.pending || !isStale(was, f))) out.set(f.path, was);
+  }
+  return out;
+}
+
+/**
+ * A book that is only an EPUB (docs/READING.md, section 2): named by its
+ * package, else by its file name, with no audio. Its ISBN is the text
+ * edition's, so it is not the book's. None while the EPUB is still being
+ * read for the first time: it may yet pair with an audiobook.
+ */
+function buildReaderOnly(group: BookGroup, byPath: Map<string, ScannedFile>, packages: Map<string, EbookPackage>): ScannedBook | null {
+  const path = group.ebook!;
+  const file = byPath.get(path);
+  if (!file) return null;
+  const pkg = packages.get(path);
+  if (!pkg && file.pending) return null;
+  const id = bookId(group.path, file.sizeBytes);
+  const title = pkg?.title.trim() || group.name;
+  const year = pkg?.date.match(/\d{4}/)?.[0];
+  const book: Book = {
+    id,
+    path: group.path,
+    title,
+    rawTitle: title,
+    author: authorsOf(pkg?.authors ?? []),
+    narrator: "",
+    series: "",
+    seriesIndex: null,
+    year: year ? Number(year) : null,
+    ...details({ publisher: pkg?.publisher ?? "", description: pkg?.description ?? "", language: pkg?.language ?? "" }),
+    cover: pkg?.hasCover ? `${RIBBON_DIR}/covers/${id}.jpg` : "",
+    ebook: path,
+    durationMs: 0,
+    sizeBytes: file.sizeBytes,
+    fileCount: 0,
+  };
+  return { book, files: [], chapters: [], parts: [] };
+}
+
+/** A package's authors as one line the shelf splits again: by commas when every name has a space, else by semicolons. */
+function authorsOf(authors: readonly string[]): string {
+  return authors.join(authors.every((a) => /\s/.test(a.trim())) ? ", " : "; ");
+}
+
+/**
+ * EPUBs folder pairing left alone, paired with audiobooks elsewhere in
+ * the library by ISBN, or by title and author, when that is unique both
+ * ways. An EPUB that pairs stops being a book of its own.
+ */
+function pairElsewhere(books: ScannedBook[], packages: Map<string, EbookPackage>): ScannedBook[] {
+  const alone = books.filter((b) => readerOnly(b.book) && packages.has(b.book.ebook!));
+  const lacking = books.filter((b) => b.files.length > 0 && !b.book.ebook);
+  if (alone.length === 0 || lacking.length === 0) return books;
+  const pairs = pairByMetadata(
+    lacking.map((b) => b.book),
+    alone.map((b) => packages.get(b.book.ebook!)!),
+  );
+  if (pairs.size === 0) return books;
+  const gone = new Set<string>();
+  const ebookFor = new Map<string, string>();
+  for (const [e, a] of pairs) {
+    gone.add(alone[e]!.book.id);
+    ebookFor.set(lacking[a]!.book.id, alone[e]!.book.ebook!);
+  }
+  return books
+    .filter((b) => !gone.has(b.book.id))
+    .map((b) => {
+      const ebook = ebookFor.get(b.book.id);
+      if (!ebook) return b;
+      const cover = b.book.cover || (packages.get(ebook)?.hasCover ? `${RIBBON_DIR}/covers/${b.book.id}.jpg` : "");
+      return { ...b, book: { ...b.book, ebook, cover } };
+    });
 }
 
 /**
@@ -247,10 +346,12 @@ export async function extractMissingCovers(
     }
     const name = b.book.cover.slice(prefix.length);
     if (existing.has(name)) continue;
-    const src = b.files.find((f) => f.hasCover);
+    // The audio's picture, else the cover the EPUB's package names.
+    const src = b.files.find((f) => f.hasCover)?.path ?? b.book.ebook;
     if (!src) continue;
+    const fromEbook = src === b.book.ebook;
     const abs = host.join(root, ...b.book.cover.split("/"));
-    const srcAbs = host.join(root, ...src.path.split("/"));
+    const srcAbs = host.join(root, ...src.split("/"));
     let ok = false;
     if (host.extractCover) {
       try {
@@ -259,7 +360,7 @@ export async function extractMissingCovers(
         ok = false;
       }
     }
-    if (!ok) {
+    if (!ok && !fromEbook) {
       await host.mkdir(coversDir);
       ok = (await host.run("ffmpeg", coverArgs(srcAbs, abs), signal)).code === 0;
     }
@@ -355,7 +456,7 @@ function commonest(values: readonly string[]): string {
   return best;
 }
 
-function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: Records, errors: ScanResult["errors"]): ScannedBook | null {
+function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: Records, errors: ScanResult["errors"], packages: Map<string, EbookPackage> = new Map()): ScannedBook | null {
   const files: AudioFile[] = [];
   const freshTags: Record<string, string>[] = [];
   let pending = 0;
@@ -438,7 +539,9 @@ function buildBook(group: BookGroup, byPath: Map<string, ScannedFile>, records: 
   const sizeBytes = files.reduce((s, f) => s + f.sizeBytes, 0);
   const durationMs = files.reduce((s, f) => s + f.durationMs, 0);
   const id = bookId(group.path, sizeBytes);
-  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (files.find((f) => f.hasCover) ? `${RIBBON_DIR}/covers/${id}.jpg` : "");
+  // A picture in the audio first, else the cover of the EPUB that goes with it.
+  const extracted = files.some((f) => f.hasCover) || (!!group.ebook && !!packages.get(group.ebook)?.hasCover);
+  const cover = group.covers[0]?.relPath ?? files.find((f) => f.coverFile)?.coverFile ?? (extracted ? `${RIBBON_DIR}/covers/${id}.jpg` : "");
 
   let chapters = buildChapters(files);
   const corrections = records.corrections.get(id) ?? [];
@@ -536,11 +639,20 @@ async function readIfExists(host: Host, path: string): Promise<Uint8Array | null
 async function readRecords(host: Host, root: string, incremental: boolean): Promise<Records> {
   const dir = host.join(root, RIBBON_DIR);
   const encoder = new TextEncoder();
-  const [filesCsv, libraryCsv, correctionFiles] = await Promise.all([
+  const [filesCsv, libraryCsv, ebooksCsv, correctionFiles] = await Promise.all([
     incremental ? readIfExists(host, host.join(dir, "files.csv")) : Promise.resolve(null),
     readIfExists(host, host.join(dir, "library.csv")),
+    incremental ? readIfExists(host, host.join(dir, "ebooks.csv")) : Promise.resolve(null),
     host.readTextDir(host.join(dir, "corrections")),
   ]);
+  let previousEbooks = new Map<string, EbookPackage>();
+  if (ebooksCsv) {
+    try {
+      previousEbooks = await bytesToEbooks(ebooksCsv);
+    } catch {
+      /* read them again */
+    }
+  }
   const previous = new Map<string, AudioFile>();
   // Records from before the scan kept descriptions, genres and the rest
   // carry none of them: read every file's tags once more, this once. What
@@ -572,7 +684,7 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* ignore */
     }
   }
-  return { previous, reread, previousBooks, corrections, filesCsv, libraryCsv };
+  return { previous, reread, previousBooks, previousEbooks, corrections, filesCsv, libraryCsv, ebooksCsv };
 }
 
 /**
@@ -622,29 +734,30 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array): boolean {
   return true;
 }
 
-/** Write library.csv and files.csv, but only the ones that changed. */
-async function writeRecords(host: Host, root: string, books: readonly ScannedBook[], records: Records): Promise<void> {
+/** Write library.csv, files.csv and ebooks.csv, but only the ones that changed. */
+async function writeRecords(host: Host, root: string, books: readonly ScannedBook[], records: Records, packages: Map<string, EbookPackage>): Promise<void> {
   const dir = host.join(root, RIBBON_DIR);
   const library = await booksToBytes(books.map((b) => b.book));
   const fileRows: Row[] = [];
   for (const b of books) fileRows.push(...filesToRows(b.book.id, b.files));
   const files = await filesToBytes(fileRows);
-  const writeLibrary = !sameBytes(records.libraryCsv, library);
-  const writeFiles = !sameBytes(records.filesCsv, files);
-  if (!writeLibrary && !writeFiles) {
+  const ebooks = await ebooksToBytes([...packages.values()]);
+  const writes = [
+    { name: "library.csv", bytes: library, changed: !sameBytes(records.libraryCsv, library) },
+    { name: "files.csv", bytes: files, changed: !sameBytes(records.filesCsv, files) },
+    // Kept only once there is something in it, so a library without EPUBs gains no file.
+    { name: "ebooks.csv", bytes: ebooks, changed: !sameBytes(records.ebooksCsv, ebooks) && (packages.size > 0 || !!records.ebooksCsv) },
+  ].filter((w) => w.changed);
+  if (writes.length === 0) {
     await mirrorRecords(host, root, library, files);
     return;
   }
   if (host.writeTextFiles) {
     const decoder = new TextDecoder();
-    const batch: { path: string; text: string }[] = [];
-    if (writeLibrary) batch.push({ path: host.join(dir, "library.csv"), text: decoder.decode(library) });
-    if (writeFiles) batch.push({ path: host.join(dir, "files.csv"), text: decoder.decode(files) });
-    await host.writeTextFiles(batch);
+    await host.writeTextFiles(writes.map((w) => ({ path: host.join(dir, w.name), text: decoder.decode(w.bytes) })));
   } else {
     await host.mkdir(dir);
-    if (writeLibrary) await host.writeFile(host.join(dir, "library.csv"), library);
-    if (writeFiles) await host.writeFile(host.join(dir, "files.csv"), files);
+    for (const w of writes) await host.writeFile(host.join(dir, w.name), w.bytes);
   }
   await mirrorRecords(host, root, library, files);
 }
