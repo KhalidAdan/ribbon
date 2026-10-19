@@ -47,6 +47,20 @@ function baseName(relPath: string): string {
   return i < 0 ? relPath : relPath.slice(i + 1);
 }
 
+/** Letters and digits only, lower case: how a file name is compared with another. */
+function squash(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function sharedStart(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}
+
+/** The fewest letters two names must start with alike to be taken as one book. */
+const MIN_SHARED = 6;
+
 function coverRank(name: string): number {
   const s = stem(name).toLowerCase();
   const i = COVER_NAMES.indexOf(s);
@@ -127,8 +141,26 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
   const sortedImages = (list: FileEntry[]) => [...list].sort((a, b) => coverRank(a.name) - coverRank(b.name));
   // A folder's EPUB: the first by name when there are several.
   const ebookIn = (folder: string) => [...(byFolder.get(folder)?.ebooks ?? [])].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))[0]?.relPath;
-  // A loose file's EPUB: the one beside it with the same name.
-  const ebookBeside = (a: FileEntry) => byFolder.get(parentOf(a.relPath))?.ebooks.find((e) => stem(e.name).toLowerCase() === stem(a.name).toLowerCase())?.relPath;
+  // A loose file's EPUB, among the loose files of its folder: the one with
+  // the same name, else the one whose name starts most like the file's,
+  // when that is clear both ways. Store names rarely match
+  // ("VoidscarredWarhammer40000_ep7.mp3" beside
+  // "Voidscarred -- Mike Brooks -- 2025 -- Black Library.epub").
+  const ebookBeside = (a: FileEntry, loose: readonly FileEntry[]): string | undefined => {
+    const ebooks = byFolder.get(parentOf(a.relPath))?.ebooks ?? [];
+    const named = (x: FileEntry, y: FileEntry) => stem(x.name).toLowerCase() === stem(y.name).toLowerCase();
+    const same = ebooks.find((e) => named(e, a));
+    if (same) return same.relPath;
+    const free = ebooks.filter((e) => !loose.some((o) => named(e, o)));
+    const freeAudio = loose.filter((o) => !ebooks.some((e) => named(e, o)));
+    const closeness = (x: FileEntry, y: FileEntry) => sharedStart(squash(stem(x.name)), squash(stem(y.name)));
+    const ranked = free.map((e) => ({ e, n: closeness(e, a) })).sort((x, y) => y.n - x.n);
+    const best = ranked[0];
+    if (!best || best.n < MIN_SHARED || (ranked[1]?.n ?? 0) === best.n) return undefined;
+    // And no other loose file is as close to that EPUB.
+    if (freeAudio.some((o) => o !== a && closeness(best.e, o) >= best.n)) return undefined;
+    return best.e.relPath;
+  };
   const withEbook = (g: BookGroup, ebook: string | undefined): BookGroup => (ebook ? { ...g, ebook } : g);
 
   const groups: BookGroup[] = [];
@@ -160,7 +192,7 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     const hasBookChildren = [...foldersWithAudio].some((other) => other !== folder && other.startsWith(folder === "" ? "" : folder + "/"));
     if (isRoot || hasBookChildren) {
       for (const a of bucket.audio) {
-        groups.push(withEbook({ path: a.relPath, name: stem(a.name), audio: [a], covers: [] }, ebookBeside(a)));
+        groups.push(withEbook({ path: a.relPath, name: stem(a.name), audio: [a], covers: [] }, ebookBeside(a, bucket.audio)));
       }
     } else {
       groups.push(withEbook({ path: folder, name: baseName(folder), audio: [...bucket.audio], covers: images, side: bucket.side }, ebookIn(folder)));

@@ -23,12 +23,29 @@ describe("pairing an EPUB with a book (docs/READING.md, section 2)", () => {
     ]);
   });
 
-  it("pairs a loose file only with the EPUB of the same name", () => {
+  it("pairs a loose file with the EPUB of the same name, and never with an unrelated one", () => {
     const g = groupBooks([f("Voidscarred.m4b"), f("voidscarred.epub"), f("Horus Rising.m4b"), f("Something else.epub")]);
     expect(g.map((x) => [x.path, x.ebook])).toEqual([
       ["Voidscarred.m4b", "voidscarred.epub"],
       ["Horus Rising.m4b", undefined],
     ]);
+  });
+
+  it("pairs a loose file with an EPUB whose name starts the same way, as store downloads are named", () => {
+    const g = groupBooks([f("VoidscarredWarhammer40000_ep7.mp3"), f("Voidscarred -- Mike Brooks -- 2025 -- Black Library.epub")]);
+    expect(g.map((x) => x.ebook)).toEqual(["Voidscarred -- Mike Brooks -- 2025 -- Black Library.epub"]);
+    // Inside a folder of loose files too, each to its own.
+    const h = groupBooks([f("Aeldari/Voidscarred_ep7.mp3"), f("Aeldari/Valrak/01.mp3"), f("Aeldari/Path of the Eldar.mp3"), f("Aeldari/Voidscarred - Mike Brooks.epub"), f("Aeldari/Path of the Eldar - Gav Thorpe.epub")]);
+    expect(h.filter((x) => x.ebook).map((x) => [x.path, x.ebook])).toEqual([
+      ["Aeldari/Voidscarred_ep7.mp3", "Aeldari/Voidscarred - Mike Brooks.epub"],
+      ["Aeldari/Path of the Eldar.mp3", "Aeldari/Path of the Eldar - Gav Thorpe.epub"],
+    ]);
+  });
+
+  it("does not guess when two files start the same way, or the names share too little", () => {
+    const g = groupBooks([f("Horus Rising part 1.mp3"), f("Horus Rising part 2.mp3"), f("Horus Rising.epub")]);
+    expect(g.map((x) => x.ebook)).toEqual([undefined, undefined]);
+    expect(groupBooks([f("Voids.mp3"), f("Voidscarred.epub")])[0]!.ebook).toBeUndefined();
   });
 
   it("gives an anthology the EPUB in its own folder, and an EPUB alone is not a book", () => {
