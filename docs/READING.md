@@ -227,7 +227,10 @@ The listening bar sits under the text, which shortens to make room. It
 shows itself while the book's audio is loaded; a header button shows or
 hides it either way. It has back, play and forward, where the narrator
 is, and, when the narrator is not on the page, **Go to the narrator** and
-**Listen from here**. Another book playing shows under its own title.
+**Listen from here**, which starts at the top of the page. Tapping the
+text marks the sentence tapped and offers **Listen from here** for it,
+so the narrator starts where the eyes are. Another book playing shows
+under its own title.
 Opening the book to read starts where the narrator is when listening was
 more recent; pressing play outside the reader starts where the reading
 stopped when pages were turned after the audio last paused. Opening and
