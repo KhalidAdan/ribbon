@@ -74,6 +74,7 @@ pub fn run() {
             online::catalog_search,
             ebook::ebook_open,
             speech::speech_openings,
+            speech::speech_transcribe,
             speech::speech_download_model,
             speech::speech_model_ok,
             uptime_ms,

@@ -1,4 +1,4 @@
-use super::model::{Anchor, Ebook};
+use super::model::{Anchor, Ebook, Narrated};
 use super::*;
 use std::io::Write;
 
@@ -124,6 +124,36 @@ fn sample(extra: &[(&str, &[u8])]) -> Ebook {
     ];
     files.extend_from_slice(extra);
     open_bytes(epub(&files)).expect("opens")
+}
+
+const SMIL: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<smil xmlns="http://www.w3.org/ns/SMIL" xmlns:epub="http://www.idpf.org/2007/ops" version="3.0"><body>
+  <seq epub:textref="../Text/ch1.xhtml">
+    <par id="p1"><text src="../Text/ch1.xhtml#mid"/><audio src="ch1.mp3" clipBegin="0:00:01.500" clipEnd="0:00:04.250"/></par>
+    <par id="p2"><text src="../Text/ch1.xhtml#e"/><audio src="ch1.mp3" clipBegin="4.25s" clipEnd="7250ms"/></par>
+    <par id="p3"><text src="../Text/ch%202.xhtml#two"/><audio src="ch1.mp3" clipBegin="8s" clipEnd="9s"/></par>
+    <par id="p4"><text src="../Text/ch1.xhtml#h"/><audio src="ch1.mp3" clipBegin="9s"/></par>
+  </seq>
+</body></smil>"##;
+
+#[test]
+fn reads_a_media_overlay() {
+    let book = sample(&[("OEBPS/Audio/ch1.smil", SMIL.as_bytes())]);
+    let n = &book.sections[0].narration;
+    // Another chapter's passage and a clip with no end are left out.
+    assert_eq!(
+        n,
+        &vec![
+            Narrated { id: "mid".into(), audio: "OEBPS/Audio/ch1.mp3".into(), begin: 1500, end: 4250 },
+            Narrated { id: "e".into(), audio: "OEBPS/Audio/ch1.mp3".into(), begin: 4250, end: 7250 },
+        ]
+    );
+    assert!(book.sections[1].narration.is_empty());
+    assert_eq!(clock("1:02:03.5"), Some(3_723_500));
+    assert_eq!(clock("02:03"), Some(123_000));
+    assert_eq!(clock("2min"), Some(120_000));
+    assert_eq!(clock("12.25"), Some(12_250));
+    assert_eq!(clock("soon"), None);
 }
 
 #[test]

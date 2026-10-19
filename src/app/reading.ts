@@ -14,7 +14,9 @@ export interface ReadingState {
   /** The text's chapters paired with the audio's, for switching between them (level 1). */
   alignment?: Alignment;
   /** Hearing the narrator, while it runs: chapter openings first (#65), then checkpoints inside chapters. */
-  listening?: { done: number; total: number; what: "openings" | "checkpoints" };
+  listening?: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" };
+  /** The pages follow the narrator: turned as it reads on, the sentence being read marked. A turn by hand stops it. */
+  following?: boolean;
   /** Hearing one place before "Listen from here" or "Go to the narrator" acts. */
   finding?: boolean;
 }

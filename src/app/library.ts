@@ -528,6 +528,37 @@ export class LibraryService {
     await this.host.writeFile(this.dir("heard", `${bookId}.csv`), await rowsToBytes(rows, ["audio_ms", "words", "chars"]));
   }
 
+  /**
+   * The narration transcribed on a device, for read-along (#57): every
+   * phrase with when it is said and where it was found in the text, and
+   * every stretch that was transcribed (a row with no words), so a
+   * stretch is heard once for every device.
+   */
+  async readAligned(bookId: string): Promise<{ spans: Map<number, number>; said: { startMs: number; endMs: number; words: string; chars: number | null }[] }> {
+    const spans = new Map<number, number>();
+    const said: { startMs: number; endMs: number; words: string; chars: number | null }[] = [];
+    try {
+      const { rows } = await bytesToRows(await this.host.readFile(this.dir("aligned", `${bookId}.csv`)));
+      for (const r of rows) {
+        if (!r.start_ms || !r.end_ms) continue;
+        if (!r.words) spans.set(int(r.start_ms), int(r.end_ms));
+        else said.push({ startMs: int(r.start_ms), endMs: int(r.end_ms), words: r.words, chars: r.chars ? int(r.chars) : null });
+      }
+    } catch {
+      /* nothing transcribed yet */
+    }
+    return { spans, said };
+  }
+
+  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly { startMs: number; endMs: number; words: string; chars: number | null }[]): Promise<void> {
+    await this.host.mkdir(this.dir("aligned"));
+    const rows = [
+      ...[...spans].map(([s, e]) => ({ start_ms: String(s), end_ms: String(e), words: "", chars: "" })),
+      ...said.map((x) => ({ start_ms: String(x.startMs), end_ms: String(x.endMs), words: x.words, chars: x.chars === null ? "" : String(x.chars) })),
+    ].sort((a, b) => Number(a.start_ms) - Number(b.start_ms) || (a.words ? 1 : 0) - (b.words ? 1 : 0));
+    await this.host.writeFile(this.dir("aligned", `${bookId}.csv`), await rowsToBytes(rows, ["start_ms", "end_ms", "words", "chars"]));
+  }
+
   // Pairing ------------------------------------------------------------
 
   /**
