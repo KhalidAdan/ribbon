@@ -42,7 +42,7 @@ function distance(a: string, b: string): number {
 }
 
 /** The same word as heard: equal, or a name spelled another way (a letter or two off in five). */
-function alike(a: string, b: string): boolean {
+export function alike(a: string, b: string): boolean {
   if (a === b) return true;
   if (a.length < 4 || b.length < 4) return false;
   return distance(a, b) <= Math.max(1, Math.floor(Math.max(a.length, b.length) / 5));

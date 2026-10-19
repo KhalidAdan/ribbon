@@ -9,7 +9,7 @@ pub mod paths;
 pub mod xml;
 
 use content::{read_chapter, Cache, Source};
-use model::{Ebook, Identifier, Meta, Section, TocEntry, FORMAT};
+use model::{Ebook, Identifier, Meta, Narrated, Section, TocEntry, FORMAT};
 use paths::{resolve, split_fragment};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read, Seek};
@@ -35,7 +35,7 @@ impl OpenError {
 }
 
 /// Bumped when the model gains something, so books cached by an older Ribbon are read again.
-const MODEL_VERSION: u32 = 2;
+const MODEL_VERSION: u32 = 4;
 
 /// The most any one file inside an EPUB may unpack to.
 const ENTRY_MAX: u64 = 256 * 1024 * 1024;
@@ -145,13 +145,16 @@ fn open_zip<R: Read + Seek>(zip: &mut Zip<R>) -> Result<Ebook, OpenError> {
         let Some(item) = itemref.attr("idref").and_then(|id| items.get(id)) else { continue };
         let Some(text) = zip.text(&item.href) else { continue };
         let chapter = read_chapter(&text, &item.href, zip, &mut cache);
+        let overlay = item.overlay.as_ref().and_then(|id| items.get(id)).map(|o| o.href.clone());
+        let narration = overlay.as_deref().and_then(|smil| zip.text(smil).map(|t| read_overlay(&xml::parse(&t), smil, &item.href))).unwrap_or_default();
         sections.push(Section {
             href: item.href.clone(),
             linear: itemref.attr("linear") != Some("no"),
-            overlay: item.overlay.as_ref().and_then(|id| items.get(id)).map(|o| o.href.clone()),
+            overlay,
             kind: chapter.kind,
             chars: chapter.chars,
             blocks: chapter.blocks,
+            narration,
         });
     }
     if sections.is_empty() {
@@ -179,6 +182,43 @@ fn open_zip<R: Read + Seek>(zip: &mut Zip<R>) -> Result<Ebook, OpenError> {
     let toc = raw.into_iter().filter_map(|(label, href, depth)| place(&sections, &href).map(|(section, block)| TocEntry { label, section, block, depth })).collect();
 
     Ok(Ebook { format: FORMAT, meta, layout: if layout { "pre-paginated" } else { "reflowable" }.to_string(), sections, toc, files: BTreeMap::new() })
+}
+
+/// A Media Overlay's passages for one chapter: each `par` whose text is an element of the chapter,
+/// with its audio clip. Passages of other files, and clips with no times, are left out.
+fn read_overlay(smil: &Node, smil_href: &str, chapter: &str) -> Vec<Narrated> {
+    let mut pars = Vec::new();
+    smil.descendants("par", &mut pars);
+    pars.into_iter()
+        .filter_map(|par| {
+            let (path, id) = paths::split_fragment(par.child("text")?.attr("src")?);
+            if resolve(smil_href, path) != chapter {
+                return None;
+            }
+            let audio = par.child("audio")?;
+            let begin = clock(audio.attr("clipBegin").unwrap_or("0"))?;
+            let end = clock(audio.attr("clipEnd")?)?;
+            let (id, src) = (id?, audio.attr("src")?);
+            (end > begin).then(|| Narrated { id: id.to_string(), audio: resolve(smil_href, src), begin, end })
+        })
+        .collect()
+}
+
+/// A SMIL clock value in milliseconds: `1:02:03.5`, `02:03.5`, `3.5s`, `350ms`, `2min`, `1h`, or bare seconds.
+fn clock(v: &str) -> Option<u64> {
+    let v = v.trim();
+    let secs = if v.contains(':') {
+        v.split(':').try_fold(0.0_f64, |acc, part| part.trim().parse::<f64>().ok().map(|x| acc * 60.0 + x))?
+    } else if let Some(n) = v.strip_suffix("ms") {
+        n.trim().parse::<f64>().ok()? / 1000.0
+    } else if let Some(n) = v.strip_suffix("min") {
+        n.trim().parse::<f64>().ok()? * 60.0
+    } else if let Some(n) = v.strip_suffix('h') {
+        n.trim().parse::<f64>().ok()? * 3600.0
+    } else {
+        v.strip_suffix('s').unwrap_or(v).trim().parse::<f64>().ok()?
+    };
+    (secs.is_finite() && secs >= 0.0).then(|| (secs * 1000.0).round() as u64)
 }
 
 fn read_meta(package: &Node) -> Meta {

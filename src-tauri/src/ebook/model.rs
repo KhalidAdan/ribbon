@@ -57,6 +57,20 @@ pub struct Section {
     pub kind: Option<String>,
     pub chars: usize,
     pub blocks: Vec<Block>,
+    /// Its Media Overlay read (level 3 of read-along): each passage, by the id of its element, and
+    /// where it is in the book's own audio.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub narration: Vec<Narrated>,
+}
+
+/// A passage of a Media Overlay: the element with this id is read in this audio file (a path in
+/// the book) from `begin` to `end` milliseconds.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+pub struct Narrated {
+    pub id: String,
+    pub audio: String,
+    pub begin: u64,
+    pub end: u64,
 }
 
 #[derive(Serialize, Debug, Default, Clone, PartialEq)]
