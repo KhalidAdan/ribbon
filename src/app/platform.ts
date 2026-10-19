@@ -54,6 +54,10 @@ export async function detectPlatform(): Promise<Platform> {
         log.info("picked", picked);
         return typeof picked === "string" ? picked : null;
       },
+      async pickFile(title, filters) {
+        const picked = await dialog.open({ directory: false, multiple: false, title, filters });
+        return typeof picked === "string" ? picked : null;
+      },
       allowFolder: allowLibrary,
       fileUrl,
       // The sources live in the Ribbon folder. A root remembered by an

@@ -77,6 +77,8 @@ Everything durable lives beside the books in `.ribbon/`, all CSV:
 | `silence/<id>.csv`            | Gaps that get shortened during playback.      |
 | `bookmarks/<id>.csv`, `clips/`| Bookmarks and their thirty-second clips.      |
 | `covers/<id>.jpg`             | Cover art pulled out of the files.            |
+| `pairing/<id>.csv`            | How you paired the EPUB's chapters with the audio's, by hand. Sync this. |
+| `openings/<id>.csv`           | What the narrator says at each chapter's start, heard on a machine with a speech model. |
 
 A book id is the CRC-32 of its library-relative path and total size, so
 the same folder on another machine gets the same id.

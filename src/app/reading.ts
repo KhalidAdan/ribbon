@@ -13,6 +13,8 @@ export interface ReadingState {
   place?: TextPlace;
   /** The text's chapters paired with the audio's, for switching between them (level 1). */
   alignment?: Alignment;
+  /** Hearing the narrator's opening words, chapter by chapter (#65), while it runs. */
+  listening?: { done: number; total: number };
 }
 
 /** The reading places this machine keeps, from the app's settings, by book id. */

@@ -169,6 +169,39 @@ export function SettingsPane() {
           )}
         </section>
 
+        <section aria-labelledby="settings-readalong" className="flex flex-col gap-4">
+          <SectionHeader id="settings-readalong" title="Read-along" description="How Ribbon pairs a book’s text with its narration." />
+          <Group footer="With a speech model, Ribbon listens to the first seconds of each chapter, on this machine, and matches the words with the book’s text. Nothing is sent anywhere, and each book is heard once. Use a whisper.cpp model you already have, or download Ribbon’s (whisper base, about 57 MB, from Hugging Face).">
+            <Row
+              title="Speech model"
+              description={state.speech.downloading ? `Downloading… ${state.speech.downloading.total > 0 ? Math.round((state.speech.downloading.done / state.speech.downloading.total) * 100) : 0}%` : state.speech.model ? state.speech.model.split(/[\\/]/).pop() : "None: chapters are paired by length and name."}
+              aside={
+                <div className="flex items-center gap-1">
+                  {state.speech.model ? (
+                    <>
+                      <Button size="sm" onClick={() => void c.chooseSpeechModel()}>
+                        Change…
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => c.setSpeechModel(null)}>
+                        Remove
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button size="sm" onClick={() => void c.chooseSpeechModel()} disabled={!!state.speech.downloading}>
+                        Choose file…
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => void c.downloadSpeechModel()} disabled={!!state.speech.downloading}>
+                        Download
+                      </Button>
+                    </>
+                  )}
+                </div>
+              }
+            />
+          </Group>
+        </section>
+
         <section aria-labelledby="settings-online" className="flex flex-col gap-4">
           <SectionHeader id="settings-online" title="Online" description="The only things Ribbon ever asks the internet, and only if you turn it on." />
           <Group footer="Sends a book's title and author once, in the background: to Open Library for a description, and, for a book whose chapters are only numbered, to Audible's catalog and Audnexus for the names the publisher gave them. Names go on only when the count and the times match, and undo like any chapter change. Answers are kept beside the book.">

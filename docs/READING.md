@@ -247,6 +247,23 @@ beside the book as a Media Overlay–shaped file Ribbon reads like level 3.
 Nothing leaves the machine. Slow, so it runs in the background, once per
 book.
 
+Built first (#65): the narrator's opening words. whisper.cpp is built into
+Ribbon (whisper-rs); ffmpeg decodes the first 12 seconds of each audio
+chapter, and whisper hears them, on half the machine's cores. The words
+are matched against each contents entry's opening, loosely (whisper spells
+"Eluadhri" as "Eloadri" and says "2" for "Two"; the commonest words are
+left out), and a match is the strongest evidence in the pairing score.
+It runs only when the pairing has doubts, the doubtful chapters first,
+while the book is open to read, and keeps what it heard beside the book
+in `openings/<book>.csv`, so each book is heard once. The model is any
+whisper.cpp `ggml` file (Settings → Read-along), or Ribbon's download of
+whisper base (about 57 MB, from Hugging Face). On Voidscarred with
+SayIt's small model: 34 of 35 pairs confirmed by their words; with only
+generated titles, mean confidence rose from 0.53 to 0.99.
+
+whisper.cpp is compiled with AVX2 and FMA (`src-tauri/.cargo/config.toml`);
+without them MSVC builds it unoptimised and a clip takes a minute.
+
 ## 7. The order of the work
 
 1. **The book model.** Rust opens an EPUB into the block model; the scan
