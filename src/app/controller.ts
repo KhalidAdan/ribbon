@@ -63,6 +63,8 @@ export interface Platform {
   allowFolder(path: string): Promise<void>;
   /** Streamable URL for an absolute path. */
   fileUrl(absPath: string): string;
+  /** A URL for an MP3 beginning exactly at a moment of it, where the platform can serve one. */
+  exactAudioUrl?(absPath: string, ms: number): string;
   /** The folders the library is populated from, wherever the platform keeps them. */
   sources: {
     load(): Promise<SourceEntry[]>;
@@ -992,6 +994,14 @@ export class AppController {
       },
       onState: (player) => this.onPlayerState(player),
       onEnded: () => this.onBookEnded(),
+      onLog: (m) => log.info(m),
+      exactUrl: this.platform.exactAudioUrl
+        ? (rel, ms) => {
+            const cur = this.state.current;
+            const lib = (cur && this.libOf(cur.book)) ?? this.openedInOrder()[0]?.lib;
+            return lib ? this.platform.exactAudioUrl!(lib.absPath(rel), ms) : null;
+          }
+        : undefined,
     });
     this.uninstallMedia = installMediaSession({
       play: () => void this.play(),

@@ -161,6 +161,15 @@ export function fileUrl(absPath: string): string {
   return convertFileSrc(absPath);
 }
 
+/**
+ * A URL for an MP3 that begins at the frame where `ms` falls, so a player
+ * starts it exactly there (frames.rs): the webview's own seek in an MP3
+ * with no seek table guesses by bitrate.
+ */
+export function exactAudioUrl(absPath: string, ms: number): string {
+  return `http://ribbonmp3.localhost/?path=${encodeURIComponent(absPath)}&ms=${Math.max(0, Math.round(ms))}`;
+}
+
 /** Milliseconds since the Rust process started. */
 export function uptimeMs(): Promise<number> {
   return invoke<number>("uptime_ms");

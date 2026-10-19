@@ -1,4 +1,5 @@
 pub mod ebook;
+pub mod frames;
 pub mod speech;
 mod home;
 mod online;
@@ -49,6 +50,11 @@ fn allow_library(app: tauri::AppHandle, path: String) -> Result<(), String> {
 pub fn run() {
     let _ = STARTED.set(Instant::now());
     tauri::Builder::default()
+        // MP3s served from an exact frame, for seeks the webview would otherwise guess (frames.rs).
+        .register_asynchronous_uri_scheme_protocol("ribbonmp3", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(frames::respond(&app, request)));
+        })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
