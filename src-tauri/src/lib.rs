@@ -79,6 +79,7 @@ pub fn run() {
             home::app_settings_write,
             online::catalog_search,
             ebook::ebook_open,
+            ebook::export::ebook_export,
             speech::speech_openings,
             speech::speech_transcribe,
             frames::audio_prepare,

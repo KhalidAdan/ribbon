@@ -3,6 +3,7 @@
 //! the internet; everything after that is in memory.
 
 pub mod content;
+pub mod export;
 pub mod css;
 pub mod model;
 pub mod paths;

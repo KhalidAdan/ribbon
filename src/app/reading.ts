@@ -22,6 +22,9 @@ export interface ReadingState {
    * reader waits on it, unless it is told to read now.
    */
   preparing?: boolean;
+  /** The read-along export: chapters encoded so far while it runs, then what it made or why it could not. */
+  exporting?: { done: number; total: number };
+  exported?: { path: string } | { error: string };
   /** The pages follow the narrator: turned as it reads on, the sentence being read marked. A turn by hand stops it. */
   following?: boolean;
   /** Hearing one place before "Listen from here" or "Go to the narrator" acts. */

@@ -34,6 +34,7 @@ import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
 import { alignBook, byOverlay, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { overlayAnchors } from "../core/reading/overlay";
+import { exportPlan } from "../core/reading/export";
 import { matchTranscript, type Said } from "../core/reading/transcript";
 import { generatedTitles } from "../core/chapternames";
 import { locate as locate_ } from "../core/timeline";
@@ -1250,6 +1251,59 @@ export class AppController {
     this.readingCtx = { o, book: withChapters, ebook, rd };
     this.prepareAudio(o.lib, withChapters);
     void this.hearPlaces();
+  }
+
+  /** How much of the open book's narration is transcribed: minutes done, of all. The export waits for all of it. */
+  narrationTranscribed(): { done: number; total: number } | null {
+    const ctx = this.readingCtx;
+    if (!ctx || ctx.book.files.length === 0) return null;
+    let done = 0;
+    let total = 0;
+    let t = 0;
+    for (const f of ctx.book.files) {
+      for (let offset = 0; offset < f.durationMs - 1000; offset += SPAN_MS) {
+        total++;
+        if (ctx.rd.spans.has(t + offset)) done++;
+      }
+      t += f.durationMs;
+    }
+    return { done, total };
+  }
+
+  /**
+   * Make the open book's read-along EPUB beside its own (docs/READING.md,
+   * section 6): its text with every sentence timed to its narration, and
+   * the narration inside, as Media Overlays any reader can play. The
+   * original is never touched.
+   */
+  async exportReadAlong(): Promise<void> {
+    const ctx = this.readingCtx;
+    const r = this.state.reading;
+    const host = ctx?.o.lib.host;
+    if (!ctx || !r?.ebook || !r.alignment || r.exporting || !host?.exportEbook || !ctx.book.book.ebook) return;
+    const { o, book } = ctx;
+    const plan = exportPlan(r.ebook, r.alignment, book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })), o.lib.absPath(book.book.ebook!));
+    const started = performance.now();
+    const { exported: _, ...rest } = r;
+    this.set({ reading: { ...rest, exporting: { done: 0, total: plan.sections.length } } });
+    const update = (patch: Partial<ReadingState>) => {
+      const now = this.state.reading;
+      if (now?.bookId === r.bookId) this.set({ reading: { ...now, ...patch } });
+    };
+    try {
+      const path = await host.exportEbook.call(host, plan, (done, total) => update({ exporting: { done, total } }));
+      log.info(`exported the read-along EPUB of ${book.book.title} in ${Math.round((performance.now() - started) / 1000)} s: ${plan.sections.length} chapters, ${plan.sections.reduce((n, s) => n + s.sentences.length, 0)} sentences`);
+      update({ exported: { path } });
+    } catch (e) {
+      log.warn("could not export the read-along EPUB:", describe(e));
+      update({ exported: { error: describe(e) } });
+    } finally {
+      const now = this.state.reading;
+      if (now?.bookId === r.bookId && now.exporting) {
+        const { exporting: _x, ...left } = now;
+        this.set({ reading: left });
+      }
+    }
   }
 
   /** In the reader: show the text now, while read-along gets ready behind it. */

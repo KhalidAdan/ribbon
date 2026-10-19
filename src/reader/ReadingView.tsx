@@ -112,6 +112,7 @@ export function ReadingView() {
       {ebook && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
           <Contents ebook={ebook} alignment={r.alignment} listening={r.listening} entry={entry} c={c} onGo={() => setContents(false)} />
+          {r.alignment && r.alignment.how !== "overlay" && <ExportReadAlong exporting={r.exporting} exported={r.exported} c={c} />}
         </Drawer>
       )}
       {ebook && (
@@ -120,6 +121,39 @@ export function ReadingView() {
         </Drawer>
       )}
     </div>
+  );
+}
+
+/**
+ * The read-along export, under the contents: a copy of the EPUB with the
+ * narration inside, timed sentence by sentence, for any reader that plays
+ * Media Overlays. Offered once the whole narration is transcribed.
+ */
+function ExportReadAlong({ exporting, exported, c }: { exporting: { done: number; total: number } | undefined; exported: { path: string } | { error: string } | undefined; c: AppController }) {
+  const transcribed = c.narrationTranscribed();
+  const ready = !!transcribed && transcribed.total > 0 && transcribed.done >= transcribed.total;
+  const name = exported && "path" in exported ? exported.path.split(/[\\/]/).pop() : null;
+  return (
+    <section aria-label="Read-along EPUB" className="mt-6 flex flex-col gap-2 border-t border-line pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">Read-along EPUB</h3>
+        <Button size="sm" variant="secondary" disabled={!ready || !!exporting} onClick={() => void c.exportReadAlong()}>
+          {exporting ? "Exporting…" : "Export"}
+        </Button>
+      </div>
+      <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
+        {exporting
+          ? `Putting the narration in, chapter by chapter… ${exporting.done} of ${exporting.total}`
+          : name
+            ? `Saved beside the book as “${name}”.`
+            : exported && "error" in exported
+              ? `Could not export: ${exported.error}`
+              : ready
+                ? "A copy of this book with the narration inside, timed sentence by sentence, for any reader that plays read-along. Your EPUB is not changed."
+                : `Ready once the narration is all matched to the text (${transcribed && transcribed.total > 0 ? Math.floor((100 * transcribed.done) / transcribed.total) : 0}% so far).`}
+      </p>
+      {exporting && exporting.total > 0 && <ProgressLine fraction={exporting.done / exporting.total} />}
+    </section>
   );
 }
 

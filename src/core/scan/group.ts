@@ -112,6 +112,9 @@ function findAnthologies(foldersWithAudio: Set<string>, byFolder: Map<string, { 
  * with parts. An EPUB with no audio to pair with is a book with no
  * audio, after the rest. Order of the returned groups follows the walk.
  */
+/** What a read-along export adds to its original's name (docs/READING.md, section 6). */
+export const READ_ALONG = " (read-along)";
+
 export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
   const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[]; ebooks: FileEntry[] }>();
   const folderOrder: string[] = [];
@@ -135,6 +138,11 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     } else if (isEbook(f.name)) {
       bucket.ebooks.push(f);
     }
+  }
+  // A read-along export stands in for the EPUB it was made from, beside it: the same book, exact.
+  for (const bucket of byFolder.values()) {
+    const exported = new Set(bucket.ebooks.map((e) => stem(e.name)).filter((n) => n.endsWith(READ_ALONG)).map((n) => n.slice(0, -READ_ALONG.length).toLowerCase()));
+    if (exported.size > 0) bucket.ebooks = bucket.ebooks.filter((e) => !exported.has(stem(e.name).toLowerCase()));
   }
 
   const anthologies = findAnthologies(foldersWithAudio, byFolder);

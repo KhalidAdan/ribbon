@@ -23,6 +23,30 @@ pub struct Cache {
     sizes: HashMap<String, Option<(u32, u32)>>,
 }
 
+/**
+ * Where a character of the model came from in the chapter's XHTML (for the
+ * read-along export, which tags sentences in place): its UTF-16 offset in
+ * its block, and the bytes of the source it was read from. Characters read
+ * from one run of text, with no tag between, share a `node`: a tag may be
+ * put around any stretch of one node and the document stays well formed.
+ */
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spot {
+    pub at: u32,
+    pub node: u32,
+    pub from: usize,
+    pub to: usize,
+}
+
+/// The text event being read: its node, and its bytes in the source (a character reference's are all of it).
+#[derive(Clone, Copy)]
+struct Here {
+    node: u32,
+    start: usize,
+    end: usize,
+    whole: bool,
+}
+
 pub struct Chapter {
     /** What the publisher says the section is (`epub:type` or a `doc-` role): chapter, epilogue, appendix… */
     pub kind: Option<String>,
@@ -70,6 +94,7 @@ struct Frame {
 struct Open {
     block: Block,
     len: usize,
+    spots: Vec<Spot>,
     /// A collapsed space not yet written, in the style of the element it was in.
     pending_space: Option<Frame>,
 }
@@ -85,17 +110,41 @@ struct Walker<'a> {
     next_space: bool,
     /// The section's kind, from the outermost element that says.
     kind: Option<String>,
+    /// Tracing for the export: the text event being read, and each block's spots, in step with `blocks`.
+    tracing: bool,
+    here: Option<Here>,
+    spots: Vec<Vec<Spot>>,
 }
 
 pub fn read_chapter(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mut Cache) -> Chapter {
-    let mut w = Walker { href, sheet: Sheet::default(), stack: vec![Frame::default()], open: None, blocks: Vec::new(), pending_ids: Vec::new(), next_space: false, kind: None };
+    walk(xhtml, href, source, cache, false).0
+}
+
+/// A chapter, and where each block's characters came from in its XHTML (the read-along export).
+pub fn read_chapter_traced(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mut Cache) -> (Chapter, Vec<Vec<Spot>>) {
+    walk(xhtml, href, source, cache, true)
+}
+
+fn walk(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mut Cache, tracing: bool) -> (Chapter, Vec<Vec<Spot>>) {
+    let mut w = Walker { href, sheet: Sheet::default(), stack: vec![Frame::default()], open: None, blocks: Vec::new(), pending_ids: Vec::new(), next_space: false, kind: None, tracing, here: None, spots: Vec::new() };
     let mut reader = Reader::from_str(xhtml);
     let config = reader.config_mut();
     config.check_end_names = false;
     config.allow_unmatched_ends = true;
     config.check_comments = false;
+    // Runs of text with no tag between them are one node.
+    let mut node = 0u32;
+    let mut in_text = false;
     loop {
-        match reader.read_event() {
+        let start = reader.buffer_position() as usize;
+        let event = reader.read_event();
+        let end = reader.buffer_position() as usize;
+        let texty = matches!(event, Ok(Event::Text(_)) | Ok(Event::CData(_)) | Ok(Event::GeneralRef(_)));
+        if texty && !in_text {
+            node += 1;
+        }
+        in_text = texty;
+        match event {
             Ok(Event::Start(e)) => w.start(&e, false, source, cache),
             Ok(Event::Empty(e)) => w.start(&e, true, source, cache),
             Ok(Event::End(e)) => {
@@ -104,10 +153,13 @@ pub fn read_chapter(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mu
             }
             Ok(Event::Text(t)) => {
                 let text = String::from_utf8_lossy(t.as_ref()).into_owned();
+                w.here = Some(Here { node, start, end, whole: false });
                 w.text(&text);
             }
             Ok(Event::CData(t)) => {
                 let text = String::from_utf8_lossy(t.as_ref()).into_owned();
+                // The text begins after "<![CDATA[".
+                w.here = Some(Here { node, start: start + 9, end, whole: false });
                 w.text(&text);
             }
             Ok(Event::GeneralRef(r)) => {
@@ -115,6 +167,7 @@ pub fn read_chapter(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mu
                     Ok(Some(ch)) => Some(ch.to_string()),
                     _ => entity(&String::from_utf8_lossy(r.as_ref())).map(str::to_string),
                 };
+                w.here = Some(Here { node, start, end, whole: true });
                 w.text(&resolved.unwrap_or_else(|| format!("&{};", String::from_utf8_lossy(r.as_ref()))));
             }
             Ok(Event::Eof) => break,
@@ -122,10 +175,12 @@ pub fn read_chapter(xhtml: &str, href: &str, source: &mut dyn Source, cache: &mu
             // Broken markup: keep what was read.
             Err(_) => break,
         }
+        w.here = None;
     }
     w.flush();
     let chars = w.blocks.iter().map(|b| b.runs.iter().map(|r| r.t.encode_utf16().count()).sum::<usize>()).sum();
-    Chapter { kind: w.kind, blocks: w.blocks, chars }
+    let spots = std::mem::take(&mut w.spots);
+    (Chapter { kind: w.kind, blocks: w.blocks, chars }, spots)
 }
 
 impl Walker<'_> {
@@ -279,7 +334,8 @@ impl Walker<'_> {
             self.text_raw(raw);
             return;
         }
-        for ch in raw.chars() {
+        let (tracing, here) = (self.tracing, self.here);
+        for (i, ch) in raw.char_indices() {
             if matches!(ch, ' ' | '\t' | '\n' | '\r' | '\u{c}') {
                 if let Some(o) = self.open.as_mut() {
                     if o.len > 0 && o.pending_space.is_none() {
@@ -292,6 +348,12 @@ impl Walker<'_> {
             if let Some(space) = o.pending_space.take() {
                 // In the style of the element it was in, as a browser draws it: after an italic word's end, plain.
                 push_text(o, " ", &space);
+            }
+            if tracing {
+                if let Some(h) = here {
+                    let (from, to) = if h.whole { (h.start, h.end) } else { (h.start + i, h.start + i + ch.len_utf8()) };
+                    o.spots.push(Spot { at: o.len as u32, node: h.node, from, to });
+                }
             }
             let mut buf = [0u8; 4];
             push_text(o, ch.encode_utf8(&mut buf), &f);
@@ -332,7 +394,7 @@ impl Walker<'_> {
             };
             block.ids = self.pending_ids.drain(..).map(|id| Anchor { id, at: 0 }).collect();
             self.next_space = false;
-            self.open = Some(Open { block, len: 0, pending_space: None });
+            self.open = Some(Open { block, len: 0, spots: Vec::new(), pending_space: None });
         }
         self.open.as_mut().expect("open block")
     }
@@ -372,7 +434,11 @@ impl Walker<'_> {
         for a in &mut o.block.ids {
             a.at = a.at.min(len);
         }
+        let spots = std::mem::take(&mut o.spots);
         self.push(o.block);
+        if self.tracing {
+            *self.spots.last_mut().expect("pushed") = spots;
+        }
     }
 
     fn push(&mut self, mut block: Block) {
@@ -383,6 +449,9 @@ impl Walker<'_> {
             f.produced = true;
         }
         self.blocks.push(block);
+        if self.tracing {
+            self.spots.push(Vec::new());
+        }
     }
 
     fn image(&mut self, src: &str, alt: String, source: &mut dyn Source, cache: &mut Cache) {
