@@ -261,7 +261,7 @@ whisper base (about 57 MB, from Hugging Face). On Voidscarred with
 SayIt's small model: 34 of 35 pairs confirmed by their words; with only
 generated titles, mean confidence rose from 0.53 to 0.99.
 
-whisper.cpp is compiled with AVX2 and FMA (`src-tauri/.cargo/config.toml`);
+whisper.cpp is compiled with AVX2 and FMA (`.cargo/config.toml`);
 without them MSVC builds it unoptimised and a clip takes a minute.
 
 **Checkpoints inside chapters.** Chapter and proportion, measured on

@@ -13,8 +13,9 @@ CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG /MD"
 # bindgen needs libclang to read whisper.h.
 LIBCLANG_PATH = "C:/Program Files/LLVM/bin"
 
-# Build output one level up (E:\CODE\odio\target rather than src-tauri\target):
+# Build output at the repository root (target/, not src-tauri/target/), and
+# this file at the root so cargo finds it from either folder:
 # whisper.cpp's Vulkan shader generator builds deep inside it, and MSBuild's
 # file tracker fails on paths over 260 characters even with long paths on.
 [build]
-target-dir = "../target"
+target-dir = "target"
