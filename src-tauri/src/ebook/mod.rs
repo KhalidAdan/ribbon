@@ -6,12 +6,14 @@ pub mod content;
 pub mod css;
 pub mod model;
 pub mod paths;
+pub mod tone;
 pub mod xml;
 
 use content::{read_chapter, Cache, Source};
 use model::{Ebook, Identifier, Meta, Section, TocEntry, FORMAT};
 use paths::{resolve, split_fragment};
-use std::collections::{BTreeMap, HashMap};
+use rayon::prelude::*;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
 use xml::Node;
@@ -35,7 +37,7 @@ impl OpenError {
 }
 
 /// Bumped when the model gains something, so books cached by an older Ribbon are read again.
-const MODEL_VERSION: u32 = 2;
+const MODEL_VERSION: u32 = 3;
 
 /// The most any one file inside an EPUB may unpack to.
 const ENTRY_MAX: u64 = 256 * 1024 * 1024;
@@ -432,16 +434,34 @@ pub fn open_cached(path: &str, base: &Path) -> Result<String, String> {
     std::fs::create_dir_all(&images_dir).map_err(|e| e.to_string())?;
     let mut srcs: Vec<String> = book.sections.iter().flat_map(|s| s.blocks.iter().filter_map(|b| b.src.clone())).collect();
     srcs.dedup();
-    for (i, src) in srcs.iter().enumerate() {
-        if book.files.contains_key(src) {
+    let mut seen = HashSet::new();
+    let mut found = Vec::new();
+    for (i, src) in srcs.into_iter().enumerate() {
+        if !seen.insert(src.clone()) {
             continue;
         }
-        let Some(data) = zip.read(src) else { continue };
-        let ext = src.rsplit('.').next().filter(|e| e.len() <= 4 && e.chars().all(|c| c.is_ascii_alphanumeric())).unwrap_or("bin").to_ascii_lowercase();
-        let file = images_dir.join(format!("{i}.{ext}"));
-        if std::fs::write(&file, data).is_ok() {
-            book.files.insert(src.clone(), file.to_string_lossy().into_owned());
+        let Some(data) = zip.read(&src) else { continue };
+        found.push((i, src, data));
+    }
+    // Each image is written and its tone found (decoding it) side by side.
+    let kept: Vec<(String, Option<String>, &'static str)> = found
+        .into_par_iter()
+        .map(|(i, src, data)| {
+            let ext = src.rsplit('.').next().filter(|e| e.len() <= 4 && e.chars().all(|c| c.is_ascii_alphanumeric())).unwrap_or("bin").to_ascii_lowercase();
+            let file = images_dir.join(format!("{i}.{ext}"));
+            let written = std::fs::write(&file, &data).is_ok().then(|| file.to_string_lossy().into_owned());
+            (src, written, tone::tone(&data))
+        })
+        .collect();
+    let mut tones = HashMap::new();
+    for (src, written, tone) in kept {
+        if let Some(file) = written {
+            book.files.insert(src.clone(), file);
+            tones.insert(src, tone);
         }
+    }
+    for b in book.sections.iter_mut().flat_map(|s| s.blocks.iter_mut()) {
+        b.tone = b.src.as_ref().and_then(|s| tones.get(s)).copied();
     }
     let json = serde_json::to_string(&book).map_err(|e| e.to_string())?;
     let tmp = dir.join(format!("model-v{MODEL_VERSION}-{stamp}.json.tmp"));

@@ -1438,13 +1438,13 @@ export class AppController {
     if (p) this.moveReading(p, "seek");
   }
 
-  /** In the reader: play this book's audio from the page being read. */
-  async listenFromHere(): Promise<void> {
+  /** In the reader: play this book's audio from a place in the text, the top of the page unless one is given (a tapped sentence). */
+  async listenFromHere(at?: TextPlace): Promise<void> {
     const r = this.state.reading;
     if (!r?.ebook || !r.alignment || !r.place) return;
     const book = this.state.books.find((b) => b.book.id === r.bookId);
     if (!book) return;
-    const chars = globalOffset(r.ebook, r.place);
+    const chars = globalOffset(r.ebook, at ?? r.place);
     // Heard first when no checkpoint is near, so the narrator starts on the page's first words.
     await this.pinpoint(textToMs(r.alignment, chars));
     const alignment = this.state.reading?.alignment ?? r.alignment;

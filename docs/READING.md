@@ -56,6 +56,29 @@ wide:
   painted lines ran past its column.
 - Painting all 377 pages took 0.7 s, about 2 ms a page.
 
+### Hyphenation
+
+Justified paragraphs are hyphenated. Before pretext prepares a paragraph,
+Ribbon puts soft hyphens into its text where Liang's patterns for the
+book's language allow a break (the `hyphen` package, English when the book
+names no language). Each language's patterns are a separate chunk, loaded
+when a book in it is opened; a language without patterns is not
+hyphenated. Headings, preformatted text, centred and right-aligned
+paragraphs and addresses (URLs, emails, paths) are left alone, and so are words under six letters, words in capitals,
+words with digits, and words the publisher already hyphenated. A break
+keeps two letters before it and three after.
+
+The added hyphens are never part of the text. Each run keeps the list of
+offsets where they went, and every line and fragment pretext gives back is
+mapped to offsets in the model's text before anything else sees it:
+places, links, copying and page starts never see them. A line that ends at
+one shows a hyphen, as at the publisher's own.
+
+With hyphens, a column as narrow as 16 ems (a phone) can be justified.
+Without patterns for the book's language, columns narrower than 24 ems are
+set ragged-right even with Justify on, since lines that cannot hyphenate
+open wide gaps.
+
 ## 2. Which EPUB goes with which book
 
 Folder first. The audiobook and its EPUB are one book when:
@@ -141,7 +164,7 @@ counts, so the drawing side indexes text without converting.
       "overlay": null,             // the SMIL file, when the book has read-along
       "chars": 28412,              // text length, for progress through the book
       "blocks": [
-        { "k": "img", "src": "OEBPS/image/Aeldari-Icon.jpg", "w": 120, "h": 120, "alt": "" },
+        { "k": "img", "src": "OEBPS/image/Aeldari-Icon.jpg", "w": 120, "h": 120, "alt": "", "tone": "ink" },
         { "k": "h", "level": 1, "runs": [{ "t": "TWO" }], "ids": [{ "id": "_idParaDest-7", "at": 0 }] },
         { "k": "p", "runs": [{ "t": "Eluadhri was one of only three planets…" }] },
         { "k": "p", "indent": true, "runs": [
@@ -159,13 +182,13 @@ counts, so the drawing side indexes text without converting.
 
 Blocks:
 
-| `k`   | What                     | Fields                                                     |
-| ----- | ------------------------ | ---------------------------------------------------------- |
-| `p`   | A paragraph              | `runs`, and the style flags below                          |
-| `h`   | A heading                | `level` 1–6, `runs`, style flags                           |
-| `img` | An image on its own line | `src` (path in the EPUB), `w`, `h` in pixels, `alt`        |
-| `hr`  | A break between scenes   | none                                                       |
-| `pre` | Text set as it is        | `runs`, whitespace kept                                    |
+| `k`   | What                     | Fields                                                       |
+| ----- | ------------------------ | ------------------------------------------------------------ |
+| `p`   | A paragraph              | `runs`, and the style flags below                            |
+| `h`   | A heading                | `level` 1–6, `runs`, style flags                             |
+| `img` | An image on its own line | `src` (path in the EPUB), `w`, `h` in pixels, `alt`, `tone`  |
+| `hr`  | A break between scenes   | none                                                         |
+| `pre` | Text set as it is        | `runs`, whitespace kept                                      |
 
 Style flags, all optional: `indent` (first line indented), `align`
 (`center` or `end`; justifying is the reader's setting, not the
@@ -188,6 +211,17 @@ tag, a class, or a tag with classes, and reads only `text-indent`,
 `text-align`, `margin-top`, `margin-left`, `font-style`, `font-weight`,
 `font-variant` and `display: none`. Class rules beat tag rules; anything
 more complicated is ignored.
+
+Images in the dark. Built: when the cache keeps a book's images, Rust
+looks at each one (the `image` crate, PNG, JPEG, GIF and WebP only, at
+most 64 by 64 points of it) and sets its `tone`. `ink` is line art,
+ornaments, diagrams and pictures of text: little colour, few greys, and
+a light or clear ground. Anything else is a `picture`, and so is an image
+that will not decode. In dark mode the reader inverts ink and turns its
+hue back (`invert(1) hue-rotate(180deg)`), so black marks become light and
+a red rule stays red; pictures are dimmed to 85% so a white page does not
+glare. In light mode both are drawn as they are. The model is version 3
+in the cache, so books cached before are read again.
 
 ## 5. Places
 
@@ -251,7 +285,10 @@ The listening bar sits under the text, which shortens to make room. It
 shows itself while the book's audio is loaded; a header button shows or
 hides it either way. It has back, play and forward, where the narrator
 is, and, when the narrator is not on the page, **Go to the narrator** and
-**Listen from here**. Another book playing shows under its own title.
+**Listen from here**, which starts at the top of the page. Tapping the
+text marks the sentence tapped and offers **Listen from here** for it,
+so the narrator starts where the eyes are. Another book playing shows
+under its own title.
 Opening the book to read starts where the narrator is when listening was
 more recent; pressing play outside the reader starts where the reading
 stopped when pages were turned after the audio last paused. Opening and
@@ -325,9 +362,3 @@ highlights and notes (the Lexical or Tiptap work, much later). A book
 that is only its EPUB keeps its reading progress on each machine; only
 its place goes in the position log. Right-to-left text is laid
 out, but each line is painted as one element so the browser orders it.
-
-Hyphenation. Only the publisher's soft hyphens break words today, so a
-column narrower than 24 ems (a phone) is set ragged-right even with
-Justify on: justified lines that cannot hyphenate open wide gaps. Adding
-hyphenation means putting soft hyphens into the text before pretext
-prepares it, by language, which pretext supports.
