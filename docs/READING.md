@@ -204,6 +204,23 @@ the fraction of its time listened. Voidscarred pairs every chapter one to
 one, and its narrator holds 160 words a minute within ±5% across most
 chapters, so a switch should land within about a minute.
 
+Built (#55): names compare as numbers ("Twenty-one", "Chapter 21",
+"XXI"); between named pairs, chapters pair by order only where the pace
+agrees with the book's within 35%, and audio named credits never pairs.
+Generated audio titles do not number the book; with no pairs, the whole
+text maps to the whole recording. Voidscarred pairs 35 chapters: the
+journal extract with the epigraph, One to Thirty-three, the epilogue.
+
+The listening bar sits under the text, which shortens to make room. It
+shows itself while the book's audio is loaded; a header button shows or
+hides it either way. It has back, play and forward, where the narrator
+is, and, when the narrator is not on the page, **Go to the narrator** and
+**Listen from here**. Another book playing shows under its own title.
+Opening the book to read starts where the narrator is when listening was
+more recent; pressing play outside the reader starts where the reading
+stopped when pages were turned after the audio last paused. Opening and
+closing the reader without turning a page changes nothing.
+
 **Level 3: Media Overlays.** An EPUB 3 with Media Overlays (Storyteller
 makes them) carries, for each sentence, the audio file and the time it is
 spoken. Rust reads the SMIL files into a list of (block, text range) and
