@@ -386,6 +386,22 @@ the browser's sentence breaking, with dialogue kept whole (a sentence
 that starts lowercase, as in “Who made it?” asked Jurilan., joins the
 one before).
 
+**The read-along export.** Once the whole narration is transcribed, the
+contents offer **Export**: a copy of the book's EPUB, written beside it
+as `<name> (read-along).epub`, with the narration inside as EPUB 3 Media
+Overlays, the way Storyteller makes them, so any reader that plays
+read-along reads it along. The original is never touched. Rust traces
+where each character of the model came from in the chapter's XHTML and
+puts a `<span id>` around each sentence at those bytes, so nothing else
+in the file changes (a sentence that runs across a tag is wrapped up to
+the tag). Each chapter's stretch of the audiobook is cut and re-encoded
+(AAC, 64 kbps mono), and a SMIL file per chapter says when each sentence
+is read. The audio files are named for where they start in the audiobook
+(`-at-<ms>ms`), so Ribbon maps an export back onto the recording beside
+it exactly, and an export in a book's folder stands in for its original:
+the book is read from it, as level 3. Voidscarred: 6,196 sentences in 35
+chapters, 308 MB, made in 5 minutes.
+
 **On the GPU.** whisper.cpp runs on Vulkan (`whisper-rs` feature
 `vulkan`), which every current graphics driver supports. vulkan-1.dll is
 loaded only when speech is first used, so Ribbon starts on a machine with

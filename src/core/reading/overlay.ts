@@ -61,7 +61,11 @@ export function overlayAnchors(ebook: Ebook, audio: OverlayAudio): Anchor[] | nu
   const bookStarts: number[] = [];
   audio.files.reduce((t, f) => (bookStarts.push(t), t + f.durationMs), 0);
   const byName = new Map(audio.files.map((f, i) => [stem(f.path), i]));
-  if (order.every((a) => byName.has(stem(a)))) {
+  const at = (a: string) => /-at-(\d+)ms\.\w+$/.exec(a)?.[1];
+  if (order.every((a) => at(a) !== undefined)) {
+    // A read-along export (Ribbon's own): each file is named for where it starts in the recording.
+    for (const a of order) starts.set(a, Number(at(a)));
+  } else if (order.every((a) => byName.has(stem(a)))) {
     for (const a of order) starts.set(a, bookStarts[byName.get(stem(a))!]!);
   } else {
     const sum = order.reduce((t, a) => t + lengths.get(a)!, 0);

@@ -136,6 +136,14 @@ export function tauriHost(): Host {
     speechOpenings: (model, clips, seconds, language) => invoke<string[]>("speech_openings", { model, clips, seconds, language }),
     audioPrepare: (paths) => invoke<void>("audio_prepare", { paths }),
     speechTranscribe: (model, clips, seconds, language) => invoke<{ startMs: number; endMs: number; words: string }[][]>("speech_transcribe", { model, clips, seconds, language }),
+    async exportEbook(plan, onProgress) {
+      const unlisten = await listen<{ done: number; total: number }>("ribbon://export-progress", (e) => onProgress(e.payload.done, e.payload.total));
+      try {
+        return await invoke<string>("ebook_export", { plan });
+      } finally {
+        unlisten();
+      }
+    },
     async downloadSpeechModel(onProgress) {
       const unlisten = await listen<{ done: number; total: number }>("ribbon://model-progress", (e) => onProgress(e.payload.done, e.payload.total));
       try {
