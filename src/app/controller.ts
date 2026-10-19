@@ -26,11 +26,13 @@ import { partAt } from "../core/scan/parts";
 import * as sleep from "../core/sleep";
 import type { Correction } from "../core/scan/chapters";
 import { log } from "./log";
-import { openEbook } from "../core/ebook";
+import { openEbook, type Ebook } from "../core/ebook";
 import type { Why } from "../core/poslog";
 import type { TextPlace } from "../core/reading/place";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
+import { alignBook, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment } from "../core/reading/align";
+import { generatedTitles } from "../core/chapternames";
 
 export interface Platform {
   host: Host;
@@ -1036,12 +1038,16 @@ export class AppController {
     if (seq !== this.openSeq) return;
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null, placeKept: this.openedOf(book)?.keeper.status() ?? null });
-    const startMs = position ? Math.min(position.offsetMs, book.book.durationMs) : 0;
+    // Read further than listened: start where the reading stopped.
+    const ahead = this.readAhead(id, position ? Date.parse(position.updatedAt) : null);
+    if (ahead !== null) log.info(`starting ${book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
+    const startMs = Math.min(ahead ?? position?.offsetMs ?? 0, book.book.durationMs);
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     if (seq !== this.openSeq) return;
     engine.setSpeed(settings.speed);
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
-    this.pausedAt = position ? Date.parse(position.updatedAt) : null;
+    this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
+    if (ahead !== null) void this.persistPosition("seek");
     this.refreshMediaMetadata();
     if (!loudness || !silence) this.jobs.enqueue(book, true);
     void this.probeChapters(book).then(() => this.maybeNameChapters(book.book.id));
@@ -1104,6 +1110,10 @@ export class AppController {
       return;
     }
     const ebook = result.ebook;
+    // The audio's chapters, read from the file if they never were, to pair with the text's.
+    const withChapters = await this.chaptersOf(o, book);
+    const alignment = alignBook(ebook, withChapters.chapters, withChapters.book.durationMs, generatedTitles(withChapters.chapters));
+    log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
     const shared = await o.lib
       .readTextPlaces()
       .then((m) => {
@@ -1112,16 +1122,81 @@ export class AppController {
       })
       .catch(() => undefined);
     if (this.state.reading?.bookId !== bookId) return;
-    const place = openingPlace(ebook, this.keptPlaces()[bookId], shared);
+    const place = openingPlace(ebook, this.keptPlaces()[bookId], shared, this.narratorPlace(bookId, ebook, alignment));
     this.readingKeeper = new ReadingKeeper(ebook, place, {
       keepLocal: (kept) => {
         this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: kept } };
         this.saveAppSettingsSoon();
       },
-      share: (loc, why, at) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at),
+      share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
+      toMs: (p) => textToMs(alignment, globalOffset(ebook, p)),
     });
     log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections`);
-    this.set({ reading: { bookId, status: "ready", ebook, place } });
+    this.set({ reading: { bookId, status: "ready", ebook, place, alignment } });
+  }
+
+  /** A book with its chapters read from its file, kept on the shelf when they were not before. */
+  private async chaptersOf(o: Opened, book: ScannedBook): Promise<ScannedBook> {
+    if (book.files.every((f) => f.chaptersProbed)) return book;
+    try {
+      const probed = await o.lib.ensureChapters(book);
+      if (probed === book) return book;
+      const updated = this.stamp(o, [probed])[0]!;
+      this.replaceBook(o, updated);
+      return updated;
+    } catch (e) {
+      log.warn("could not read the chapters of", book.book.title, describe(e));
+      return book;
+    }
+  }
+
+  /** Where the narrator is in a book, mapped into its text, and when that was so. */
+  private narratorPlace(bookId: string, ebook: Ebook, alignment: Alignment): { place: TextPlace; t: string } | undefined {
+    const live = this.state.current?.book.book.id === bookId && this.engine?.current.bookId === bookId;
+    const ms = live ? this.engine!.positionMs() : this.state.positions[bookId]?.offsetMs;
+    if (ms === undefined) return undefined;
+    // Playing now is now; paused, it is when it paused.
+    const t = live && this.state.player.playing ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
+    return { place: placeAtGlobal(ebook, msToText(alignment, ms)), t };
+  }
+
+  /** In the reader: the narrator's place in the text, or null when this book's audio is not loaded. */
+  narratorInText(): TextPlace | null {
+    const r = this.state.reading;
+    if (!r?.ebook || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
+    return placeAtGlobal(r.ebook, msToText(r.alignment, this.state.player.positionMs));
+  }
+
+  /** In the reader: turn to where the narrator is. */
+  goToNarrator(): void {
+    const p = this.narratorInText();
+    if (p) this.moveReading(p, "seek");
+  }
+
+  /** In the reader: play this book's audio from the page being read. */
+  async listenFromHere(): Promise<void> {
+    const r = this.state.reading;
+    if (!r?.ebook || !r.alignment || !r.place) return;
+    const book = this.state.books.find((b) => b.book.id === r.bookId);
+    if (!book) return;
+    const ms = textToMs(r.alignment, globalOffset(r.ebook, r.place));
+    if (this.state.current?.book.book.id !== r.bookId) await this.openBook(book, { expand: false });
+    if (this.state.current?.book.book.id !== r.bookId) return;
+    this.seek(ms);
+    await this.play();
+  }
+
+  /**
+   * Where to start a book's audio because it was read further than it was
+   * listened to: the mapped time of this machine's reading place, when the
+   * reader turned pages after the audio last stopped. Null otherwise.
+   */
+  private readAhead(bookId: string, audioAtMs: number | null): number | null {
+    const kept = this.keptPlaces()[bookId];
+    if (!kept || kept.ms === undefined) return null;
+    const readAt = Date.parse(kept.t);
+    if (Number.isNaN(readAt) || (audioAtMs !== null && readAt <= audioAtMs + 1000)) return null;
+    return kept.ms;
   }
 
   /** The reader is on a new page, or scrolled to a new line. */
@@ -1139,10 +1214,7 @@ export class AppController {
     const keeper = this.readingKeeper;
     this.readingKeeper = null;
     if (this.state.reading) this.set({ reading: null });
-    if (keeper) {
-      keeper.move(keeper.current, "close");
-      await Promise.all([keeper.flush(), this.saveAppSettingsNow()]);
-    }
+    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
   }
 
   /** A URL for an image in the open book's text, when it was kept on this machine. */
@@ -1195,6 +1267,14 @@ export class AppController {
     if (!engine || !cur) return;
     engine.setStopAt(null);
     if (this.state.previewing !== null) this.set({ previewing: null });
+    // Read on since this book last played, outside the reader: carry on from the page.
+    if (!this.state.reading && this.pausedAt !== null) {
+      const ahead = this.readAhead(cur.book.book.id, this.pausedAt);
+      if (ahead !== null) {
+        log.info(`continuing ${cur.book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
+        this.seek(ahead);
+      }
+    }
     const now = Date.now();
     const gap = this.pausedAt === null ? 0 : Math.max(0, now - this.pausedAt);
     const pos = engine.positionMs();
@@ -1327,8 +1407,7 @@ export class AppController {
     if (this.state.player.playing) this.engine?.pause();
     await this.persistPosition("close");
     const reading = this.readingKeeper;
-    if (reading) reading.move(reading.current, "close");
-    const all = Promise.all([...this.openedInOrder().map((o) => o.keeper.flush()), reading?.flush(), this.saveAppSettingsNow()]);
+    const all = Promise.all([...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
     await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
   }
 

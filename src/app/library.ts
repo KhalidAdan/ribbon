@@ -264,8 +264,10 @@ export class LibraryService {
    * with a Locator into the EPUB and no time, claimed by the text, never
    * by the audiobook.
    */
-  writeTextPlace(bookId: string, identifiers: readonly { scheme: string; value: string }[], loc: Locator, why: Why, nowMs = Date.now()): Promise<void> {
-    return this.appendRecord({ k: "pos", t: nowIso(nowMs), book: { ids: textClaimsFor(bookId, identifiers) }, why, loc });
+  writeTextPlace(bookId: string, identifiers: readonly { scheme: string; value: string }[], loc: Locator, why: Why, nowMs = Date.now(), audioMs?: number): Promise<void> {
+    // Where the same place is in the audiobook, mapped by chapter: a hint for players, never a place of the audio edition.
+    const x = audioMs !== undefined ? { x: { "urn:ribbon:audio": { ms: Math.round(audioMs), how: "chapter" } } } : {};
+    return this.appendRecord({ k: "pos", t: nowIso(nowMs), book: { ids: textClaimsFor(bookId, identifiers) }, why, loc, ...x });
   }
 
   /** Every book's reading place, merged from every device's log. Rejects when the folder cannot be read. */

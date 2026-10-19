@@ -1,6 +1,6 @@
-import { ArrowLeftIcon, ListBulletIcon, PauseIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { ArrowLeftIcon, BackwardIcon, ForwardIcon, ListBulletIcon, SpeakerWaveIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "../core/ebook";
 import { flow, pageOf, paginate, placeAtY, yOfPlace, type Flow, type LaidBlock, type Page, type Placed } from "../core/reading/pages";
 import { bookProgress, placeOfHref, tocEntryAt, textBetween, type TextPlace } from "../core/reading/place";
@@ -11,6 +11,16 @@ import { Button, IconButton } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
 import { ProgressLine, Toggle } from "../ui/kit";
 import { FAMILY, loadFaces, Typesetter } from "./typeset";
+import { PlayButton } from "../ui/PlayerBar";
+import { formatLeft } from "../core/speed";
+import { chapterAt } from "../core/scan/chapters";
+import { globalOffset } from "../core/reading/align";
+
+/** What the reader shows: from the first character on screen to the last. */
+interface Visible {
+  from: TextPlace;
+  to: TextPlace;
+}
 
 interface SectionLayout {
   blocks: LaidBlock[];
@@ -29,13 +39,16 @@ export function ReadingView() {
   const r = state.reading;
   const [contents, setContents] = useState(false);
   const [type, setType] = useState(false);
+  // The listening bar shows itself while this book's audio is loaded; the header button shows or hides it either way.
+  const [barPref, setBarPref] = useState<"auto" | "shown" | "hidden">("auto");
   if (!r) return null;
   const book = state.books.find((b) => b.book.id === r.bookId);
   const ebook = r.ebook;
   const place = r.place;
   const entry = ebook && place ? tocEntryAt(ebook, place) : -1;
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
-  const playing = state.current ? state.player.playing : null;
+  const loadedHere = state.current?.book.book.id === r.bookId;
+  const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
@@ -47,7 +60,7 @@ export function ReadingView() {
           <p className="truncate text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">{book?.book.title}</p>
           {chapter && <p className="truncate text-xs/4 text-ink-3">{chapter}</p>}
         </div>
-        {playing !== null && <IconButton label={playing ? "Pause the audiobook" : "Play the audiobook"} icon={playing ? PauseIcon : PlayIcon} onClick={() => c.togglePlay()} />}
+        <IconButton label={barOpen ? "Hide the listening controls" : "Show the listening controls"} icon={SpeakerWaveIcon} aria-pressed={barOpen} disabled={!ebook} onClick={() => setBarPref(barOpen ? "hidden" : "shown")} />
         <IconButton label="Contents" icon={ListBulletIcon} disabled={!ebook} onClick={() => setContents(true)} />
         <div className="relative">
           <Button variant={type ? "secondary" : "ghost"} aria-expanded={type} aria-haspopup="dialog" disabled={!ebook} onClick={() => setType((v) => !v)}>
@@ -67,7 +80,7 @@ export function ReadingView() {
           <p className="mt-1 max-w-md text-base/6 text-ink-2 sm:text-sm/5">{r.message}</p>
         </Middle>
       )}
-      {r.status === "ready" && ebook && place && <Text key={ebook.meta.title + r.bookId} ebook={ebook} place={place} settings={state.readingSettings} c={c} />}
+      {r.status === "ready" && ebook && place && <Text key={ebook.meta.title + r.bookId} bookId={r.bookId} ebook={ebook} place={place} settings={state.readingSettings} bar={barOpen} c={c} />}
 
       {ebook && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
@@ -206,7 +219,9 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ ebook, place, settings, c }: { ebook: Ebook; place: TextPlace; settings: ReadingSettings; c: AppController }) {
+function Text({ bookId, ebook, place, settings, bar, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; c: AppController }) {
+  const [visible, setVisible] = useState<Visible | null>(null);
+  const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<{ width: number; height: number } | null>(null);
   useLayoutEffect(() => {
@@ -235,8 +250,9 @@ function Text({ ebook, place, settings, c }: { ebook: Ebook; place: TextPlace; s
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy}>
-        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages ebook={ebook} place={place} metrics={metrics} viewport={viewport} layout={layout} c={c} /> : <Scroll ebook={ebook} place={place} metrics={metrics} layout={layout} c={c} />)}
+        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages ebook={ebook} place={place} metrics={metrics} viewport={viewport} layout={layout} c={c} onVisible={onVisible} /> : <Scroll ebook={ebook} place={place} metrics={metrics} layout={layout} c={c} onVisible={onVisible} />)}
       </div>
+      {bar && <ListeningBar bookId={bookId} ebook={ebook} visible={visible} c={c} />}
       <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
         <ProgressLine fraction={progress} className="flex-1" />
         <span className="text-xs/4 text-ink-3 tabular-nums">{Math.round(progress * 100)}%</span>
@@ -258,12 +274,16 @@ function placeAt(node: Node | null, offset: number): TextPlace | null {
   return { section, block, offset: Number(frag.dataset.start) + Math.max(0, (node === frag ? 0 : offset) - gap) };
 }
 
-function Pages({ ebook, place, metrics, viewport, layout, c }: { ebook: Ebook; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; c: AppController }) {
+const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, c, onVisible }: { ebook: Ebook; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; c: AppController; onVisible: (v: Visible) => void }) {
   const l = layout(place.section);
   const at = pageOf(l.pages, place);
   const per = metrics.columns;
   const first = at - (at % per);
   const shown = l.pages.slice(first, first + per);
+  const lastShown = shown[shown.length - 1];
+  useEffect(() => {
+    if (shown[0] && lastShown) onVisible({ from: { section: place.section, ...shown[0].start }, to: { section: place.section, ...lastShown.end } });
+  });
 
   const go = useCallback(
     (step: 1 | -1) => {
@@ -309,6 +329,9 @@ function Pages({ ebook, place, metrics, viewport, layout, c }: { ebook: Ebook; p
       } else if (e.key === "Escape") {
         e.preventDefault();
         void c.closeReading();
+      } else if (e.key === "k" && c.getState().current) {
+        e.preventDefault();
+        c.togglePlay();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -334,10 +357,10 @@ function Pages({ ebook, place, metrics, viewport, layout, c }: { ebook: Ebook; p
       </p>
     </div>
   );
-}
+});
 
 /** The sections in view while scrolling: the one being read and its neighbours, stacked. */
-function Scroll({ ebook, place, metrics, layout, c }: { ebook: Ebook; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; c: AppController }) {
+const Scroll = memo(function Scroll({ ebook, place, metrics, layout, c, onVisible }: { ebook: Ebook; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; c: AppController; onVisible: (v: Visible) => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [center, setCenter] = useState(place.section);
   const sections = [neighbour(ebook, center, -1), center, neighbour(ebook, center, 1)].filter((s): s is number => s !== null);
@@ -376,6 +399,20 @@ function Scroll({ ebook, place, metrics, layout, c }: { ebook: Ebook; place: Tex
     anchor.current = null;
   });
 
+  /** The place at a height in the stack of sections. */
+  const placeAtStackY = (y: number): TextPlace => {
+    let i = sections.length - 1;
+    while (i > 0 && tops[i]! > y) i--;
+    const l = layout(sections[i]!);
+    return { section: sections[i]!, ...placeAtY(l.blocks, l.flow, y - tops[i]!) };
+  };
+
+  // What is on screen, after every paint as well as every scroll.
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) onVisible({ from: placeAtStackY(el.scrollTop + metrics.margin), to: placeAtStackY(el.scrollTop + el.clientHeight - metrics.lineHeight) });
+  });
+
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
@@ -385,6 +422,7 @@ function Scroll({ ebook, place, metrics, layout, c }: { ebook: Ebook; place: Tex
     const s = sections[i]!;
     const l = layout(s);
     const p = { section: s, ...placeAtY(l.blocks, l.flow, top - tops[i]!) };
+    onVisible({ from: p, to: placeAtStackY(el.scrollTop + el.clientHeight - metrics.lineHeight) });
     lastPlace.current = p;
     c.moveReading(p);
     if (s !== center) {
@@ -399,6 +437,9 @@ function Scroll({ ebook, place, metrics, layout, c }: { ebook: Ebook; place: Tex
       if (e.key === "Escape" && !document.querySelector("dialog[open]")) {
         e.preventDefault();
         void c.closeReading();
+      } else if (e.key === "k" && c.getState().current && !(e.target instanceof HTMLInputElement)) {
+        e.preventDefault();
+        c.togglePlay();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -420,6 +461,59 @@ function Scroll({ ebook, place, metrics, layout, c }: { ebook: Ebook; place: Tex
           );
         })}
       </div>
+    </div>
+  );
+});
+
+function same(a: TextPlace, b: TextPlace): boolean {
+  return a.section === b.section && a.block === b.block && a.offset === b.offset;
+}
+
+/**
+ * The audiobook, under the text (docs/READING.md, section 6). For this
+ * book: back, play, forward, where the narrator is, and the two switches
+ * of level 1 when the narrator is not on the page. For another book
+ * playing: its controls, under its own title. For none: a way to start.
+ */
+function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Ebook; visible: Visible | null; c: AppController }) {
+  const state = useAppState();
+  const cur = state.current;
+  const here = cur?.book.book.id === bookId;
+  const p = state.player;
+  const narrator = here ? c.narratorInText() : null;
+  const onPage = (() => {
+    if (!narrator || !visible) return true;
+    const n = globalOffset(ebook, narrator);
+    return n >= globalOffset(ebook, visible.from) && n <= globalOffset(ebook, visible.to);
+  })();
+  let where = "";
+  if (here && cur) {
+    const i = chapterAt(cur.book.chapters, p.positionMs);
+    const ch = i >= 0 ? cur.book.chapters[i] : undefined;
+    where = ch ? `${ch.title} · ${formatLeft((ch.endMs - p.positionMs) / (p.speed || 1))} left` : `${formatLeft((p.durationMs - p.positionMs) / (p.speed || 1))} left`;
+  }
+  return (
+    <div className="flex h-14 shrink-0 items-center gap-3 border-t border-line px-3 sm:px-4" role="group" aria-label="Listening">
+      {cur ? (
+        <div className="flex items-center gap-1">
+          <IconButton size="sm" label="Back 30 seconds" icon={BackwardIcon} onClick={() => c.skip(-30_000)} />
+          <PlayButton size="sm" />
+          <IconButton size="sm" label="Forward 30 seconds" icon={ForwardIcon} onClick={() => c.skip(30_000)} />
+        </div>
+      ) : null}
+      <p className="min-w-0 flex-1 truncate text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
+        {here ? where : cur ? <>Playing <span className="text-ink">{cur.book.book.title}</span></> : "The audiobook is not playing."}
+      </p>
+      {here && !onPage && (
+        <Button size="sm" variant="ghost" onClick={() => c.goToNarrator()}>
+          Go to the narrator
+        </Button>
+      )}
+      {(!here || !onPage) && (
+        <Button size="sm" variant={here && p.playing ? "secondary" : "primary"} onClick={() => void c.listenFromHere()}>
+          Listen from here
+        </Button>
+      )}
     </div>
   );
 }

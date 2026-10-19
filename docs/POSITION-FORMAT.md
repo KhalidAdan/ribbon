@@ -315,6 +315,10 @@ working. A later version will stop.
   as the reader moves. They reach the log five seconds after the reader
   settles on a page, and at once on a jump (the contents, a link) or on
   closing the book.
+- A reading place of a book that also has audio carries, in
+  `x["urn:ribbon:audio"]`, the same place in the recording as Ribbon maps
+  it: `{"ms": 11106000, "how": "chapter"}`. It is a hint for players, and
+  never a place of the audio edition.
 - `read` records start and finish listen-throughs. Sessions are on by
   default and can be turned off in Settings.
 - Bookmarks are `mark` records with a `motivation` of `bookmarking`.

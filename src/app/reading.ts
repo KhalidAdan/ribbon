@@ -1,4 +1,5 @@
 import type { Ebook } from "../core/ebook";
+import type { Alignment } from "../core/reading/align";
 import type { Locator, Why } from "../core/poslog";
 import { locatorOf, placeOf, startOf, type TextPlace } from "../core/reading/place";
 import { log } from "./log";
@@ -10,6 +11,8 @@ export interface ReadingState {
   message?: string;
   ebook?: Ebook;
   place?: TextPlace;
+  /** The text's chapters paired with the audio's, for switching between them (level 1). */
+  alignment?: Alignment;
 }
 
 /** The reading places this machine keeps, from the app's settings, by book id. */
@@ -18,7 +21,7 @@ export function parseKeptPlaces(v: unknown): Record<string, KeptPlace> {
   if (typeof v !== "object" || v === null) return out;
   for (const [id, k] of Object.entries(v as Record<string, unknown>)) {
     const kept = k as Partial<KeptPlace> | null;
-    if (kept && typeof kept.t === "string" && typeof kept.loc === "object" && kept.loc !== null && typeof kept.loc.href === "string") out[id] = { loc: kept.loc, t: kept.t };
+    if (kept && typeof kept.t === "string" && typeof kept.loc === "object" && kept.loc !== null && typeof kept.loc.href === "string") out[id] = { loc: kept.loc, t: kept.t, ...(typeof kept.ms === "number" && Number.isFinite(kept.ms) ? { ms: kept.ms } : {}) };
   }
   return out;
 }
@@ -27,6 +30,8 @@ export function parseKeptPlaces(v: unknown): Record<string, KeptPlace> {
 export interface KeptPlace {
   loc: Locator;
   t: string;
+  /** Where the same place is in the audiobook, by chapter and proportion, when the book has one. */
+  ms?: number;
 }
 
 /** How long a page stays before its place goes beside the books. */
@@ -40,9 +45,11 @@ export const SHARE_AFTER_MS = 5_000;
  */
 export class ReadingKeeper {
   private place: TextPlace;
-  private pending: { loc: Locator; why: Why; at: number } | null = null;
+  private pending: { loc: Locator; why: Why; at: number; ms?: number } | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private writing: Promise<void> = Promise.resolve();
+  /** Set once the reader has moved: opening a book is not reading it. */
+  private moved = false;
 
   constructor(
     private readonly ebook: Ebook,
@@ -51,7 +58,9 @@ export class ReadingKeeper {
       /** Keep it on this machine. Cheap, and called on every move. */
       keepLocal: (kept: KeptPlace) => void;
       /** Write it beside the books, in the position log. */
-      share: (loc: Locator, why: Why, atMs: number) => Promise<void>;
+      share: (loc: Locator, why: Why, atMs: number, ms?: number) => Promise<void>;
+      /** The same place in the audiobook, when there is one. */
+      toMs?: (place: TextPlace) => number | null;
       now?: () => number;
     },
   ) {
@@ -64,10 +73,12 @@ export class ReadingKeeper {
 
   move(place: TextPlace, why: Why): void {
     this.place = place;
+    this.moved = true;
     const now = this.io.now?.() ?? Date.now();
     const loc = locatorOf(this.ebook, place);
-    this.io.keepLocal({ loc, t: new Date(now).toISOString() });
-    this.pending = { loc, why, at: now };
+    const ms = this.io.toMs?.(place) ?? undefined;
+    this.io.keepLocal({ loc, t: new Date(now).toISOString(), ...(ms !== undefined ? { ms } : {}) });
+    this.pending = { loc, why, at: now, ...(ms !== undefined ? { ms } : {}) };
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (why === "seek" || why === "close") void this.flush();
@@ -82,7 +93,7 @@ export class ReadingKeeper {
     if (!p) return this.writing;
     this.pending = null;
     this.writing = this.writing.then(() =>
-      this.io.share(p.loc, p.why, p.at).catch((e: unknown) => {
+      this.io.share(p.loc, p.why, p.at, p.ms).catch((e: unknown) => {
         log.warn("could not keep the reading place beside the books:", e instanceof Error ? e.message : String(e));
         // Keep it for the next try, unless something newer is already waiting.
         this.pending ??= p;
@@ -90,14 +101,25 @@ export class ReadingKeeper {
     );
     return this.writing;
   }
+
+  /** Closing the book: keep the place everywhere, but only if the reader read. */
+  finish(): Promise<void> {
+    if (this.moved) this.move(this.place, "close");
+    return this.flush();
+  }
 }
 
 /**
- * Where to open a book's text: the newer of this machine's copy and the
- * log's, found in this book by its words; else the book's start.
+ * Where to open a book's text: the newest of this machine's reading
+ * place, the log's, and the narrator's place mapped into the text; else
+ * the book's start. Listening on after reading opens the text where the
+ * narrator is.
  */
-export function openingPlace(ebook: Ebook, local: KeptPlace | undefined, shared: KeptPlace | undefined): TextPlace {
-  const newer = [local, shared].filter((k): k is KeptPlace => !!k && !Number.isNaN(Date.parse(k.t))).sort((a, b) => Date.parse(b.t) - Date.parse(a.t))[0];
-  if (!newer) return startOf(ebook);
-  return placeOf(ebook, newer.loc);
+export function openingPlace(ebook: Ebook, local: KeptPlace | undefined, shared: KeptPlace | undefined, narrator?: { place: TextPlace; t: string }): TextPlace {
+  type Candidate = { t: number; place: () => TextPlace };
+  const all: Candidate[] = [];
+  for (const k of [local, shared]) if (k && !Number.isNaN(Date.parse(k.t))) all.push({ t: Date.parse(k.t), place: () => placeOf(ebook, k.loc) });
+  if (narrator && !Number.isNaN(Date.parse(narrator.t))) all.push({ t: Date.parse(narrator.t), place: () => narrator.place });
+  const newest = all.sort((a, b) => b.t - a.t)[0];
+  return newest ? newest.place() : startOf(ebook);
 }
