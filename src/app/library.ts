@@ -522,8 +522,18 @@ export class LibraryService {
     return { heard, anchors };
   }
 
+  /**
+   * Kept beside the book, merged with what is there already: what another
+   * device heard stays, and a read that failed (a share that went away)
+   * can never empty the file. What this device heard wins a tie.
+   */
   async writeHeard(bookId: string, heard: ReadonlyMap<number, string>, anchors: ReadonlyMap<number, number>): Promise<void> {
     await this.host.mkdir(this.dir("heard"));
+    const there = await this.readHeard(bookId);
+    const allHeard = new Map([...there.heard, ...heard]);
+    const allAnchors = new Map([...there.anchors, ...anchors]);
+    heard = allHeard;
+    anchors = allAnchors;
     const rows = [...heard].sort((a, b) => a[0] - b[0]).map(([ms, words]) => ({ audio_ms: String(ms), words, chars: anchors.has(ms) ? String(anchors.get(ms)) : "" }));
     await this.host.writeFile(this.dir("heard", `${bookId}.csv`), await rowsToBytes(rows, ["audio_ms", "words", "chars"]));
   }
@@ -550,8 +560,15 @@ export class LibraryService {
     return { spans, said };
   }
 
+  /** Kept beside the book, merged with what is there already, as writeHeard is. */
   async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly { startMs: number; endMs: number; words: string; chars: number | null }[]): Promise<void> {
     await this.host.mkdir(this.dir("aligned"));
+    const there = await this.readAligned(bookId);
+    // A stretch is one row; a phrase is one row by when it starts and what it says.
+    spans = new Map([...there.spans, ...spans]);
+    const phrases = new Map(there.said.map((x) => [`${x.startMs}|${x.words}`, x]));
+    for (const x of said) phrases.set(`${x.startMs}|${x.words}`, x);
+    said = [...phrases.values()];
     const rows = [
       ...[...spans].map(([s, e]) => ({ start_ms: String(s), end_ms: String(e), words: "", chars: "" })),
       ...said.map((x) => ({ start_ms: String(x.startMs), end_ms: String(x.endMs), words: x.words, chars: x.chars === null ? "" : String(x.chars) })),

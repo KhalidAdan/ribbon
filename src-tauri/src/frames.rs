@@ -262,8 +262,10 @@ fn serve(path: &Path, ms: f64, range: Option<(u64, Option<u64>)>) -> Result<(Vec
         Some((a, b)) => (a.min(total.saturating_sub(1)), b.unwrap_or(u64::MAX).min(total - 1)),
         None => (0, total - 1),
     };
-    // A media element asks for the rest of the file; it gets it a few megabytes at a time.
-    let to = to.min(from + (4 << 20) - 1);
+    // A media element asks for the rest of the file; it gets it a few megabytes at a time. The first answer is
+    // small (half a megabyte is 25 s of a 168 kbps book): over a share, sound starts as soon as it arrives.
+    let most: u64 = if from == 0 { 512 << 10 } else { 4 << 20 };
+    let to = to.min(from + most - 1);
     let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
     f.seek(SeekFrom::Start(start + from)).map_err(|e| e.to_string())?;
     let mut body = vec![0u8; (to - from + 1) as usize];
