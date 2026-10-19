@@ -1,4 +1,5 @@
 pub mod ebook;
+pub mod speech;
 mod home;
 mod online;
 mod scan;
@@ -72,6 +73,9 @@ pub fn run() {
             home::app_settings_write,
             online::catalog_search,
             ebook::ebook_open,
+            speech::speech_openings,
+            speech::speech_download_model,
+            speech::speech_model_ok,
             uptime_ms,
             env_library
         ])

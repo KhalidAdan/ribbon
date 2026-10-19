@@ -33,6 +33,12 @@ import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
 import { alignBook, globalOffset, msToText, placeAtGlobal, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { generatedTitles } from "../core/chapternames";
+import { locate } from "../core/timeline";
+
+/** How much of each chapter's start is heard: a heading and a sentence or two. */
+const HEAR_SECONDS = 12;
+/** A pairing this sure of every pair is not worth hearing. */
+const DOUBT = 0.6;
 
 export interface Platform {
   host: Host;
@@ -56,6 +62,8 @@ export interface Platform {
     read(): Promise<Record<string, unknown>>;
     write(settings: Record<string, unknown>): Promise<void>;
   };
+  /** Ask for one file, of the given kinds. Hosts without a file dialog leave it out. */
+  pickFile?: (title: string, filters: { name: string; extensions: string[] }[]) => Promise<string | null>;
   /**
    * Run `flush` before the window closes, and wait for it. Returns an
    * unsubscribe. Hosts without a window of their own leave it out.
@@ -164,6 +172,8 @@ export interface AppState {
   reading: ReadingState | null;
   /** How the reader sets text on this machine. */
   readingSettings: ReadingSettings;
+  /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
+  speech: { model: string | null; downloading: { done: number; total: number } | null };
 }
 
 /** The same history record, written here and read back from the log. */
@@ -308,6 +318,7 @@ export class AppController {
       namedChapters: {},
       reading: null,
       readingSettings: parseReading(undefined),
+      speech: { model: null, downloading: null },
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -419,7 +430,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading) });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null } });
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
@@ -1113,7 +1124,8 @@ export class AppController {
     // The audio's chapters, read from the file if they never were, to pair with the text's.
     const withChapters = await this.chaptersOf(o, book);
     this.readingFixes = await o.lib.readPairing(bookId);
-    const alignment = alignBook(ebook, withChapters.chapters, withChapters.book.durationMs, { generated: generatedTitles(withChapters.chapters), fixes: this.readingFixes });
+    this.readingHeard = await o.lib.readHeard(bookId);
+    const alignment = alignBook(ebook, withChapters.chapters, withChapters.book.durationMs, { generated: generatedTitles(withChapters.chapters), fixes: this.readingFixes, heard: this.readingHeard });
     log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
     const shared = await o.lib
       .readTextPlaces()
@@ -1135,6 +1147,99 @@ export class AppController {
     });
     log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections`);
     this.set({ reading: { bookId, status: "ready", ebook, place, alignment } });
+    void this.hearOpenings(o, withChapters, ebook);
+  }
+
+  /** What the narrator was heard saying at each chapter start of the open book. */
+  private readingHeard = new Map<number, string>();
+  private hearing = false;
+
+  /**
+   * Hear the opening words of each audio chapter not yet heard, a few at a
+   * time, in the background, and pair again as they come in (#65). Kept
+   * beside the book after every few, so closing the book loses little.
+   */
+  private async hearOpenings(o: Opened, book: ScannedBook, ebook: Ebook): Promise<void> {
+    const model = this.state.speech.model;
+    const hear = o.lib.host.speechOpenings;
+    if (!model || !hear || this.hearing) return;
+    const bookId = book.book.id;
+    // Only when the pairing has doubts: a book whose names and lengths agree is not worth the machine's time.
+    const now = this.state.reading?.alignment;
+    if (now && now.how === "chapter" && now.pairs.every((p) => p.confidence >= DOUBT)) return;
+    // The doubtful chapters first, then the rest in order.
+    const doubtful = new Set((now?.pairs ?? []).filter((p) => p.confidence < DOUBT).map((p) => p.audio.startMs));
+    const todo = book.chapters
+      .filter((c) => !this.readingHeard.has(c.startMs))
+      .sort((a, b) => Number(doubtful.has(b.startMs)) - Number(doubtful.has(a.startMs)) || a.startMs - b.startMs)
+      .slice(0, 200);
+    if (todo.length === 0) return;
+    this.hearing = true;
+    const durations = book.files.map((f) => f.durationMs);
+    const language = (ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
+    const started = performance.now();
+    let done = 0;
+    const still = () => this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
+    try {
+      for (let k = 0; k < todo.length && still(); k += 3) {
+        const batch = todo.slice(k, k + 3);
+        const clips = batch.map((c) => {
+          const at = locate(durations, c.startMs);
+          return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
+        });
+        this.set({ reading: { ...this.state.reading!, listening: { done, total: todo.length } } });
+        const words = await hear.call(o.lib.host, model, clips, HEAR_SECONDS, language);
+        batch.forEach((c, i) => this.readingHeard.set(c.startMs, (words[i] ?? "").trim()));
+        done += batch.length;
+        await o.lib.writeHeard(bookId, this.readingHeard).catch((e: unknown) => log.warn("could not keep the heard openings:", describe(e)));
+        if (!still()) break;
+        const latest = this.state.books.find((b) => b.book.id === bookId) ?? book;
+        const alignment = alignBook(ebook, latest.chapters, latest.book.durationMs, { generated: generatedTitles(latest.chapters), fixes: this.readingFixes, heard: this.readingHeard });
+        this.set({ reading: { ...this.state.reading!, alignment, listening: { done, total: todo.length } } });
+      }
+      log.info(`heard ${done} chapter openings of ${book.book.title} in ${Math.round((performance.now() - started) / 1000)} s`);
+    } catch (e) {
+      log.warn("could not hear the chapter openings:", describe(e));
+    } finally {
+      this.hearing = false;
+      const r = this.state.reading;
+      if (r?.bookId === bookId && r.listening) {
+        const { listening: _, ...rest } = r;
+        this.set({ reading: rest });
+      }
+    }
+  }
+
+  /** Choose a whisper.cpp model file already on this machine. */
+  async chooseSpeechModel(): Promise<void> {
+    const path = await this.platform.pickFile?.("Choose a whisper.cpp model", [{ name: "Whisper model", extensions: ["bin"] }]);
+    if (!path) return;
+    const ok = (await this.platform.host.speechModelOk?.(path).catch(() => false)) ?? true;
+    if (!ok) {
+      this.set({ error: "That file is not a whisper.cpp model. Models are named like ggml-base.bin." });
+      return;
+    }
+    this.setSpeechModel(path);
+  }
+
+  /** Download Ribbon's speech model (whisper base, about 57 MB) into the Ribbon folder. */
+  async downloadSpeechModel(): Promise<void> {
+    const download = this.platform.host.downloadSpeechModel;
+    if (!download || this.state.speech.downloading) return;
+    this.set({ speech: { ...this.state.speech, downloading: { done: 0, total: 0 } } });
+    try {
+      const path = await download.call(this.platform.host, (done, total) => this.set({ speech: { ...this.state.speech, downloading: { done, total } } }));
+      this.set({ speech: { ...this.state.speech, downloading: null } });
+      this.setSpeechModel(path);
+    } catch (e) {
+      this.set({ speech: { ...this.state.speech, downloading: null }, error: `The speech model could not be downloaded: ${describe(e)}` });
+    }
+  }
+
+  setSpeechModel(path: string | null): void {
+    this.appSettings = { ...this.appSettings, speechModel: path ?? "" };
+    this.set({ speech: { ...this.state.speech, model: path } });
+    this.saveAppSettingsSoon(0);
   }
 
   private readingFixes: PairingFix[] = [];
@@ -1158,7 +1263,7 @@ export class AppController {
     const fixes = this.readingFixes.filter((f) => f.text !== textRef);
     if (choice !== "auto") fixes.push({ text: textRef, audioMs: choice });
     this.readingFixes = fixes;
-    const alignment = alignBook(r.ebook, book.chapters, book.book.durationMs, { generated: generatedTitles(book.chapters), fixes });
+    const alignment = alignBook(r.ebook, book.chapters, book.book.durationMs, { generated: generatedTitles(book.chapters), fixes, heard: this.readingHeard });
     this.set({ reading: { ...r, alignment } });
     try {
       await o.lib.writePairing(r.bookId, fixes);

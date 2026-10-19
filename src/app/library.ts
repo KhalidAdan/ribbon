@@ -496,6 +496,28 @@ export class LibraryService {
     await this.host.writeFile(this.dir("chapter-names.csv"), await nameRecordsToBytes(list));
   }
 
+  // Heard openings -----------------------------------------------------
+
+  /**
+   * What the narrator says at the start of each audio chapter, as heard on
+   * a device with a speech model (#65): one row per chapter start. Beside
+   * the books, so it is heard once for every device.
+   */
+  async readHeard(bookId: string): Promise<Map<number, string>> {
+    try {
+      const { rows } = await bytesToRows(await this.host.readFile(this.dir("openings", `${bookId}.csv`)));
+      return new Map(rows.filter((r) => r.audio_ms).map((r) => [int(r.audio_ms), r.words ?? ""]));
+    } catch {
+      return new Map();
+    }
+  }
+
+  async writeHeard(bookId: string, heard: ReadonlyMap<number, string>): Promise<void> {
+    await this.host.mkdir(this.dir("openings"));
+    const rows = [...heard].sort((a, b) => a[0] - b[0]).map(([ms, words]) => ({ audio_ms: String(ms), words }));
+    await this.host.writeFile(this.dir("openings", `${bookId}.csv`), await rowsToBytes(rows, ["audio_ms", "words"]));
+  }
+
   // Pairing ------------------------------------------------------------
 
   /**

@@ -1,6 +1,7 @@
 import { blockText, type Ebook } from "../ebook";
 import type { Chapter } from "../types";
 import type { TextPlace } from "./place";
+import { openingMatch, OTHER, SAME, words } from "./openings";
 
 /**
  * Level 1 of read-along (docs/READING.md, section 6): the text's chapters
@@ -177,6 +178,26 @@ interface TextIn {
   end: number;
   /** Characters a narrator could read: the range less sections never narrated. */
   spoken: number;
+  /** Its first few hundred characters, to match against what the narrator says. */
+  opening: string;
+}
+
+/** The text from a character of the reading order, blocks joined by spaces, up to `max` characters. */
+function textFrom(ebook: Ebook, start: number, max: number): string {
+  const p = placeAtGlobal(ebook, start);
+  const out: string[] = [];
+  let n = 0;
+  for (let s = p.section; s < ebook.sections.length && n < max; s++) {
+    const sec = ebook.sections[s]!;
+    if (!sec.linear) continue;
+    for (let b = s === p.section ? p.block : 0; b < sec.blocks.length && n < max; b++) {
+      const t = blockText(sec.blocks[b]!).slice(s === p.section && b === p.block ? p.offset : 0);
+      if (!t) continue;
+      out.push(t);
+      n += t.length;
+    }
+  }
+  return out.join(" ").slice(0, max);
 }
 
 interface AudioIn {
@@ -185,7 +206,12 @@ interface AudioIn {
   startMs: number;
   endMs: number;
   credits: boolean;
+  /** What the narrator says at its start, when it was heard (#65). */
+  heard?: string;
 }
+
+/** Heard openings with at least this many words say something. */
+const HEARD_MIN_WORDS = 5;
 
 /** The contents entries in reading order, each running to the next. */
 function textUnits(ebook: Ebook): TextIn[] {
@@ -197,7 +223,7 @@ function textUnits(ebook: Ebook): TextIn[] {
   for (const e of entries) {
     // Two entries at one place: the inner one names it.
     if (out.length > 0 && out[out.length - 1]!.start === e.start) out.pop();
-    out.push({ ref: e.ref, label: e.label, key: chapterKey(e.label), ...(e.kind ? { kind: e.kind } : {}), start: e.start, end: 0, spoken: 0 });
+    out.push({ ref: e.ref, label: e.label, key: chapterKey(e.label), ...(e.kind ? { kind: e.kind } : {}), start: e.start, end: 0, spoken: 0, opening: "" });
   }
   const total = totalChars(ebook);
   out.forEach((c, i) => (c.end = out[i + 1]?.start ?? total));
@@ -213,6 +239,7 @@ function textUnits(ebook: Ebook): TextIn[] {
   for (const c of out) {
     const quiet = silent.reduce((n, [a, b]) => n + Math.max(0, Math.min(b, c.end) - Math.max(a, c.start)), 0);
     c.spoken = Math.max(0, c.end - c.start - quiet);
+    c.opening = textFrom(ebook, c.start, Math.min(400, c.end - c.start));
   }
   return out.filter((c) => c.end > c.start);
 }
@@ -282,6 +309,13 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
       else if (t.kind && NARRATED.has(t.kind)) score += 0.5;
     }
     score -= 0.75 * (ts.length + as.length - 2);
+    // What the narrator says: the strongest evidence there is. The first audio chapter opens with the first text chapter.
+    const heard = as[0]!.heard;
+    if (heard && words(heard).length >= HEARD_MIN_WORDS) {
+      const m = openingMatch(heard, ts[0]!.opening);
+      if (m >= SAME) score += 6;
+      else if (m < OTHER) score -= 3;
+    }
     return score;
   };
 
@@ -334,11 +368,11 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
  * number the book's own chapters. With no pairs at all, the whole text
  * maps to the whole recording by proportion.
  */
-export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[] } = {}): Alignment {
+export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[]; heard?: ReadonlyMap<number, string> } = {}): Alignment {
   const text = textUnits(ebook);
   // Audible books open and close with credits; generated titles hide them, so a short first or last track is taken for them.
   const creditsLike = (c: Chapter, j: number) => CREDITS.test(c.title) || (!!opts.generated && (j === 0 || j === chapters.length - 1) && c.endMs - c.startMs < 75_000);
-  const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title) }));
+  const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)! } : {}) }));
   const total = totalChars(ebook);
   const whole = (): Alignment => ({
     how: "proportion",

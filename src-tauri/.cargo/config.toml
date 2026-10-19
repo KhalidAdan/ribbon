@@ -1,0 +1,14 @@
+# How whisper.cpp (speech, #65) is compiled. whisper-rs-sys passes GGML_*
+# and CMAKE_* variables to cmake. Without these, MSVC builds it with no
+# optimisation and no vector instructions, and a few seconds of speech
+# take over a minute. AVX2 and FMA need a 2013-or-newer x86-64 CPU.
+[env]
+GGML_NATIVE = "OFF"
+GGML_AVX = "ON"
+GGML_AVX2 = "ON"
+GGML_FMA = "ON"
+GGML_F16C = "ON"
+CMAKE_C_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG /MD"
+CMAKE_CXX_FLAGS_RELEASE = "/O2 /Ob2 /DNDEBUG /MD"
+# bindgen needs libclang to read whisper.h.
+LIBCLANG_PATH = "C:/Program Files/LLVM/bin"

@@ -136,6 +136,16 @@ export interface Host {
    * anything else. Optional: hosts without the Rust side leave it out.
    */
   openEbook?(path: string): Promise<string>;
+  /**
+   * Hear the first `seconds` of each clip with a whisper.cpp model on this
+   * machine (#65): one answer per clip, empty when a clip could not be
+   * heard. Optional: hosts without the Rust side leave it out.
+   */
+  speechOpenings?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<string[]>;
+  /** Download the speech model into the app's own folder; resolves to its path. */
+  downloadSpeechModel?(onProgress: (done: number, total: number) => void): Promise<string>;
+  /** True when a file looks like a whisper.cpp model. */
+  speechModelOk?(path: string): Promise<boolean>;
   /** Every small text file in a directory, in one call. */
   readTextDir(dir: string): Promise<TextFile[]>;
   /**

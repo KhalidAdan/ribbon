@@ -133,6 +133,16 @@ export function tauriHost(): Host {
     writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
     catalogSearch: (title, author, region) => invoke<string>("catalog_search", { title, author, region }),
     openEbook: (path) => invoke<string>("ebook_open", { path }),
+    speechOpenings: (model, clips, seconds, language) => invoke<string[]>("speech_openings", { model, clips, seconds, language }),
+    async downloadSpeechModel(onProgress) {
+      const unlisten = await listen<{ done: number; total: number }>("ribbon://model-progress", (e) => onProgress(e.payload.done, e.payload.total));
+      try {
+        return await invoke<string>("speech_download_model");
+      } finally {
+        unlisten();
+      }
+    },
+    speechModelOk: (path) => invoke<boolean>("speech_model_ok", { path }),
     recordsMirror: {
       read: (root) => invoke<{ dir: string; library: string; files: string; positions: string | null; covers: string[] } | null>("mirror_read", { root }),
       write: (root, parts) => invoke<void>("mirror_write", { root, library: parts.library ?? null, files: parts.files ?? null, positions: parts.positions ?? null }),
