@@ -51,12 +51,14 @@ export async function scanWithFfprobe(
     chaptersKnown: false,
     chapters: [],
   });
-  // The walk, with unread audio marked pending, so a caller can show the
-  // shelf before a single tag is read.
+  // An EPUB's package is read when the host can and it changed.
+  const readsEbook = (base: ScannedFile, entry: FileEntry) => base.kind === "ebook" && !!host.readEbookPackage && !isUnchanged(entry);
+  // The walk, with unread audio and EPUBs marked pending, so a caller can
+  // show the shelf before a single tag is read.
   onFiles?.(
     entries.map((entry) => {
       const base = baseOf(entry);
-      base.pending = base.kind === "audio" && !isUnchanged(entry);
+      base.pending = (base.kind === "audio" && !isUnchanged(entry)) || readsEbook(base, entry);
       return base;
     }),
   );
@@ -75,6 +77,12 @@ export async function scanWithFfprobe(
             } catch {
               /* a side file that cannot be read is no side file */
             }
+          }
+          if (readsEbook(base, entry)) {
+            // Not read stays unread, to be tried again next time.
+            const p = await host.readEbookPackage!(entry.absPath).catch(() => null);
+            if (p) Object.assign(base, { fresh: true, tags: p.tags, hasCover: p.hasCover });
+            onFiles?.([base]);
           }
           if (base.kind === "audio") {
             if (isUnchanged(entry)) {

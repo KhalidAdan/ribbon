@@ -106,6 +106,14 @@ export async function openEbook(host: Host, root: string, book: Pick<Book, "eboo
   return { ok: true, ebook };
 }
 
+/**
+ * A book that is only its EPUB: nothing to play, read in the reader,
+ * its progress its reading place (docs/READING.md, section 2).
+ */
+export function readerOnly(book: Pick<Book, "fileCount" | "ebook">): boolean {
+  return book.fileCount === 0 && !!book.ebook;
+}
+
 /** A block's text, its runs joined. */
 export function blockText(b: EbookBlock): string {
   return (b.runs ?? []).map((r) => r.t).join("");

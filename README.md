@@ -21,7 +21,9 @@ npm run tauri:dev          # the desktop app
 ```
 
 On first launch, add a folder of audiobooks. Ribbon scans it, writes
-its records to `<folder>/.ribbon/`, and opens the library. Add more
+its records to `<folder>/.ribbon/`, and opens the library. An EPUB
+goes with its audiobook; an EPUB with no audiobook is a book to read
+([docs/READING.md](docs/READING.md), section 2). Add more
 folders from Settings: the library is every folder together, and the
 books stay where they are. The shelf is on screen from folder names
 before a single tag is read; durations fill in behind it. Launch with a
@@ -71,6 +73,7 @@ Everything durable lives beside the books in `.ribbon/`, all CSV:
 | File                          | Meaning                                       |
 | ----------------------------- | --------------------------------------------- |
 | `library.csv`, `files.csv`    | Scan cache. Rebuilt any time.                 |
+| `ebooks.csv`                  | What each EPUB's package says, for pairing. Rebuilt any time. |
 | `chapters/<id>.csv`           | Effective chapters.                           |
 | `corrections/<id>.csv`        | Your hand edits to chapters. Sync this.       |
 | `positions/<device>.ndjson`   | Where you are, one log per device. Sync this. See [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md). |

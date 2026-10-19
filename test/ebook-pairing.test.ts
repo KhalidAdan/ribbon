@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import { groupBooks } from "../src/core/scan/group";
+import { groupBooks, isReaderOnlyGroup } from "../src/core/scan/group";
 import type { FileEntry } from "../src/core/scan/walk";
 import { nodeHost } from "../src/host/node";
 import { loadLibrary, scanLibrary } from "../src/core/scan/scan";
@@ -28,6 +28,8 @@ describe("pairing an EPUB with a book (docs/READING.md, section 2)", () => {
     expect(g.map((x) => [x.path, x.ebook])).toEqual([
       ["Voidscarred.m4b", "voidscarred.epub"],
       ["Horus Rising.m4b", undefined],
+      // Paired with nothing, it is a book to read.
+      ["Something else.epub", "Something else.epub"],
     ]);
   });
 
@@ -44,13 +46,25 @@ describe("pairing an EPUB with a book (docs/READING.md, section 2)", () => {
 
   it("does not guess when two files start the same way, or the names share too little", () => {
     const g = groupBooks([f("Horus Rising part 1.mp3"), f("Horus Rising part 2.mp3"), f("Horus Rising.epub")]);
-    expect(g.map((x) => x.ebook)).toEqual([undefined, undefined]);
+    expect(g.filter((x) => x.audio.length > 0).map((x) => x.ebook)).toEqual([undefined, undefined]);
     expect(groupBooks([f("Voids.mp3"), f("Voidscarred.epub")])[0]!.ebook).toBeUndefined();
   });
 
-  it("gives an anthology the EPUB in its own folder, and an EPUB alone is not a book", () => {
+  it("gives an anthology the EPUB in its own folder, and an EPUB alone is a book to read", () => {
     const g = groupBooks([f("03. Tales/01. First/a.mp3"), f("03. Tales/02. Second/b.mp3"), f("03. Tales/Tales.epub"), f("Reading/Only.epub")]);
-    expect(g.map((x) => [x.path, x.ebook])).toEqual([["03. Tales", "03. Tales/Tales.epub"]]);
+    expect(g.map((x) => [x.path, x.ebook, x.audio.length])).toEqual([
+      ["03. Tales", "03. Tales/Tales.epub", 2],
+      ["Reading/Only.epub", "Reading/Only.epub", 0],
+    ]);
+    expect(g.map(isReaderOnlyGroup)).toEqual([false, true]);
+  });
+
+  it("leaves a book folder's other EPUBs with the book, not on the shelf", () => {
+    const g = groupBooks([f("Voidscarred/01.mp3"), f("Voidscarred/A.epub"), f("Voidscarred/B.epub"), f("03. Tales/01. First/a.mp3"), f("03. Tales/01. First/First.epub")]);
+    expect(g.map((x) => [x.path, x.ebook])).toEqual([
+      ["Voidscarred", "Voidscarred/A.epub"],
+      ["03. Tales", undefined],
+    ]);
   });
 
   it("is kept in library.csv, and an older record has none", async () => {

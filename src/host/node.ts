@@ -10,9 +10,14 @@ import type { Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "./host";
 import { scanWithFfprobe } from "./scan-with-ffprobe";
 
-/** Node implementation of Host. Used by tests and the CLI. */
-export function nodeHost(): Host {
+/**
+ * Node implementation of Host. Used by tests and the CLI. Node cannot
+ * read an EPUB's package itself; give it a reader (the dev server runs
+ * the Rust one) and its scans read them too.
+ */
+export function nodeHost(opts: Pick<Host, "readEbookPackage" | "extractCover"> = {}): Host {
   const host: Host = {
+    ...opts,
     async readDir(dir: string): Promise<DirEntry[]> {
       const entries = await fs.readdir(dir, { withFileTypes: true });
       return entries.map((e) => ({ name: e.name, isDir: e.isDirectory(), isFile: e.isFile() }));

@@ -54,6 +54,8 @@ export function browserHost(base = "/__ribbon"): Host {
     readTextDir: (dir) => call<TextFile[]>("readTextDir", { dir }),
     catalogSearch: (title, author, region) => call<string>("catalog", { title, author, region }),
     openEbook: (path) => call<string>("ebook", { path }),
+    // EPUB covers only; audio covers fall back to ffmpeg, as before.
+    extractCover: (src, target) => call<boolean>("cover", { src, target }),
   };
 }
 

@@ -30,10 +30,46 @@ const MIME: Record<string, string> = {
   csv: "text/csv",
 };
 
+/**
+ * The Rust EPUB tools, as the app runs them, through their example
+ * binary when it is built; else through cargo, unless `builtOnly` (a scan
+ * asks for every EPUB, and must not wait on a build).
+ */
+async function ebookJson(args: string[], builtOnly = false): Promise<{ ok: boolean; text: string }> {
+  const repo = path.resolve(import.meta.dirname, "..");
+  const tauriDir = path.join(repo, "src-tauri");
+  const exe = process.platform === "win32" ? "ebook_json.exe" : "ebook_json";
+  const targets = [process.env.CARGO_TARGET_DIR, path.join(repo, "target"), path.join(tauriDir, "target")].filter((t): t is string => !!t);
+  let built: string | null = null;
+  for (const t of targets) {
+    const candidate = path.join(t, "debug", "examples", exe);
+    if (await fs.access(candidate).then(() => true, () => false)) {
+      built = candidate;
+      break;
+    }
+  }
+  if (!built && builtOnly) return { ok: false, text: "ebook_json is not built" };
+  const [cmd, cmdArgs] = built ? [built, args] : ["cargo", ["run", "--quiet", "--example", "ebook_json", "--", ...args]];
+  return new Promise((resolve) => {
+    execFile(cmd, [...cmdArgs], { cwd: tauriDir, maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => resolve(err ? { ok: false, text: String(stderr).trim() } : { ok: true, text: String(stdout) }));
+  });
+}
+
 export function devLibrary(root: string | undefined): Plugin {
   const base = "/__ribbon";
   const absRoot = root ? path.resolve(root) : null;
-  const host = nodeHost();
+  // Scans read each EPUB's package, and covers come out of EPUBs, with the Rust code.
+  const host = nodeHost({
+    async readEbookPackage(epub) {
+      const out = await ebookJson(["--package", epub], true);
+      return out.ok ? ((JSON.parse(out.text.trim() || "null") as { tags: Record<string, string>; hasCover: boolean } | null) ?? null) : null;
+    },
+    async extractCover(src, target) {
+      if (!src.toLowerCase().endsWith(".epub")) return false;
+      const out = await ebookJson(["--cover", src, target], true);
+      return out.ok && out.text.trim() === "true";
+    },
+  });
 
   function inside(p: string): string {
     const abs = path.resolve(p);
@@ -139,18 +175,11 @@ export function devLibrary(root: string | undefined): Plugin {
             case "ebook": {
               // The Rust parser, as the app runs it, through its example binary; the cache lives inside the library so its images can be served.
               const epub = inside(String(args.path));
-              const cache = path.join(absRoot, ".ribbon", "dev-ebooks");
-              const tauriDir = path.resolve(import.meta.dirname, "..", "src-tauri");
-              const built = path.join(tauriDir, "target", "debug", "examples", process.platform === "win32" ? "ebook_json.exe" : "ebook_json");
-              const [cmd, cmdArgs] = await fs
-                .access(built)
-                .then(() => [built, [epub, cache]] as const)
-                .catch(() => ["cargo", ["run", "--quiet", "--example", "ebook_json", "--", epub, cache]] as const);
-              const out = await new Promise<{ ok: boolean; text: string }>((resolve) => {
-                execFile(cmd, [...cmdArgs], { cwd: tauriDir, maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => resolve(err ? { ok: false, text: String(stderr).trim() } : { ok: true, text: String(stdout) }));
-              });
+              const out = await ebookJson([epub, path.join(absRoot, ".ribbon", "dev-ebooks")]);
               return out.ok ? json(res, 200, out.text) : json(res, 500, { error: out.text });
             }
+            case "cover":
+              return json(res, 200, await host.extractCover!(inside(String(args.src)), inside(String(args.target))));
             case "catalog":
               return json(res, 200, await host.catalogSearch!(String(args.title ?? ""), String(args.author ?? ""), String(args.region ?? "us")));
             case "readTextDir":

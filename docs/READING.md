@@ -81,7 +81,7 @@ open wide gaps.
 
 ## 2. Which EPUB goes with which book
 
-Version 1 pairs by folder. The audiobook and its EPUB are one book when:
+Folder first. The audiobook and its EPUB are one book when:
 
 - the EPUB is in the book's folder (for an anthology, the anthology's
   folder), or
@@ -92,13 +92,37 @@ Version 1 pairs by folder. The audiobook and its EPUB are one book when:
   EPUB beside them is as close (`VoidscarredWarhammer40000_ep7.mp3` and
   `Voidscarred -- Mike Brooks -- 2025 -- Black Library.epub`).
 
-When a folder holds several EPUBs, the first by name is taken. An EPUB
-with no audio beside it is not a book yet; reader-only books come later.
-The EPUB's identifiers (ISBN, its own `urn:uuid`) become claims on the
-text edition (section 5); a later version can pair by those.
+When a folder holds several EPUBs, the first by name is taken; the others
+stay with the book.
 
-The scan only notices the file. The EPUB is opened when it is read, never
-during a scan.
+Then metadata. An EPUB the folder left alone pairs with an audiobook
+elsewhere in the library that has no EPUB yet:
+
+- by ISBN: an ISBN in the audiobook's tags or side files is one of the
+  EPUB's identifiers (the ten- and thirteen-digit forms of a number
+  agree), or else
+- by title and author: the titles agree with brackets, a leading article
+  and case set aside, either side of a colon counting ("The Horus Heresy:
+  Horus Rising" is "Horus Rising"), and one author is the same ("Abnett,
+  Dan" is "Dan Abnett").
+
+A pair is made only when it is the only one both ways. An EPUB that agrees
+with two audiobooks, or an audiobook two EPUBs agree with, pairs with
+nothing.
+
+An EPUB that pairs with nothing is a book of its own, to read. It has no
+audio: its page offers Read and not Play, and its progress is how far
+through the text this machine has read. Its title, author, year,
+publisher, language, description and cover come from its package.
+
+The EPUB's identifiers (ISBN, its own `urn:uuid`) are claims on the text
+edition, never on the book (section 5).
+
+The scan reads only an EPUB's package: the zip's directory, the
+container and the package file, a few small reads wherever it is, and
+nothing for any other file. What it read is kept in
+`.ribbon/ebooks.csv`, so an unchanged EPUB is not opened again. The
+chapters are read when the book is read.
 
 ## 3. What is refused
 
@@ -332,7 +356,9 @@ no graphics driver, and speech says it cannot run there.
 
 ## 8. Not in the first version
 
-Reader-only books; pairing by ISBN; fixed layout; vertical writing;
-drawn tables; footnotes as pop-ups; search inside the book; highlights and
-notes (the Lexical or Tiptap work, much later). Right-to-left text is laid
+Pairing an EPUB with its audiobook by hand; fixed layout; vertical
+writing; drawn tables; footnotes as pop-ups; search inside the book;
+highlights and notes (the Lexical or Tiptap work, much later). A book
+that is only its EPUB keeps its reading progress on each machine; only
+its place goes in the position log. Right-to-left text is laid
 out, but each line is painted as one element so the browser orders it.
