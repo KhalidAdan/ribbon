@@ -11,14 +11,15 @@ const version = (JSON.parse(readFileSync(new URL("./package.json", import.meta.u
 // `.env.<mode>.local` file (so a `--mode` picks a folder), or the sample.
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), devLibrary(process.env.RIBBON_DEV_LIBRARY ?? loadEnv(mode, process.cwd(), "RIBBON_").RIBBON_DEV_LIBRARY ?? (existsSync("books") ? "books" : undefined))],
-  define: { __APP_VERSION__: JSON.stringify(version) },
+  // RIBBON_PROFILE=1 is the measurement build (tools/e2e): it also puts the controller on the page for the suite.
+  define: { __APP_VERSION__: JSON.stringify(version), __RIBBON_MEASURE__: JSON.stringify(!!process.env.RIBBON_PROFILE) },
   clearScreen: false,
   server: {
     port: 1420,
     strictPort: true,
     host: host || false,
     ...(host ? { hmr: { protocol: "ws", host, port: 1421 } } : {}),
-    watch: { ignored: ["**/src-tauri/**", "**/books/**", "**/test/fixtures/**"] },
+    watch: { ignored: ["**/src-tauri/**", "**/books/**", "**/test/fixtures/**", "**/.e2e/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   // RIBBON_PROFILE=1 builds with React's profiling build, so <Profiler> reports renders (app/perf.ts) in a release build too.
