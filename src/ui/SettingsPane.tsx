@@ -258,7 +258,7 @@ export function SettingsPane() {
           </section>
         )}
 
-        <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Ribbon {__APP_VERSION__}. The listener for books you own.</p>
+        <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Ribbon {__APP_VERSION__}. A home for your books, read or heard.</p>
       </div>
     </section>
   );

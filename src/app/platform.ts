@@ -50,7 +50,7 @@ export async function detectPlatform(): Promise<Platform> {
         // Open one level up so the current library is a folder you can
         // see and click, not a folder you are already inside.
         const parent = near ? near.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]+$/, "") : undefined;
-        const picked = await dialog.open({ directory: true, multiple: false, title: "Add a folder of audiobooks", ...(parent ? { defaultPath: parent } : {}) });
+        const picked = await dialog.open({ directory: true, multiple: false, title: "Add a folder of books", ...(parent ? { defaultPath: parent } : {}) });
         log.info("picked", picked);
         return typeof picked === "string" ? picked : null;
       },

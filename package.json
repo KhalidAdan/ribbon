@@ -1,7 +1,7 @@
 {
   "name": "ribbon",
   "version": "0.12.2",
-  "description": "The listener for books you own.",
+  "description": "A home for your books, read or heard.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

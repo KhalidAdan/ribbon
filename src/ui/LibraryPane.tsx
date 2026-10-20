@@ -80,8 +80,8 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
         {empty && state.scanning ? (
           <ScanProgress status={state.scanning} />
         ) : empty ? (
-          <EmptyState icon={FolderOpenIcon} title="No audiobooks here" action={<Button onClick={() => void c.pickLibrary()}>Add a folder</Button>}>
-            Ribbon found no audio files in {folder}. Add the folder your books live in.
+          <EmptyState icon={FolderOpenIcon} title="No books here" action={<Button onClick={() => void c.pickLibrary()}>Add a folder</Button>}>
+            Ribbon found no audiobooks or EPUBs in {folder}. Add the folder your books live in.
           </EmptyState>
         ) : results ? (
           <section aria-labelledby="results-title" className="flex flex-col gap-5">
@@ -128,7 +128,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
           <>
             {inProgress.length > 0 && (
               <section aria-labelledby="continue-title" className="flex flex-col gap-4">
-                <SectionHeader id="continue-title" title={inProgress.some(({ b }) => readerOnly(b.book)) ? "Continue" : "Continue listening"} description={inProgress.length === 1 ? "One book in progress." : `${inProgress.length} books in progress, most recent first.`} />
+                <SectionHeader id="continue-title" title="Continue" description={inProgress.length === 1 ? "One book in progress." : `${inProgress.length} books in progress, most recent first.`} />
                 <ul role="list" className="grid grid-cols-[repeat(auto-fill,minmax(19rem,1fr))] gap-3">
                   {inProgress.map(({ b, p }) => (
                     <ContinueCard key={b.book.id} book={b} progress={p} coverUrl={c.coverUrl(b)} playing={current === b.book.id && state.playing} />
