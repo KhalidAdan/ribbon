@@ -67,6 +67,12 @@ export function end(name: string, as: string = name): void {
   afterPaint(() => record(as, performance.now() - at));
 }
 
+/** Part of the way: the time from `begin` to the next frame, recorded as `as`, with `name` still running. */
+export function reached(name: string, as: string): void {
+  const at = pending.get(name);
+  if (at !== undefined) afterPaint(() => record(as, performance.now() - at));
+}
+
 /** After the next frame is painted: a frame, then a task after it. */
 function afterPaint(fn: () => void): void {
   requestAnimationFrame(() => {

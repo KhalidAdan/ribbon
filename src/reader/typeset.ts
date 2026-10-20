@@ -34,11 +34,17 @@ let patterns: Promise<unknown> = Promise.resolve();
  * patterns, so its first lines break as all the later ones do.
  */
 let added: Promise<void> | null = null;
+let loaded = false;
 
 /** Add the reader's faces to the page, once: called at start, so the first book opened does not wait for them. */
 export function preloadFaces(): Promise<void> {
   if (typeof document === "undefined" || !document.fonts) return Promise.resolve();
-  return (added ??= addFaces(document.fonts));
+  return (added ??= addFaces(document.fonts).then(() => void (loaded = true)));
+}
+
+/** Whether the reader's faces are on the page already, so the text can be drawn at once. */
+export function facesLoaded(): boolean {
+  return loaded;
 }
 
 export async function loadFaces(size: number): Promise<void> {

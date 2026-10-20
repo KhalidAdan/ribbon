@@ -12,7 +12,8 @@ import { useAppState, useController } from "../ui/store";
 import { Button, IconButton } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
 import { EmptyState, ProgressLine, Toggle } from "../ui/kit";
-import { FAMILY, loadFaces } from "./typeset";
+import { facesLoaded, FAMILY, loadFaces } from "./typeset";
+import { fitsKey, loadSnapshot, savePage, savePlace } from "./snapshot";
 import { LayoutEngine } from "./layout-engine";
 import type { SectionLayout } from "./layout";
 import { PlayButton } from "../ui/PlayerBar";
@@ -87,7 +88,7 @@ export function ReadingView() {
         </div>
       </header>
 
-      {r.status === "opening" && <Middle>Opening the book…</Middle>}
+      {r.status === "opening" && <Opening bookId={r.bookId} settings={state.readingSettings} bar={barOpen} />}
       {r.status === "failed" && (
         <Middle>
           <p className="text-base/6 font-medium text-ink sm:text-sm/5">This book’s text could not be opened</p>
@@ -408,24 +409,31 @@ function Choice({ label, value, options, onChange }: { label: string; value: num
  * never waits on a long chapter. `layout(s)` is a chapter if it is ready,
  * else nothing to show yet; `want` asks for chapters, most needed first.
  */
-function useLayout(ebook: Ebook, settings: ReadingSettings, viewport: { width: number; height: number } | null) {
+function useLayout(bookId: string, ebook: Ebook, settings: ReadingSettings, viewport: { width: number; height: number } | null) {
   const engine = useMemo(() => new LayoutEngine(ebook), [ebook]);
   useEffect(() => () => engine.destroy(), [engine]);
   const version = useSyncExternalStore(engine.subscribe, engine.getVersion);
   const metrics = useMemo(() => (viewport ? metricsFor(settings, viewport) : null), [settings, viewport]);
-  const [ready, setReady] = useState(false);
+  // The faces are loaded at start; only a book opened before they arrive waits for them.
+  const [ready, setReady] = useState(facesLoaded);
   useEffect(() => {
+    if (ready || !metrics) return;
     let live = true;
-    setReady(false);
-    if (!metrics) return;
     void loadFaces(metrics.size).then(() => live && setReady(true));
     return () => {
       live = false;
     };
-  }, [metrics?.size, metrics]);
+  }, [ready, metrics]);
   // Justified lines in a narrow column open rivers unless words can break: hyphenated, a phone's column (16 ems) can be justified.
   const justify = !!metrics && settings.justify && metrics.column >= metrics.size * (engine.hyphenates ? 16 : 24);
   if (metrics) engine.setSpec({ metrics, justify });
+  // The page you left, laid out last time for this same spec: the first page needs no layout.
+  const seeded = useRef(false);
+  if (metrics && !seeded.current) {
+    seeded.current = true;
+    const snap = loadSnapshot(bookId);
+    if (snap && snap.chars === ebook.sections[snap.section]?.chars) engine.seed(snap.section, snap.layout, snap.key);
+  }
   // A new function when a chapter the page watches arrives, so what uses it draws again.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useCallback((section: number): SectionLayout | undefined => engine.get(section), [engine, version]);
@@ -461,7 +469,8 @@ function Text({ bookId, text, place, settings, bar, listen, narrator, highlights
     return () => ro.disconnect();
   }, []);
   const ebook = text.ebook;
-  const { metrics, ready, layout, engine } = useLayout(ebook, settings, viewport);
+  const { metrics, ready, layout, engine } = useLayout(bookId, ebook, settings, viewport);
+  const fits = viewport ? fitsKey(viewport, settings) : "";
   const progress = text.progress(place);
 
   // Bookmarks made from highlights, found in this book's text as ranges of places, so they survive any layout.
@@ -597,7 +606,7 @@ function Text({ bookId, text, place, settings, bar, listen, narrator, highlights
       <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
         {ready && metrics && viewport && (
           <Profiler id={settings.layout === "pages" ? "pages" : "scroll"} onRender={perf.onRender}>
-            {settings.layout === "pages" ? <Pages text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />}
+            {settings.layout === "pages" ? <Pages bookId={bookId} fits={fits} text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />}
           </Profiler>
         )}
         {tap && viewport && (
@@ -674,7 +683,7 @@ function placeAt(node: Node | null, offset: number): TextPlace | null {
   return { section, block, offset: Number(frag.dataset.start) + Math.max(0, (node === frag ? 0 : offset) - gap) };
 }
 
-const Pages = memo(function Pages({ text, place, metrics, viewport, layout, engine, marks, c, onVisible }: { text: BookText; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout | undefined; engine: LayoutEngine; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
+const Pages = memo(function Pages({ bookId, fits, text, place, metrics, viewport, layout, engine, marks, c, onVisible }: { bookId: string; fits: string; text: BookText; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout | undefined; engine: LayoutEngine; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
   const l = layout(place.section) ?? NOT_YET;
   const at = pageOf(l.pages, place);
   const per = metrics.columns;
@@ -720,6 +729,20 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, engi
   // This chapter first, then the ones on either side, then the rest of the book outward from here.
   useEffect(() => wantAround(engine, text, place.section), [engine, text, place.section]);
 
+  // The snapshot the book opens to next time (snapshot.ts): the chapter once it is laid out, the place on every turn.
+  const laidOut = l === NOT_YET ? null : l;
+  useEffect(() => {
+    if (!laidOut) return;
+    const key = engine.specKey;
+    const id = setTimeout(() => savePage(bookId, { fits, key, section: place.section, chars: text.ebook.sections[place.section]?.chars ?? 0, layout: laidOut }), 400);
+    return () => clearTimeout(id);
+    // The place within the chapter is saved below, on its own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookId, fits, engine, laidOut]);
+  useEffect(() => {
+    if (laidOut) savePlace(bookId, { place, progress: text.progress(place) });
+  }, [bookId, text, place, laidOut]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -743,17 +766,9 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, engi
     return () => window.removeEventListener("keydown", onKey);
   }, [go, c]);
 
-  const width = per * metrics.column + (per - 1) * metrics.gap;
-  const left = Math.max(0, Math.round((viewport.width - width) / 2));
   return (
     <div className="absolute inset-0 select-text" style={{ fontFamily: FAMILY }}>
-      {shown.map((page, i) => (
-        <div key={`${page.section}:${first + i}`} className="absolute" style={{ top: metrics.margin, left: left + i * (metrics.column + metrics.gap), width: metrics.column, height: metrics.pageHeight }}>
-          {page.items.map((it) => (
-            <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} text={text} c={c} />
-          ))}
-        </div>
-      ))}
+      <Spread l={l} first={first} metrics={metrics} viewport={viewport} marks={marks} text={text} c={c} />
       <button type="button" aria-label="Previous page" data-perf="previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none" onClick={(e) => go(-1, e.timeStamp)} />
       <button type="button" aria-label="Next page" data-perf="next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none" onClick={(e) => go(1, e.timeStamp)} />
       <p className="absolute right-0 bottom-1 left-0 text-center text-xs/4 text-ink-3 tabular-nums" aria-live="polite">
@@ -763,6 +778,66 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, engi
     </div>
   );
 });
+
+/** The pages showing, one or two side by side, centred in the reading area: the same for the real page and its snapshot. */
+function Spread({ l, first, metrics, viewport, marks, text, c }: { l: SectionLayout; first: number; metrics: Metrics; viewport: { width: number; height: number }; marks: readonly Marked[]; text: BookText | null; c: AppController }) {
+  const per = metrics.columns;
+  const width = per * metrics.column + (per - 1) * metrics.gap;
+  const left = Math.max(0, Math.round((viewport.width - width) / 2));
+  return l.pages.slice(first, first + per).map((page, i) => (
+    <div key={`${page.section}:${first + i}`} className="absolute" style={{ top: metrics.margin, left: left + i * (metrics.column + metrics.gap), width: metrics.column, height: metrics.pageHeight }}>
+      {page.items.map((it) => (
+        <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} text={text} c={c} />
+      ))}
+    </div>
+  ));
+}
+
+/**
+ * While a book opens: the page you left, drawn from its snapshot
+ * (snapshot.ts) the moment you open it, in the same place the real page
+ * will draw it. Without a snapshot, or one made for another window or
+ * other settings, a word that it is opening.
+ */
+function Opening({ bookId, settings, bar }: { bookId: string; settings: ReadingSettings; bar: boolean }) {
+  const c = useController();
+  const box = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState<{ width: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el) setViewport({ width: el.clientWidth, height: el.clientHeight });
+  }, []);
+  const snap = useMemo(() => (settings.layout === "pages" && facesLoaded() ? loadSnapshot(bookId) : null), [bookId, settings.layout]);
+  const fits = !!snap && !!viewport && snap.fits === fitsKey(viewport, settings);
+  const metrics = fits ? metricsFor(settings, viewport!) : null;
+  useLayoutEffect(() => {
+    if (fits) perf.reached("open the reader", "open the reader: the page you left");
+  }, [fits]);
+  let page: ReactNode = <Middle>Opening the book…</Middle>;
+  if (snap && metrics && viewport) {
+    const at = pageOf(snap.layout.pages, snap.place);
+    page = (
+      <div className="absolute inset-0" style={{ fontFamily: FAMILY }}>
+        <Spread l={snap.layout} first={at - (at % metrics.columns)} metrics={metrics} viewport={viewport} marks={NO_MARKS} text={null} c={c} />
+      </div>
+    );
+  }
+  // Laid out as the reading area will be, so the page is where it will stay.
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div ref={box} className="relative flex min-h-0 flex-1 flex-col">
+        {page}
+      </div>
+      {bar && <div className="h-14 shrink-0 border-t border-line" />}
+      <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
+        <ProgressLine fraction={snap?.progress ?? 0} className="flex-1" />
+        <span className="text-xs/4 text-ink-3 tabular-nums">{snap ? `${Math.round(snap.progress * 100)}%` : ""}</span>
+      </footer>
+    </div>
+  );
+}
+
+const NO_MARKS: Marked[] = [];
 
 /**
  * The whole book as one long column, chapter under chapter. Chapters not
@@ -1069,7 +1144,7 @@ function marked(on: Tone[]): string | undefined {
 
 /** One line, image or break, drawn where the layout put it. */
 /** One line of a block (or an image, or a break), placed. Drawn again only when its marks change. */
-const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; text: BookText; c: AppController }) {
+const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; text: BookText | null; c: AppController }) {
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
     const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
@@ -1119,7 +1194,7 @@ const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBloc
                 </span>
               ));
         if (f.href) {
-          const target = f.href.startsWith("http") ? null : text.fromHref(f.href);
+          const target = f.href.startsWith("http") || !text ? null : text.fromHref(f.href);
           return (
             <span key={k} data-link data-start={f.start} data-gap={f.gap ? "1" : undefined} style={s} className={clsx(target && "cursor-pointer underline decoration-line-strong underline-offset-2 hover:decoration-ink-2")} onClick={target ? () => c.moveReading(target, "seek") : undefined}>
               {inner}
