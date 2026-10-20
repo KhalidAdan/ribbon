@@ -21,6 +21,8 @@ export class LayoutEngine {
   private readonly waiters = new Map<number, ((l: SectionLayout) => void)[]>();
   /** Sections the page is showing or about to: their arrival redraws it. */
   private readonly watched = new Set<number>();
+  /** How many views watch every chapter (the scroll, which places the whole book). */
+  private watchingAll = 0;
   private readonly listeners = new Set<(section: number) => void>();
   private queue: number[] = [];
   private spec: LayoutSpec | null = null;
@@ -109,6 +111,12 @@ export class LayoutEngine {
     this.pump();
   }
 
+  /** Redraw on every chapter that arrives, until the returned function is called: for a view of the whole book. */
+  watchAll(): () => void {
+    this.watchingAll++;
+    return () => void this.watchingAll--;
+  }
+
   /** Lay these out when nothing more pressing is asked, in this order. */
   later(sections: readonly number[]): void {
     const add = sections.filter((s) => !this.cache.has(s) && !this.queue.includes(s));
@@ -186,6 +194,6 @@ export class LayoutEngine {
     this.cache.set(section, layout);
     for (const resolve of this.waiters.get(section) ?? []) resolve(layout);
     this.waiters.delete(section);
-    if (this.watched.has(section)) this.bump(section);
+    if (this.watchingAll > 0 || this.watched.has(section)) this.bump(section);
   }
 }

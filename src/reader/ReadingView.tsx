@@ -1,9 +1,9 @@
 import { ArrowLeftIcon, BackwardIcon, BookmarkIcon, ForwardIcon, ListBulletIcon, PlayIcon, SpeakerWaveIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "../core/ebook";
 import type { Highlight } from "../core/types";
-import { pageOf, placeAtY, yOfPlace, type LaidBlock, type Placed } from "../core/reading/pages";
+import { itemsIn, pageOf, placeAtY, yOfPlace, type LaidBlock, type Placed } from "../core/reading/pages";
 import { comparePlaces, type BookText, type TextPlace, type TextRange } from "../core/reading/booktext";
 import { inRange, rangeOf } from "../core/reading/highlights";
 import { LEADINGS, MEASURES, metricsFor, SIZES, type Metrics, type ReadingSettings } from "../core/reading/typography";
@@ -764,86 +764,126 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, engi
   );
 });
 
-/** The sections in view while scrolling: the one being read and its neighbours, stacked. */
+/**
+ * The whole book as one long column, chapter under chapter. Chapters not
+ * laid out yet hold an estimated height (from their length) until the
+ * layout engine sends them, which it does for the whole book in the
+ * background.
+ *
+ * Only the lines near the screen are drawn: the column is cut into bands
+ * half a screen tall, and a scroll draws again only when it crosses into
+ * another band. Where you are is told to the app a few times a second, not on every
+ * scroll event. When the column above you changes (a chapter arrives, the
+ * window is resized), the view is put back on the line you were reading.
+ */
 const Scroll = memo(function Scroll({ text, place, metrics, layout: laid, engine, marks, c, onVisible, onScrolled }: { text: BookText; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout | undefined; engine: LayoutEngine; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [center, setCenter] = useState(place.section);
-  const sections = [neighbour(text.ebook, center, -1), center, neighbour(text.ebook, center, 1)].filter((s): s is number => s !== null);
-  const layout = (s: number): SectionLayout => laid(s) ?? NOT_YET;
-  useEffect(() => wantAround(engine, text, center), [engine, text, center]);
-  const between = metrics.lineHeight * 4;
-  const tops: number[] = [];
-  let y = metrics.margin;
-  for (const s of sections) {
-    tops.push(y);
-    y += layout(s).flow.height + between;
-  }
-  const total = y;
-  const offsetOf = (s: number) => tops[sections.indexOf(s)] ?? 0;
-  // Where the scroll should be after the next paint: a section and how far into it.
-  const anchor = useRef<{ section: number; y: number } | null>({ section: place.section, y: yOfPlace(layout(place.section).blocks, layout(place.section).flow, place) });
-  const lastPlace = useRef(place);
+  useEffect(() => engine.watchAll(), [engine]);
+  useEffect(() => wantAround(engine, text, place.section), [engine, text, place.section]);
+  // The reading order, and the section you are in when a link took you outside it.
+  const aside = text.ebook.sections[place.section]?.linear ? -1 : place.section;
+  const sections = useMemo(() => text.ebook.sections.flatMap((s, i) => (s.linear || i === aside ? [i] : [])), [text, aside]);
+  const column = useMemo(() => stack(text, sections, laid, metrics), [text, sections, laid, metrics]);
 
-  // A jump from elsewhere (the contents, a link) moves the scroll.
-  useEffect(() => {
-    const was = lastPlace.current;
-    lastPlace.current = place;
-    if (was === place) return;
-    const el = scroller.current;
-    if (!el) return;
-    const viewTop = el.scrollTop + metrics.margin;
-    const inView = sections.includes(place.section) && Math.abs(offsetOf(place.section) + yOfPlace(layout(place.section).blocks, layout(place.section).flow, place) - viewTop) < metrics.lineHeight * 2;
-    if (inView) return;
-    anchor.current = { section: place.section, y: yOfPlace(layout(place.section).blocks, layout(place.section).flow, place) };
-    setCenter(place.section);
-  });
-
-  useLayoutEffect(() => {
-    const el = scroller.current;
-    const a = anchor.current;
-    if (!el || !a || !sections.includes(a.section)) return;
-    el.scrollTop = offsetOf(a.section) + a.y - metrics.margin;
-    anchor.current = null;
-  });
-
-  /** The place at a height in the stack of sections. */
-  const placeAtStackY = (y: number): TextPlace => {
-    let i = sections.length - 1;
-    while (i > 0 && tops[i]! > y) i--;
-    const l = layout(sections[i]!);
-    return { section: sections[i]!, ...placeAtY(l.blocks, l.flow, y - tops[i]!) };
+  /** The place at a height in the column, and the height of its line. */
+  const placeAt = (y: number): { place: TextPlace; lineY: number } => {
+    const i = Math.max(0, upperBound(column.tops, y) - 1);
+    const s = sections[i]!;
+    const l = laid(s);
+    const within = y - column.tops[i]!;
+    const place = l ? { section: s, ...placeAtY(l.blocks, l.flow, within) } : text.placeAtProgress(s, within / Math.max(1, column.heights[i]!));
+    return { place, lineY: yAt(place) };
+  };
+  /** The height of a place's line in the column; a chapter not laid out yet is guessed at by how far through it the place is. */
+  const yAt = (p: TextPlace): number => {
+    const i = sections.indexOf(p.section);
+    if (i < 0) return 0;
+    const l = laid(p.section);
+    return column.tops[i]! + (l ? yOfPlace(l.blocks, l.flow, p) : text.sectionProgress(p) * column.heights[i]!);
   };
 
-  // What is on screen, after every paint as well as every scroll.
-  useEffect(() => {
+  // Which band the view starts in: what is drawn is the view and a band either side.
+  const band = Math.max(100, Math.round(metrics.pageHeight / 2));
+  const [at, setAt] = useState(-1);
+  const [, again] = useReducer((n: number) => n + 1, 0);
+  // The line being read and how far the view's top is below it: kept when the column above changes.
+  const anchor = useRef({ place, dy: 0 });
+  const putBack = useRef(true);
+  const shape = useRef(column);
+  const told = useRef(place);
+  const quiet = useRef(false);
+
+  const show = () => {
     const el = scroller.current;
-    if (el) onVisible({ from: placeAtStackY(el.scrollTop + metrics.margin), to: placeAtStackY(el.scrollTop + el.clientHeight - metrics.lineHeight) });
+    if (el) onVisible({ from: anchor.current.place, to: placeAt(el.scrollTop + el.clientHeight - metrics.lineHeight).place });
+  };
+
+  // After a paint: back onto the line being read if the column moved under it, or the place was moved from elsewhere.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    if (shape.current !== column) {
+      shape.current = column;
+      putBack.current = true;
+    }
+    if (putBack.current) {
+      putBack.current = false;
+      const top = Math.max(0, Math.round(yAt(anchor.current.place) + anchor.current.dy - metrics.margin));
+      if (Math.abs(el.scrollTop - top) >= 1) {
+        const before = el.scrollTop;
+        el.scrollTop = top;
+        // The scroll this makes is not yours: it is not told to the app as a move.
+        quiet.current = el.scrollTop !== before;
+      }
+      show();
+    }
+    const now = Math.floor(el.scrollTop / band);
+    if (now !== at) setAt(now);
   });
+
+  // A jump from elsewhere (the contents, a link, the narrator moving on): unless it is already at the top of the view.
+  useEffect(() => {
+    if (place === told.current) return;
+    told.current = place;
+    const el = scroller.current;
+    if (!el || Math.abs(yAt(place) - (el.scrollTop + metrics.margin)) < metrics.lineHeight * 2) return;
+    anchor.current = { place, dy: 0 };
+    putBack.current = true;
+    again();
+  });
+
+  // Where you are goes to the app a few times a second while you scroll, and once when you stop.
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (pending.current && clearTimeout(pending.current)), []);
+  const tell = () => {
+    pending.current = null;
+    show();
+    const p = anchor.current.place;
+    if (same(p, told.current)) return;
+    told.current = p;
+    c.moveReading(p, "periodic", "scroll");
+  };
+
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el) return;
+    if (quiet.current) {
+      quiet.current = false;
+      return;
+    }
+    perf.sampleFrames("scrolling: time between frames");
+    onScrolled?.();
+    const top = el.scrollTop + metrics.margin;
+    const { place: p, lineY } = placeAt(top);
+    anchor.current = { place: p, dy: top - lineY };
+    const now = Math.floor(el.scrollTop / band);
+    if (now !== at) setAt(now);
+    pending.current ??= setTimeout(tell, 200);
+  };
 
   const byHand = () => c.setFollowing(false);
 
   useLayoutEffect(() => perf.end("open the reader"), []);
-
-  const onScroll = () => {
-    perf.sampleFrames("scrolling: time between frames");
-    const el = scroller.current;
-    if (!el) return;
-    onScrolled?.();
-    const top = el.scrollTop + metrics.margin;
-    let i = sections.length - 1;
-    while (i > 0 && tops[i]! > top) i--;
-    const s = sections[i]!;
-    const l = layout(s);
-    const p = { section: s, ...placeAtY(l.blocks, l.flow, top - tops[i]!) };
-    onVisible({ from: p, to: placeAtStackY(el.scrollTop + el.clientHeight - metrics.lineHeight) });
-    lastPlace.current = p;
-    c.moveReading(p, "periodic", "scroll");
-    if (s !== center) {
-      // Re-centre on the section now being read, keeping the text where it is on screen.
-      anchor.current = { section: s, y: top - tops[i]! };
-      setCenter(s);
-    }
-  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -860,6 +900,26 @@ const Scroll = memo(function Scroll({ text, place, metrics, layout: laid, engine
     return () => window.removeEventListener("keydown", onKey);
   }, [c]);
 
+  // The lines to draw: the view (three bands at most) and a band either side.
+  const from = (at - 1) * band;
+  const to = (at + 4) * band;
+  const drawn: ReactNode[] = [];
+  if (at >= 0) {
+    for (let i = Math.max(0, upperBound(column.tops, from) - 1); i < sections.length && column.tops[i]! < to; i++) {
+      const s = sections[i]!;
+      const l = laid(s);
+      if (!l) continue;
+      const top = column.tops[i]!;
+      drawn.push(
+        <div key={s} className="absolute inset-x-0" style={{ top, contain: "layout style" }}>
+          {itemsIn(l.blocks, l.flow, from - top, to - top).map((it) => (
+            <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} text={text} c={c} />
+          ))}
+        </div>,
+      );
+    }
+  }
+
   return (
     <div
       ref={scroller}
@@ -873,21 +933,57 @@ const Scroll = memo(function Scroll({ text, place, metrics, layout: laid, engine
       onPointerDown={(e) => e.target === scroller.current && byHand()}
       style={{ fontFamily: FAMILY }}
     >
-      <div className="relative mx-auto" style={{ width: metrics.column, height: total }}>
-        {sections.map((s, i) => {
-          const l = layout(s);
-          return (
-            <div key={s} className="absolute inset-x-0" style={{ top: tops[i] }}>
-              {l.flow.items.map((it) => (
-                <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} text={text} c={c} />
-              ))}
-            </div>
-          );
-        })}
+      <div className="relative mx-auto" style={{ width: metrics.column, height: column.total }}>
+        {drawn}
       </div>
     </div>
   );
 });
+
+/** The whole book in one column: where each section starts, how tall it is, and how tall it all is. */
+interface Column {
+  tops: number[];
+  heights: number[];
+  total: number;
+}
+
+function stack(text: BookText, sections: readonly number[], laid: (s: number) => SectionLayout | undefined, metrics: Metrics): Column {
+  const between = metrics.lineHeight * 4;
+  const chars = (s: number) => text.ebook.sections[s]?.chars ?? 0;
+  // Height per character from the chapters laid out so far guesses at the rest.
+  let height = 0;
+  let counted = 0;
+  for (const s of sections) {
+    const l = laid(s);
+    if (l) {
+      height += l.flow.height;
+      counted += chars(s);
+    }
+  }
+  const perChar = counted > 0 ? height / counted : (metrics.lineHeight * metrics.size * 0.5) / metrics.column;
+  const tops: number[] = [];
+  const heights: number[] = [];
+  let y = metrics.margin;
+  for (const s of sections) {
+    const h = laid(s)?.flow.height ?? Math.round(chars(s) * perChar);
+    tops.push(y);
+    heights.push(h);
+    y += h + between;
+  }
+  return { tops, heights, total: y };
+}
+
+/** The first index whose value is above `y`, in values that only grow. */
+function upperBound(values: readonly number[], y: number): number {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (values[mid]! > y) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
 
 function same(a: TextPlace, b: TextPlace): boolean {
   return a.section === b.section && a.block === b.block && a.offset === b.offset;
@@ -972,7 +1068,8 @@ function marked(on: Tone[]): string | undefined {
 }
 
 /** One line, image or break, drawn where the layout put it. */
-function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; text: BookText; c: AppController }) {
+/** One line of a block (or an image, or a break), placed. Drawn again only when its marks change. */
+const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; text: BookText; c: AppController }) {
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
     const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
@@ -1001,6 +1098,8 @@ function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; col
     textAlign: align,
     textAlignLast: align,
     whiteSpace: b.kind === "pre" ? "pre" : "nowrap",
+    // Each line is laid out on its own: one drawn or dropped leaves the others alone.
+    contain: "layout style",
   };
   return (
     <div className="absolute" style={style} data-section={b.section} data-block={b.block} data-start={line.start}>
@@ -1035,4 +1134,4 @@ function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; col
       })}
     </div>
   );
-}
+});

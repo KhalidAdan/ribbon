@@ -36,8 +36,11 @@ export function spansIn(marks: readonly Marked[], section: number, block: number
     const end = after(m.to) ? Infinity : m.to.offset;
     if (end > start) out.push({ start, end, tone: m.tone });
   }
-  return out;
+  // The same empty list every time, so a block with no marks is drawn again only when something else changes.
+  return out.length > 0 ? out : NONE;
 }
+
+const NONE: Span[] = [];
 
 /**
  * A fragment cut wherever a mark begins or ends, each piece keeping its

@@ -238,6 +238,12 @@ Where no worker can measure (no `OffscreenCanvas`: Safari before 16.4), the
 engine lays out on the page instead, one chapter per task. A change of text
 size, column or justification starts the whole book again.
 
+Scrolling shows the whole book as one column: chapters not laid out yet hold
+a height guessed from their length until they arrive. Only the lines within
+half a screen of the view are drawn, and a scroll draws again only when it
+crosses a half-screen band; where you are reaches the app a few times a
+second, not on every scroll event.
+
 ## 6. Following the narrator
 
 Five times a second, while the book plays:
