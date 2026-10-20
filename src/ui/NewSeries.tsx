@@ -2,7 +2,7 @@ import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { fold } from "../core/search";
 import { lengthOf } from "./progress";
-import { useAppState, useController } from "./store";
+import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 import { Checkbox } from "./kit";
@@ -15,7 +15,8 @@ import { Cover } from "./Cover";
  * series has, afterwards.
  */
 export function NewSeries() {
-  const state = useAppState();
+  const state = useAppState((s) => ({ seriesNew: s.seriesNew, books: s.books }));
+  useCovers();
   const c = useController();
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");

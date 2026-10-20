@@ -5,7 +5,7 @@ import { defaultChoices, excludeShorterThan, isHandMade, normalizeChoices, sortB
 import { fold } from "../core/search";
 import { lengthOf } from "./progress";
 import { readerOnly } from "../core/ebook";
-import { useAppState, useController } from "./store";
+import { useAppState, useController, useCovers } from "./store";
 import { Button, IconButton } from "./Button";
 import { Dialog } from "./Dialog";
 import { Checkbox, Menu, type MenuItem } from "./kit";
@@ -19,7 +19,8 @@ import { Cover } from "./Cover";
  * and settings. Nothing touches the disk until Save.
  */
 export function SeriesSetup() {
-  const state = useAppState();
+  const state = useAppState((s) => ({ seriesSetup: s.seriesSetup, series: s.series, books: s.books }));
+  useCovers();
   const c = useController();
   const setup = state.seriesSetup;
   const existing = setup ? state.series[setup.key] : undefined;

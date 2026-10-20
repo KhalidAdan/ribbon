@@ -15,9 +15,8 @@ export interface Crumb {
  * global action (check the folders for changes). Pages are tabs below it.
  */
 export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Crumb[]; query: string; onQuery: (q: string) => void; count: number | null; onSubmit: () => void }) {
-  const state = useAppState();
+  const { scanning, hasBooks } = useAppState((s) => ({ scanning: s.scanning, hasBooks: s.books.length > 0 }));
   const c = useController();
-  const scanning = state.scanning;
   const status = scanning
     ? scanning.stage
       ? scanning.stage.replace(/…$/, "")
@@ -52,7 +51,7 @@ export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Cr
           {status}…
         </p>
       )}
-      {state.books.length > 0 && (
+      {hasBooks && (
         <div className="w-64 max-sm:hidden">
           <SearchField value={query} onChange={onQuery} count={count} onSubmit={onSubmit} />
         </div>

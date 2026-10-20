@@ -31,9 +31,9 @@ function fromDateValue(v: string): string {
  * can be deleted.
  */
 export function ReadHistory({ book }: { book: ScannedBook }) {
-  const state = useAppState();
-  const reads = readsOf(state.history.reads, book.book.id);
-  const listened = useMemo(() => state.history.sessions.filter((s) => bookIdOf(s) === book.book.id).reduce((t, s) => t + s.listened_ms, 0), [state.history.sessions, book.book.id]);
+  const history = useAppState((s) => s.history);
+  const reads = readsOf(history.reads, book.book.id);
+  const listened = useMemo(() => history.sessions.filter((s) => bookIdOf(s) === book.book.id).reduce((t, s) => t + s.listened_ms, 0), [history.sessions, book.book.id]);
   if (reads.length === 0 && listened === 0) return null;
   return (
     <section aria-labelledby="history-title" className="mt-10 flex flex-col gap-3">

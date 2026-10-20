@@ -2,7 +2,7 @@ import { Profiler, useEffect, useState } from "react";
 import { AppController } from "../app/controller";
 import { detectPlatform } from "../app/platform";
 import { attachTauriLog, log } from "../app/log";
-import { ControllerContext, useAppState, useController } from "./store";
+import { ControllerContext, useAppState, useController, useCovers } from "./store";
 import { PickLibrary } from "./PickLibrary";
 import { LibraryPane } from "./LibraryPane";
 import { PlayerPane } from "./PlayerPane";
@@ -54,8 +54,8 @@ export function App() {
   );
 }
 
-
-function Screen() {
+/** Everything under the controller's context; the tests render it with a controller of their own. */
+export function Screen() {
   return (
     <div className="isolate h-full bg-canvas font-sans text-ink antialiased">
       <Routed />
@@ -75,7 +75,19 @@ function Routed() {
 }
 
 function Ready() {
-  const state = useAppState();
+  // What the shell draws; not the player, which redraws on its own five times a second.
+  const state = useAppState((s) => ({
+    phase: s.phase,
+    books: s.books,
+    sources: s.sources,
+    series: s.series,
+    pane: s.pane,
+    readerBookId: s.readerBookId,
+    problems: s.problems,
+    playerExpanded: s.playerExpanded,
+    error: s.error,
+    reading: s.reading !== null,
+  }));
   const c = useController();
   useKeys(c);
   useEffect(() => c.installLifecycle(), [c]);
@@ -145,19 +157,19 @@ function Ready() {
 }
 
 function Loading() {
-  const state = useAppState();
+  const scanning = useAppState((s) => s.scanning);
   return (
     <div className="mx-auto w-full max-w-xl px-4 pt-16 sm:px-6">
-      {state.scanning ? <ScanProgress status={state.scanning} /> : <p className="text-base/6 text-ink-2 sm:text-sm/5">Opening your library…</p>}
+      {scanning ? <ScanProgress status={scanning} /> : <p className="text-base/6 text-ink-2 sm:text-sm/5">Opening your library…</p>}
     </div>
   );
 }
 
 /** The edit dialog for whichever book asked for it. */
 function EditBookHost() {
-  const state = useAppState();
+  const book = useAppState((s) => (s.editBook ? s.books.find((b) => b.book.id === s.editBook) : undefined));
+  useCovers();
   const c = useController();
-  const book = state.editBook ? state.books.find((b) => b.book.id === state.editBook) : undefined;
   if (!book) return null;
   return <EditBook book={book} open onClose={() => c.closeEditBook()} />;
 }

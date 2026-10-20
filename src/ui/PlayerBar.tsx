@@ -1,7 +1,8 @@
 import { BackwardIcon, ChevronUpIcon, ForwardIcon, ListBulletIcon, MoonIcon, PauseIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
+import { memo } from "react";
 import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
-import { useAppState, useController } from "./store";
+import { useAppState, useController, useCovers } from "./store";
 import { Button, IconButton } from "./Button";
 import { Cover } from "./Cover";
 import { Scrubber } from "./Scrubber";
@@ -12,7 +13,9 @@ import { Scrubber } from "./Scrubber";
  * It stays while you browse; the book or the arrow opens the full player.
  */
 export function PlayerBar() {
-  const state = useAppState();
+  // The one part of the shell that follows the player tick by tick.
+  const state = useAppState((s) => ({ current: s.current, player: s.player, sleep: s.sleep }));
+  useCovers();
   const c = useController();
   const cur = state.current;
   if (!cur) return null;
@@ -69,10 +72,9 @@ export function PlayerBar() {
 }
 
 /** Previous chapter, back 30, play, forward 30, next chapter. */
-export function Transport({ size }: { size: "sm" | "md" }) {
-  const state = useAppState();
+export const Transport = memo(function Transport({ size }: { size: "sm" | "md" }) {
+  const book = useAppState((s) => s.current?.book);
   const c = useController();
-  const book = state.current?.book;
   if (!book) return null;
   const s = size === "md" ? "md" : "sm";
   return (
@@ -84,14 +86,12 @@ export function Transport({ size }: { size: "sm" | "md" }) {
       <IconButton size={s} label="Next chapter" icon={SkipForward} onClick={() => c.nextChapter()} disabled={book.chapters.length === 0} />
     </div>
   );
-}
+});
 
 /** The one primary control: inverted ink, round. Pause while reconnecting, because the listener still wants to hear it. */
-export function PlayButton({ size }: { size: "sm" | "md" }) {
-  const state = useAppState();
+export const PlayButton = memo(function PlayButton({ size }: { size: "sm" | "md" }) {
+  const on = useAppState((s) => s.player.playing || s.player.reconnecting);
   const c = useController();
-  const p = state.player;
-  const on = p.playing || p.reconnecting;
   return (
     <button
       type="button"
@@ -103,7 +103,7 @@ export function PlayButton({ size }: { size: "sm" | "md" }) {
       {on ? <PauseIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
     </button>
   );
-}
+});
 
 /** Skip-to-chapter glyphs: a triangle and a bar, mirrored for back. */
 function SkipForward(props: React.SVGProps<SVGSVGElement>) {
