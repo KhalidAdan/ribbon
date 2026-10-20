@@ -1,0 +1,107 @@
+# The installers for a release. Pushing a version tag (vX.Y.Z) makes a draft
+# release and attaches the Windows installers and the Mac disk image to it;
+# publishing stays by hand, after the end-to-end checks (docs/RELEASING.md).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Build a tag's installers again: a run failed, or its release is missing one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The version tag (vX.Y.Z). Files already on its release are replaced."
+        required: true
+  # A pull request that changes how the installers are built builds them,
+  # as downloads on the run, without releasing anything.
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/actions/setup/**
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  RELEASING: ${{ github.event_name != 'pull_request' }}
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+
+jobs:
+  draft:
+    name: Draft release
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: The tag is the version in package.json
+        shell: bash
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$version" ]; then
+            echo "::error::$TAG is not the version in package.json ($version)"
+            exit 1
+          fi
+      - name: A draft release for the tag, unless it has one
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "$TAG already has a release; its files will be replaced."
+          else
+            gh release create "$TAG" --draft --verify-tag --title "Ribbon ${TAG#v}" --notes "Notes to come."
+          fi
+
+  installers:
+    name: Installers (${{ matrix.os }})
+    needs: draft
+    # On a pull request there is no draft to wait for.
+    if: ${{ !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The same systems as the checks (checks.yml says why Windows is 2022).
+        include:
+          - os: windows-2022
+            files: target/release/bundle/nsis/*.exe target/release/bundle/msi/*.msi
+          - os: macos-26
+            files: target/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASING == 'true' && env.TAG || '' }}
+      # The setup step as this workflow has it: a tag from before it was
+      # written has none of its own.
+      - uses: actions/checkout@v7
+        with:
+          path: .ci
+          sparse-checkout: .github/actions
+      - uses: ./.ci/.github/actions/setup
+        with:
+          ffmpeg: false
+      # The plain build: no RIBBON_PROFILE. On the Mac, GitHub's CI=true makes
+      # the disk image without scripting Finder.
+      - run: npm run tauri build
+      - name: Attach to the release
+        if: env.RELEASING == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" ${{ matrix.files }} --clobber
+      - name: Keep as downloads on the run
+        if: env.RELEASING != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+            target/release/bundle/dmg/*.dmg
+          if-no-files-found: error

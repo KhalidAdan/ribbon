@@ -1,0 +1,52 @@
+# What the checks and the release builds both need: Node, Rust and what
+# whisper.cpp is built with on this system, then the npm packages.
+name: Set up the build
+description: Node, Rust, whisper.cpp's build tools and the npm packages.
+
+inputs:
+  ffmpeg:
+    description: Install ffmpeg and ffprobe, which make the tests' fixtures.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: 24
+        cache: npm
+
+    - name: Rust (stable)
+      shell: bash
+      run: rustup toolchain install stable --profile minimal && rustup default stable
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        # Cargo builds into target/ at the repository's root (.cargo/config.toml).
+        workspaces: src-tauri -> ../target
+
+    # whisper.cpp's Vulkan backend is built with the SDK (VULKAN_SDK, glslc),
+    # and the Rust tests need its runtime, vulkan-1.dll, which a runner without
+    # a graphics card lacks. LLVM (libclang, for bindgen) and CMake come with
+    # the runner. The SDK is the version the PC builds with.
+    - name: Vulkan SDK (Windows)
+      if: runner.os == 'Windows'
+      uses: jakoch/install-vulkan-sdk-action@v1
+      with:
+        vulkan_version: 1.4.363.0
+        install_runtime: true
+        cache: true
+
+    - name: ffmpeg (Mac)
+      if: inputs.ffmpeg == 'true' && runner.os == 'macOS'
+      shell: bash
+      run: brew install ffmpeg
+
+    - name: ffmpeg (Windows)
+      if: inputs.ffmpeg == 'true' && runner.os == 'Windows'
+      shell: bash
+      run: choco install ffmpeg --yes --no-progress
+
+    - name: npm packages
+      shell: bash
+      run: npm ci
