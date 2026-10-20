@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import type { AppState } from "../app/controller";
+import { useAppState } from "./store";
 import type { ScannedBook } from "../core/scan/scan";
 import type { ReadRecord } from "../core/poslog";
 import { readsOf } from "../core/stats";
@@ -19,6 +21,30 @@ export interface Progress {
   fraction: number;
 }
 
+/** What `progressOf` reads: the whole `AppState` will do. */
+export type ProgressState = Pick<AppState, "current" | "positions"> & { player: { positionMs: number }; history?: { reads: ReadRecord[] } };
+
+/**
+ * A shelf shows the open book's place in whole minutes left and whole
+ * percents, so it follows the player by the minute, not five times a
+ * second. A started book stays started.
+ */
+export const SHELF_STEP_MS = 60_000;
+
+export function shelfMs(ms: number): number {
+  return ms <= 0 ? 0 : Math.max(1, Math.floor(ms / SHELF_STEP_MS) * SHELF_STEP_MS);
+}
+
+/**
+ * What `progressOf` needs, for pages that show how far along books are
+ * (the shelf, a book's page): the saved places, the history, and the open
+ * book's place to the minute. Redraws by the minute while a book plays.
+ */
+export function useShelfProgress(): ProgressState {
+  const s = useAppState((st) => ({ current: st.current, positions: st.positions, reads: st.history.reads, ms: shelfMs(st.player.positionMs) }));
+  return useMemo(() => ({ current: s.current, positions: s.positions, history: { reads: s.reads }, player: { positionMs: s.ms } }), [s]);
+}
+
 /**
  * Where the listener is in a book, from the live player or the saved
  * position. Once a book has listen-throughs in the history, the latest
@@ -27,7 +53,7 @@ export interface Progress {
  * its EPUB is as far along as its reading place: `reading` says how far
  * through its text, 0 to 1, or null before it is read.
  */
-export function progressOf(book: ScannedBook, state: Pick<AppState, "current" | "player" | "positions"> & { history?: { reads: ReadRecord[] } }, reading?: (bookId: string) => number | null): Progress {
+export function progressOf(book: ScannedBook, state: ProgressState, reading?: (bookId: string) => number | null): Progress {
   const reads = state.history ? readsOf(state.history.reads, book.book.id) : [];
   const last = reads[reads.length - 1];
   if (readerOnly(book.book)) {

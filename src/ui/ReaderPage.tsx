@@ -7,13 +7,13 @@ import { NEUTRAL_TONE, type Tone } from "../core/tint";
 import { formatDuration, formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
 import { groupByPart, partAt } from "../core/scan/parts";
-import { useAppState, useController } from "./store";
+import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { Drawer } from "./Drawer";
 import { ReadHistory } from "./ReadHistory";
 import { tintFromImage } from "./tint";
-import { howFar, lengthOf, progressOf as progressIn } from "./progress";
+import { howFar, lengthOf, progressOf as progressIn, useShelfProgress } from "./progress";
 import { readerOnly } from "../core/ebook";
 import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
 
@@ -25,7 +25,10 @@ import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
  * Escape goes back to the library.
  */
 export function ReaderPage() {
-  const state = useAppState();
+  // How far along comes from useShelfProgress: by the minute while the book plays.
+  const state = useAppState((s) => ({ books: s.books, readerBookId: s.readerBookId, sources: s.sources, series: s.series, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled }));
+  const shelf = useShelfProgress();
+  useCovers();
   const c = useController();
   const reading = (id: string) => c.readingProgress(id);
   const book = state.books.find((b) => b.book.id === state.readerBookId) ?? null;
@@ -74,7 +77,7 @@ export function ReaderPage() {
 
   if (!book) return null;
 
-  const me = progressIn(book, state, reading);
+  const me = progressIn(book, shelf, reading);
   const index = orderedIds.indexOf(book.book.id);
   const shelfIds = orderedIds.filter((id) => !hidden.has(id));
   const nextId = index >= 0 ? orderedIds.slice(index + 1).find((id) => !hidden.has(id)) : undefined;
@@ -109,7 +112,7 @@ export function ReaderPage() {
 
   const seriesProgress = shelfIds.map((id) => {
     const b = byId.get(id);
-    return b ? progressIn(b, state, reading) : null;
+    return b ? progressIn(b, shelf, reading) : null;
   });
   const seriesFinished = seriesProgress.filter((p) => p?.finished).length;
   const seriesLeft = shelfIds.reduce((s, id, i) => {
@@ -210,7 +213,7 @@ export function ReaderPage() {
                 <p className="max-w-[65ch] text-base/7 text-pretty whitespace-pre-line text-ink-2 sm:text-[0.9375rem]/7">{description}</p>
               ) : (
                 <p className="max-w-[60ch] text-base/6 text-pretty text-ink-3 sm:text-sm/6">
-                  No description yet.{state.lookup.enabled ? " Ribbon is asking Open Library about your books in the background." : " Turn on descriptions in Settings and Ribbon will ask Open Library."}
+                  No description yet.{state.lookupEnabled ? " Ribbon is asking Open Library about your books in the background." : " Turn on descriptions in Settings and Ribbon will ask Open Library."}
                 </p>
               )}
             </div>
@@ -285,9 +288,10 @@ export function ReaderPage() {
 
 /** One book in the series list: its number, cover, title, and how it stands. */
 function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: string; now: boolean; off: boolean }) {
-  const state = useAppState();
+  const shelf = useShelfProgress();
+  useCovers();
   const c = useController();
-  const p = progressIn(book, state, (id) => c.readingProgress(id));
+  const p = progressIn(book, shelf, (id) => c.readingProgress(id));
   const standing = off ? "Left off the shelf" : p.finished ? "Finished" : p.started ? howFar(book, p, Math.max(1, Math.floor(p.fraction * 100))) : lengthOf(book);
   return (
     <li className="border-b border-line">

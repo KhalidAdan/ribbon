@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import { useMemo } from "react";
 import { splitPeople } from "../core/scan/sidefiles";
 import { bookIdOf, formatSpan, heatmap, timeBy, totals } from "../core/stats";
-import { useAppState, useController } from "./store";
+import { useAppState, useController, useCovers } from "./store";
 import { Cover } from "./Cover";
 import { EmptyState, SectionHeader } from "./kit";
 
@@ -14,7 +14,8 @@ import { EmptyState, SectionHeader } from "./kit";
  * machine except through your own sync.
  */
 export function StatsPane() {
-  const state = useAppState();
+  const state = useAppState((s) => ({ history: s.history, books: s.books }));
+  useCovers();
   const c = useController();
   const { sessions, reads, recording } = state.history;
   const now = Date.now();

@@ -14,7 +14,19 @@ declare const __APP_VERSION__: string;
  * not read, the series, the one online lookup, and Ribbon's own folder.
  */
 export function SettingsPane() {
-  const state = useAppState();
+  const state = useAppState((s) => ({
+    problems: s.problems,
+    books: s.books,
+    sources: s.sources,
+    sourceStatus: s.sourceStatus,
+    scanning: s.scanning,
+    series: s.series,
+    about: s.about,
+    lookup: s.lookup,
+    speech: s.speech,
+    history: s.history,
+    perfLog: s.perfLog,
+  }));
   const c = useController();
   const groups = groupProblems(state.problems);
   const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);

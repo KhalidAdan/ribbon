@@ -5,14 +5,15 @@ import type { ScannedBook } from "../core/scan/scan";
 import { facetCounts, filterCount, missing, SORT_LABELS, SORTS, type BookFacts, type FacetKind, type LibraryFilter, type LibraryView, type Missing, type SortKey, type Standing } from "../core/view";
 import { fold } from "../core/search";
 import { useAppState, useController } from "./store";
-import { progressOf } from "./progress";
+import { progressOf, useShelfProgress } from "./progress";
 import { Button, IconButton } from "./Button";
 import { Drawer } from "./Drawer";
 import { Checkbox, Group } from "./kit";
 
 /** How far along, when last listened, and which series: what filters and sorts need to know about a book. */
 export function useShelfFacts(): BookFacts {
-  const state = useAppState();
+  const state = useAppState((s) => ({ books: s.books, series: s.series, sources: s.sources }));
+  const progress = useShelfProgress();
   const c = useController();
   const seriesById = useMemo(() => {
     const m = new Map<string, string>();
@@ -24,18 +25,18 @@ export function useShelfFacts(): BookFacts {
   return useMemo<BookFacts>(
     () => ({
       standing: (b) => {
-        const p = progressOf(b, state, reading);
+        const p = progressOf(b, progress, reading);
         return p.finished ? "finished" : p.started ? "started" : "new";
       },
-      fraction: (b) => progressOf(b, state, reading).fraction,
+      fraction: (b) => progressOf(b, progress, reading).fraction,
       listenedAt: (b) => {
-        const p = state.positions[b.book.id];
+        const p = progress.positions[b.book.id];
         return p ? Date.parse(p.updatedAt) : 0;
       },
       seriesOf: (b) => seriesById.get(b.book.id) ?? null,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.positions, state.current, state.player.positionMs, state.reading, seriesById],
+    [progress, seriesById],
   );
 }
 
@@ -90,10 +91,9 @@ export function describeFilter(f: LibraryFilter): string {
  * will do.
  */
 export function ViewBar() {
-  const state = useAppState();
+  const view = useAppState((s) => s.view);
   const c = useController();
   const [open, setOpen] = useState(false);
-  const view = state.view;
   const n = filterCount(view.filter);
   const chips: { key: keyof LibraryFilter; value: string; label: string }[] = [
     ...(view.filter.standing ?? []).map((v) => ({ key: "standing" as const, value: v, label: STANDING.find((x) => x.value === v)!.label })),
@@ -154,7 +154,7 @@ export function ViewBar() {
 
 /** Everything to filter by, with how many books each choice would show. */
 function FilterPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const state = useAppState();
+  const state = useAppState((s) => ({ books: s.books, view: s.view }));
   const c = useController();
   const facts = useShelfFacts();
   const view = state.view;

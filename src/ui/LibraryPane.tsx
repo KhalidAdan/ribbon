@@ -6,9 +6,9 @@ import { formatLeft } from "../core/speed";
 import { compareBooks } from "../core/order";
 import { chapterAt } from "../core/scan/chapters";
 import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } from "../core/series";
-import { howFar, lengthOf, progressOf, type Progress } from "./progress";
+import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from "./progress";
 import { readerOnly } from "../core/ebook";
-import { useAppState, useController } from "./store";
+import { shallowEqual, useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
@@ -23,7 +23,10 @@ import { applyView, filterCount, SORT_LABELS } from "../core/view";
  * A search replaces all of it with the matches, in rank order.
  */
 export function LibraryPane({ query, onQuery, found }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null }) {
-  const state = useAppState();
+  // Not the player's place: the shelf follows it by the minute (useShelfProgress).
+  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null }));
+  useCovers();
+  const progress = useShelfProgress();
   const c = useController();
   const reading = (id: string) => c.readingProgress(id);
   const listenedAt = (b: ScannedBook) => {
@@ -40,16 +43,18 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
   const standalone = useMemo(() => byShelf.filter((b) => !inSeries.has(b.book.id)), [byShelf, inSeries]);
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
   const hidden = useMemo(() => hiddenBookIds(Object.values(state.series)), [state.series]);
+  const current = progress.current?.book.book.id;
   const inProgress = useMemo(
     () =>
       [...state.books]
         .filter((b) => !hidden.has(b.book.id))
-        .map((b) => ({ b, p: progressOf(b, state, reading) }))
+        .map((b) => ({ b, p: progressOf(b, progress, reading) }))
         .filter(({ p }) => p.started && !p.finished)
-        .sort((x, y) => (state.current?.book.book.id === y.b.book.id ? 1 : 0) - (state.current?.book.book.id === x.b.book.id ? 1 : 0) || listenedAt(y.b) - listenedAt(x.b))
+        .sort((x, y) => (current === y.b.book.id ? 1 : 0) - (current === x.b.book.id ? 1 : 0) || listenedAt(y.b) - listenedAt(x.b))
         .slice(0, 6),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.books, state.positions, state.current, state.reading, hidden],
+    // Closing the reader may have moved a book along (`c.readingProgress` reads the kept reading places).
+    [state.books, progress, hidden, state.reading],
   );
 
   const facts = useShelfFacts();
@@ -95,7 +100,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
             ) : (
               <BookGrid>
                 {results.map((b) => (
-                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state, reading)} />
+                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, progress, reading)} />
                 ))}
               </BookGrid>
             )}
@@ -114,7 +119,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
             ) : (
               <BookGrid>
                 {shown.map((b) => (
-                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state, reading)} />
+                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, progress, reading)} />
                 ))}
               </BookGrid>
             )}
@@ -126,7 +131,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
                 <SectionHeader id="continue-title" title={inProgress.some(({ b }) => readerOnly(b.book)) ? "Continue" : "Continue listening"} description={inProgress.length === 1 ? "One book in progress." : `${inProgress.length} books in progress, most recent first.`} />
                 <ul role="list" className="grid grid-cols-[repeat(auto-fill,minmax(19rem,1fr))] gap-3">
                   {inProgress.map(({ b, p }) => (
-                    <ContinueCard key={b.book.id} book={b} progress={p} coverUrl={c.coverUrl(b)} playing={state.current?.book.book.id === b.book.id && state.player.playing} />
+                    <ContinueCard key={b.book.id} book={b} progress={p} coverUrl={c.coverUrl(b)} playing={current === b.book.id && state.playing} />
                   ))}
                 </ul>
               </section>
@@ -161,7 +166,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
                 />
                 <BookGrid>
                   {standalone.map((b) => (
-                    <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, state, reading)} />
+                    <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, progress, reading)} />
                   ))}
                 </BookGrid>
               </section>
@@ -188,8 +193,10 @@ function standing(book: ScannedBook, p: Progress): string {
   return book.parts.length > 0 ? `${book.parts.length} stories · ${formatLeft(book.book.durationMs)}` : lengthOf(book);
 }
 
-/** A book: the cover, the title, the author, and how far along. */
-const BookCard = memo(function BookCard({ book, coverUrl, progress }: { book: ScannedBook; coverUrl: string | null; progress: Progress }) {
+/** A book: the cover, the title, the author, and how far along. Redrawn only when one of those changes. */
+const BookCard = memo(BookCardView, (a, b) => a.book === b.book && a.coverUrl === b.coverUrl && shallowEqual(a.progress, b.progress));
+
+function BookCardView({ book, coverUrl, progress }: { book: ScannedBook; coverUrl: string | null; progress: Progress }) {
   const c = useController();
   return (
     <li>
@@ -209,7 +216,7 @@ const BookCard = memo(function BookCard({ book, coverUrl, progress }: { book: Sc
       </button>
     </li>
   );
-});
+}
 
 /** A book you are in the middle of: where, how long is left, and play; or, for a book that is only its EPUB, how far and read. */
 function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook; progress: Progress; coverUrl: string | null; playing: boolean }) {
@@ -252,7 +259,8 @@ function PauseGlyph() {
 
 /** A series: the next book's cover on a small stack, where you are, and a mark per book. */
 function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: SeriesRecord | undefined; byId: Map<string, ScannedBook> }) {
-  const state = useAppState();
+  const shelf = useShelfProgress();
+  useCovers();
   const c = useController();
   const reading = (id: string) => c.readingProgress(id);
   const hidden = hiddenBookIds(record ? [record] : []);
@@ -260,7 +268,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
     .filter((id) => !hidden.has(id))
     .map((id) => byId.get(id))
     .filter((b): b is ScannedBook => !!b);
-  const progress = ordered.map((b) => progressOf(b, state, reading));
+  const progress = ordered.map((b) => progressOf(b, shelf, reading));
   const finished = progress.filter((p) => p.finished).length;
   const nextIndex = progress.findIndex((p) => !p.finished);
   const next = ordered[nextIndex] ?? ordered[0];

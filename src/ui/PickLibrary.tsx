@@ -5,7 +5,7 @@ import { Button } from "./Button";
 /** The first screen: what Ribbon is in one sentence, and the one thing to do. */
 export function PickLibrary() {
   const c = useController();
-  const state = useAppState();
+  const error = useAppState((s) => s.error);
   return (
     <main className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-1.5 px-4 sm:px-5">
@@ -30,7 +30,7 @@ export function PickLibrary() {
               Add a folder
             </Button>
           </div>
-          {state.error && <p className="mt-4 text-sm/5 text-red-600 dark:text-red-400">{state.error}</p>}
+          {error && <p className="mt-4 text-sm/5 text-red-600 dark:text-red-400">{error}</p>}
         </div>
       </div>
     </main>

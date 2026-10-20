@@ -306,9 +306,12 @@ interface Opened {
  * `state` is one immutable `AppState`. Every change goes through
  * `set(patch)`, which makes a new object and calls the listeners
  * `subscribe` collected; React's `useSyncExternalStore` redraws whoever
- * reads it. Nothing else holds state the screens see: the private fields
- * below are working parts (the audio engine, open libraries, timers,
- * caches), never what is shown.
+ * reads it. The player sets `player` five times a second, so a component
+ * selects what it draws, `useAppState((s) => …)`, and redraws only when
+ * that changes; `useAppState()` with no selector redraws on every tick.
+ * Nothing else holds state the screens see: the private fields below are
+ * working parts (the audio engine, open libraries, timers, caches), never
+ * what is shown.
  *
  * ## What it talks to
  *
