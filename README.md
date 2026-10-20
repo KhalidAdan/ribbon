@@ -1,6 +1,7 @@
 # Ribbon
 
-The listener for books you own. Local files, local position, nothing to
+A home for your books, read or heard: a reader and a player for the EPUBs
+and audiobooks you own. Local files, one place in every book, nothing to
 sign in to. See [docs/NORTHSTAR.md](docs/NORTHSTAR.md) for what this is
 and refuses to be, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how
 it fits together, in diagrams, [docs/PLAN.md](docs/PLAN.md) for how it is built,
@@ -21,7 +22,7 @@ npm install
 npm run tauri:dev          # the desktop app
 ```
 
-On first launch, add a folder of audiobooks. Ribbon scans it, writes
+On first launch, add a folder of books. Ribbon scans it, writes
 its records to `<folder>/.ribbon/`, and opens the library. An EPUB
 goes with its audiobook; an EPUB with no audiobook is a book to read
 ([docs/READING.md](docs/READING.md), section 2). Add more
