@@ -56,6 +56,11 @@ export class LayoutEngine {
       this.local = { layOut, ready: Promise.resolve() };
       return;
     }
+    this.startWorker();
+  }
+
+  /** A worker with the book open in it, or the page if no worker can run here. */
+  private startWorker(): void {
     try {
       if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") throw new Error("no worker here");
       const w = new Worker(new URL("./layout.worker.ts", import.meta.url), { type: "module" });
@@ -64,12 +69,25 @@ export class LayoutEngine {
         log.warn(`the layout worker failed (${e.message}); laying out on the page`);
         this.goLocal();
       };
-      const open: ToWorker = { kind: "open", ebook, images: this.images };
+      const open: ToWorker = { kind: "open", ebook: this.ebook, images: this.images };
       w.postMessage(open);
       this.worker = w;
     } catch {
       this.goLocal();
     }
+  }
+
+  /**
+   * Take up the work again after `destroy`, asking again for every chapter
+   * asked for so far. In development, React's StrictMode unmounts the reader
+   * and mounts it once more, keeping the engine it made, so the reader calls
+   * this each time it mounts. Otherwise it does nothing.
+   */
+  start(): void {
+    if (this.worker || this.local) return;
+    this.startWorker();
+    this.queue = this.order.filter((s) => !this.cache.has(s));
+    this.pump();
   }
 
   /** Lay out on the page instead: where no worker runs, or one failed. What was asked of the worker is asked again. */
@@ -177,13 +195,18 @@ export class LayoutEngine {
   }
 
   destroy(): void {
-    this.worker?.terminate();
-    this.worker = null;
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+      // The chapter it was laying out went with it; `start` asks again.
+      this.busy = false;
+    }
     this.listeners.clear();
   }
 
   private pump(): void {
-    if (this.busy || !this.spec) return;
+    // Destroyed and not started again: what is asked meanwhile waits in the queue.
+    if (this.busy || !this.spec || (!this.worker && !this.local)) return;
     let section: number | undefined;
     while ((section = this.queue.shift()) !== undefined && this.cache.has(section));
     if (section === undefined) return;

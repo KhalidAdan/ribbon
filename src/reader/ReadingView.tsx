@@ -415,7 +415,10 @@ function Choice({ label, value, options, onChange }: { label: string; value: num
  */
 function useLayout(bookId: string, ebook: Ebook, settings: ReadingSettings, viewport: { width: number; height: number } | null) {
   const engine = useMemo(() => new LayoutEngine(ebook), [ebook]);
-  useEffect(() => () => engine.destroy(), [engine]);
+  useEffect(() => {
+    engine.start();
+    return () => engine.destroy();
+  }, [engine]);
   const version = useSyncExternalStore(engine.subscribe, engine.getVersion);
   const metrics = useMemo(() => (viewport ? metricsFor(settings, viewport) : null), [settings, viewport]);
   // The faces are loaded at start; only a book opened before they arrive waits for them.
