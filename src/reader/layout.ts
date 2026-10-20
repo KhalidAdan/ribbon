@@ -38,8 +38,9 @@ export type ToWorker =
   | { kind: "open"; ebook: unknown; images: string[] }
   | { kind: "lay out"; id: number; section: number; spec: LayoutSpec };
 
-/** What the layout worker answers. */
+/** What the layout worker answers. "unopened": it could not open the book, so the page lays it out. */
 export type FromWorker =
   | { kind: "ready"; hyphenates: boolean }
+  | { kind: "unopened"; message: string }
   | { kind: "laid out"; id: number; section: number; layout: SectionLayout; ms: number }
   | { kind: "failed"; id: number; section: number; message: string };

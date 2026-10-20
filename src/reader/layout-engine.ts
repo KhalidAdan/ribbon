@@ -105,6 +105,7 @@ export class LayoutEngine {
         this.bump();
       }),
     };
+    this.queue = this.order.filter((s) => !this.cache.has(s));
     this.busy = false;
     this.pump();
   }
@@ -243,6 +244,11 @@ export class LayoutEngine {
     if (m.kind === "ready") {
       this.hyphenates = m.hyphenates;
       this.bump();
+      return;
+    }
+    if (m.kind === "unopened") {
+      log.warn(`the layout worker could not open the book (${m.message}); laying out on the page`);
+      this.goLocal();
       return;
     }
     const current = this.pendingGeneration === this.generation;

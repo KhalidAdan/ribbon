@@ -135,6 +135,23 @@ describe("layout engine", () => {
         expect(e.get(3)?.flow.height).toBe(400);
       }));
 
+    it("lays out on the page when the worker could not open the book", () =>
+      withWorkers(async () => {
+        class Unopened extends FakeWorker {
+          postMessage(m: ToWorker): void {
+            if (m.kind === "lay out") setTimeout(() => this.onmessage?.({ data: { kind: "unopened", message: "no book is open" } }), 0);
+          }
+        }
+        vi.stubGlobal("Worker", Unopened);
+        const sections = [0, 1, 2, 3].map(() => ({ blocks: [], chars: 0 }));
+        const e = new LayoutEngine({ files: {}, meta: { language: "en" }, sections } as unknown as Ebook);
+        e.setSpec(spec(400));
+        e.want([2]);
+        await settle();
+        expect(FakeWorker.made[0]?.terminated).toBe(true);
+        expect(await e.request(2)).toBeDefined();
+      }));
+
     it("asks again for the chapter the stopped worker was laying out", () =>
       withWorkers(async () => {
         const e = new LayoutEngine(book);

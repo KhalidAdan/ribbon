@@ -13,7 +13,7 @@ import { Typesetter } from "./typeset";
  * One request at a time, in the order the page asks (layout-engine.ts).
  */
 
-const scope = self as unknown as DedicatedWorkerGlobalScope;
+const scope = self as unknown as DedicatedWorkerGlobalScope & { ribbonLayout?: true };
 let typesetter: Typesetter | null = null;
 let ready: Promise<void> = Promise.resolve();
 
@@ -21,21 +21,31 @@ function post(message: FromWorker): void {
   scope.postMessage(message);
 }
 
-scope.onmessage = async (e: MessageEvent<ToWorker>) => {
+async function onMessage(e: MessageEvent<ToWorker>): Promise<void> {
   const m = e.data;
   if (m.kind === "open") {
-    const images = new Set(m.images);
-    const t = new Typesetter(m.ebook as Ebook, (src) => images.has(src));
-    typesetter = t;
-    ready = Promise.all([addFaces(scope.fonts), t.ready]).then(() => {
-      // Anything measured before the faces arrived was measured in a fallback.
-      clearCache();
-      post({ kind: "ready", hyphenates: t.hyphenates });
-    });
+    try {
+      const images = new Set(m.images);
+      const t = new Typesetter(m.ebook as Ebook, (src) => images.has(src));
+      typesetter = t;
+      ready = Promise.all([addFaces(scope.fonts), t.ready]).then(
+        () => {
+          // Anything measured before the faces arrived was measured in a fallback.
+          clearCache();
+          post({ kind: "ready", hyphenates: t.hyphenates });
+        },
+        (err: unknown) => {
+          typesetter = null;
+          post({ kind: "unopened", message: String(err) });
+        },
+      );
+    } catch (err) {
+      post({ kind: "unopened", message: String(err) });
+    }
     return;
   }
   await ready;
-  if (!typesetter) return post({ kind: "failed", id: m.id, section: m.section, message: "no book is open" });
+  if (!typesetter) return post({ kind: "unopened", message: "no book is open" });
   const t0 = performance.now();
   try {
     const layout = layOutSection(typesetter, m.section, m.spec);
@@ -43,4 +53,15 @@ scope.onmessage = async (e: MessageEvent<ToWorker>) => {
   } catch (err) {
     post({ kind: "failed", id: m.id, section: m.section, message: String(err) });
   }
-};
+}
+
+// This file can run twice in one worker. The hyphenation patterns are CommonJS,
+// the bundler puts its helper for them in the worker's entry (this file), and
+// their chunks import it from here; WebKit runs a module worker's own script
+// again for that import rather than reusing it. A second run that took over the
+// messages would have no book open, and every chapter failed to lay out on the
+// Mac. The first run keeps them.
+if (!scope.ribbonLayout) {
+  scope.ribbonLayout = true;
+  scope.onmessage = onMessage;
+}
