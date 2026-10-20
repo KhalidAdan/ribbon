@@ -23,6 +23,8 @@ import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
 import { preloadFaces } from "../reader/typeset";
 
+declare const __RIBBON_MEASURE__: boolean;
+
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
   useEffect(() => startPerf(), []);
@@ -37,7 +39,8 @@ export function App() {
       await attachTauriLog();
       log.info("web side up");
       created = new AppController(platform);
-      if (import.meta.env.DEV) (window as unknown as { __ribbon: AppController }).__ribbon = created;
+      // For the browser harness and tools, and the end-to-end suite in the measurement build (tools/e2e).
+      if (import.meta.env.DEV || __RIBBON_MEASURE__) (window as unknown as { __ribbon: AppController }).__ribbon = created;
       setController(created);
       void created.boot();
     });

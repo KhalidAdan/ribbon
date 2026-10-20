@@ -9,3 +9,5 @@ books/
 test/fixtures/generated/
 *.local
 shots/
+# The end-to-end suite's test library and runs (tools/e2e)
+.e2e/
