@@ -218,6 +218,12 @@ sequenceDiagram
 A book opened again in the same session reuses its `ReadingData` (the
 heard places, transcript and fixes kept in memory) and reads none of it again.
 
+Pairing (step 7) is needed first only when the narrator's place is the newest
+(you listened after you last read): that place is found through the pairing.
+Otherwise the book opens at your reading place as soon as its text is in, the
+page is drawn, and the pairing follows a moment later; read-along then starts
+beside the open page rather than behind "getting ready".
+
 ### Laying out the pages
 
 The reader's lines are broken by pretext, which measures text on a canvas.
