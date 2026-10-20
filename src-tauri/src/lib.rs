@@ -34,15 +34,22 @@ fn env_library() -> Option<String> {
 /// session. Everything outside stays inaccessible. The folder is not
 /// checked here: that would be a network round trip before the first
 /// paint, and the scan reports a missing folder itself.
+///
+/// The records folder is allowed by name. On macOS and Linux, Tauri's `**`
+/// does not reach into folders whose names start with a dot, so `.ribbon/`
+/// (and `.odio/`, its name before the rename) would stay closed there; a
+/// pattern that spells the name out matches on every system.
 #[tauri::command]
 fn allow_library(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let root = std::path::PathBuf::from(&path);
-    app.fs_scope()
-        .allow_directory(&root, true)
-        .map_err(|e| e.to_string())?;
-    app.asset_protocol_scope()
-        .allow_directory(&root, true)
-        .map_err(|e| e.to_string())?;
+    for dir in [root.join(scan::RIBBON_DIR), root.join(scan::LEGACY_DIR), root] {
+        app.fs_scope()
+            .allow_directory(&dir, true)
+            .map_err(|e| e.to_string())?;
+        app.asset_protocol_scope()
+            .allow_directory(&dir, true)
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

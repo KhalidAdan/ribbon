@@ -35,8 +35,8 @@ const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
 /// identifiers, cover), to pair it with its audiobook or make it a book
 /// of its own; the chapters are read when the book is read.
 const EBOOK: &[&str] = &["epub"];
-const RIBBON_DIR: &str = ".ribbon";
-const LEGACY_DIR: &str = ".odio";
+pub(crate) const RIBBON_DIR: &str = ".ribbon";
+pub(crate) const LEGACY_DIR: &str = ".odio";
 /// Block size for the caching reader used by the lofty fallback.
 const READ_BLOCK: usize = 32 * 1024;
 /// Tag reading waits on I/O far more than it computes, and network shares
