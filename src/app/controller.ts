@@ -35,6 +35,7 @@ import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type Read
 import { alignBook, byOverlay, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
+import * as perf from "./perf";
 import { matchTranscript, type Said } from "../core/reading/transcript";
 import { generatedTitles } from "../core/chapternames";
 import { locate as locate_ } from "../core/timeline";
@@ -224,6 +225,8 @@ export interface AppState {
   readingSettings: ReadingSettings;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
   speech: { model: string | null; downloading: { done: number; total: number } | null };
+  /** Speed measurements are summarised in the log (app/perf.ts). */
+  perfLog: boolean;
 }
 
 /** The same history record, written here and read back from the log. */
@@ -449,6 +452,7 @@ export class AppController {
       reading: null,
       readingSettings: parseReading(undefined),
       speech: { model: null, downloading: null },
+      perfLog: false,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -560,7 +564,8 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null } });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
+      perf.setLogging(this.appSettings.perfLog === true);
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
@@ -1258,6 +1263,7 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (!book || !o) return;
     if (this.state.reading) await this.closeReading();
+    perf.begin("open the reader");
     this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
     const started = performance.now();
     // Everything the reader needs, read at once: over a share each is a round trip of its own.
@@ -2534,6 +2540,14 @@ export class AppController {
   async setRecordSessions(on: boolean): Promise<void> {
     this.appSettings = { ...this.appSettings, recordSessions: on };
     this.set({ history: { ...this.state.history, recording: on } });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** Summarise speed measurements in the log each minute, or stop (app/perf.ts). */
+  async setPerfLog(on: boolean): Promise<void> {
+    this.appSettings = { ...this.appSettings, perfLog: on };
+    perf.setLogging(on);
+    this.set({ perfLog: on });
     await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
   }
 

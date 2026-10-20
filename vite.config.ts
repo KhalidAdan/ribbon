@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => ({
     watch: { ignored: ["**/src-tauri/**", "**/books/**", "**/test/fixtures/**"] },
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
+  // RIBBON_PROFILE=1 builds with React's profiling build, so <Profiler> reports renders (app/perf.ts) in a release build too.
+  ...(process.env.RIBBON_PROFILE ? { resolve: { alias: [{ find: /^react-dom\/client$/, replacement: "react-dom/profiling" }] } } : {}),
   build: {
     target: "chrome120",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,

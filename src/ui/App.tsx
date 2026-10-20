@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Profiler, useEffect, useState } from "react";
 import { AppController } from "../app/controller";
 import { detectPlatform } from "../app/platform";
 import { attachTauriLog, log } from "../app/log";
@@ -20,9 +20,11 @@ import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
 import { StatsPane } from "./StatsPane";
 import { ReadingView } from "../reader/ReadingView";
+import { onRender, startPerf } from "../app/perf";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
+  useEffect(() => startPerf(), []);
 
   useEffect(() => {
     let live = true;
@@ -45,7 +47,9 @@ export function App() {
   if (!controller) return <Screen />;
   return (
     <ControllerContext.Provider value={controller}>
-      <Screen />
+      <Profiler id="app" onRender={onRender}>
+        <Screen />
+      </Profiler>
     </ControllerContext.Provider>
   );
 }
