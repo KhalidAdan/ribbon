@@ -198,22 +198,43 @@ export function pageOf(pages: readonly Page[], place: { block: number; offset: n
 
 /** In a flow, the first item at or below `y`, as a place. */
 export function placeAtY(blocks: readonly LaidBlock[], f: Flow, y: number): { block: number; offset: number } {
-  for (const p of f.items) {
-    const b = blocks[p.at]!;
-    const bottom = p.y + (p.line >= 0 ? b.lineHeight : b.lineHeight);
-    if (bottom > y + 1) return placeOf(blocks, p);
+  // The first item whose bottom is below y: items run down the flow, so their bottoms only grow.
+  let lo = 0;
+  let hi = f.items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const p = f.items[mid]!;
+    if (p.y + blocks[p.at]!.lineHeight > y + 1) hi = mid;
+    else lo = mid + 1;
   }
-  const last = f.items[f.items.length - 1];
-  return last ? placeOf(blocks, last) : { block: 0, offset: 0 };
+  const found = f.items[Math.min(lo, f.items.length - 1)];
+  return found ? placeOf(blocks, found) : { block: 0, offset: 0 };
+}
+
+/** The items of a flow that show between two heights: what to draw of a long column. */
+export function itemsIn(blocks: readonly LaidBlock[], f: Flow, top: number, bottom: number): Placed[] {
+  let lo = 0;
+  let hi = f.items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const p = f.items[mid]!;
+    if (p.y + blocks[p.at]!.lineHeight > top) hi = mid;
+    else lo = mid + 1;
+  }
+  let end = lo;
+  while (end < f.items.length && f.items[end]!.y < bottom) end++;
+  return f.items.slice(lo, end);
 }
 
 /** In a flow, the y of the line that holds a place. */
 export function yOfPlace(blocks: readonly LaidBlock[], f: Flow, place: { block: number; offset: number }): number {
-  let y = 0;
-  for (const p of f.items) {
-    const at = placeOf(blocks, p);
-    if (compare(at, place) > 0) break;
-    y = p.y;
+  // The last item that starts at or before the place: items run through the text in order.
+  let lo = 0;
+  let hi = f.items.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (compare(placeOf(blocks, f.items[mid]!), place) > 0) hi = mid;
+    else lo = mid + 1;
   }
-  return y;
+  return lo > 0 ? f.items[lo - 1]!.y : 0;
 }

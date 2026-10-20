@@ -21,6 +21,8 @@ export class LayoutEngine {
   private readonly waiters = new Map<number, ((l: SectionLayout) => void)[]>();
   /** Sections the page is showing or about to: their arrival redraws it. */
   private readonly watched = new Set<number>();
+  /** How many views watch every chapter (the scroll, which places the whole book). */
+  private watchingAll = 0;
   private readonly listeners = new Set<(section: number) => void>();
   private queue: number[] = [];
   private spec: LayoutSpec | null = null;
@@ -96,6 +98,20 @@ export class LayoutEngine {
     this.pump();
   }
 
+  /** The current layout spec, as a key (layout.ts, specKey). */
+  get specKey(): string {
+    return this.key;
+  }
+
+  /**
+   * A chapter laid out earlier for this same spec (a snapshot, snapshot.ts),
+   * taken as if just laid out: nothing to wait for. Ignored for another spec.
+   */
+  seed(section: number, layout: SectionLayout, key: string): void {
+    if (key !== this.key || this.cache.has(section)) return;
+    this.cache.set(section, layout);
+  }
+
   /** A chapter, if it is laid out for the current spec. */
   get(section: number): SectionLayout | undefined {
     return this.cache.get(section);
@@ -107,6 +123,12 @@ export class LayoutEngine {
     const missing = sections.filter((s) => !this.cache.has(s));
     this.queue = [...missing, ...this.queue.filter((s) => !missing.includes(s))];
     this.pump();
+  }
+
+  /** Redraw on every chapter that arrives, until the returned function is called: for a view of the whole book. */
+  watchAll(): () => void {
+    this.watchingAll++;
+    return () => void this.watchingAll--;
   }
 
   /** Lay these out when nothing more pressing is asked, in this order. */
@@ -186,6 +208,6 @@ export class LayoutEngine {
     this.cache.set(section, layout);
     for (const resolve of this.waiters.get(section) ?? []) resolve(layout);
     this.waiters.delete(section);
-    if (this.watched.has(section)) this.bump(section);
+    if (this.watchingAll > 0 || this.watched.has(section)) this.bump(section);
   }
 }

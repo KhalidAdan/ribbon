@@ -238,6 +238,19 @@ Where no worker can measure (no `OffscreenCanvas`: Safari before 16.4), the
 engine lays out on the page instead, one chapter per task. A change of text
 size, column or justification starts the whole book again.
 
+Scrolling shows the whole book as one column: chapters not laid out yet hold
+a height guessed from their length until they arrive. Only the lines within
+half a screen of the view are drawn, and a scroll draws again only when it
+crosses a half-screen band; where you are reaches the app a few times a
+second, not on every scroll event.
+
+A book opens to the page you left at once (`reader/snapshot.ts`): the
+chapter's layout and your place in it are kept in the window's storage, and
+drawn while the book's text is read and paired with the narration. The same
+layout seeds the engine, so the real page needs no layout and replaces the
+snapshot without moving. A snapshot made for another window size, other
+settings or another version of Ribbon is not used.
+
 ## 6. Following the narrator
 
 Five times a second, while the book plays:
