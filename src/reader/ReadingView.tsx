@@ -46,22 +46,25 @@ const NOT_YET: SectionLayout = { blocks: [], pages: [], flow: { section: -1, ite
  * as the reader moves.
  */
 export function ReadingView() {
-  const state = useAppState();
+  // Not the player's place, which moves five times a second: the parts that follow it (the mark, the listening bar) select it themselves.
+  const { r, book, loadedHere, settings } = useAppState((s) => ({
+    r: s.reading,
+    book: s.reading ? s.books.find((b) => b.book.id === s.reading!.bookId) : undefined,
+    loadedHere: !!s.reading && s.current?.book.book.id === s.reading.bookId,
+    settings: s.readingSettings,
+  }));
   const c = useController();
-  const r = state.reading;
   const [contents, setContents] = useState(false);
   const [bookmarks, setBookmarks] = useState(false);
   const [type, setType] = useState(false);
   // The listening bar shows itself while this book's audio is loaded; the header button shows or hides it either way.
   const [barPref, setBarPref] = useState<"auto" | "shown" | "hidden">("auto");
   if (!r) return null;
-  const book = state.books.find((b) => b.book.id === r.bookId);
   const text = r.text;
   const ebook = text?.ebook;
   const place = r.place;
   const entry = text && place ? text.tocEntryAt(place) : -1;
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
-  const loadedHere = state.current?.book.book.id === r.bookId;
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
   const listen = !!r.alignment && !!book && book.book.durationMs > 0;
 
@@ -85,11 +88,11 @@ export function ReadingView() {
             </span>
             <span className="sr-only">Text settings</span>
           </Button>
-          {type && <TypeSettings settings={state.readingSettings} onChange={(p) => c.setReadingSettings(p)} onClose={() => setType(false)} />}
+          {type && <TypeSettings settings={settings} onChange={(p) => c.setReadingSettings(p)} onClose={() => setType(false)} />}
         </div>
       </header>
 
-      {r.status === "opening" && <Opening bookId={r.bookId} settings={state.readingSettings} bar={barOpen} />}
+      {r.status === "opening" && <Opening bookId={r.bookId} settings={settings} bar={barOpen} />}
       {r.status === "failed" && (
         <Middle>
           <p className="text-base/6 font-medium text-ink sm:text-sm/5">This book’s text could not be opened</p>
@@ -103,10 +106,10 @@ export function ReadingView() {
           bookId={r.bookId}
           text={text}
           place={place}
-          settings={state.readingSettings}
+          settings={settings}
           bar={barOpen}
           listen={listen}
-          narrator={loadedHere && r.alignment ? { ms: state.player.positionMs, alignment: r.alignment, following: !!r.following, playing: state.player.playing } : null}
+          alignment={loadedHere ? r.alignment : undefined}
           highlights={r.highlights ?? NO_HIGHLIGHTS}
           c={c}
         />
@@ -455,7 +458,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, text, place, settings, bar, listen, narrator, highlights, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean; playing: boolean } | null; highlights: Highlight[]; c: AppController }) {
+function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -549,35 +552,45 @@ function Text({ bookId, text, place, settings, bar, listen, narrator, highlights
     const line = t.closest("[data-block]")!.getBoundingClientRect();
     setTap({ mark: sentence, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top });
   };
-  // The sentence being read, marked wherever it is on the page (following or not) when the mapping is close enough to say which.
-  const nMs = narrator?.ms;
-  const nAlignment = narrator?.alignment;
-  const following = !!narrator?.following;
-  const reading = useMemo(() => {
-    if (nMs === undefined || !nAlignment) return null;
-    const p = text.place(msToText(nAlignment, nMs));
-    return { place: p, chars: text.chars(p), sentence: text.sentenceAt(p), precise: precise(nAlignment, nMs) };
-  }, [text, nMs, nAlignment]);
-  const readKey = reading?.sentence && reading.precise && settings.highlight ? `${reading.sentence.section}:${reading.sentence.block}:${reading.sentence.start}` : "";
+  // The narrator, as far as the page cares, while this book's audio is loaded: the sentence it is in (when the
+  // mapping is close enough to say which), whether it is on the page shown, and whether it plays and is followed.
+  // The player moves five times a second; these change every few seconds, and only then does the reader draw again.
+  const narrator = useAppState((s) => {
+    if (!alignment) return null;
+    const ms = s.player.positionMs;
+    const p = text.place(msToText(alignment, ms));
+    const chars = text.chars(p);
+    const sentence = settings.highlight && precise(alignment, ms) ? text.sentenceAt(p) : null;
+    return {
+      sentence: sentence ? `${sentence.section}:${sentence.block}:${sentence.start}` : "",
+      inView: visible ? chars >= text.chars(visible.from) && chars <= text.chars(visible.to) : null,
+      playing: s.player.playing,
+      following: !!s.reading?.following,
+    };
+  });
   // The same sentence keeps the same mark, so the pages draw again only when the narrator moves on.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const readMark = useMemo(() => (readKey ? reading!.sentence : null), [readKey]);
-  // The narrator read past the page: turn it.
+  const readKey = narrator?.sentence ?? "";
+  const readMark = useMemo(() => {
+    if (!readKey) return null;
+    const [section, block, start] = readKey.split(":").map(Number) as [number, number, number];
+    const found = text.sentences(section, block).find((x) => x.start === start);
+    return found ? { ...found, section, block } : null;
+  }, [text, readKey]);
+  // The narrator read past the page: turn it, to the word being read (a sentence across two pages turns with the narrator, not before).
+  const following = !!narrator?.following;
+  const outOfView = narrator?.inView === false;
   useEffect(() => {
-    if (!following || !reading || !visible) return;
-    if (reading.chars >= text.chars(visible.from) && reading.chars <= text.chars(visible.to)) return;
-    // To the word being read: a sentence across two pages turns with the narrator, not before.
-    c.moveReading(reading.place, "periodic", "follow");
-  }, [following, reading, visible, text, c]);
+    if (!following || !outOfView) return;
+    const p = c.narratorInText();
+    if (p) c.moveReading(p, "periodic", "follow");
+  }, [following, outOfView, visible, c]);
   // Turned back to where the narrator is, while it plays: follow it again. Only as it comes into view, so
   // "Follow along" turned off stays off, and only once the page shown is the one turned to.
   const playing = !!narrator?.playing;
   const narratorShown = (() => {
-    if (!reading || !visible) return false;
-    const from = text.chars(visible.from);
-    const to = text.chars(visible.to);
+    if (narrator?.inView !== true || !visible) return false;
     const at = text.chars(place);
-    return at >= from && at < to && reading.chars >= from && reading.chars <= to;
+    return at >= text.chars(visible.from) && at < text.chars(visible.to);
   })();
   const wasShown = useRef(narratorShown);
   useEffect(() => {
@@ -1140,27 +1153,28 @@ function same(a: TextPlace, b: TextPlace): boolean {
  * playing: its controls, under its own title. For none: a way to start.
  */
 function ListeningBar({ bookId, text, visible, c }: { bookId: string; text: BookText; visible: Visible | null; c: AppController }) {
-  const state = useAppState();
-  const cur = state.current;
-  const here = cur?.book.book.id === bookId;
-  const p = state.player;
-  const narrator = here ? c.narratorInText() : null;
-  const finding = !!state.reading?.finding;
-  const following = !!state.reading?.following;
-  const onPage = (() => {
-    if (!narrator || !visible) return true;
-    const n = text.chars(narrator);
-    return n >= text.chars(visible.from) && n <= text.chars(visible.to);
-  })();
-  let where = "";
-  if (here && cur) {
-    const i = chapterAt(cur.book.chapters, p.positionMs);
-    const ch = i >= 0 ? cur.book.chapters[i] : undefined;
-    where = ch ? `${ch.title} · ${formatLeft((ch.endMs - p.positionMs) / (p.speed || 1))} left` : `${formatLeft((p.durationMs - p.positionMs) / (p.speed || 1))} left`;
-  }
+  // What the bar shows, as it reads: it draws again when that changes (the time left, by the minute), not on every tick.
+  const { loaded, title, here, where, onPage, playing, finding, following } = useAppState((s) => {
+    const cur = s.current;
+    const p = s.player;
+    const here = cur?.book.book.id === bookId;
+    let where = "";
+    let onPage = true;
+    if (here && cur) {
+      const i = chapterAt(cur.book.chapters, p.positionMs);
+      const ch = i >= 0 ? cur.book.chapters[i] : undefined;
+      where = ch ? `${ch.title} · ${formatLeft((ch.endMs - p.positionMs) / (p.speed || 1))} left` : `${formatLeft((p.durationMs - p.positionMs) / (p.speed || 1))} left`;
+      const narrator = c.narratorInText();
+      if (narrator && visible) {
+        const n = text.chars(narrator);
+        onPage = n >= text.chars(visible.from) && n <= text.chars(visible.to);
+      }
+    }
+    return { loaded: !!cur, title: cur?.book.book.title, here, where, onPage, playing: p.playing, finding: !!s.reading?.finding, following: !!s.reading?.following };
+  });
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-t border-line px-3 sm:px-4" role="group" aria-label="Listening">
-      {cur ? (
+      {loaded ? (
         <div className="flex items-center gap-1">
           <IconButton size="sm" label="Back 30 seconds" icon={BackwardIcon} onClick={() => c.skip(-30_000)} />
           <PlayButton size="sm" />
@@ -1168,7 +1182,7 @@ function ListeningBar({ bookId, text, visible, c }: { bookId: string; text: Book
         </div>
       ) : null}
       <p className="min-w-0 flex-1 truncate text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
-        {here ? where : cur ? <>Playing <span className="text-ink">{cur.book.book.title}</span></> : "The audiobook is not playing."}
+        {here ? where : loaded ? <>Playing <span className="text-ink">{title}</span></> : "The audiobook is not playing."}
       </p>
       {finding ? (
         <p className="shrink-0 text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
@@ -1187,7 +1201,7 @@ function ListeningBar({ bookId, text, visible, c }: { bookId: string; text: Book
             </Button>
           )}
           {(!here || !onPage) && (
-            <Button size="sm" variant={here && p.playing ? "secondary" : "primary"} onClick={() => void c.listenFromHere()}>
+            <Button size="sm" variant={here && playing ? "secondary" : "primary"} onClick={() => void c.listenFromHere()}>
               Listen from here
             </Button>
           )}
@@ -1211,8 +1225,7 @@ function marked(on: Tone[]): string | undefined {
   return clsx("rounded-[2px] box-decoration-clone", sentence ? "bg-place/20" : "bg-place/10", on.includes("saved") && "underline decoration-place/70 decoration-2 underline-offset-[0.2em]");
 }
 
-/** One line, image or break, drawn where the layout put it. */
-/** One line of a block (or an image, or a break), placed. Drawn again only when its marks change. */
+/** One line of a block (or an image, or a break), drawn where the layout put it. Drawn again only when its marks change. */
 const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; text: BookText | null; c: AppController }) {
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
