@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Ebook } from "../src/core/ebook";
-import type { LayoutSpec, SectionLayout } from "../src/reader/layout";
+import type { FromWorker, LayoutSpec, SectionLayout, ToWorker } from "../src/reader/layout";
 import { LayoutEngine } from "../src/reader/layout-engine";
 
 const book = { files: {} } as unknown as Ebook;
@@ -22,6 +22,32 @@ function engine() {
 const settle = async () => {
   for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
 };
+
+/** A stand-in for the layout worker: answers each chapter on the next task, unless it was stopped. */
+class FakeWorker {
+  static made: FakeWorker[] = [];
+  onmessage: ((e: { data: FromWorker }) => void) | null = null;
+  onerror: unknown = null;
+  terminated = false;
+  asked: number[] = [];
+
+  constructor() {
+    FakeWorker.made.push(this);
+  }
+
+  postMessage(m: ToWorker): void {
+    if (m.kind !== "lay out") return;
+    this.asked.push(m.section);
+    const layout = { blocks: [], pages: [], flow: { section: m.section, items: [], height: m.spec.metrics.column } } as unknown as SectionLayout;
+    setTimeout(() => {
+      if (!this.terminated) this.onmessage?.({ data: { kind: "laid out", id: m.id, section: m.section, layout, ms: 0 } });
+    }, 0);
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+}
 
 describe("layout engine", () => {
   it("lays out what is wanted first, then the rest in order", async () => {
@@ -76,5 +102,49 @@ describe("layout engine", () => {
     }
     await settle();
     expect(e.get(2)?.flow.height).toBe(301);
+  });
+
+  // In development, React's StrictMode unmounts the reader and mounts it once
+  // more with the same engine: destroy, then start, with the page asking for
+  // chapters in between.
+  describe("destroyed and started again", () => {
+    async function withWorkers(test: () => Promise<void>) {
+      FakeWorker.made = [];
+      vi.stubGlobal("Worker", FakeWorker);
+      vi.stubGlobal("OffscreenCanvas", class {});
+      try {
+        await test();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+
+    it("keeps what is asked in between, then lays it out in a new worker", () =>
+      withWorkers(async () => {
+        const e = new LayoutEngine(book);
+        e.start();
+        expect(FakeWorker.made).toHaveLength(1);
+        e.setSpec(spec(400));
+        e.destroy();
+        expect(() => e.want([3])).not.toThrow();
+        e.start();
+        await settle();
+        expect(FakeWorker.made).toHaveLength(2);
+        expect(FakeWorker.made[0]?.terminated).toBe(true);
+        expect(FakeWorker.made[1]?.asked).toEqual([3]);
+        expect(e.get(3)?.flow.height).toBe(400);
+      }));
+
+    it("asks again for the chapter the stopped worker was laying out", () =>
+      withWorkers(async () => {
+        const e = new LayoutEngine(book);
+        e.setSpec(spec(400));
+        e.want([2]);
+        e.destroy();
+        e.start();
+        await settle();
+        expect(FakeWorker.made[1]?.asked).toEqual([2]);
+        expect(e.get(2)?.flow.height).toBe(400);
+      }));
   });
 });
