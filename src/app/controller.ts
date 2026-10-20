@@ -291,6 +291,86 @@ interface Opened {
   mirrorCoversDir: string | null;
 }
 
+/**
+ * The app. One instance, made in `ui/App.tsx`, holds every piece of state
+ * the screens show and every action they can take. React only draws it:
+ * components read the state with `useAppState()` and call methods on
+ * `useController()` (`ui/store.ts`), and nothing else changes anything.
+ * The tests make one with a test platform and drive it the same way.
+ *
+ * ## How state moves
+ *
+ * `state` is one immutable `AppState`. Every change goes through
+ * `set(patch)`, which makes a new object and calls the listeners
+ * `subscribe` collected; React's `useSyncExternalStore` redraws whoever
+ * reads it. Nothing else holds state the screens see: the private fields
+ * below are working parts (the audio engine, open libraries, timers,
+ * caches), never what is shown.
+ *
+ * ## What it talks to
+ *
+ * ```
+ *  Platform ── what the host gives: files and processes (Host), the folder
+ *  │           picker, app settings, file URLs, window events (platform.ts)
+ *  ├─ LibraryService ── one per library folder: reads and writes the
+ *  │                    records in its .ribbon/ (library.ts)
+ *  ├─ PositionKeeper ── one per library folder: where each book is
+ *  │                    (positions.ts)
+ *  ├─ PlayerEngine ──── the audio (player/engine.ts), made on the first play
+ *  ├─ JobQueue ──────── loudness and silence, one ffmpeg at a time (jobs.ts)
+ *  └─ core/ ─────────── every decision that needs no file: grouping books,
+ *                       pairing text with audio, merging logs, search…
+ * ```
+ *
+ * ## The sections, in file order
+ *
+ * - **Sources.** The library is any number of folders (`Source`). Each one
+ *   opened becomes an `Opened`: its `LibraryService`, its books, its
+ *   position keeper, its log. `libOf(book)` finds a book's.
+ * - **Lifecycle.** `boot()` reads the app settings, opens every source
+ *   (painting the shelf from cached records first, then scanning), and
+ *   lands in `phase: "ready"`, or `"pick"` when there is no library yet.
+ *   Adding, rescanning and removing folders live here too, and editing a
+ *   book's details.
+ * - **Playback.** `openBook` loads a book into the engine at its place
+ *   (or where it was read to, if reading got further: `readAhead`).
+ *   `play`, `pause`, `seek`, `skip`, chapters, speed. `onPlayerState`
+ *   hears the engine five times a second, keeps the place and the
+ *   listening session, and updates the system's media controls.
+ * - **Reading.** The EPUB reader and read-along (docs/READING.md).
+ *   `openReading` makes the book's `BookText`, pairs its chapters with the
+ *   audio, and starts `hearPlaces`, the background work that makes the
+ *   pairing precise: chapter openings heard, the narration transcribed,
+ *   all kept beside the book. `ReadingData` is one book's share of that,
+ *   kept per book so a closed book's work never lands on another.
+ *   Following the narrator, listening from a place, highlights, the
+ *   read-along export.
+ * - **Sleep timer, Bookmarks, Chapter corrections, Navigation** (which
+ *   pane is showing), **History** (listen-throughs and sessions from the
+ *   position log), **Series**, **Descriptions** (book details from online
+ *   catalogs, only when turned on), **Chapter names** (Audible's names
+ *   for a book's numbered chapters).
+ *
+ * ## Habits worth knowing
+ *
+ * - **Records first, scan after.** Anything shown at start comes from the
+ *   records beside the books (or this machine's mirror of them); work
+ *   on files happens behind it.
+ * - **Places are never lost.** The keeper writes a place to memory at
+ *   once, to this machine within 2 s and beside the books within 15 s (at
+ *   once for a pause or a seek); `flushPositions` runs when the window closes.
+ * - **Slow work checks it is still wanted.** An open book that lost the
+ *   race stops (`openSeq`); background reading work checks `still()`
+ *   after every await; the engine carries an intent number for the same
+ *   reason.
+ * - **Failures become a sentence.** A record that cannot be read or
+ *   written is logged and, when it matters to the listener, put in
+ *   `state.error` in plain words; the rest of the app carries on.
+ *
+ * To add a feature: put the decision in `core/` (tested on its own), the
+ * file it keeps in `LibraryService`, the state in `AppState`, and the
+ * action here, in its section.
+ */
 export class AppController {
   private state: AppState;
   private listeners = new Set<() => void>();
