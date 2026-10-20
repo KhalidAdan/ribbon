@@ -240,6 +240,9 @@ export function SettingsPane() {
                 }
               />
             </Group>
+            <Group footer="Once a minute while you use Ribbon, a line in the log with how long page turns, opening a book, laying out a chapter and scrolling took. For finding what feels slow; nothing leaves this machine.">
+              <Row title="Write speed measurements to the log" aside={<Toggle label="Write speed measurements to the log" checked={state.perfLog} onChange={(on) => void c.setPerfLog(on)} />} />
+            </Group>
           </section>
         )}
 

@@ -4,8 +4,9 @@ import { log } from "./log";
 /**
  * How fast Ribbon feels, measured where it runs. Nothing here changes
  * what the app does: it times what you would feel, keeps the samples in
- * memory, and writes a summary to the log every minute (median, 95th
- * percentile, worst), and on demand (`window.__ribbonPerf`, for scripts).
+ * memory, and, when the setting is on (`setLogging`), writes a summary to
+ * the log every minute (median, 95th percentile, worst). Scripts read it
+ * whenever they like through `window.__ribbonPerf`.
  *
  * What is measured:
  * - **Interactions:** from the input's own timestamp (the press, the key)
@@ -131,6 +132,12 @@ function labelOf(target: Node | null | undefined): string {
 }
 
 let logged = 0;
+let logging = false;
+
+/** Write the summary to the log each minute, and long tasks as they happen (Settings → Ribbon folder). */
+export function setLogging(on: boolean): void {
+  logging = on;
+}
 
 /** Watch inputs, long tasks and the time; summarise to the log each minute. Returns a stop. */
 export function startPerf(): () => void {
@@ -155,7 +162,7 @@ export function startPerf(): () => void {
   });
   observe({ type: "longtask", buffered: true }, (e) => {
     record("long task", e.duration);
-    if (e.duration >= 100) log.info(`perf: the main thread was busy for ${Math.round(e.duration)} ms`);
+    if (logging && e.duration >= 100) log.info(`perf: the main thread was busy for ${Math.round(e.duration)} ms`);
   });
   // How long a press is held before its click fires, on anything labelled: what acting on the press would save.
   let pressed = 0;
@@ -172,7 +179,7 @@ export function startPerf(): () => void {
   });
   const id = setInterval(() => {
     const total = [...samples.values()].reduce((n, l) => n + l.length, 0);
-    if (total === logged) return;
+    if (!logging || total === logged) return;
     logged = total;
     log.info(`perf: ${format(summary())}`);
   }, 60_000);
