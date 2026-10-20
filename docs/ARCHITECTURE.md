@@ -251,6 +251,13 @@ layout seeds the engine, so the real page needs no layout and replaces the
 snapshot without moving. A snapshot made for another window size, other
 settings or another version of Ribbon is not used.
 
+Pages turn by swiping, as in Apple Books (`reader/swipe.ts`): the spreads
+either side of yours are drawn beside it, just after each turn, and a finger
+or a trackpad moves the three by a transform, with nothing drawn again until
+the turn commits. Each spread is keyed by its pages, so a turn moves the one
+already drawn into the middle. A mouse turns at the page's edges on the
+press, not the click.
+
 ## 6. Following the narrator
 
 Five times a second, while the book plays:
