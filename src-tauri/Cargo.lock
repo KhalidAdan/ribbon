@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "ribbon"
-version = "0.12.3"
+version = "0.12.4"
 dependencies = [
  "image",
  "imagesize",
