@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => ({
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   // RIBBON_PROFILE=1 builds with React's profiling build, so <Profiler> reports renders (app/perf.ts) in a release build too.
   ...(process.env.RIBBON_PROFILE ? { resolve: { alias: [{ find: /^react-dom\/client$/, replacement: "react-dom/profiling" }] } } : {}),
+  // The layout worker (src/reader/layout.worker.ts) loads hyphenation patterns on demand: a module worker splits like the page.
+  worker: { format: "es" },
   build: {
     target: "chrome120",
     minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,

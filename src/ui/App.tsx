@@ -21,10 +21,13 @@ import { EditBook } from "./EditBook";
 import { StatsPane } from "./StatsPane";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
+import { preloadFaces } from "../reader/typeset";
 
 export function App() {
   const [controller, setController] = useState<AppController | null>(null);
   useEffect(() => startPerf(), []);
+  // The reader's faces load at start, so the first book opened does not wait for them.
+  useEffect(() => void preloadFaces(), []);
 
   useEffect(() => {
     let live = true;

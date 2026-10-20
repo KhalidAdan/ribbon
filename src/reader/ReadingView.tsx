@@ -1,9 +1,9 @@
 import { ArrowLeftIcon, BackwardIcon, BookmarkIcon, ForwardIcon, ListBulletIcon, PlayIcon, SpeakerWaveIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "../core/ebook";
 import type { Highlight } from "../core/types";
-import { flow, pageOf, paginate, placeAtY, yOfPlace, type Flow, type LaidBlock, type Page, type Placed } from "../core/reading/pages";
+import { pageOf, placeAtY, yOfPlace, type LaidBlock, type Placed } from "../core/reading/pages";
 import { comparePlaces, type BookText, type TextPlace, type TextRange } from "../core/reading/booktext";
 import { inRange, rangeOf } from "../core/reading/highlights";
 import { LEADINGS, MEASURES, metricsFor, SIZES, type Metrics, type ReadingSettings } from "../core/reading/typography";
@@ -12,7 +12,9 @@ import { useAppState, useController } from "../ui/store";
 import { Button, IconButton } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
 import { EmptyState, ProgressLine, Toggle } from "../ui/kit";
-import { FAMILY, loadFaces, Typesetter } from "./typeset";
+import { FAMILY, loadFaces } from "./typeset";
+import { LayoutEngine } from "./layout-engine";
+import type { SectionLayout } from "./layout";
 import { PlayButton } from "../ui/PlayerBar";
 import { formatDuration, formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
@@ -33,11 +35,8 @@ interface Visible {
   to: TextPlace;
 }
 
-interface SectionLayout {
-  blocks: LaidBlock[];
-  pages: Page[];
-  flow: Flow;
-}
+/** A chapter not laid out yet: nothing to show for a moment. */
+const NOT_YET: SectionLayout = { blocks: [], pages: [], flow: { section: -1, items: [], height: 0 } };
 
 /**
  * The reader (docs/READING.md): the book's EPUB, typeset by Ribbon with
@@ -403,9 +402,16 @@ function Choice({ label, value, options, onChange }: { label: string; value: num
   );
 }
 
-/** Lay out sections on demand, remembering each for the current metrics. */
-function useLayout(ebook: Ebook, settings: ReadingSettings, viewport: { width: number; height: number } | null, c: AppController) {
-  const typesetter = useMemo(() => new Typesetter(ebook, (src) => c.readingImageUrl(src)), [ebook, c]);
+/**
+ * The book's chapters laid out for this window and these settings, by the
+ * layout engine (layout-engine.ts): in a worker where one runs, so the page
+ * never waits on a long chapter. `layout(s)` is a chapter if it is ready,
+ * else nothing to show yet; `want` asks for chapters, most needed first.
+ */
+function useLayout(ebook: Ebook, settings: ReadingSettings, viewport: { width: number; height: number } | null) {
+  const engine = useMemo(() => new LayoutEngine(ebook), [ebook]);
+  useEffect(() => () => engine.destroy(), [engine]);
+  const version = useSyncExternalStore(engine.subscribe, engine.getVersion);
   const metrics = useMemo(() => (viewport ? metricsFor(settings, viewport) : null), [settings, viewport]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -417,32 +423,21 @@ function useLayout(ebook: Ebook, settings: ReadingSettings, viewport: { width: n
       live = false;
     };
   }, [metrics?.size, metrics]);
-  const cache = useRef(new Map<number, SectionLayout>());
   // Justified lines in a narrow column open rivers unless words can break: hyphenated, a phone's column (16 ems) can be justified.
-  const justify = !!metrics && settings.justify && metrics.column >= metrics.size * (typesetter.hyphenates ? 16 : 24);
-  const key = metrics ? `${metrics.size}:${metrics.lineHeight}:${metrics.column}:${metrics.pageHeight}:${justify}` : "";
-  const keyRef = useRef(key);
-  if (keyRef.current !== key) {
-    keyRef.current = key;
-    cache.current = new Map();
-  }
-  const layout = useCallback(
-    (section: number): SectionLayout => {
-      let l = cache.current.get(section);
-      if (!l) {
-        l = perf.time("lay out a chapter", () => {
-          const blocks = typesetter.section(section, metrics!, justify);
-          return { blocks, pages: paginate(section, blocks, metrics!.pageHeight, Math.round(metrics!.pageHeight * 0.12)), flow: flow(section, blocks) };
-        });
-        cache.current.set(section, l);
-      }
-      return l;
-    },
-    // The key carries the metrics and justification.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [typesetter, key],
-  );
-  return { metrics, ready: ready && !!metrics, layout };
+  const justify = !!metrics && settings.justify && metrics.column >= metrics.size * (engine.hyphenates ? 16 : 24);
+  if (metrics) engine.setSpec({ metrics, justify });
+  // A new function when a chapter the page watches arrives, so what uses it draws again.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const layout = useCallback((section: number): SectionLayout | undefined => engine.get(section), [engine, version]);
+  return { metrics, ready: ready && !!metrics, layout, engine };
+}
+
+/** Ask for a chapter, the ones either side of it, then the rest of the book outward from it. */
+function wantAround(engine: LayoutEngine, text: BookText, section: number): void {
+  const around = [section, neighbour(text.ebook, section, 1), neighbour(text.ebook, section, -1)].filter((s): s is number => s !== null);
+  engine.want(around);
+  const rest = text.ebook.sections.map((s, i) => (s.linear ? i : -1)).filter((i) => i >= 0 && !around.includes(i));
+  engine.later(rest.sort((a, b) => Math.abs(a - section) - Math.abs(b - section) || a - b));
 }
 
 /** The next and previous sections in the reading order. */
@@ -466,7 +461,7 @@ function Text({ bookId, text, place, settings, bar, listen, narrator, highlights
     return () => ro.disconnect();
   }, []);
   const ebook = text.ebook;
-  const { metrics, ready, layout } = useLayout(ebook, settings, viewport, c);
+  const { metrics, ready, layout, engine } = useLayout(ebook, settings, viewport);
   const progress = text.progress(place);
 
   // Bookmarks made from highlights, found in this book's text as ranges of places, so they survive any layout.
@@ -602,7 +597,7 @@ function Text({ bookId, text, place, settings, bar, listen, narrator, highlights
       <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
         {ready && metrics && viewport && (
           <Profiler id={settings.layout === "pages" ? "pages" : "scroll"} onRender={perf.onRender}>
-            {settings.layout === "pages" ? <Pages text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />}
+            {settings.layout === "pages" ? <Pages text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />}
           </Profiler>
         )}
         {tap && viewport && (
@@ -679,8 +674,8 @@ function placeAt(node: Node | null, offset: number): TextPlace | null {
   return { section, block, offset: Number(frag.dataset.start) + Math.max(0, (node === frag ? 0 : offset) - gap) };
 }
 
-const Pages = memo(function Pages({ text, place, metrics, viewport, layout, marks, c, onVisible }: { text: BookText; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
-  const l = layout(place.section);
+const Pages = memo(function Pages({ text, place, metrics, viewport, layout, engine, marks, c, onVisible }: { text: BookText; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout | undefined; engine: LayoutEngine; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
+  const l = layout(place.section) ?? NOT_YET;
   const at = pageOf(l.pages, place);
   const per = metrics.columns;
   const first = at - (at % per);
@@ -691,9 +686,10 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
   });
 
   const go = useCallback(
-    (step: 1 | -1, at?: number) => {
+    async (step: 1 | -1, at?: number) => {
       perf.begin("page turn", at);
       const cur = layout(place.section);
+      if (!cur) return;
       const here = pageOf(cur.pages, place);
       const start = here - (here % per);
       const target = start + step * per;
@@ -705,12 +701,12 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
       if (next === null) return;
       if (step === 1) c.moveReading({ section: next, block: 0, offset: 0 });
       else {
-        const prev = layout(next);
+        const prev = await engine.request(next);
         const last = prev.pages.length - 1;
         c.moveReading({ section: next, ...prev.pages[last - (last % per)]!.start });
       }
     },
-    [c, text, layout, per, place],
+    [c, text, layout, engine, per, place],
   );
 
   // The page a turn asked for is committed: measured to the frame that shows it. The first is the reader opening.
@@ -721,13 +717,8 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
     shownSection.current = place.section;
   }, [place.section, first]);
 
-  // Lay out the chapters on either side while the reader reads, so turning into them never waits.
-  useEffect(() => {
-    const id = setTimeout(() => {
-      for (const s of [neighbour(text.ebook, place.section, 1), neighbour(text.ebook, place.section, -1)]) if (s !== null) layout(s);
-    }, 120);
-    return () => clearTimeout(id);
-  }, [text, layout, place.section]);
+  // This chapter first, then the ones on either side, then the rest of the book outward from here.
+  useEffect(() => wantAround(engine, text, place.section), [engine, text, place.section]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -774,10 +765,12 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
 });
 
 /** The sections in view while scrolling: the one being read and its neighbours, stacked. */
-const Scroll = memo(function Scroll({ text, place, metrics, layout, marks, c, onVisible, onScrolled }: { text: BookText; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
+const Scroll = memo(function Scroll({ text, place, metrics, layout: laid, engine, marks, c, onVisible, onScrolled }: { text: BookText; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout | undefined; engine: LayoutEngine; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [center, setCenter] = useState(place.section);
   const sections = [neighbour(text.ebook, center, -1), center, neighbour(text.ebook, center, 1)].filter((s): s is number => s !== null);
+  const layout = (s: number): SectionLayout => laid(s) ?? NOT_YET;
+  useEffect(() => wantAround(engine, text, center), [engine, text, center]);
   const between = metrics.lineHeight * 4;
   const tops: number[] = [];
   let y = metrics.margin;
@@ -983,7 +976,7 @@ function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; col
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
     const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
-    return <img src={b.image.src} alt={b.image.alt} draggable={false} className={`absolute select-none ${dark}`} style={{ top: it.y, left: Math.round((column - b.image.width) / 2), width: b.image.width, height: b.image.height }} />;
+    return <img src={c.readingImageUrl(b.image.src)} alt={b.image.alt} draggable={false} className={`absolute select-none ${dark}`} style={{ top: it.y, left: Math.round((column - b.image.width) / 2), width: b.image.width, height: b.image.height }} />;
   }
   if (b.kind === "hr") {
     return (

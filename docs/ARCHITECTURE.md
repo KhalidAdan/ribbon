@@ -218,6 +218,26 @@ sequenceDiagram
 A book opened again in the same session reuses its `ReadingData` (the
 heard places, transcript and fixes kept in memory) and reads none of it again.
 
+### Laying out the pages
+
+The reader's lines are broken by pretext, which measures text on a canvas.
+That work runs in a worker, so a long chapter never holds up a tap, a turn
+or a scroll:
+
+```mermaid
+flowchart LR
+  V["ReadingView<br/>useLayout"] -- "want(here, either side)<br/>later(the rest, outward)" --> E["LayoutEngine<br/>layout-engine.ts"]
+  E -- "one chapter at a time" --> W["layout.worker.ts<br/>Typesetter + OffscreenCanvas"]
+  W -- "blocks · pages · flow" --> E
+  E -- "version bumps when a watched<br/>chapter arrives" --> V
+```
+
+The worker loads the reader's own faces (`reader/faces.ts`), the same ones the
+page draws with, so its lines break exactly as the page would draw them.
+Where no worker can measure (no `OffscreenCanvas`: Safari before 16.4), the
+engine lays out on the page instead, one chapter per task. A change of text
+size, column or justification starts the whole book again.
+
 ## 6. Following the narrator
 
 Five times a second, while the book plays:
@@ -329,7 +349,7 @@ bookmarks, corrections, pairing); README.md lists which is which.
 | Places in a book | `core/reading/booktext.ts` |
 | Text ↔ time | `core/reading/align.ts` (`alignBook`, `textToMs`, `msToText`) |
 | Read-along's transcript | `core/reading/transcript.ts`, `src-tauri/src/speech.rs` |
-| The reader on screen | `reader/ReadingView.tsx`, `core/reading/pages.ts`, `reader/typeset.ts` |
+| The reader on screen | `reader/ReadingView.tsx`, `core/reading/pages.ts`, `reader/typeset.ts`, `reader/layout-engine.ts` |
 | Playback | `player/engine.ts`, `src-tauri/src/frames.rs` |
 | The EPUB parser | `src-tauri/src/ebook/content.rs` |
 | The export | `core/reading/export.ts`, `src-tauri/src/ebook/export.rs`, `source.rs` |
