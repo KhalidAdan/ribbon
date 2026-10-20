@@ -14,10 +14,17 @@ import { Typesetter } from "./typeset";
  * while you read.
  *
  * Laid-out chapters are kept for the current layout spec (text size, column,
- * page height, justification); a new spec starts again.
+ * page height, justification). A new spec, as when the window is resized,
+ * lays out again everything asked for so far, in the same order; until a
+ * chapter arrives for the new spec, its last layout stands in for it, so
+ * the page reflows a moment after the window rather than going blank.
  */
 export class LayoutEngine {
   private readonly cache = new Map<number, SectionLayout>();
+  /** Chapters laid out for an earlier spec: shown until they arrive for this one. */
+  private readonly stale = new Map<number, SectionLayout>();
+  /** Every section asked for, most needed first: what a new spec lays out again. */
+  private order: number[] = [];
   private readonly waiters = new Map<number, ((l: SectionLayout) => void)[]>();
   /** Sections the page is showing or about to: their arrival redraws it. */
   private readonly watched = new Set<number>();
@@ -33,14 +40,22 @@ export class LayoutEngine {
   private busy = false;
   private nextId = 1;
   private worker: Worker | null = null;
-  private local: { typesetter: Typesetter; ready: Promise<void> } | null = null;
+  private local: { layOut: (section: number, spec: LayoutSpec) => SectionLayout; ready: Promise<void> } | null = null;
   /** Bumped when a section the page watches arrives, or the spec changes: what React reads to redraw. */
   version = 0;
   hyphenates = false;
   private readonly images: string[];
 
-  constructor(private readonly ebook: Ebook) {
+  /** `layOut` lays chapters out on the page with that function instead (the tests). */
+  constructor(
+    private readonly ebook: Ebook,
+    layOut?: (section: number, spec: LayoutSpec) => SectionLayout,
+  ) {
     this.images = Object.keys(ebook.files ?? {});
+    if (layOut) {
+      this.local = { layOut, ready: Promise.resolve() };
+      return;
+    }
     try {
       if (typeof Worker === "undefined" || typeof OffscreenCanvas === "undefined") throw new Error("no worker here");
       const w = new Worker(new URL("./layout.worker.ts", import.meta.url), { type: "module" });
@@ -65,10 +80,13 @@ export class LayoutEngine {
     const images = new Set(this.images);
     const typesetter = new Typesetter(this.ebook, (src) => images.has(src));
     const faces = typeof document !== "undefined" && document.fonts ? addFaces(document.fonts) : Promise.resolve();
-    this.local = { typesetter, ready: Promise.all([typesetter.ready, faces]).then(() => {
-      this.hyphenates = typesetter.hyphenates;
-      this.bump();
-    }) };
+    this.local = {
+      layOut: (section, spec) => layOutSection(typesetter, section, spec),
+      ready: Promise.all([typesetter.ready, faces]).then(() => {
+        this.hyphenates = typesetter.hyphenates;
+        this.bump();
+      }),
+    };
     this.busy = false;
     this.pump();
   }
@@ -92,8 +110,9 @@ export class LayoutEngine {
     this.key = key;
     this.spec = spec;
     this.generation++;
+    for (const [section, layout] of this.cache) this.stale.set(section, layout);
     this.cache.clear();
-    this.queue = [];
+    this.queue = [...this.order];
     this.bump();
     this.pump();
   }
@@ -112,14 +131,20 @@ export class LayoutEngine {
     this.cache.set(section, layout);
   }
 
-  /** A chapter, if it is laid out for the current spec. */
+  /** A chapter laid out for the current spec, or else for the last spec it was laid out for; nothing if it never was. */
   get(section: number): SectionLayout | undefined {
-    return this.cache.get(section);
+    return this.cache.get(section) ?? this.stale.get(section);
+  }
+
+  /** Whether `get` gives the chapter as laid out for the current spec. */
+  isFresh(section: number): boolean {
+    return this.cache.has(section);
   }
 
   /** The page needs these now, most needed first: they go to the front, and their arrival redraws it. */
   want(sections: readonly number[]): void {
     for (const s of sections) this.watched.add(s);
+    this.order = [...sections, ...this.order.filter((s) => !sections.includes(s))];
     const missing = sections.filter((s) => !this.cache.has(s));
     this.queue = [...missing, ...this.queue.filter((s) => !missing.includes(s))];
     this.pump();
@@ -133,6 +158,7 @@ export class LayoutEngine {
 
   /** Lay these out when nothing more pressing is asked, in this order. */
   later(sections: readonly number[]): void {
+    this.order.push(...sections.filter((s) => !this.order.includes(s)));
     const add = sections.filter((s) => !this.cache.has(s) && !this.queue.includes(s));
     this.queue.push(...add);
     this.pump();
@@ -179,7 +205,7 @@ export class LayoutEngine {
           setTimeout(() => {
             if (generation === this.generation) {
               const t0 = performance.now();
-              const layout = layOutSection(local.typesetter, s, spec);
+              const layout = local.layOut(s, spec);
               this.arrived(s, layout, performance.now() - t0, "on the page");
             }
             this.busy = false;
@@ -206,6 +232,7 @@ export class LayoutEngine {
   private arrived(section: number, layout: SectionLayout, ms: number, where: string): void {
     perf.record(`lay out a chapter (${where})`, ms);
     this.cache.set(section, layout);
+    this.stale.delete(section);
     for (const resolve of this.waiters.get(section) ?? []) resolve(layout);
     this.waiters.delete(section);
     if (this.watchingAll > 0 || this.watched.has(section)) this.bump(section);

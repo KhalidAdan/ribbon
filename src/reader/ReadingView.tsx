@@ -785,7 +785,7 @@ const Pages = memo(function Pages({ bookId, fits, text, place, metrics, viewport
   useEffect(() => wantAround(engine, text, place.section), [engine, text, place.section]);
 
   // The snapshot the book opens to next time (snapshot.ts): the chapter once it is laid out, the place on every turn.
-  const laidOut = l === NOT_YET ? null : l;
+  const laidOut = l === NOT_YET || !engine.isFresh(place.section) ? null : l;
   useEffect(() => {
     if (!laidOut) return;
     const key = engine.specKey;
