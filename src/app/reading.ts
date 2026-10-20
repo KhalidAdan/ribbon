@@ -2,7 +2,7 @@ import type { Ebook } from "../core/ebook";
 import type { Alignment } from "../core/reading/align";
 import type { Highlight } from "../core/types";
 import type { Locator, Why } from "../core/poslog";
-import { locatorOf, placeOf, startOf, type TextPlace } from "../core/reading/place";
+import type { BookText, TextPlace } from "../core/reading/booktext";
 import { log } from "./log";
 
 /** The book open in the reader, while it opens, once it has, or why it could not. */
@@ -10,7 +10,8 @@ export interface ReadingState {
   bookId: string;
   status: "opening" | "ready" | "failed";
   message?: string;
-  ebook?: Ebook;
+  /** The book's text, and through it its EPUB model (`text.ebook`). */
+  text?: BookText;
   place?: TextPlace;
   /** The text's chapters paired with the audio's, for switching between them (level 1). */
   alignment?: Alignment;
@@ -70,7 +71,7 @@ export class ReadingKeeper {
   private moved = false;
 
   constructor(
-    private readonly ebook: Ebook,
+    private readonly book: BookText,
     start: TextPlace,
     private readonly io: {
       /** Keep it on this machine. Cheap, and called on every move. */
@@ -93,7 +94,7 @@ export class ReadingKeeper {
     this.place = place;
     this.moved = true;
     const now = this.io.now?.() ?? Date.now();
-    const loc = locatorOf(this.ebook, place);
+    const loc = this.book.locator(place);
     const ms = this.io.toMs?.(place) ?? undefined;
     this.io.keepLocal({ loc, t: new Date(now).toISOString(), ...(ms !== undefined ? { ms } : {}) });
     this.pending = { loc, why, at: now, ...(ms !== undefined ? { ms } : {}) };
@@ -133,11 +134,11 @@ export class ReadingKeeper {
  * the book's start. Listening on after reading opens the text where the
  * narrator is.
  */
-export function openingPlace(ebook: Ebook, local: KeptPlace | undefined, shared: KeptPlace | undefined, narrator?: { place: TextPlace; t: string }): TextPlace {
+export function openingPlace(book: BookText, local: KeptPlace | undefined, shared: KeptPlace | undefined, narrator?: { place: TextPlace; t: string }): TextPlace {
   type Candidate = { t: number; place: () => TextPlace };
   const all: Candidate[] = [];
-  for (const k of [local, shared]) if (k && !Number.isNaN(Date.parse(k.t))) all.push({ t: Date.parse(k.t), place: () => placeOf(ebook, k.loc) });
+  for (const k of [local, shared]) if (k && !Number.isNaN(Date.parse(k.t))) all.push({ t: Date.parse(k.t), place: () => book.fromLocator(k.loc) });
   if (narrator && !Number.isNaN(Date.parse(narrator.t))) all.push({ t: Date.parse(narrator.t), place: () => narrator.place });
   const newest = all.sort((a, b) => b.t - a.t)[0];
-  return newest ? newest.place() : startOf(ebook);
+  return newest ? newest.place() : book.start();
 }

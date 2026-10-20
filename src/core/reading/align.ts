@@ -1,6 +1,5 @@
-import { blockText, type Ebook } from "../ebook";
 import type { Chapter } from "../types";
-import type { TextPlace } from "./place";
+import type { BookText } from "./booktext";
 import { openingMatch, OTHER, SAME, words } from "./openings";
 import type { Anchor } from "./anchors";
 
@@ -136,46 +135,6 @@ export function chapterKey(title: string): string {
   return s;
 }
 
-/** Characters before a place, counting only the reading order. */
-export function globalOffset(ebook: Ebook, p: TextPlace): number {
-  let n = 0;
-  ebook.sections.forEach((s, i) => {
-    if (!s.linear || i > p.section) return;
-    if (i < p.section) {
-      n += s.chars;
-      return;
-    }
-    for (let b = 0; b < p.block && b < s.blocks.length; b++) n += blockText(s.blocks[b]!).length;
-    n += p.offset;
-  });
-  return n;
-}
-
-/** The place at a character of the reading order, at the start of its word. */
-export function placeAtGlobal(ebook: Ebook, n: number): TextPlace {
-  let left = Math.max(0, Math.round(n));
-  let last: TextPlace = { section: 0, block: 0, offset: 0 };
-  for (let i = 0; i < ebook.sections.length; i++) {
-    const s = ebook.sections[i]!;
-    if (!s.linear) continue;
-    for (let b = 0; b < s.blocks.length; b++) {
-      const text = blockText(s.blocks[b]!);
-      if (left < text.length) {
-        let offset = left;
-        while (offset > 0 && !/\s/.test(text[offset - 1]!)) offset--;
-        return { section: i, block: b, offset };
-      }
-      left -= text.length;
-      last = { section: i, block: b, offset: text.length };
-    }
-  }
-  return last;
-}
-
-function totalChars(ebook: Ebook): number {
-  return ebook.sections.reduce((n, s) => n + (s.linear ? s.chars : 0), 0);
-}
-
 interface TextIn {
   ref: string;
   label: string;
@@ -190,15 +149,15 @@ interface TextIn {
 }
 
 /** The text from a character of the reading order, blocks joined by spaces, up to `max` characters. */
-function textFrom(ebook: Ebook, start: number, max: number): string {
-  const p = placeAtGlobal(ebook, start);
+function textFrom(book: BookText, start: number, max: number): string {
+  const p = book.place(start);
   const out: string[] = [];
   let n = 0;
-  for (let s = p.section; s < ebook.sections.length && n < max; s++) {
-    const sec = ebook.sections[s]!;
+  for (let s = p.section; s < book.ebook.sections.length && n < max; s++) {
+    const sec = book.ebook.sections[s]!;
     if (!sec.linear) continue;
     for (let b = s === p.section ? p.block : 0; b < sec.blocks.length && n < max; b++) {
-      const t = blockText(sec.blocks[b]!).slice(s === p.section && b === p.block ? p.offset : 0);
+      const t = book.blockText(s, b).slice(s === p.section && b === p.block ? p.offset : 0);
       if (!t) continue;
       out.push(t);
       n += t.length;
@@ -222,10 +181,11 @@ interface AudioIn {
 const HEARD_MIN_WORDS = 5;
 
 /** The contents entries in reading order, each running to the next. */
-function textUnits(ebook: Ebook): TextIn[] {
+function textUnits(book: BookText): TextIn[] {
+  const ebook = book.ebook;
   const entries = ebook.toc
     .filter((t) => ebook.sections[t.section]?.linear)
-    .map((t) => ({ label: t.label, ref: `${ebook.sections[t.section]!.href}#${t.block}`, kind: ebook.sections[t.section]!.kind, start: globalOffset(ebook, { section: t.section, block: t.block, offset: 0 }) }))
+    .map((t) => ({ label: t.label, ref: `${ebook.sections[t.section]!.href}#${t.block}`, kind: ebook.sections[t.section]!.kind, start: book.chars({ section: t.section, block: t.block, offset: 0 }) }))
     .sort((a, b) => a.start - b.start);
   const out: TextIn[] = [];
   for (const e of entries) {
@@ -233,7 +193,7 @@ function textUnits(ebook: Ebook): TextIn[] {
     if (out.length > 0 && out[out.length - 1]!.start === e.start) out.pop();
     out.push({ ref: e.ref, label: e.label, key: chapterKey(e.label), ...(e.kind ? { kind: e.kind } : {}), start: e.start, end: 0, spoken: 0, opening: "" });
   }
-  const total = totalChars(ebook);
+  const total = book.total;
   out.forEach((c, i) => (c.end = out[i + 1]?.start ?? total));
   if (out.length > 0) out[0]!.start = 0;
   // What a narrator could read in each: its text, less sections marked as never narrated (a contents page inside "Cover").
@@ -247,7 +207,7 @@ function textUnits(ebook: Ebook): TextIn[] {
   for (const c of out) {
     const quiet = silent.reduce((n, [a, b]) => n + Math.max(0, Math.min(b, c.end) - Math.max(a, c.start)), 0);
     c.spoken = Math.max(0, c.end - c.start - quiet);
-    c.opening = textFrom(ebook, c.start, Math.min(400, c.end - c.start));
+    c.opening = textFrom(book, c.start, Math.min(400, c.end - c.start));
   }
   return out.filter((c) => c.end > c.start);
 }
@@ -377,12 +337,12 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
  * number the book's own chapters. With no pairs at all, the whole text
  * maps to the whole recording by proportion.
  */
-export function alignBook(ebook: Ebook, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[]; heard?: ReadonlyMap<number, string>; anchors?: readonly Anchor[] } = {}): Alignment {
-  const text = textUnits(ebook);
+export function alignBook(book: BookText, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[]; heard?: ReadonlyMap<number, string>; anchors?: readonly Anchor[] } = {}): Alignment {
+  const text = textUnits(book);
   // Audible books open and close with credits; generated titles hide them, so a short first or last track is taken for them.
   const creditsLike = (c: Chapter, j: number) => CREDITS.test(c.title) || (!!opts.generated && (j === 0 || j === chapters.length - 1) && c.endMs - c.startMs < 75_000);
   const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)!, heardWords: words(opts.heard.get(c.startMs)!).length } : {}) }));
-  const total = totalChars(ebook);
+  const total = book.total;
   const whole = (): Alignment => ({
     how: "proportion",
     pairs: [withPoints({ text: { start: 0, end: total }, audio: { startMs: 0, endMs: durationMs }, textLabel: "", audioTitle: "", confidence: 0, fixed: false, points: [] }, opts.anchors)],
@@ -503,8 +463,8 @@ export function precise(a: Alignment, ms: number): boolean {
  * every narrated passage is a point, exact, so the chapters are not
  * paired at all. The contents keep their units, all in the one pair.
  */
-export function byOverlay(ebook: Ebook, base: Alignment, anchors: readonly Anchor[], durationMs: number): Alignment {
-  const total = totalChars(ebook);
+export function byOverlay(book: BookText, base: Alignment, anchors: readonly Anchor[], durationMs: number): Alignment {
+  const total = book.total;
   const pair = withPoints({ text: { start: 0, end: total }, audio: { startMs: 0, endMs: durationMs }, textLabel: "", audioTitle: "", confidence: 1, fixed: false, points: [] }, anchors);
   return { how: "overlay", pairs: [pair], text: base.text.map((t) => ({ ...t, pair: 0 })), audio: base.audio.map((x) => ({ ...x, pair: 0 })) };
 }

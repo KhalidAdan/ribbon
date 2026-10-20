@@ -1,7 +1,6 @@
-import { blockText, type Ebook } from "../ebook";
 import { textClaimsFor } from "../poslog";
 import type { HighlightText } from "../types";
-import { locatorOf, placeOf, textBetween, type TextPlace } from "./place";
+import { comparePlaces, type BookText, type TextPlace, type TextRange } from "./booktext";
 
 /**
  * Highlights in the text (docs/READING.md, section 5): words marked by a
@@ -9,30 +8,7 @@ import { locatorOf, placeOf, textBetween, type TextPlace } from "./place";
  * as a range of places in any layout. Pure.
  */
 
-export interface TextRange {
-  from: TextPlace;
-  to: TextPlace;
-}
-
-const SOFT_HYPHEN = "­";
-
-export function comparePlaces(a: TextPlace, b: TextPlace): number {
-  return a.section - b.section || a.block - b.block || a.offset - b.offset;
-}
-
-function textAt(ebook: Ebook, section: number, block: number): string {
-  const b = ebook.sections[section]?.blocks[block];
-  return b ? blockText(b) : "";
-}
-
-/** The first block after this one, in this section or a later one, with any text. */
-function nextBlock(ebook: Ebook, section: number, block: number): { section: number; block: number } | null {
-  for (let s = section, b = block + 1; s < ebook.sections.length; s++, b = 0) {
-    const blocks = ebook.sections[s]!.blocks;
-    for (; b < blocks.length; b++) if (blockText(blocks[b]!).replaceAll(SOFT_HYPHEN, "")) return { section: s, block: b };
-  }
-  return null;
-}
+const SOFT_HYPHEN = "\u00ad";
 
 /** Letters, digits and what joins them inside a word. */
 const WORD = /[\p{L}\p{N}\p{M}'’­]/u;
@@ -43,7 +19,7 @@ const WORD = /[\p{L}\p{N}\p{M}'’­]/u;
  * a word cut by either end taken whole. Null when nothing but space was
  * selected.
  */
-export function trimRange(ebook: Ebook, a: TextPlace, b: TextPlace): TextRange | null {
+export function trimRange(book: BookText, a: TextPlace, b: TextPlace): TextRange | null {
   let [from, to] = comparePlaces(a, b) <= 0 ? [a, b] : [b, a];
   const blank = (c: string | undefined) => c !== undefined && (/\s/.test(c) || c === SOFT_HYPHEN);
   // Punctuation that ends what comes before is never the first of a highlight, nor what opens what comes after its last.
@@ -51,7 +27,7 @@ export function trimRange(ebook: Ebook, a: TextPlace, b: TextPlace): TextRange |
   const opening = (c: string | undefined) => c !== undefined && (blank(c) || /[([{«“]/.test(c));
   const word = (c: string | undefined) => c !== undefined && WORD.test(c);
   for (;;) {
-    const text = textAt(ebook, from.section, from.block);
+    const text = book.blockText(from.section, from.block);
     let o = Math.min(from.offset, text.length);
     while (o < text.length && closing(text[o])) o++;
     if (o < text.length) {
@@ -59,11 +35,11 @@ export function trimRange(ebook: Ebook, a: TextPlace, b: TextPlace): TextRange |
       from = { ...from, offset: o };
       break;
     }
-    const next = nextBlock(ebook, from.section, from.block);
+    const next = book.nextBlock(from.section, from.block);
     if (!next) return null;
     from = { ...next, offset: 0 };
   }
-  const end = textAt(ebook, to.section, to.block);
+  const end = book.blockText(to.section, to.block);
   let o = Math.min(to.offset, end.length);
   while (o > 0 && opening(end[o - 1])) o--;
   while (o > 0 && o < end.length && word(end[o - 1]) && word(end[o])) o++;
@@ -72,18 +48,18 @@ export function trimRange(ebook: Ebook, a: TextPlace, b: TextPlace): TextRange |
 }
 
 /** What a highlight keeps of a selection: the text edition's claims, where it starts and ends, and its words. */
-export function highlightOf(ebook: Ebook, bookId: string, range: TextRange): HighlightText {
-  return { ids: textClaimsFor(bookId, ebook.meta.identifiers), start: locatorOf(ebook, range.from), end: locatorOf(ebook, range.to), quote: textBetween(ebook, range.from, range.to) };
+export function highlightOf(book: BookText, bookId: string, range: TextRange): HighlightText {
+  return { ids: textClaimsFor(bookId, book.ebook.meta.identifiers), start: book.locator(range.from), end: book.locator(range.to), quote: book.text(range) };
 }
 
 /**
  * Where words that start at a place end: the words walked through the
- * text as `textBetween` gave them, paragraphs apart and soft hyphens
+ * text as `BookText.text` gives them, paragraphs apart and soft hyphens
  * left out. Null when the text there is not those words.
  */
-export function placeAfter(ebook: Ebook, start: TextPlace, quote: string): TextPlace | null {
+export function placeAfter(book: BookText, start: TextPlace, quote: string): TextPlace | null {
   let { section, block } = start;
-  let text = textAt(ebook, section, block);
+  let text = book.blockText(section, block);
   let o = start.offset;
   const atEnd = () => {
     while (o < text.length && text[o] === SOFT_HYPHEN) o++;
@@ -91,10 +67,10 @@ export function placeAfter(ebook: Ebook, start: TextPlace, quote: string): TextP
   };
   for (let q = 0; q < quote.length; ) {
     if (quote.startsWith("\n\n", q) && atEnd()) {
-      const next = nextBlock(ebook, section, block);
+      const next = book.nextBlock(section, block);
       if (!next) return null;
       ({ section, block } = next);
-      text = textAt(ebook, section, block);
+      text = book.blockText(section, block);
       o = 0;
       q += 2;
       continue;
@@ -112,10 +88,10 @@ export function placeAfter(ebook: Ebook, start: TextPlace, quote: string): TextP
  * end by walking its words from there, or by the end's Locator when the
  * text has changed.
  */
-export function rangeOf(ebook: Ebook, h: HighlightText): TextRange {
-  const from = placeOf(ebook, h.start);
-  const after = placeAfter(ebook, from, h.quote);
-  const to = after ?? placeOf(ebook, h.end);
+export function rangeOf(book: BookText, h: HighlightText): TextRange {
+  const from = book.fromLocator(h.start);
+  const after = placeAfter(book, from, h.quote);
+  const to = after ?? book.fromLocator(h.end);
   return comparePlaces(from, to) <= 0 ? { from, to } : { from: to, to: from };
 }
 

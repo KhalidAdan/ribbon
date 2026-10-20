@@ -4,8 +4,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { Ebook } from "../core/ebook";
 import type { Highlight } from "../core/types";
 import { flow, pageOf, paginate, placeAtY, yOfPlace, type Flow, type LaidBlock, type Page, type Placed } from "../core/reading/pages";
-import { bookProgress, placeOf, placeOfHref, tocEntryAt, textBetween, type TextPlace } from "../core/reading/place";
-import { comparePlaces, inRange, rangeOf, type TextRange } from "../core/reading/highlights";
+import { comparePlaces, type BookText, type TextPlace, type TextRange } from "../core/reading/booktext";
+import { inRange, rangeOf } from "../core/reading/highlights";
 import { LEADINGS, MEASURES, metricsFor, SIZES, type Metrics, type ReadingSettings } from "../core/reading/typography";
 import type { AppController } from "../app/controller";
 import { useAppState, useController } from "../ui/store";
@@ -16,8 +16,8 @@ import { FAMILY, loadFaces, Typesetter } from "./typeset";
 import { PlayButton } from "../ui/PlayerBar";
 import { formatDuration, formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
-import { globalOffset, msToText, placeAtGlobal, precise, type Alignment } from "../core/reading/align";
-import { sentenceAt, type Sentence } from "../core/reading/sentences";
+import { msToText, precise, type Alignment } from "../core/reading/align";
+import type { Sentence } from "../core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
 
 /** A sentence marked in the text: the one a tap would listen from, or the one being read aloud. */
@@ -54,9 +54,10 @@ export function ReadingView() {
   const [barPref, setBarPref] = useState<"auto" | "shown" | "hidden">("auto");
   if (!r) return null;
   const book = state.books.find((b) => b.book.id === r.bookId);
-  const ebook = r.ebook;
+  const text = r.text;
+  const ebook = text?.ebook;
   const place = r.place;
-  const entry = ebook && place ? tocEntryAt(ebook, place) : -1;
+  const entry = text && place ? text.tocEntryAt(place) : -1;
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
   const loadedHere = state.current?.book.book.id === r.bookId;
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
@@ -94,11 +95,11 @@ export function ReadingView() {
         </Middle>
       )}
       {r.status === "ready" && r.preparing && <Preparing listening={r.listening} onReadNow={() => c.readNow()} />}
-      {r.status === "ready" && !r.preparing && ebook && place && (
+      {r.status === "ready" && !r.preparing && text && ebook && place && (
         <Text
           key={ebook.meta.title + r.bookId}
           bookId={r.bookId}
-          ebook={ebook}
+          text={text}
           place={place}
           settings={state.readingSettings}
           bar={barOpen}
@@ -117,7 +118,7 @@ export function ReadingView() {
       )}
       {ebook && (
         <Drawer open={bookmarks} onClose={() => setBookmarks(false)} title="Bookmarks">
-          <HighlightList ebook={ebook} highlights={r.highlights ?? NO_HIGHLIGHTS} listen={listen} c={c} onGo={() => setBookmarks(false)} />
+          <HighlightList text={text!} highlights={r.highlights ?? NO_HIGHLIGHTS} listen={listen} c={c} onGo={() => setBookmarks(false)} />
         </Drawer>
       )}
     </div>
@@ -254,7 +255,7 @@ function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Eboo
 const NO_HIGHLIGHTS: Highlight[] = [];
 
 /** The bookmarks made from highlights, in the order of the book: their words, where they are, listen, delete. */
-function HighlightList({ ebook, highlights, listen, c, onGo }: { ebook: Ebook; highlights: Highlight[]; listen: boolean; c: AppController; onGo: () => void }) {
+function HighlightList({ text, highlights, listen, c, onGo }: { text: BookText; highlights: Highlight[]; listen: boolean; c: AppController; onGo: () => void }) {
   if (highlights.length === 0) {
     return (
       <EmptyState icon={BookmarkIcon} title="No bookmarks in the text yet">
@@ -265,9 +266,9 @@ function HighlightList({ ebook, highlights, listen, c, onGo }: { ebook: Ebook; h
   return (
     <ul role="list" className="flex flex-col">
       {highlights.map((h) => {
-        const at = placeOf(ebook, h.text.start);
-        const entry = tocEntryAt(ebook, at);
-        const where = [entry >= 0 ? ebook.toc[entry]!.label : "", h.offsetMs !== null ? formatDuration(h.offsetMs) : ""].filter(Boolean).join(" · ");
+        const at = text.fromLocator(h.text.start);
+        const entry = text.tocEntryAt(at);
+        const where = [entry >= 0 ? text.ebook.toc[entry]!.label : "", h.offsetMs !== null ? formatDuration(h.offsetMs) : ""].filter(Boolean).join(" · ");
         return (
           <li key={h.id} className="flex items-start gap-1 rounded-md">
             <button
@@ -447,7 +448,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlights, c }: { bookId: string; ebook: Ebook; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean; playing: boolean } | null; highlights: Highlight[]; c: AppController }) {
+function Text({ bookId, text, place, settings, bar, listen, narrator, highlights, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; narrator: { ms: number; alignment: Alignment; following: boolean; playing: boolean } | null; highlights: Highlight[]; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -461,11 +462,12 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const ebook = text.ebook;
   const { metrics, ready, layout } = useLayout(ebook, settings, viewport, c);
-  const progress = bookProgress(ebook, place);
+  const progress = text.progress(place);
 
   // Bookmarks made from highlights, found in this book's text as ranges of places, so they survive any layout.
-  const saved = useMemo(() => highlights.map((h) => ({ id: h.id, ...rangeOf(ebook, h.text) })), [ebook, highlights]);
+  const saved = useMemo(() => highlights.map((h) => ({ id: h.id, ...rangeOf(text, h.text) })), [text, highlights]);
 
   // A tap on the text offers to listen from the sentence tapped, marked until the offer goes; on a highlight, to take its bookmark back.
   const [tap, setTap] = useState<{ mark: Mark | null; saved: string | null; x: number; y: number } | null>(null);
@@ -533,11 +535,11 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
     const p = range ? placeAt(range.startContainer, range.startOffset) : null;
     const rect = box.current?.getBoundingClientRect();
     if (!p || !rect) return;
-    const sentence = listen ? sentenceAt(ebook, p) : null;
+    const sentence = listen ? text.sentenceAt(p) : null;
     const on = saved.find((r) => inRange(r, p));
     if (!sentence && !on) return;
     const line = t.closest("[data-block]")!.getBoundingClientRect();
-    setTap({ mark: sentence ? { section: p.section, block: p.block, ...sentence } : null, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top });
+    setTap({ mark: sentence, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top });
   };
   // The sentence being read, marked wherever it is on the page (following or not) when the mapping is close enough to say which.
   const nMs = narrator?.ms;
@@ -545,10 +547,9 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
   const following = !!narrator?.following;
   const reading = useMemo(() => {
     if (nMs === undefined || !nAlignment) return null;
-    const p = placeAtGlobal(ebook, msToText(nAlignment, nMs));
-    const s = sentenceAt(ebook, p);
-    return { place: p, chars: globalOffset(ebook, p), sentence: s ? { section: p.section, block: p.block, ...s } : null, precise: precise(nAlignment, nMs) };
-  }, [ebook, nMs, nAlignment]);
+    const p = text.place(msToText(nAlignment, nMs));
+    return { place: p, chars: text.chars(p), sentence: text.sentenceAt(p), precise: precise(nAlignment, nMs) };
+  }, [text, nMs, nAlignment]);
   const readKey = reading?.sentence && reading.precise && settings.highlight ? `${reading.sentence.section}:${reading.sentence.block}:${reading.sentence.start}` : "";
   // The same sentence keeps the same mark, so the pages draw again only when the narrator moves on.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -556,18 +557,18 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
   // The narrator read past the page: turn it.
   useEffect(() => {
     if (!following || !reading || !visible) return;
-    if (reading.chars >= globalOffset(ebook, visible.from) && reading.chars <= globalOffset(ebook, visible.to)) return;
+    if (reading.chars >= text.chars(visible.from) && reading.chars <= text.chars(visible.to)) return;
     // To the word being read: a sentence across two pages turns with the narrator, not before.
     c.moveReading(reading.place, "periodic", "follow");
-  }, [following, reading, visible, ebook, c]);
+  }, [following, reading, visible, text, c]);
   // Turned back to where the narrator is, while it plays: follow it again. Only as it comes into view, so
   // "Follow along" turned off stays off, and only once the page shown is the one turned to.
   const playing = !!narrator?.playing;
   const narratorShown = (() => {
     if (!reading || !visible) return false;
-    const from = globalOffset(ebook, visible.from);
-    const to = globalOffset(ebook, visible.to);
-    const at = globalOffset(ebook, place);
+    const from = text.chars(visible.from);
+    const to = text.chars(visible.to);
+    const at = text.chars(place);
     return at >= from && at < to && reading.chars >= from && reading.chars <= to;
   })();
   const wasShown = useRef(narratorShown);
@@ -590,13 +591,13 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
     const b = placeAt(sel.focusNode, sel.focusOffset);
     if (!a || !b) return;
     e.preventDefault();
-    e.clipboardData.setData("text/plain", textBetween(ebook, a, b));
+    e.clipboardData.setData("text/plain", text.text({ from: a, to: b }));
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
-        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages ebook={ebook} place={place} metrics={metrics} viewport={viewport} layout={layout} marks={marks} c={c} onVisible={onVisible} /> : <Scroll ebook={ebook} place={place} metrics={metrics} layout={layout} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />)}
+        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />)}
         {tap && viewport && (
           <div data-tap className="absolute z-10 flex gap-1" style={{ left: Math.max(8, Math.min(viewport.width - (tap.mark && tap.saved ? 300 : 168), tap.x - 80)), top: tap.y + 6 }}>
             {tap.mark && (
@@ -649,7 +650,7 @@ function Text({ bookId, ebook, place, settings, bar, listen, narrator, highlight
           </div>
         )}
       </div>
-      {bar && <ListeningBar bookId={bookId} ebook={ebook} visible={visible} c={c} />}
+      {bar && <ListeningBar bookId={bookId} text={text} visible={visible} c={c} />}
       <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
         <ProgressLine fraction={progress} className="flex-1" />
         <span className="text-xs/4 text-ink-3 tabular-nums">{Math.round(progress * 100)}%</span>
@@ -671,7 +672,7 @@ function placeAt(node: Node | null, offset: number): TextPlace | null {
   return { section, block, offset: Number(frag.dataset.start) + Math.max(0, (node === frag ? 0 : offset) - gap) };
 }
 
-const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, marks, c, onVisible }: { ebook: Ebook; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
+const Pages = memo(function Pages({ text, place, metrics, viewport, layout, marks, c, onVisible }: { text: BookText; place: TextPlace; metrics: Metrics; viewport: { width: number; height: number }; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void }) {
   const l = layout(place.section);
   const at = pageOf(l.pages, place);
   const per = metrics.columns;
@@ -692,7 +693,7 @@ const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mar
         c.moveReading({ section: place.section, ...cur.pages[target]!.start });
         return;
       }
-      const next = neighbour(ebook, place.section, step);
+      const next = neighbour(text.ebook, place.section, step);
       if (next === null) return;
       if (step === 1) c.moveReading({ section: next, block: 0, offset: 0 });
       else {
@@ -701,16 +702,16 @@ const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mar
         c.moveReading({ section: next, ...prev.pages[last - (last % per)]!.start });
       }
     },
-    [c, ebook, layout, per, place],
+    [c, text, layout, per, place],
   );
 
   // Lay out the chapters on either side while the reader reads, so turning into them never waits.
   useEffect(() => {
     const id = setTimeout(() => {
-      for (const s of [neighbour(ebook, place.section, 1), neighbour(ebook, place.section, -1)]) if (s !== null) layout(s);
+      for (const s of [neighbour(text.ebook, place.section, 1), neighbour(text.ebook, place.section, -1)]) if (s !== null) layout(s);
     }, 120);
     return () => clearTimeout(id);
-  }, [ebook, layout, place.section]);
+  }, [text, layout, place.section]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -742,7 +743,7 @@ const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mar
       {shown.map((page, i) => (
         <div key={`${page.section}:${first + i}`} className="absolute" style={{ top: metrics.margin, left: left + i * (metrics.column + metrics.gap), width: metrics.column, height: metrics.pageHeight }}>
           {page.items.map((it) => (
-            <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} ebook={ebook} c={c} />
+            <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} text={text} c={c} />
           ))}
         </div>
       ))}
@@ -757,10 +758,10 @@ const Pages = memo(function Pages({ ebook, place, metrics, viewport, layout, mar
 });
 
 /** The sections in view while scrolling: the one being read and its neighbours, stacked. */
-const Scroll = memo(function Scroll({ ebook, place, metrics, layout, marks, c, onVisible, onScrolled }: { ebook: Ebook; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
+const Scroll = memo(function Scroll({ text, place, metrics, layout, marks, c, onVisible, onScrolled }: { text: BookText; place: TextPlace; metrics: Metrics; layout: (s: number) => SectionLayout; marks: readonly Marked[]; c: AppController; onVisible: (v: Visible) => void; onScrolled?: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [center, setCenter] = useState(place.section);
-  const sections = [neighbour(ebook, center, -1), center, neighbour(ebook, center, 1)].filter((s): s is number => s !== null);
+  const sections = [neighbour(text.ebook, center, -1), center, neighbour(text.ebook, center, 1)].filter((s): s is number => s !== null);
   const between = metrics.lineHeight * 4;
   const tops: number[] = [];
   let y = metrics.margin;
@@ -866,7 +867,7 @@ const Scroll = memo(function Scroll({ ebook, place, metrics, layout, marks, c, o
           return (
             <div key={s} className="absolute inset-x-0" style={{ top: tops[i] }}>
               {l.flow.items.map((it) => (
-                <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} ebook={ebook} c={c} />
+                <Item key={`${it.at}:${it.line}`} b={l.blocks[it.at]!} it={it} column={metrics.column} marks={markOf(marks, l.blocks[it.at]!)} text={text} c={c} />
               ))}
             </div>
           );
@@ -886,7 +887,7 @@ function same(a: TextPlace, b: TextPlace): boolean {
  * of level 1 when the narrator is not on the page. For another book
  * playing: its controls, under its own title. For none: a way to start.
  */
-function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Ebook; visible: Visible | null; c: AppController }) {
+function ListeningBar({ bookId, text, visible, c }: { bookId: string; text: BookText; visible: Visible | null; c: AppController }) {
   const state = useAppState();
   const cur = state.current;
   const here = cur?.book.book.id === bookId;
@@ -896,8 +897,8 @@ function ListeningBar({ bookId, ebook, visible, c }: { bookId: string; ebook: Eb
   const following = !!state.reading?.following;
   const onPage = (() => {
     if (!narrator || !visible) return true;
-    const n = globalOffset(ebook, narrator);
-    return n >= globalOffset(ebook, visible.from) && n <= globalOffset(ebook, visible.to);
+    const n = text.chars(narrator);
+    return n >= text.chars(visible.from) && n <= text.chars(visible.to);
   })();
   let where = "";
   if (here && cur) {
@@ -959,7 +960,7 @@ function marked(on: Tone[]): string | undefined {
 }
 
 /** One line, image or break, drawn where the layout put it. */
-function Item({ b, it, column, marks, ebook, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; ebook: Ebook; c: AppController }) {
+function Item({ b, it, column, marks, text, c }: { b: LaidBlock; it: Placed; column: number; marks: Span[]; text: BookText; c: AppController }) {
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
     const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
@@ -1007,7 +1008,7 @@ function Item({ b, it, column, marks, ebook, c }: { b: LaidBlock; it: Placed; co
                 </span>
               ));
         if (f.href) {
-          const target = f.href.startsWith("http") ? null : placeOfHref(ebook, f.href);
+          const target = f.href.startsWith("http") ? null : text.fromHref(f.href);
           return (
             <span key={k} data-link data-start={f.start} data-gap={f.gap ? "1" : undefined} style={s} className={clsx(target && "cursor-pointer underline decoration-line-strong underline-offset-2 hover:decoration-ink-2")} onClick={target ? () => c.moveReading(target, "seek") : undefined}>
               {inner}

@@ -7,6 +7,7 @@ pub mod export;
 pub mod css;
 pub mod model;
 pub mod paths;
+pub mod source;
 pub mod tone;
 pub mod xml;
 

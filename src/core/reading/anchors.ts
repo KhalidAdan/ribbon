@@ -1,4 +1,4 @@
-import { blockText, type Ebook } from "../ebook";
+import type { BookText } from "./booktext";
 import { openingMatch, SAME, words } from "./openings";
 
 /**
@@ -22,13 +22,13 @@ export interface WordAt {
 }
 
 /** Every word of the reading order, as matching compares them, with the character it starts at. */
-export function wordIndex(ebook: Ebook): WordAt[] {
+export function wordIndex(book: BookText): WordAt[] {
   const out: WordAt[] = [];
   let base = 0;
-  for (const s of ebook.sections) {
+  for (const [i, s] of book.ebook.sections.entries()) {
     if (!s.linear) continue;
-    for (const b of s.blocks) {
-      const t = blockText(b);
+    for (let b = 0; b < s.blocks.length; b++) {
+      const t = book.blockText(i, b);
       for (const m of t.matchAll(/[\p{L}\p{N}’']+/gu)) {
         const w = words(m[0])[0];
         if (w) out.push({ w, at: base + m.index! });

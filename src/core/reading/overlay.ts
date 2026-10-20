@@ -1,5 +1,4 @@
-import type { Ebook } from "../ebook";
-import { globalOffset } from "./align";
+import type { BookText } from "./booktext";
 import type { Anchor } from "./anchors";
 
 /**
@@ -34,15 +33,14 @@ function sameLength(a: number, b: number): boolean {
  * when together they are as long as the audiobook (each file's length is
  * where its last passage ends, so the gaps are spread in proportion).
  */
-export function overlayAnchors(ebook: Ebook, audio: OverlayAudio): Anchor[] | null {
+export function overlayAnchors(book: BookText, audio: OverlayAudio): Anchor[] | null {
+  const ebook = book.ebook;
   const passages: { chars: number; audio: string; begin: number }[] = [];
   ebook.sections.forEach((s, section) => {
     if (!s.linear || !s.narration?.length) return;
-    const ids = new Map<string, { block: number; at: number }>();
-    s.blocks.forEach((b, block) => b.ids?.forEach((a) => ids.set(a.id, { block, at: a.at })));
     for (const n of s.narration) {
-      const where = ids.get(n.id);
-      if (where) passages.push({ chars: globalOffset(ebook, { section, block: where.block, offset: where.at }), audio: n.audio, begin: n.begin });
+      const where = book.idAt(section, n.id);
+      if (where) passages.push({ chars: book.chars(where), audio: n.audio, begin: n.begin });
     }
   });
   if (passages.length === 0) return null;

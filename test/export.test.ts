@@ -5,6 +5,7 @@ import { alignBook } from "../src/core/reading/align";
 import { groupBooks } from "../src/core/scan/group";
 import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
 import type { FileEntry } from "../src/core/scan/walk";
+import { BookText } from "../src/core/reading/booktext";
 
 const ONE = ["The waygate hung before them. It was a giant circle of wraithbone.", "Eluadhri said nothing. Then she laughed."];
 const TWO = ["Somewhere beyond, the webway waited.", "Older than any of them, it was patient as stone."];
@@ -28,8 +29,8 @@ describe("the read-along export's plan", () => {
     const e = book();
     // Two audio chapters, the second split across two files at 90 s.
     const chapters = [{ title: "One", startMs: 0, endMs: 60_000 }, { title: "Two", startMs: 60_000, endMs: 120_000 }];
-    const a = alignBook(e, chapters, 120_000);
-    const plan = exportPlan(e, a, [{ path: "/b/1.mp3", durationMs: 90_000 }, { path: "/b/2.mp3", durationMs: 30_000 }], "/b/Book.epub");
+    const a = alignBook(new BookText(e), chapters, 120_000);
+    const plan = exportPlan(new BookText(e), a, [{ path: "/b/1.mp3", durationMs: 90_000 }, { path: "/b/2.mp3", durationMs: 30_000 }], "/b/Book.epub");
     expect(plan.out).toBe("/b/Book (read-along).epub");
     expect(plan.sections.map((s) => s.href)).toEqual(["one.xhtml", "two.xhtml"]);
     const one = plan.sections[0]!;
@@ -54,7 +55,7 @@ describe("the read-along export's plan", () => {
     const e = book();
     e.sections[0]!.blocks[1]!.ids = [{ id: "ribbon-s1-2", at: 0 }];
     e.sections[0]!.narration = [{ id: "ribbon-s1-2", audio: "OEBPS/ribbon/audio/001-at-61000ms.m4a", begin: 1200, end: 4000 }];
-    const anchors = overlayAnchors(e, { files: [{ path: "VoidscarredWarhammer40000_ep7.mp3", durationMs: 120_000 }], durationMs: 120_000 });
+    const anchors = overlayAnchors(new BookText(e), { files: [{ path: "VoidscarredWarhammer40000_ep7.mp3", durationMs: 120_000 }], durationMs: 120_000 });
     expect(anchors).toEqual([{ ms: 62_200, chars: 3 }]);
   });
 });
