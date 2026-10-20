@@ -20,10 +20,26 @@ runs:
       shell: bash
       run: rustup toolchain install stable --profile minimal && rustup default stable
 
+    # whisper.cpp's Vulkan shaders build in folders so deep that MSBuild's file
+    # tracker fails past 260 characters (FTK1011). target/ at the root of the
+    # PC's checkout is short enough (.cargo/config.toml); under the runner's,
+    # D:\a\ribbon\ribbon, it is not, so on Windows Cargo builds into C:\t.
+    # BUNDLES is where `tauri build` leaves the installers.
+    - name: Where Cargo builds
+      shell: bash
+      run: |
+        if [ "$RUNNER_OS" = Windows ]; then
+          echo 'CARGO_TARGET_DIR=C:\t' >> "$GITHUB_ENV"
+          echo 'BUNDLES=C:/t/release/bundle' >> "$GITHUB_ENV"
+        else
+          echo 'BUNDLES=target/release/bundle' >> "$GITHUB_ENV"
+        fi
+
     - uses: Swatinem/rust-cache@v2
       with:
-        # Cargo builds into target/ at the repository's root (.cargo/config.toml).
         workspaces: src-tauri -> ../target
+        # It joins a workspace's target to the workspace, so C:\t goes in whole.
+        cache-directories: ${{ runner.os == 'Windows' && 'C:\t' || '' }}
 
     # whisper.cpp's Vulkan backend is built with the SDK (VULKAN_SDK, glslc),
     # and the Rust tests need its runtime, vulkan-1.dll, which a runner without
