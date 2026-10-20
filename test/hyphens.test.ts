@@ -193,7 +193,7 @@ describe("typesetting with hyphens", () => {
   const text = runs.map((r) => r.t).join("");
 
   async function lay(column: number, justify: boolean, language = "en") {
-    const t = new Typesetter(book(runs, language), () => undefined);
+    const t = new Typesetter(book(runs, language), () => false);
     await t.ready;
     return t.section(0, metrics(column), justify);
   }

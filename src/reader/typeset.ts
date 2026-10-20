@@ -5,6 +5,7 @@ import type { LaidBlock, Line, LineFrag } from "../core/reading/pages";
 import type { Metrics } from "../core/reading/typography";
 import { hyphenateRuns, insertHyphens, toModel, type WordBreaks } from "../core/reading/hyphens";
 import { hyphenatorFor } from "./hyphenate";
+import { addFaces } from "./faces";
 
 /**
  * The text set in lines with pretext (docs/READING.md, section 1): every
@@ -32,9 +33,18 @@ let patterns: Promise<unknown> = Promise.resolve();
  * measurements are of the real font, and the open book's hyphenation
  * patterns, so its first lines break as all the later ones do.
  */
+let added: Promise<void> | null = null;
+
+/** Add the reader's faces to the page, once: called at start, so the first book opened does not wait for them. */
+export function preloadFaces(): Promise<void> {
+  if (typeof document === "undefined" || !document.fonts) return Promise.resolve();
+  return (added ??= addFaces(document.fonts));
+}
+
 export async function loadFaces(size: number): Promise<void> {
   const waiting = patterns;
   if (typeof document === "undefined" || !document.fonts) return void (await waiting);
+  await preloadFaces();
   await Promise.all([waiting, ...[fontFor({}, size), fontFor({ i: true }, size), fontFor({ b: true }, size), fontFor({}, size, 500)].map((f) => document.fonts.load(f).catch(() => []))]);
   // Anything measured before the faces arrived was measured in a fallback.
   clearCache();
@@ -50,8 +60,8 @@ export class Typesetter {
 
   constructor(
     private readonly ebook: Ebook,
-    /** A URL for an image path in the book, when it can be shown. */
-    private readonly imageUrl: (src: string) => string | undefined,
+    /** Whether an image path in the book can be shown (kept on this machine). The page turns the path into a URL. */
+    private readonly hasImage: (src: string) => boolean,
   ) {
     setLocale(ebook.meta.language || undefined);
     this.ready = hyphenatorFor(ebook.meta.language).then((h) => {
@@ -85,8 +95,7 @@ export class Typesetter {
     const base = { section, block: index, indent: 0, inset: 0, size: m.size, lines: [] as Line[] };
     if (b.k === "hr") return { ...base, kind: "hr", lineHeight: Math.round(m.lineHeight * 1.5), before: Math.round(m.lineHeight * 0.25), align: "center" };
     if (b.k === "img") {
-      const url = b.src ? this.imageUrl(b.src) : undefined;
-      if (!url) return null;
+      if (!b.src || !this.hasImage(b.src)) return null;
       const naturalW = b.w && b.w > 0 ? b.w : m.column;
       const naturalH = b.h && b.h > 0 ? b.h : Math.round(m.column * 0.66);
       let width = Math.min(naturalW, m.column);
@@ -96,7 +105,7 @@ export class Typesetter {
         width = (width * most) / height;
         height = most;
       }
-      return { ...base, kind: "img", lineHeight: Math.round(height), before: Math.round(m.lineHeight * (b.space ? 1 : 0.5)), align: "center", image: { src: url, width: Math.round(width), height: Math.round(height), alt: b.alt ?? "", tone: b.tone ?? "picture" } };
+      return { ...base, kind: "img", lineHeight: Math.round(height), before: Math.round(m.lineHeight * (b.space ? 1 : 0.5)), align: "center", image: { src: b.src, width: Math.round(width), height: Math.round(height), alt: b.alt ?? "", tone: b.tone ?? "picture" } };
     }
     const runs = (b.runs ?? []).filter((r) => r.t.length > 0);
     if (runs.length === 0) return null;
