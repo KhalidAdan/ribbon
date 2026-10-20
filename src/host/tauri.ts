@@ -174,10 +174,12 @@ export function fileUrl(absPath: string): string {
 /**
  * A URL for an MP3 that begins at the frame where `ms` falls, so a player
  * starts it exactly there (frames.rs): the webview's own seek in an MP3
- * with no seek table guesses by bitrate.
+ * with no seek table guesses by bitrate. The protocol's address differs by
+ * system (`http://ribbonmp3.localhost/` on Windows and Android,
+ * `ribbonmp3://localhost/` on Apple's), so Tauri makes it, as for `fileUrl`.
  */
 export function exactAudioUrl(absPath: string, ms: number): string {
-  return `http://ribbonmp3.localhost/?path=${encodeURIComponent(absPath)}&ms=${Math.max(0, Math.round(ms))}`;
+  return `${convertFileSrc("", "ribbonmp3")}?path=${encodeURIComponent(absPath)}&ms=${Math.max(0, Math.round(ms))}`;
 }
 
 /** Milliseconds since the Rust process started. */
