@@ -74,6 +74,9 @@ describe("AppController sources", () => {
     expect(c.getState().phase).toBe("ready");
     expect(c.getState().sources.map((s) => s.root)).toEqual([FIXTURE_ROOT]);
     expect(c.getState().books.length).toBe(12);
+    // The library was cached, so a rescan runs behind it. The next test renames .ribbon, which
+    // Windows refuses while that rescan still has a record open in it.
+    await settle(c, () => c.getState().scanning === null && c.getState().lastScanMs !== null);
   });
 
   it("renames a legacy .odio records folder to .ribbon and keeps its contents", async () => {
