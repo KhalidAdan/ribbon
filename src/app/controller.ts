@@ -1275,14 +1275,26 @@ export class AppController {
       p.finally(() => {
         steps.push(`${name} ${Math.round(performance.now() - started)}`);
       });
+    // Read-along's records (pairing fixes, what was heard, the transcript), read alongside the text. Kept from an
+    // earlier opening in this session, they are not read again.
     const known = this.readingData.get(bookId);
-    const [result, withChapters, fixes, heard, aligned, shared] = await Promise.all([
+    const records: Promise<ReadingData> = known
+      ? Promise.resolve(known)
+      : Promise.all([timed("pairing", o.lib.readPairing(bookId)), timed("heard", o.lib.readHeard(bookId)), timed("aligned", o.lib.readAligned(bookId))]).then(([fixes, heard, aligned]) => ({
+          ...emptyReading(),
+          fixes,
+          heard: heard.heard,
+          anchors: heard.anchors,
+          spans: aligned.spans,
+          said: aligned.said,
+          aligned: new Map(aligned.said.filter((s) => s.chars !== null).map((s) => [s.startMs, s.chars!])),
+        }));
+    // A failure is reported where the records are awaited, not as unhandled meanwhile.
+    records.catch(() => undefined);
+    const [result, withChapters, shared] = await Promise.all([
       timed("text", openEbook(o.lib.host, o.lib.root, book.book)),
       // The audio's chapters, read from the file if they never were, to pair with the text's.
       timed("chapters", this.chaptersOf(o, book)),
-      known ? null : timed("pairing", o.lib.readPairing(bookId)),
-      known ? null : timed("heard", o.lib.readHeard(bookId)),
-      known ? null : timed("aligned", o.lib.readAligned(bookId)),
       timed(
         "places",
         o.lib
@@ -1302,45 +1314,82 @@ export class AppController {
     }
     const ebook = result.ebook;
     const text = new BookText(ebook);
-    const rd: ReadingData = known ?? {
-      ...emptyReading(),
-      fixes: fixes!,
-      heard: heard!.heard,
-      anchors: heard!.anchors,
-      spans: aligned!.spans,
-      said: aligned!.said,
-      aligned: new Map(aligned!.said.filter((s) => s.chars !== null).map((s) => [s.startMs, s.chars!])),
-    };
-    this.readingData.set(bookId, rd);
-    this.rd = rd;
-    this.rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
-    if (this.rd.overlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${this.rd.overlay.length} passages`);
-    // A book that is only its EPUB has no audio to pair the text with.
-    const paired = performance.now();
-    const alignment = readerOnly(book.book) ? undefined : this.pairUp(text, withChapters);
-    steps.push(`pair ${Math.round(performance.now() - paired)}`);
-    if (alignment) log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
-    const place = openingPlace(text, this.keptPlaces()[bookId], shared, alignment && this.narratorPlace(bookId, text, alignment));
-    this.readingKeeper = new ReadingKeeper(text, place, {
-      keepLocal: (kept) => {
-        this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: kept } };
-        this.saveAppSettingsSoon();
-      },
-      share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
-      // The pairing can be fixed while the book is open: always the latest.
-      toMs: (p) => {
-        const a = this.state.reading?.alignment ?? alignment;
-        return a ? textToMs(a, text.chars(p)) : null;
-      },
-    });
-    log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections; done at (ms) ${steps.join(", ")}`);
+    const audio = !readerOnly(book.book);
+    const kept = this.keptPlaces()[bookId];
     // Opened while its audio plays: the pages follow the narrator.
     const following = this.state.current?.book.book.id === bookId && this.state.player.playing;
-    const highlights = this.highlightsFor(bookId);
-    this.set({ reading: { bookId, status: "ready", text, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
-    this.readingCtx = { o, book: withChapters, text, rd };
-    this.prepareAudio(o.lib, withChapters);
-    void this.hearPlaces();
+    // The book opens at the newest of this machine's reading place, the log's, and the narrator's. Only the
+    // narrator's needs the text paired with the audio first; when it is not the newest, the book opens at
+    // once and is paired just after, so the page can be read and turned while read-along gets ready.
+    const narrator = audio ? this.narratorWhen(bookId) : undefined;
+    const readAt = Math.max(-Infinity, ...[kept, shared].map((k) => (k ? Date.parse(k.t) : NaN)).filter((t) => !Number.isNaN(t)));
+    const early = audio && !following && (!narrator || readAt >= Date.parse(narrator.t));
+
+    /** The records read, kept for this session, and the text paired with the audio; null if the reader moved on meanwhile. */
+    const pair = async (): Promise<{ rd: ReadingData; alignment: Alignment | undefined } | null> => {
+      const rd = await records;
+      if (this.state.reading?.bookId !== bookId) return null;
+      this.readingData.set(bookId, rd);
+      this.rd = rd;
+      rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
+      if (rd.overlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${rd.overlay.length} passages`);
+      // A book that is only its EPUB has no audio to pair the text with.
+      const paired = performance.now();
+      const alignment = audio ? this.pairUp(text, withChapters, rd) : undefined;
+      steps.push(`pair ${Math.round(performance.now() - paired)}`);
+      if (alignment) log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
+      return { rd, alignment };
+    };
+    /** Show the text at this place: the reader is ready to read. */
+    const show = (place: TextPlace, alignment: Alignment | undefined) => {
+      this.readingKeeper = new ReadingKeeper(text, place, {
+        keepLocal: (k) => {
+          this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: k } };
+          this.saveAppSettingsSoon();
+        },
+        share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
+        // The pairing arrives after the text, and can be fixed while the book is open: always the latest.
+        toMs: (p) => {
+          const a = this.state.reading?.alignment ?? alignment;
+          return a ? textToMs(a, text.chars(p)) : null;
+        },
+      });
+      const highlights = this.highlightsFor(bookId);
+      this.set({ reading: { bookId, status: "ready", text, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
+    };
+    /** With the text paired: listening from the page, hearing the narration, read-along. */
+    const listen = (rd: ReadingData) => {
+      this.readingCtx = { o, book: withChapters, text, rd, early };
+      this.prepareAudio(o.lib, withChapters);
+      void this.hearPlaces();
+    };
+
+    if (early) {
+      show(openingPlace(text, kept, shared), undefined);
+      log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms, pairing it next: ${ebook.sections.length} sections; done at (ms) ${steps.join(", ")}`);
+      let done: Awaited<ReturnType<typeof pair>>;
+      try {
+        // The page is drawn first: pairing holds the main thread a while.
+        await afterNextPaint();
+        done = await pair();
+      } catch (e) {
+        log.warn(`could not read the read-along records of ${book.book.title}: ${String(e)}`);
+        return;
+      }
+      // Still this opening of the book: not closed, nor opened again meanwhile.
+      const r = this.state.reading;
+      if (!done || r?.status !== "ready" || r.text !== text) return;
+      if (done.alignment) this.set({ reading: { ...r, alignment: done.alignment } });
+      log.info(`paired ${book.book.title} ${Math.round(performance.now() - started)} ms after opening began: ${steps.join(", ")}`);
+      listen(done.rd);
+      return;
+    }
+    const done = await pair();
+    if (!done || this.state.reading?.status !== "opening") return;
+    const { rd, alignment } = done;
+    show(openingPlace(text, kept, shared, alignment && narrator && { place: text.place(msToText(alignment, narrator.ms)), t: narrator.t }), alignment);
+    log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections; done at (ms) ${steps.join(", ")}`);
+    listen(rd);
   }
 
   /** How much of the open book's narration is transcribed: minutes done, of all. The export waits for all of it. */
@@ -1415,7 +1464,8 @@ export class AppController {
   private rd: ReadingData = emptyReading();
   private readingData = new Map<string, ReadingData>();
   private readingIndex: { text: BookText; index: WordAt[] } | null = null;
-  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData } | null = null;
+  /** The open book with its text paired; `early` when the reader opened before the pairing (openReading). */
+  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData; early?: boolean } | null = null;
   private hearing = false;
   /** How long a clip took to hear, last measured: a fast machine hears the whole book, a slow one only around the reader. */
   private msPerClip: number | null = null;
@@ -1619,7 +1669,8 @@ export class AppController {
     // The reader waits for read-along when this machine may transcribe and the minutes around it are not done.
     const a0 = this.state.reading?.alignment;
     const mayTranscribe = !!ctx.o.lib.host.speechTranscribe && a0?.how === "chapter" && (this.clipMs() === null || fast());
-    if (mayTranscribe && (this.clipMs() === null || near().length > 0)) this.set({ reading: { ...this.state.reading!, preparing: true } });
+    // Not for a book opened before its pairing: its page is already being read, and read-along catches up beside it.
+    if (mayTranscribe && !ctx.early && (this.clipMs() === null || near().length > 0)) this.set({ reading: { ...this.state.reading!, preparing: true } });
     // Never timed on this machine (an older Ribbon heard everything near already): time it now, so a
     // machine that can transcribes the whole narration rather than waiting for something to hear.
     if (this.clipMs() === null) {
@@ -1825,14 +1876,14 @@ export class AppController {
     }
   }
 
-  /** Where the narrator is in a book, mapped into its text, and when that was so. */
-  private narratorPlace(bookId: string, text: BookText, alignment: Alignment): { place: TextPlace; t: string } | undefined {
+  /** Where the narrator is in a book's audio, and when that was so. */
+  private narratorWhen(bookId: string): { ms: number; t: string } | undefined {
     const live = this.state.current?.book.book.id === bookId && this.engine?.current.bookId === bookId;
     const ms = live ? this.engine!.positionMs() : this.state.positions[bookId]?.offsetMs;
     if (ms === undefined) return undefined;
     // Playing now is now; paused, it is when it paused.
     const t = live && this.state.player.playing ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
-    return { place: text.place(msToText(alignment, ms)), t };
+    return { ms, t };
   }
 
   /** In the reader: the narrator's place in the text, or null when this book's audio is not loaded. */
@@ -2881,4 +2932,22 @@ export class AppController {
     this.jobs.cancelAll();
     this.chapterProbe?.abort();
   }
+}
+
+/**
+ * Once the page has drawn what is set now. A window that is hidden draws
+ * nothing and may not run frames at all, so never later than 100 ms; and at
+ * once where nothing draws (the tests).
+ */
+function afterNextPaint(): Promise<void> {
+  return new Promise((done) => {
+    if (typeof requestAnimationFrame !== "function") return void setTimeout(done, 0);
+    const late = setTimeout(done, 100);
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        clearTimeout(late);
+        done();
+      }, 0),
+    );
+  });
 }
