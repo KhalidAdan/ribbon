@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flow, pageOf, paginate, placeAtY, yOfPlace, type LaidBlock, type Line } from "../src/core/reading/pages";
+import { flow, itemsIn, pageOf, paginate, placeAtY, yOfPlace, type LaidBlock, type Line } from "../src/core/reading/pages";
 import { BookText } from "../src/core/reading/booktext";
 import { EBOOK_FORMAT, type Ebook, type EbookBlock } from "../src/core/ebook";
 
@@ -68,6 +68,17 @@ describe("pages", () => {
     expect(placeAtY(blocks, f, 12)).toEqual({ block: 0, offset: 10 });
     expect(placeAtY(blocks, f, 21)).toEqual({ block: 1, offset: 0 });
     expect(yOfPlace(blocks, f, { block: 1, offset: 15 })).toBe(35);
+    expect(yOfPlace(blocks, f, { block: 0, offset: 0 })).toBe(0);
+    expect(placeAtY(blocks, f, 100)).toEqual({ block: 1, offset: 10 });
+  });
+
+  it("finds the lines that show between two heights", () => {
+    const blocks = [para(0, 2), para(1, 2, { before: 5 })];
+    const f = flow(0, blocks);
+    // Lines at 0, 10, 25 and 35, each 10 tall: 12 to 30 shows the second and third.
+    expect(itemsIn(blocks, f, 12, 30).map((i) => i.y)).toEqual([10, 25]);
+    expect(itemsIn(blocks, f, -50, 0)).toEqual([]);
+    expect(itemsIn(blocks, f, 40, 400).map((i) => i.y)).toEqual([35]);
   });
 });
 
