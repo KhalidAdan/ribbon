@@ -98,6 +98,20 @@ export class LayoutEngine {
     this.pump();
   }
 
+  /** The current layout spec, as a key (layout.ts, specKey). */
+  get specKey(): string {
+    return this.key;
+  }
+
+  /**
+   * A chapter laid out earlier for this same spec (a snapshot, snapshot.ts),
+   * taken as if just laid out: nothing to wait for. Ignored for another spec.
+   */
+  seed(section: number, layout: SectionLayout, key: string): void {
+    if (key !== this.key || this.cache.has(section)) return;
+    this.cache.set(section, layout);
+  }
+
   /** A chapter, if it is laid out for the current spec. */
   get(section: number): SectionLayout | undefined {
     return this.cache.get(section);
