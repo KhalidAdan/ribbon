@@ -1,0 +1,36 @@
+# The checks on every pull request and every push to main: the types, the
+# unit tests and the Rust side, on the two systems Ribbon ships for. The
+# end-to-end checks are not here: they need the PC's local test library
+# (docs/RELEASING.md).
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A newer push to the same branch or pull request makes an older run moot.
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-latest moved to Visual Studio 2026 in June 2026; Ribbon's
+        # build has not been tried there yet, so this stays on 2022 for now.
+        os: [windows-2022, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          ffmpeg: true
+      - run: npm run typecheck
+      - run: npm test
+      # After the unit tests: the Rust side reads the fixtures they generate.
+      - run: npm run test:rust

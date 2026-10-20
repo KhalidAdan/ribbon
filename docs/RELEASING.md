@@ -1,9 +1,22 @@
 # Releasing Ribbon
 
-A release is a version number, two Windows installers on GitHub, and the
-end-to-end checks passing on the build they came from. In order:
+A release is a version number, the installers on GitHub (two for Windows, a
+disk image for the Mac), and the end-to-end checks passing on the commit they
+came from. GitHub builds the installers from a version tag
+([release.yml](../.github/workflows/release.yml)); the end-to-end checks run on
+the PC. In order:
 
 ## 1. Everything merged, everything green
+
+The checks ([checks.yml](../.github/workflows/checks.yml)) run the types, the
+unit tests and the Rust tests on Windows and on a Mac, for every pull request
+and every push to `main`. `main` is green when its last run passed:
+
+```bash
+gh run list --workflow checks.yml --branch main --limit 1
+```
+
+The same three by hand:
 
 ```bash
 npm run typecheck
@@ -12,6 +25,9 @@ npm run test:rust
 ```
 
 ## 2. The end-to-end checks, at both speeds
+
+On the PC. They drive WebView2 and use the local test library, which cannot go
+into a public repository, so they do not run on GitHub.
 
 ```bash
 npm run e2e -- --build
@@ -38,7 +54,27 @@ package) and `src-tauri/tauri.conf.json`. Commit them as "Release X.Y.Z" on
 
 ## 4. The installers
 
-Built without `RIBBON_PROFILE`: the installers are the plain build.
+Tag the release commit and push the tag:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+The release workflow checks that the tag is the version in `package.json`,
+makes a draft release, "Ribbon X.Y.Z", and builds on Windows and on a Mac
+(Apple Silicon), without `RIBBON_PROFILE`: the installers are the plain build.
+It attaches `Ribbon_X.Y.Z_x64-setup.exe`, `Ribbon_X.Y.Z_x64_en-US.msi` and
+`Ribbon_X.Y.Z_aarch64.dmg` to the draft. Follow it with `gh run watch`.
+
+To build the installers for a tag again (a run failed, or a release is missing
+one), run the workflow by hand; files already attached are replaced:
+
+```bash
+gh workflow run release.yml -f tag=vX.Y.Z
+```
+
+### By hand
 
 ```bash
 npm run tauri build
@@ -48,23 +84,30 @@ On Windows this needs the Vulkan SDK, LLVM and CMake for whisper.cpp (see
 [MAC.md](MAC.md) for the Mac's equivalents). A shell started before the SDK was
 installed lacks `VULKAN_SDK`: set it to the SDK's folder and put its `Bin` on the
 `PATH` first. The installers land in `target/release/bundle/nsis` (`.exe`) and
-`target/release/bundle/msi` (`.msi`).
+`target/release/bundle/msi` (`.msi`); on a Mac, in `target/release/bundle/dmg`.
+Attach them to the draft with `gh release upload vX.Y.Z <files> --clobber`.
 
 ## 5. On GitHub
 
-```bash
-gh release create vX.Y.Z --target main --title "Ribbon X.Y.Z" --notes-file notes.md target/release/bundle/nsis/Ribbon_X.Y.Z_x64-setup.exe target/release/bundle/msi/Ribbon_X.Y.Z_x64_en-US.msi
-```
-
 The notes say what changed for someone using Ribbon, in plain words. They open
-with what it runs on and what it installs over: "Windows x64. Installs over any
-0.12, 0.11, … release, and everything carries over."
+with what it runs on and what it installs over: "Windows x64 and macOS (Apple
+Silicon). Installs over any 0.12, 0.11, … release, and everything carries
+over." Then publish the draft:
+
+```bash
+gh release edit vX.Y.Z --notes-file notes.md --draft=false
+```
 
 ## 6. Installed
 
 The setup installs over the running version only when Ribbon is closed. Run
 `Ribbon_X.Y.Z_x64-setup.exe` (or `/S` for a silent install) and check the
 version in Settings.
+
+On a Mac, close Ribbon, open the `.dmg` and drag Ribbon to Applications. The
+build is not signed with an Apple Developer ID, so the first time a downloaded
+version opens, macOS refuses: open it from System Settings → Privacy & Security
+→ Open Anyway.
 
 ## Merging a stack of pull requests
 

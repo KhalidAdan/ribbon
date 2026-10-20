@@ -66,7 +66,10 @@ first, roughly in this order:
 - **Installers.** `npm run tauri build` makes `Ribbon.app` and a `.dmg` under
   `target/release/bundle/`. Unsigned, they run on this Mac; other Macs warn
   until they are signed with a Developer ID and notarized, which needs the
-  paid Apple Developer Program.
+  paid Apple Developer Program. The build asks for macOS 11, the first on
+  Apple Silicon (`bundle.macOS.minimumSystemVersion`): `tauri build` compiles
+  whisper.cpp for that version, and its `std::filesystem` needs 10.15 or later.
+  Tauri's default, 10.13, fails with Xcode 26 ("'path' is unavailable").
 
 ## 3. The phone
 

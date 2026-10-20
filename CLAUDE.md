@@ -22,8 +22,9 @@ Tailwind 4). Start with these, in this order:
   carry the numbers.
 - **One PR per change**, each with what it does, why, and how it was checked.
   Merges to `main`, releases and installs happen when the owner says so in
-  chat. A release is both Windows installers on GitHub (docs/RELEASING.md),
-  and installing waits until Ribbon is closed.
+  chat. A release is the Windows installers and the Mac disk image on GitHub,
+  built by the release workflow from a version tag (docs/RELEASING.md), and
+  installing waits until Ribbon is closed.
 - **Every check before a release** (`npm run e2e` at 1x and 6x): the 0.12.0
   resize regression shipped because nothing covered resizing.
 - **Phones are coming** (iOS 16.4+ and Android): new work must not depend on
