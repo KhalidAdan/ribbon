@@ -58,6 +58,7 @@ pub fn vulkan_available() -> bool {
     !unsafe { LoadLibraryW(name.as_ptr()) }.is_null()
 }
 
+/// Elsewhere the GPU is always there: Metal on Apple's systems (Cargo.toml).
 #[cfg(not(windows))]
 pub fn vulkan_available() -> bool {
     true

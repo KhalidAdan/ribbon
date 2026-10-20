@@ -12,10 +12,13 @@ it fits together, in diagrams, [docs/PLAN.md](docs/PLAN.md) for how it is built,
 
 Requirements: Node 20 or newer, Rust stable, and `ffmpeg` plus `ffprobe`
 on the PATH. Building the speech side (whisper.cpp, for read-along) also
-needs CMake, LLVM (for libclang; `.cargo/config.toml` expects
-it in `C:\Program Files\LLVM`) and the Vulkan SDK with `VULKAN_SDK` set.
-Cargo builds into `target/` at the repository's root, because whisper.cpp's
-shader build is too deep for Windows paths under `src-tauri/target/`.
+needs CMake. On Windows it needs LLVM (for libclang, expected in
+`C:\Program Files\LLVM`) and the Vulkan SDK with `VULKAN_SDK` set; on a
+Mac, Xcode, and whisper.cpp runs on Metal ([docs/MAC.md](docs/MAC.md)).
+`npm run tauri` and `tauri:dev` set how whisper.cpp is compiled on each
+system (`tools/with-build-env.mjs`). Cargo builds into `target/` at the
+repository's root, because whisper.cpp's shader build is too deep for
+Windows paths under `src-tauri/target/`.
 
 ```sh
 npm install

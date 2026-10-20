@@ -46,9 +46,26 @@ fn allow_library(app: tauri::AppHandle, path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// An app opened from the Dock or Finder on macOS gets only the system's PATH, not the
+/// shell's: ffmpeg and ffprobe installed by Homebrew would not be found. Their usual
+/// folders go on the end of it, before anything is started.
+#[cfg(target_os = "macos")]
+fn find_homebrew_tools() {
+    let path = std::env::var("PATH").unwrap_or_default();
+    let mut dirs: Vec<&str> = path.split(':').filter(|d| !d.is_empty()).collect();
+    for extra in ["/opt/homebrew/bin", "/usr/local/bin"] {
+        if !dirs.contains(&extra) && std::path::Path::new(extra).is_dir() {
+            dirs.push(extra);
+        }
+    }
+    std::env::set_var("PATH", dirs.join(":"));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = STARTED.set(Instant::now());
+    #[cfg(target_os = "macos")]
+    find_homebrew_tools();
     tauri::Builder::default()
         // MP3s served from an exact frame, for seeks the webview would otherwise guess (frames.rs).
         .register_asynchronous_uri_scheme_protocol("ribbonmp3", |ctx, request, responder| {

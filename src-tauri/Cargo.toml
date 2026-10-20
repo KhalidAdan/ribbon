@@ -33,6 +33,16 @@ imagesize = "0.15.0"
 # Only to tell line art from pictures, for the reader's dark mode: the
 # four formats EPUBs carry, no encoders beyond what those bring, no threads.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+
+# Speech (whisper.cpp) on the GPU: Metal on Apple's systems, Vulkan on Windows and Linux.
+# Android runs it on the CPU for now. How it is compiled: tools/with-build-env.mjs.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+whisper-rs = { version = "0.16" }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))'.dependencies]
 whisper-rs = { version = "0.16", features = ["vulkan"] }
 
 # Dev builds still scan at full speed: the tag reader and our own
