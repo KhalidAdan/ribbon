@@ -14,6 +14,7 @@ import { Drawer } from "../ui/Drawer";
 import { EmptyState, ProgressLine, Toggle } from "../ui/kit";
 import { facesLoaded, FAMILY, loadFaces } from "./typeset";
 import { fitsKey, loadSnapshot, savePage, savePlace } from "./snapshot";
+import { usePageSwipe } from "./swipe";
 import { LayoutEngine } from "./layout-engine";
 import type { SectionLayout } from "./layout";
 import { PlayButton } from "../ui/PlayerBar";
@@ -718,9 +719,63 @@ const Pages = memo(function Pages({ bookId, fits, text, place, metrics, viewport
     [c, text, layout, engine, per, place],
   );
 
+  /** The spread a step away: in this chapter, or the next chapter's first or the previous one's last (empty until it is laid out). Null at the ends of the book. */
+  const spreadAt = (step: 1 | -1): { l: SectionLayout; first: number } | null => {
+    const target = first + step * per;
+    if (target >= 0 && target < l.pages.length) return { l, first: target };
+    const s = neighbour(text.ebook, place.section, step);
+    if (s === null) return null;
+    const other = layout(s);
+    if (!other) return { l: NOT_YET, first: 0 };
+    const last = other.pages.length - 1;
+    return { l: other, first: step === 1 ? 0 : last - (last % per) };
+  };
+  const next = spreadAt(1);
+  const prev = spreadAt(-1);
+  // A turn shows its page first; a neighbour not drawn yet is drawn just after, so the turn never waits on it.
+  const here = `${place.section}:${first}`;
+  const [neighboursFor, setNeighboursFor] = useState(here);
+  const drawn = useRef(new Set<string>());
+  const keyOf = (s: { l: SectionLayout; first: number }, side: number) => (s.l === NOT_YET ? `waiting ${side}` : `${s.l.flow.section}:${s.first}`);
+  const showNow = (s: { l: SectionLayout; first: number } | null, side: number) => (s && (neighboursFor === here || drawn.current.has(keyOf(s, side))) ? s : null);
+  useEffect(() => {
+    if (neighboursFor === here) return;
+    let task: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => (task = setTimeout(() => setNeighboursFor(here), 0)));
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(task);
+    };
+  }, [here, neighboursFor]);
+  const spreads = [
+    { spread: { l, first }, side: 0 },
+    { spread: showNow(next, 1), side: 1 },
+    { spread: showNow(prev, -1), side: -1 },
+  ];
+  useLayoutEffect(() => {
+    drawn.current = new Set(spreads.flatMap(({ spread, side }) => (spread ? [keyOf(spread, side)] : [])));
+  });
+
+  const track = useRef<HTMLDivElement>(null);
+  const swipe = usePageSwipe({ track, width: viewport.width, has: (step) => (step === 1 ? next : prev) !== null, turn: (step) => void go(step) });
+  // A mouse turns on the press, not the click: a tenth of a second sooner. Its click then does nothing.
+  const pressed = useRef(false);
+  const onEdge = (step: 1 | -1) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "mouse" || e.button !== 0) return;
+      pressed.current = true;
+      void go(step, e.timeStamp);
+    },
+    onClick: (e: React.MouseEvent) => {
+      if (pressed.current || swipe.justSwiped()) return void (pressed.current = false);
+      void go(step, e.timeStamp);
+    },
+  });
+
   // The page a turn asked for is committed: measured to the frame that shows it. The first is the reader opening.
   const shownSection = useRef<number | null>(null);
   useLayoutEffect(() => {
+    swipe.settled();
     if (shownSection.current === null) perf.end("open the reader");
     else perf.end("page turn", shownSection.current === place.section ? "page turn" : "page turn into a chapter");
     shownSection.current = place.section;
@@ -767,14 +822,28 @@ const Pages = memo(function Pages({ bookId, fits, text, place, metrics, viewport
   }, [go, c]);
 
   return (
-    <div className="absolute inset-0 select-text" style={{ fontFamily: FAMILY }}>
-      <Spread l={l} first={first} metrics={metrics} viewport={viewport} marks={marks} text={text} c={c} />
-      <button type="button" aria-label="Previous page" data-perf="previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none" onClick={(e) => go(-1, e.timeStamp)} />
-      <button type="button" aria-label="Next page" data-perf="next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none" onClick={(e) => go(1, e.timeStamp)} />
-      <p className="absolute right-0 bottom-1 left-0 text-center text-xs/4 text-ink-3 tabular-nums" aria-live="polite">
-        {first + 1}
-        {per === 2 && first + 1 < l.pages.length ? `–${first + 2}` : ""} of {l.pages.length}
-      </p>
+    <div
+      className="absolute inset-0 overflow-hidden select-text"
+      // The page is the browser's to scroll or zoom no more: a finger turns it.
+      style={{ fontFamily: FAMILY, touchAction: "none" }}
+      onPointerDown={swipe.onPointerDown}
+      onPointerMove={swipe.onPointerMove}
+      onPointerUp={swipe.onPointerUp}
+      onPointerCancel={swipe.onPointerCancel}
+      onWheel={swipe.onWheel}
+    >
+      <div ref={track} className="absolute inset-0 will-change-transform">
+        {/* Keyed by the pages they show, so after a turn the neighbour already drawn moves to the middle as it is. */}
+        {spreads.map(({ spread, side }) =>
+          spread ? (
+            <div key={keyOf(spread, side)} aria-hidden={side !== 0 || undefined} inert={side !== 0} className="absolute inset-y-0" style={{ left: side * viewport.width, width: viewport.width }}>
+              <Spread l={spread.l} first={spread.first} metrics={metrics} viewport={viewport} marks={marks} text={text} c={c} />
+            </div>
+          ) : null,
+        )}
+      </div>
+      <button type="button" aria-label="Previous page" data-perf="previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none" {...onEdge(-1)} />
+      <button type="button" aria-label="Next page" data-perf="next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none" {...onEdge(1)} />
     </div>
   );
 });
