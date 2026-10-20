@@ -35,6 +35,7 @@ import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type Read
 import { alignBook, byOverlay, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
+import * as perf from "./perf";
 import { matchTranscript, type Said } from "../core/reading/transcript";
 import { generatedTitles } from "../core/chapternames";
 import { locate as locate_ } from "../core/timeline";
@@ -1258,6 +1259,7 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (!book || !o) return;
     if (this.state.reading) await this.closeReading();
+    perf.begin("open the reader");
     this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
     const started = performance.now();
     // Everything the reader needs, read at once: over a share each is a round trip of its own.

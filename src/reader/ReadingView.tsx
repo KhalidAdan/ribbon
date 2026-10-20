@@ -1,6 +1,6 @@
 import { ArrowLeftIcon, BackwardIcon, BookmarkIcon, ForwardIcon, ListBulletIcon, PlayIcon, SpeakerWaveIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "../core/ebook";
 import type { Highlight } from "../core/types";
 import { flow, pageOf, paginate, placeAtY, yOfPlace, type Flow, type LaidBlock, type Page, type Placed } from "../core/reading/pages";
@@ -19,6 +19,7 @@ import { chapterAt } from "../core/scan/chapters";
 import { msToText, precise, type Alignment } from "../core/reading/align";
 import type { Sentence } from "../core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
+import * as perf from "../app/perf";
 
 /** A sentence marked in the text: the one a tap would listen from, or the one being read aloud. */
 interface Mark extends Sentence {
@@ -429,8 +430,10 @@ function useLayout(ebook: Ebook, settings: ReadingSettings, viewport: { width: n
     (section: number): SectionLayout => {
       let l = cache.current.get(section);
       if (!l) {
-        const blocks = typesetter.section(section, metrics!, justify);
-        l = { blocks, pages: paginate(section, blocks, metrics!.pageHeight, Math.round(metrics!.pageHeight * 0.12)), flow: flow(section, blocks) };
+        l = perf.time("lay out a chapter", () => {
+          const blocks = typesetter.section(section, metrics!, justify);
+          return { blocks, pages: paginate(section, blocks, metrics!.pageHeight, Math.round(metrics!.pageHeight * 0.12)), flow: flow(section, blocks) };
+        });
         cache.current.set(section, l);
       }
       return l;
@@ -597,7 +600,11 @@ function Text({ bookId, text, place, settings, bar, listen, narrator, highlights
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
-        {ready && metrics && viewport && (settings.layout === "pages" ? <Pages text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />)}
+        {ready && metrics && viewport && (
+          <Profiler id={settings.layout === "pages" ? "pages" : "scroll"} onRender={perf.onRender}>
+            {settings.layout === "pages" ? <Pages text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />}
+          </Profiler>
+        )}
         {tap && viewport && (
           <div data-tap className="absolute z-10 flex gap-1" style={{ left: Math.max(8, Math.min(viewport.width - (tap.mark && tap.saved ? 300 : 168), tap.x - 80)), top: tap.y + 6 }}>
             {tap.mark && (
@@ -684,7 +691,8 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
   });
 
   const go = useCallback(
-    (step: 1 | -1) => {
+    (step: 1 | -1, at?: number) => {
+      perf.begin("page turn", at);
       const cur = layout(place.section);
       const here = pageOf(cur.pages, place);
       const start = here - (here % per);
@@ -705,6 +713,14 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
     [c, text, layout, per, place],
   );
 
+  // The page a turn asked for is committed: measured to the frame that shows it. The first is the reader opening.
+  const shownSection = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (shownSection.current === null) perf.end("open the reader");
+    else perf.end("page turn", shownSection.current === place.section ? "page turn" : "page turn into a chapter");
+    shownSection.current = place.section;
+  }, [place.section, first]);
+
   // Lay out the chapters on either side while the reader reads, so turning into them never waits.
   useEffect(() => {
     const id = setTimeout(() => {
@@ -720,10 +736,10 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
       if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector("dialog[open]")) return;
       if (e.key === "ArrowRight" || e.key === "PageDown" || (e.key === " " && !e.shiftKey)) {
         e.preventDefault();
-        go(1);
+        go(1, e.timeStamp);
       } else if (e.key === "ArrowLeft" || e.key === "PageUp" || (e.key === " " && e.shiftKey)) {
         e.preventDefault();
-        go(-1);
+        go(-1, e.timeStamp);
       } else if (e.key === "Escape") {
         e.preventDefault();
         void c.closeReading();
@@ -747,8 +763,8 @@ const Pages = memo(function Pages({ text, place, metrics, viewport, layout, mark
           ))}
         </div>
       ))}
-      <button type="button" aria-label="Previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none" onClick={() => go(-1)} />
-      <button type="button" aria-label="Next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none" onClick={() => go(1)} />
+      <button type="button" aria-label="Previous page" data-perf="previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none" onClick={(e) => go(-1, e.timeStamp)} />
+      <button type="button" aria-label="Next page" data-perf="next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none" onClick={(e) => go(1, e.timeStamp)} />
       <p className="absolute right-0 bottom-1 left-0 text-center text-xs/4 text-ink-3 tabular-nums" aria-live="polite">
         {first + 1}
         {per === 2 && first + 1 < l.pages.length ? `–${first + 2}` : ""} of {l.pages.length}
@@ -813,7 +829,10 @@ const Scroll = memo(function Scroll({ text, place, metrics, layout, marks, c, on
 
   const byHand = () => c.setFollowing(false);
 
+  useLayoutEffect(() => perf.end("open the reader"), []);
+
   const onScroll = () => {
+    perf.sampleFrames("scrolling: time between frames");
     const el = scroller.current;
     if (!el) return;
     onScrolled?.();
