@@ -24,7 +24,7 @@ import { applyView, filterCount, SORT_LABELS } from "../core/view";
  */
 export function LibraryPane({ query, onQuery, found }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null }) {
   // Not the player's place: the shelf follows it by the minute (useShelfProgress).
-  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing }));
+  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null }));
   useCovers();
   const progress = useShelfProgress();
   const c = useController();
@@ -53,7 +53,8 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
         .sort((x, y) => (current === y.b.book.id ? 1 : 0) - (current === x.b.book.id ? 1 : 0) || listenedAt(y.b) - listenedAt(x.b))
         .slice(0, 6),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.books, progress, hidden],
+    // Closing the reader may have moved a book along (`c.readingProgress` reads the kept reading places).
+    [state.books, progress, hidden, state.reading],
   );
 
   const facts = useShelfFacts();
