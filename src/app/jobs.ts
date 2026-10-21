@@ -84,6 +84,8 @@ export class JobQueue {
   enqueue(book: ScannedBook, front = false): void {
     const id = book.book.id;
     if (this.running?.bookId === id) return;
+    // Nothing to measure with where ffmpeg cannot run (iOS): the book plays as it is.
+    if (this.libFor(book)?.host.tools === false) return;
     this.queue = this.queue.filter((b) => b.book.id !== id);
     if (front) this.queue.unshift(book);
     else this.queue.push(book);

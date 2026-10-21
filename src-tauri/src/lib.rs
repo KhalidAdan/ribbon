@@ -24,9 +24,23 @@ fn uptime_ms() -> u64 {
 /// A library folder named on the command line or in RIBBON_LIBRARY, for
 /// opening straight into a library without the picker. Used by scripts
 /// and timing runs; the remembered root still wins when there is one.
+/// On an iPhone, the app's own Documents folder.
 #[tauri::command]
 fn env_library() -> Option<String> {
-    std::env::args().nth(1).filter(|a| !a.starts_with('-')).or_else(|| std::env::var("RIBBON_LIBRARY").ok()).filter(|s| !s.trim().is_empty())
+    let named = std::env::args().nth(1).filter(|a| !a.starts_with('-')).or_else(|| std::env::var("RIBBON_LIBRARY").ok()).filter(|s| !s.trim().is_empty());
+    #[cfg(target_os = "ios")]
+    let named = named.or_else(ios_library);
+    named
+}
+
+/// The app's Documents folder, which the Files app shows as On My iPhone ›
+/// Ribbon (Info.ios.plist): books copied there are on the shelf. HOME is
+/// the app's container on iOS. Made on first launch.
+#[cfg(target_os = "ios")]
+fn ios_library() -> Option<String> {
+    let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join("Documents");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.to_string_lossy().into_owned())
 }
 
 /// Widen the filesystem and asset-protocol scopes to a library folder the

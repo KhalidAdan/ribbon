@@ -69,7 +69,7 @@ export function ReadingView() {
   const listen = !!r.alignment && !!book && book.book.durationMs > 0;
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
+    <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="safe-area fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 sm:px-3">
         <Button variant="ghost" leading={ArrowLeftIcon} onClick={() => void c.closeReading()}>
           Back

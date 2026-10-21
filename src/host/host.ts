@@ -109,6 +109,13 @@ export interface Host {
   remove(path: string): Promise<void>;
   /** Move a file or folder within the same volume. */
   rename(from: string, to: string): Promise<void>;
+  /**
+   * Whether ffmpeg and ffprobe can run here: not on iOS, which starts no
+   * processes. Without them, loudness and silence, bookmark clips and the
+   * read-along export are left out, and `run` answers at once that the tool
+   * is not there. Absent means they can.
+   */
+  tools?: boolean;
   /** Run ffprobe or ffmpeg to completion. Never throws on non-zero exit. */
   run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult>;
   /**

@@ -1,7 +1,7 @@
 import { readDir, stat, exists, readFile, writeFile, mkdir, remove, rename } from "@tauri-apps/plugin-fs";
 import { renameWithRetry } from "./retry";
 import { Command } from "@tauri-apps/plugin-shell";
-import { hostname } from "@tauri-apps/plugin-os";
+import { hostname, platform } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { channel, type Source } from "@culvert/stream";
@@ -32,7 +32,11 @@ function fromRaw(f: RawFile): ScannedFile {
  * `allowLibrary` has opened; the Rust side refuses anything else.
  */
 export function tauriHost(): Host {
+  // iOS starts no processes, so there is no ffmpeg or ffprobe to run (docs/MAC.md, the phone).
+  const tools = platform() !== "ios";
+  const missing = (tool: Tool): RunResult => ({ code: 127, stdout: "", stderr: `${tool} does not run on this system` });
   return {
+    tools,
     async readDir(dir: string): Promise<DirEntry[]> {
       const entries = await readDir(dir);
       return entries.map((e) => ({ name: e.name, isDir: e.isDirectory, isFile: e.isFile }));
@@ -59,6 +63,7 @@ export function tauriHost(): Host {
     },
     rename: (from: string, to: string) => rename(from, to),
     run(tool: Tool, args: string[], signal?: AbortSignal): Promise<RunResult> {
+      if (!tools) return Promise.resolve(missing(tool));
       return new Promise((resolve) => {
         const cmd = Command.create(tool, args, { encoding: "utf-8" });
         let stdout = "";
@@ -79,6 +84,10 @@ export function tauriHost(): Host {
       // The shell plugin pushes lines by event; the channel turns them into
       // a pulled source with backpressure, one write in flight at a time.
       const [writer, source] = channel<string>();
+      if (!tools) {
+        void writer.close();
+        return source;
+      }
       let tail = Promise.resolve();
       const then = (step: () => Promise<void>) => {
         tail = tail.then(step).catch(() => undefined);
