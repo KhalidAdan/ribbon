@@ -13,7 +13,8 @@ interface Props {
  * A panel on a native dialog: focus is trapped, Escape and the backdrop
  * close it, and screen readers see a modal. On a wide window it is a
  * column along the right edge, so the player stays in view beside it;
- * on a narrow one it rises from the bottom.
+ * on a narrow one it rises from the bottom, with a margin to the
+ * screen's sides.
  */
 export function Drawer({ open, onClose, title, children }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -59,7 +60,7 @@ export function Drawer({ open, onClose, title, children }: Props) {
         if (e.target === e.currentTarget) onClose();
       }}
       aria-label={title}
-      className="fixed inset-x-0 top-auto bottom-0 m-0 hidden max-h-[85dvh] w-full max-w-none flex-col rounded-t-[10px] bg-surface p-0 text-ink ring-1 ring-line backdrop:bg-black/40 open:flex sm:inset-y-0 sm:right-0 sm:left-auto sm:h-dvh sm:max-h-none sm:w-[26rem] sm:rounded-none sm:ring-0 sm:border-l sm:border-line starting:open:max-sm:translate-y-full starting:open:sm:translate-x-8 starting:open:sm:opacity-0 transition-[translate,opacity] duration-200 ease-out"
+      className="fixed inset-x-2 top-auto bottom-0 m-0 hidden max-h-[85dvh] w-auto max-w-none flex-col rounded-t-[10px] bg-surface p-0 text-ink ring-1 ring-line backdrop:bg-black/40 open:flex sm:inset-y-0 sm:right-0 sm:left-auto sm:h-dvh sm:max-h-none sm:w-[26rem] sm:rounded-none sm:ring-0 sm:border-l sm:border-line starting:open:max-sm:translate-y-full starting:open:sm:translate-x-8 starting:open:sm:opacity-0 transition-[translate,opacity] duration-200 ease-out"
     >
       <div className="flex h-12 shrink-0 items-center gap-3 border-b border-line pr-2 pl-4">
         <h2 tabIndex={-1} data-autofocus className="min-w-0 flex-1 truncate text-base/6 font-semibold text-ink outline-none sm:text-sm/5">{title}</h2>
