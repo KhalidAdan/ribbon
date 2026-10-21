@@ -64,6 +64,9 @@ jobs:
         with:
           name: speed-report
           path: .e2e/speed-*.json
+          if-no-files-found: error
+          # .e2e/ starts with a dot, and the action leaves hidden folders out unless told.
+          include-hidden-files: true
 
       # What the app saw, for a failure: its log and the records it wrote.
       - name: Keep the run's logs
@@ -75,3 +78,5 @@ jobs:
             .e2e/run/home/logs
             .e2e/public-library/.ribbon
           if-no-files-found: ignore
+          # .e2e/ starts with a dot, and the action leaves hidden folders out unless told.
+          include-hidden-files: true
