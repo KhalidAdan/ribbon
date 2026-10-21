@@ -108,13 +108,15 @@ the `safe-area` padding).
 ### What stands in the way, riskiest first
 
 1. **Background audio through the webview.** The North Star makes lock
-   screen controls and background audio table stakes. iOS needs the
-   `audio` background mode and a playback audio session, set natively, and
-   may suspend Web Audio (Ribbon's loudness runs through a gain node) when the
-   app is in the background. **The first spike should answer this**: an
-   iPhone, a book, the screen locked, playing on, with lock-screen controls.
-   If Web Audio stops, loudness moves to the element's volume or to native
-   playback.
+   screen controls and background audio table stakes. **Answered for the
+   audio itself:** with the `audio` background mode
+   (`src-tauri/Info.ios.plist`, which Tauri merges into the app's
+   Info.plist), a book on the iPhone SE played on through a night with the
+   screen locked, Web Audio's gain node (Ribbon's loudness) included, with no
+   native audio session of Ribbon's own. Still open: lock-screen controls
+   (Now Playing and the remote commands), and whether the sleep timer fires
+   on time while the phone is locked. If either needs it, the session and
+   the controls move to native code.
 2. **ffmpeg cannot run on a phone.** iOS starts no processes. Today ffmpeg
    does the loudness and silence scans, cuts bookmark clips, decodes speech
    for whisper, and builds the read-along export. The way through that serves
