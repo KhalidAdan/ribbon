@@ -119,7 +119,17 @@ function Ready() {
   };
 
   // The reader covers the window: nothing under it is drawn, so a page turn never waits on the shelf.
-  if (state.reading) return <ReadingView />;
+  // The full player opens over it from the dock on a phone; closed, it draws nothing.
+  if (state.reading) {
+    return (
+      <>
+        <ReadingView />
+        <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
+          <PlayerPane />
+        </PlayerSheet>
+      </>
+    );
+  }
 
   return (
     <main className="flex h-full flex-col">

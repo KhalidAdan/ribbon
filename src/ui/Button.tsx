@@ -48,16 +48,18 @@ interface IconProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"
   icon: Icon;
   variant?: Exclude<Variant, "danger">;
   size?: Size;
+  /** The glyph's size: 16px, unless an icon needs the room (the reader's thirty-second arrows carry a number). */
+  glyph?: "size-4" | "size-5";
   type?: "button" | "submit";
   children?: ReactNode;
 }
 
 /** An icon-only button, with a 48px touch target on coarse pointers. */
-export function IconButton({ label, icon: Glyph, variant = "ghost", size = "md", type = "button", className, children, ...rest }: IconProps) {
+export function IconButton({ label, icon: Glyph, variant = "ghost", size = "md", glyph = "size-4", type = "button", className, children, ...rest }: IconProps) {
   return (
     <button type={type} aria-label={label} title={label} className={clsx(base, variants[variant], sizes[size].icon, className)} {...rest}>
       <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
-      <Glyph className="size-4 shrink-0 fill-current" aria-hidden="true" />
+      <Glyph className={clsx(glyph, "shrink-0 fill-current")} aria-hidden="true" />
       {children}
     </button>
   );

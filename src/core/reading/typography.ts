@@ -11,7 +11,8 @@ export interface ReadingSettings {
   /** Index into MEASURES. */
   width: number;
   layout: "pages" | "scroll";
-  justify: boolean;
+  /** Unset until chosen: then the column decides (justifies). */
+  justify?: boolean;
   /** Read-along: mark the sentence being read while following the narrator. */
   highlight: boolean;
 }
@@ -23,7 +24,14 @@ export const LEADINGS = [1.45, 1.6, 1.75];
 /** The widest a column of text gets, in ems: about 60, 70 and 85 characters. */
 export const MEASURES = [27, 32, 38];
 
-export const DEFAULT_READING: ReadingSettings = { size: 2, spacing: 1, width: 1, layout: "pages", justify: true, highlight: true };
+/**
+ * On a screen narrower than a full measure (a phone), the column runs from
+ * margin to margin, so Width sets the margins instead: a share of the
+ * screen's width each side for narrow, normal and wide.
+ */
+export const NARROW_MARGINS = [0.095, 0.075, 0.055];
+
+export const DEFAULT_READING: ReadingSettings = { size: 2, spacing: 1, width: 1, layout: "pages", highlight: true };
 
 const within = (v: unknown, list: readonly unknown[], fallback: number) => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v < list.length ? v : fallback);
 
@@ -34,7 +42,7 @@ export function parseReading(v: unknown): ReadingSettings {
     spacing: within(o.spacing, LEADINGS, DEFAULT_READING.spacing),
     width: within(o.width, MEASURES, DEFAULT_READING.width),
     layout: o.layout === "scroll" ? "scroll" : "pages",
-    justify: o.justify !== false,
+    ...(typeof o.justify === "boolean" ? { justify: o.justify } : {}),
     highlight: o.highlight !== false,
   };
 }
@@ -63,8 +71,24 @@ export function metricsFor(s: ReadingSettings, viewport: { width: number; height
   const room = Math.max(160, viewport.width - 2 * side);
   // Two pages side by side once each can be most of a full measure.
   const columns: 1 | 2 = s.layout === "pages" && room >= 2 * measure * 0.85 + gap ? 2 : 1;
-  const column = Math.min(measure, columns === 2 ? Math.floor((room - gap) / 2) : room);
+  // One column keeps a margin of its own on a narrow screen, where five per cent would run it nearly edge to edge.
+  const edge = Math.max(side, Math.round(viewport.width * NARROW_MARGINS[s.width]!));
+  const column = columns === 2 ? Math.min(measure, Math.floor((room - gap) / 2)) : Math.min(measure, Math.max(160, viewport.width - 2 * edge));
   const margin = Math.max(24, Math.round(lineHeight * 1.25));
   const pageHeight = Math.max(lineHeight * 4, viewport.height - 2 * margin);
   return { size, lineHeight, column, columns, gap, pageHeight, margin };
+}
+
+/**
+ * Whether lines are justified. Lines that cannot hyphenate open wide gaps
+ * below 24 ems, and even hyphenated ones below 16, so those columns are
+ * set ragged-right whatever the setting. Above that, Justify decides; left
+ * unset, it justifies only lines long enough to spread their spaces well:
+ * a phone's column (about 17 ems) is ragged-right, a page on a desktop is
+ * justified.
+ */
+export function justifies(s: ReadingSettings, m: Pick<Metrics, "column" | "size">, hyphenates: boolean): boolean {
+  const ems = m.column / m.size;
+  if (ems < (hyphenates ? 16 : 24)) return false;
+  return s.justify ?? ems >= 24;
 }

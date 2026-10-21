@@ -88,8 +88,8 @@ export const Transport = memo(function Transport({ size }: { size: "sm" | "md" }
   );
 });
 
-/** The one primary control: inverted ink, round. Pause while reconnecting, because the listener still wants to hear it. */
-export const PlayButton = memo(function PlayButton({ size }: { size: "sm" | "md" }) {
+/** The one primary control: inverted ink, round. Pause while reconnecting, because the listener still wants to hear it. xs sits in the reader's capsule. */
+export const PlayButton = memo(function PlayButton({ size }: { size: "xs" | "sm" | "md" }) {
   const on = useAppState((s) => s.player.playing || s.player.reconnecting);
   const c = useController();
   return (
@@ -97,10 +97,10 @@ export const PlayButton = memo(function PlayButton({ size }: { size: "sm" | "md"
       type="button"
       onClick={() => c.togglePlay()}
       aria-label={on ? "Pause" : "Play"}
-      className={clsx("relative flex shrink-0 items-center justify-center rounded-full bg-primary text-on-primary focus-ring hover:bg-primary/85", size === "md" ? "size-14" : "size-9")}
+      className={clsx("relative flex shrink-0 items-center justify-center rounded-full bg-primary text-on-primary focus-ring hover:bg-primary/85", size === "md" ? "size-14" : size === "sm" ? "size-9" : "size-[30px]")}
     >
       <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
-      {on ? <PauseIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
+      {on ? <PauseIcon className={clsx(size === "xs" ? "size-3" : "size-4", "fill-current")} aria-hidden="true" /> : <PlayIcon className={clsx(size === "xs" ? "size-3" : "size-4", "translate-x-px fill-current")} aria-hidden="true" />}
     </button>
   );
 });

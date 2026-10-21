@@ -196,6 +196,19 @@ export function pageOf(pages: readonly Page[], place: { block: number; offset: n
   return found;
 }
 
+/**
+ * The page a reader is on, counted through the whole book, and how many
+ * pages the book has: from each chapter's page count, in reading order.
+ * Nothing until every chapter is laid out, so the count never changes
+ * under the reader as the rest of the book arrives.
+ */
+export function bookPage(counts: readonly (number | undefined)[], chapter: number, page: number): { page: number; of: number } | null {
+  if (chapter < 0 || chapter >= counts.length || counts.some((n) => n === undefined)) return null;
+  let before = 0;
+  for (let i = 0; i < chapter; i++) before += counts[i]!;
+  return { page: before + page + 1, of: counts.reduce<number>((all, n) => all + n!, 0) };
+}
+
 /** In a flow, the first item at or below `y`, as a place. */
 export function placeAtY(blocks: readonly LaidBlock[], f: Flow, y: number): { block: number; offset: number } {
   // The first item whose bottom is below y: items run down the flow, so their bottoms only grow.

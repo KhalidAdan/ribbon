@@ -3,23 +3,25 @@ import { clsx } from "clsx";
 import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "../core/ebook";
 import type { Highlight } from "../core/types";
-import { itemsIn, pageOf, placeAtY, yOfPlace, type LaidBlock, type Placed } from "../core/reading/pages";
+import { bookPage, itemsIn, pageOf, placeAtY, yOfPlace, type LaidBlock, type Placed } from "../core/reading/pages";
 import { comparePlaces, type BookText, type TextPlace, type TextRange } from "../core/reading/booktext";
 import { inRange, rangeOf } from "../core/reading/highlights";
-import { LEADINGS, MEASURES, metricsFor, SIZES, type Metrics, type ReadingSettings } from "../core/reading/typography";
+import { justifies, LEADINGS, MEASURES, metricsFor, SIZES, type Metrics, type ReadingSettings } from "../core/reading/typography";
 import type { AppController } from "../app/controller";
 import { useAppState, useController } from "../ui/store";
 import { Button, IconButton } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
-import { EmptyState, ProgressLine, Toggle } from "../ui/kit";
+import { EmptyState, ProgressLine, Toggle, type MenuItem } from "../ui/kit";
+import { useCompact } from "../ui/useCompact";
+import { Dock } from "./Dock";
+import { useListening, type Visible } from "./listening";
 import { facesLoaded, FAMILY, loadFaces } from "./typeset";
 import { fitsKey, loadSnapshot, savePage, savePlace } from "./snapshot";
 import { usePageSwipe } from "./swipe";
 import { LayoutEngine } from "./layout-engine";
 import type { SectionLayout } from "./layout";
 import { PlayButton } from "../ui/PlayerBar";
-import { formatDuration, formatLeft } from "../core/speed";
-import { chapterAt } from "../core/scan/chapters";
+import { formatDuration } from "../core/speed";
 import { msToText, precise, type Alignment } from "../core/reading/align";
 import type { Sentence } from "../core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
@@ -29,12 +31,6 @@ import * as perf from "../app/perf";
 interface Mark extends Sentence {
   section: number;
   block: number;
-}
-
-/** What the reader shows: from the first character on screen to the last. */
-interface Visible {
-  from: TextPlace;
-  to: TextPlace;
 }
 
 /** A chapter not laid out yet: nothing to show for a moment. */
@@ -47,16 +43,21 @@ const NOT_YET: SectionLayout = { blocks: [], pages: [], flow: { section: -1, ite
  */
 export function ReadingView() {
   // Not the player's place, which moves five times a second: the parts that follow it (the mark, the listening bar) select it themselves.
-  const { r, book, loadedHere, settings } = useAppState((s) => ({
+  const { r, book, loadedHere, anyLoaded, settings } = useAppState((s) => ({
     r: s.reading,
     book: s.reading ? s.books.find((b) => b.book.id === s.reading!.bookId) : undefined,
     loadedHere: !!s.reading && s.current?.book.book.id === s.reading.bookId,
+    anyLoaded: !!s.current,
     settings: s.readingSettings,
   }));
   const c = useController();
+  // A phone: the header and the bars below give way to the dock (Dock.tsx).
+  const compact = useCompact();
   const [contents, setContents] = useState(false);
   const [bookmarks, setBookmarks] = useState(false);
   const [type, setType] = useState(false);
+  // Whether the lines are justified now, for the switch in the text settings: as set, or as the column decided.
+  const [justified, setJustified] = useState(true);
   // The listening bar shows itself while this book's audio is loaded; the header button shows or hides it either way.
   const [barPref, setBarPref] = useState<"auto" | "shown" | "hidden">("auto");
   if (!r) return null;
@@ -67,32 +68,50 @@ export function ReadingView() {
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
   const listen = !!r.alignment && !!book && book.book.durationMs > 0;
+  const title = book?.book.title ?? "";
+  // The dock's menu: what the header holds on a wider window, and the full player.
+  const menu: MenuItem[] = [
+    ...(anyLoaded ? [{ label: "Player…", onSelect: () => c.expandPlayer() }] : []),
+    { label: "Contents…", onSelect: () => setContents(true), disabled: !ebook },
+    { label: "Bookmarks…", onSelect: () => setBookmarks(true), disabled: !ebook },
+    { label: "Text…", onSelect: () => setType(true), disabled: !ebook },
+    { label: "Close book", onSelect: () => void c.closeReading() },
+  ];
+  // While there is no page to follow (opening, failed, getting read-along ready), the dock still plays and still closes the book.
+  const idleDock = compact ? <Dock bookId={r.bookId} text={null} visible={null} folio="" inset={28} listen={false} title={title} menu={menu} c={c} /> : null;
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="safe-area fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 sm:px-3">
-        <Button variant="ghost" leading={ArrowLeftIcon} onClick={() => void c.closeReading()}>
-          Back
-        </Button>
-        <div className="min-w-0 flex-1 text-center">
-          <p className="truncate text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">{book?.book.title}</p>
-          {chapter && <p className="truncate text-xs/4 text-ink-3">{chapter}</p>}
-        </div>
-        <IconButton label={barOpen ? "Hide the listening controls" : "Show the listening controls"} icon={SpeakerWaveIcon} aria-pressed={barOpen} disabled={!ebook} onClick={() => setBarPref(barOpen ? "hidden" : "shown")} />
-        <IconButton label="Contents" icon={ListBulletIcon} disabled={!ebook} onClick={() => setContents(true)} />
-        <IconButton label="Bookmarks" icon={BookmarkIcon} disabled={!ebook} onClick={() => setBookmarks(true)} />
-        <div className="relative">
-          <Button variant={type ? "secondary" : "ghost"} aria-expanded={type} aria-haspopup="dialog" disabled={!ebook} onClick={() => setType((v) => !v)}>
-            <span aria-hidden="true" className="font-serif text-base/5">
-              Aa
-            </span>
-            <span className="sr-only">Text settings</span>
+      {compact ? (
+        // On a phone the page is the book's: its title, quietly, and every control in the dock at the bottom.
+        <header className="flex h-12 shrink-0 items-end justify-center px-12 pb-1.5">
+          <p className="truncate text-[0.8125rem]/5 font-medium text-ink-2">{title}</p>
+        </header>
+      ) : (
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 sm:px-3">
+          <Button variant="ghost" leading={ArrowLeftIcon} onClick={() => void c.closeReading()}>
+            Back
           </Button>
-          {type && <TypeSettings settings={settings} onChange={(p) => c.setReadingSettings(p)} onClose={() => setType(false)} />}
-        </div>
-      </header>
+          <div className="min-w-0 flex-1 text-center">
+            <p className="truncate text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">{book?.book.title}</p>
+            {chapter && <p className="truncate text-xs/4 text-ink-3">{chapter}</p>}
+          </div>
+          <IconButton label={barOpen ? "Hide the listening controls" : "Show the listening controls"} icon={SpeakerWaveIcon} aria-pressed={barOpen} disabled={!ebook} onClick={() => setBarPref(barOpen ? "hidden" : "shown")} />
+          <IconButton label="Contents" icon={ListBulletIcon} disabled={!ebook} onClick={() => setContents(true)} />
+          <IconButton label="Bookmarks" icon={BookmarkIcon} disabled={!ebook} onClick={() => setBookmarks(true)} />
+          <div className="relative">
+            <Button variant={type ? "secondary" : "ghost"} aria-expanded={type} aria-haspopup="dialog" disabled={!ebook} onClick={() => setType((v) => !v)}>
+              <span aria-hidden="true" className="font-serif text-base/5">
+                Aa
+              </span>
+              <span className="sr-only">Text settings</span>
+            </Button>
+            {type && !compact && <TypeSettings settings={settings} justified={justified} onChange={(p) => c.setReadingSettings(p)} onClose={() => setType(false)} />}
+          </div>
+        </header>
+      )}
 
-      {r.status === "opening" && <Opening bookId={r.bookId} settings={settings} bar={barOpen} />}
+      {r.status === "opening" && <Opening bookId={r.bookId} settings={settings} bar={barOpen} dock={idleDock} />}
       {r.status === "failed" && (
         <Middle>
           <p className="text-base/6 font-medium text-ink sm:text-sm/5">This book’s text could not be opened</p>
@@ -100,6 +119,7 @@ export function ReadingView() {
         </Middle>
       )}
       {r.status === "ready" && r.preparing && <Preparing listening={r.listening} onReadNow={() => c.readNow()} />}
+      {(r.status === "failed" || (r.status === "ready" && r.preparing)) && idleDock}
       {r.status === "ready" && !r.preparing && text && ebook && place && (
         <Text
           key={ebook.meta.title + r.bookId}
@@ -111,8 +131,18 @@ export function ReadingView() {
           listen={listen}
           alignment={loadedHere ? r.alignment : undefined}
           highlights={r.highlights ?? NO_HIGHLIGHTS}
+          compact={compact}
+          title={title}
+          menu={menu}
+          onJustified={setJustified}
           c={c}
         />
+      )}
+
+      {ebook && compact && (
+        <Drawer open={type} onClose={() => setType(false)} title="Text">
+          <TypeFields settings={settings} justified={justified} onChange={(p) => c.setReadingSettings(p)} />
+        </Drawer>
       )}
 
       {ebook && (
@@ -344,7 +374,7 @@ function Middle({ children }: { children: ReactNode }) {
 }
 
 /** The type settings, under the Aa button. */
-function TypeSettings({ settings, onChange, onClose }: { settings: ReadingSettings; onChange: (p: Partial<ReadingSettings>) => void; onClose: () => void }) {
+function TypeSettings({ settings, justified, onChange, onClose }: { settings: ReadingSettings; justified: boolean; onChange: (p: Partial<ReadingSettings>) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
@@ -364,7 +394,16 @@ function TypeSettings({ settings, onChange, onClose }: { settings: ReadingSettin
     };
   }, [onClose]);
   return (
-    <div ref={ref} role="dialog" aria-label="Text settings" className="absolute top-full right-0 z-10 mt-2 flex w-72 flex-col gap-4 rounded-[10px] bg-surface p-4 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong">
+    <div ref={ref} role="dialog" aria-label="Text settings" className="absolute top-full right-0 z-10 mt-2 w-72 rounded-[10px] bg-surface p-4 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong">
+      <TypeFields settings={settings} justified={justified} onChange={onChange} />
+    </div>
+  );
+}
+
+/** The type settings themselves: under the Aa button on a wide window, in a drawer from the dock's menu on a phone. */
+function TypeFields({ settings, justified, onChange }: { settings: ReadingSettings; justified: boolean; onChange: (p: Partial<ReadingSettings>) => void }) {
+  return (
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-base/6 text-ink-2 sm:text-sm/5">Size</span>
         <div className="flex items-center gap-1">
@@ -382,7 +421,7 @@ function TypeSettings({ settings, onChange, onClose }: { settings: ReadingSettin
       <Choice label="Layout" value={settings.layout === "pages" ? 0 : 1} options={["Pages", "Scroll"]} onChange={(i) => onChange({ layout: i === 0 ? "pages" : "scroll" })} />
       <div className="flex items-center justify-between gap-3">
         <span className="text-base/6 text-ink-2 sm:text-sm/5">Justify</span>
-        <Toggle label="Justify the text" checked={settings.justify} onChange={(justify) => onChange({ justify })} />
+        <Toggle label="Justify the text" checked={justified} onChange={(justify) => onChange({ justify })} />
       </div>
       <div className="flex items-center justify-between gap-3">
         <span className="text-base/6 text-ink-2 sm:text-sm/5">Mark the sentence read aloud</span>
@@ -431,8 +470,8 @@ function useLayout(bookId: string, ebook: Ebook, settings: ReadingSettings, view
       live = false;
     };
   }, [ready, metrics]);
-  // Justified lines in a narrow column open rivers unless words can break: hyphenated, a phone's column (16 ems) can be justified.
-  const justify = !!metrics && settings.justify && metrics.column >= metrics.size * (engine.hyphenates ? 16 : 24);
+  // Justified lines in a narrow column open rivers: as set, and left unset only where the lines are long enough (typography.ts).
+  const justify = !!metrics && justifies(settings, metrics, engine.hyphenates);
   if (metrics) engine.setSpec({ metrics, justify });
   // The page you left, laid out last time for this same spec: the first page needs no layout.
   const seeded = useRef(false);
@@ -444,7 +483,7 @@ function useLayout(bookId: string, ebook: Ebook, settings: ReadingSettings, view
   // A new function when a chapter the page watches arrives, so what uses it draws again.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const layout = useCallback((section: number): SectionLayout | undefined => engine.get(section), [engine, version]);
-  return { metrics, ready: ready && !!metrics, layout, engine };
+  return { metrics, ready: ready && !!metrics, layout, engine, justify };
 }
 
 /** Ask for a chapter, the ones either side of it, then the rest of the book outward from it. */
@@ -461,7 +500,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; c: AppController }) {
+function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, compact, title, menu, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; compact: boolean; title: string; menu: MenuItem[]; onJustified: (on: boolean) => void; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -476,9 +515,16 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
     return () => ro.disconnect();
   }, []);
   const ebook = text.ebook;
-  const { metrics, ready, layout, engine } = useLayout(bookId, ebook, settings, viewport);
+  const { metrics, ready, layout, engine, justify } = useLayout(bookId, ebook, settings, viewport);
+  useEffect(() => onJustified(justify), [justify, onJustified]);
   const fits = viewport ? fitsKey(viewport, settings) : "";
   const progress = text.progress(place);
+  // On a phone, the page number under the text: the page in the whole book once every chapter is laid out, how far through until then.
+  const linear = useMemo(() => ebook.sections.flatMap((s, i) => (s.linear ? [i] : [])), [ebook]);
+  const inBook = compact && settings.layout === "pages" ? bookPage(linear.map((s) => (engine.isFresh(s) ? layout(s)?.pages.length : undefined)), linear.indexOf(place.section), pageOf(layout(place.section)?.pages ?? [], place)) : null;
+  const folio = inBook ? `${inBook.page} of ${inBook.of}` : `${Math.round(progress * 100)}%`;
+  // The dock lines up with the text's own edges.
+  const inset = viewport && metrics ? Math.max(16, Math.round((viewport.width - (metrics.columns * metrics.column + (metrics.columns - 1) * metrics.gap)) / 2)) : 28;
 
   // Bookmarks made from highlights, found in this book's text as ranges of places, so they survive any layout.
   const saved = useMemo(() => highlights.map((h) => ({ id: h.id, ...rangeOf(text, h.text) })), [text, highlights]);
@@ -678,11 +724,17 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
           </div>
         )}
       </div>
-      {bar && <ListeningBar bookId={bookId} text={text} visible={visible} c={c} />}
-      <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
-        <ProgressLine fraction={progress} className="flex-1" />
-        <span className="text-xs/4 text-ink-3 tabular-nums">{Math.round(progress * 100)}%</span>
-      </footer>
+      {compact ? (
+        <Dock bookId={bookId} text={text} visible={visible} folio={folio} inset={inset} listen={listen} title={title} menu={menu} c={c} />
+      ) : (
+        <>
+          {bar && <ListeningBar bookId={bookId} text={text} visible={visible} c={c} />}
+          <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
+            <ProgressLine fraction={progress} className="flex-1" />
+            <span className="text-xs/4 text-ink-3 tabular-nums">{Math.round(progress * 100)}%</span>
+          </footer>
+        </>
+      )}
     </div>
   );
 }
@@ -858,8 +910,9 @@ const Pages = memo(function Pages({ bookId, fits, text, place, metrics, viewport
           ) : null,
         )}
       </div>
-      <button type="button" aria-label="Previous page" data-perf="previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none" {...onEdge(-1)} />
-      <button type="button" aria-label="Next page" data-perf="next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none" {...onEdge(1)} />
+      {/* The edges turn the page for a mouse. A finger swipes, and its taps belong to the text. */}
+      <button type="button" aria-label="Previous page" data-perf="previous page" tabIndex={-1} className="absolute inset-y-0 left-0 w-[12%] cursor-w-resize focus:outline-none pointer-coarse:hidden" {...onEdge(-1)} />
+      <button type="button" aria-label="Next page" data-perf="next page" tabIndex={-1} className="absolute inset-y-0 right-0 w-[12%] cursor-e-resize focus:outline-none pointer-coarse:hidden" {...onEdge(1)} />
     </div>
   );
 });
@@ -884,7 +937,7 @@ function Spread({ l, first, metrics, viewport, marks, text, c }: { l: SectionLay
  * will draw it. Without a snapshot, or one made for another window or
  * other settings, a word that it is opening.
  */
-function Opening({ bookId, settings, bar }: { bookId: string; settings: ReadingSettings; bar: boolean }) {
+function Opening({ bookId, settings, bar, dock }: { bookId: string; settings: ReadingSettings; bar: boolean; dock: ReactNode }) {
   const c = useController();
   const box = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState<{ width: number; height: number } | null>(null);
@@ -913,11 +966,15 @@ function Opening({ bookId, settings, bar }: { bookId: string; settings: ReadingS
       <div ref={box} className="relative flex min-h-0 flex-1 flex-col">
         {page}
       </div>
-      {bar && <div className="h-14 shrink-0 border-t border-line" />}
-      <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
-        <ProgressLine fraction={snap?.progress ?? 0} className="flex-1" />
-        <span className="text-xs/4 text-ink-3 tabular-nums">{snap ? `${Math.round(snap.progress * 100)}%` : ""}</span>
-      </footer>
+      {dock ?? (
+        <>
+          {bar && <div className="h-14 shrink-0 border-t border-line" />}
+          <footer className="flex h-9 shrink-0 items-center gap-3 px-4">
+            <ProgressLine fraction={snap?.progress ?? 0} className="flex-1" />
+            <span className="text-xs/4 text-ink-3 tabular-nums">{snap ? `${Math.round(snap.progress * 100)}%` : ""}</span>
+          </footer>
+        </>
+      )}
     </div>
   );
 }
@@ -1156,25 +1213,7 @@ function same(a: TextPlace, b: TextPlace): boolean {
  * playing: its controls, under its own title. For none: a way to start.
  */
 function ListeningBar({ bookId, text, visible, c }: { bookId: string; text: BookText; visible: Visible | null; c: AppController }) {
-  // What the bar shows, as it reads: it draws again when that changes (the time left, by the minute), not on every tick.
-  const { loaded, title, here, where, onPage, playing, finding, following } = useAppState((s) => {
-    const cur = s.current;
-    const p = s.player;
-    const here = cur?.book.book.id === bookId;
-    let where = "";
-    let onPage = true;
-    if (here && cur) {
-      const i = chapterAt(cur.book.chapters, p.positionMs);
-      const ch = i >= 0 ? cur.book.chapters[i] : undefined;
-      where = ch ? `${ch.title} · ${formatLeft((ch.endMs - p.positionMs) / (p.speed || 1))} left` : `${formatLeft((p.durationMs - p.positionMs) / (p.speed || 1))} left`;
-      const narrator = c.narratorInText();
-      if (narrator && visible) {
-        const n = text.chars(narrator);
-        onPage = n >= text.chars(visible.from) && n <= text.chars(visible.to);
-      }
-    }
-    return { loaded: !!cur, title: cur?.book.book.title, here, where, onPage, playing: p.playing, finding: !!s.reading?.finding, following: !!s.reading?.following };
-  });
+  const { loaded, title, here, where, onPage, playing, finding, following } = useListening(bookId, text, visible, c);
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-t border-line px-3 sm:px-4" role="group" aria-label="Listening">
       {loaded ? (
@@ -1221,11 +1260,11 @@ function markOf(marks: readonly Marked[], b: LaidBlock): Span[] {
 
 const NO_SPANS: Span[] = [];
 
-/** The sentence a tap would listen from, or being read, is washed in amber; words bookmarked are underlined in it, and washed faintly. */
+/** The sentence a tap would listen from, or being read, is washed in amber, lightly, so the words keep their contrast; words bookmarked are underlined in it, and washed fainter still. */
 function marked(on: Tone[]): string | undefined {
   if (on.length === 0) return undefined;
   const sentence = on.includes("sentence");
-  return clsx("rounded-[2px] box-decoration-clone", sentence ? "bg-place/20" : "bg-place/10", on.includes("saved") && "underline decoration-place/70 decoration-2 underline-offset-[0.2em]");
+  return clsx("rounded-[2px] box-decoration-clone", sentence ? "bg-place/13" : "bg-place/8", on.includes("saved") && "underline decoration-place/70 decoration-2 underline-offset-[0.2em]");
 }
 
 /** One line of a block (or an image, or a break), drawn where the layout put it. Drawn again only when its marks change. */
@@ -1274,7 +1313,7 @@ const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBloc
           pieces.length === 1 && pieces[0]!.on.length === 0
             ? (f.gap ? " " : "") + f.text
             : pieces.map((p, j) => (
-                <span key={j} data-start={p.start} data-gap={p.gap ? "1" : undefined} className={marked(p.on)}>
+                <span key={j} data-start={p.start} data-gap={p.gap ? "1" : undefined} data-mark={p.on.includes("sentence") ? "sentence" : undefined} className={marked(p.on)}>
                   {(p.gap ? " " : "") + p.text}
                 </span>
               ));
