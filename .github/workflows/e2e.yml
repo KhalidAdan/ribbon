@@ -4,14 +4,19 @@
 # and playwright-core drives it over its debugging port, with the public test
 # library: The Wonderful Wizard of Oz, from Project Gutenberg and LibriVox
 # (tools/e2e/fetch-library.ts). At normal speed and with the CPU six times
-# slower, as before every release (docs/RELEASING.md); then the speed report,
-# at both speeds, beside the last release's numbers.
+# slower, as before every release (docs/RELEASING.md), side by side: each
+# builds the app on a runner of its own, which costs runner minutes rather than
+# waiting. Then, on main and when run by hand, the speed report at both speeds,
+# beside the last release's numbers.
 name: End-to-end
 
 on:
   pull_request:
+    # A change to the docs alone runs nothing here.
+    paths-ignore: ["docs/**", "**/*.md"]
   push:
     branches: [main]
+  # Speed work runs the report on its own branch: gh workflow run e2e.yml --ref <branch>
   workflow_dispatch:
 
 # A newer push to the same branch or pull request makes an older run moot.
@@ -21,9 +26,17 @@ concurrency:
 
 jobs:
   e2e:
-    name: End-to-end (windows-2022)
+    name: End-to-end, ${{ matrix.part }} (windows-2022)
     runs-on: windows-2022
     timeout-minutes: 90
+    strategy:
+      # One speed failing says nothing about the other: both finish, and a re-run takes only the one that failed.
+      fail-fast: false
+      matrix:
+        # The speed report is three and a half minutes, and a shared runner's numbers are a question rather
+        # than a verdict: it runs on main and by hand, not on every pull request. It runs the checks first, as
+        # it always has, so its numbers stay comparable with the baseline's.
+        part: ${{ fromJSON(github.event_name == 'pull_request' && '["1x", "6x"]' || '["1x", "6x", "speed report"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -51,16 +64,22 @@ jobs:
           key: e2e-library-${{ hashFiles('tools/e2e/library.json') }}
       - run: npm run e2e:library
 
-      - run: npm run e2e -- --build --library .e2e/public-library
-      - run: npm run e2e -- --slow 6 --library .e2e/public-library
+      - if: matrix.part != '6x'
+        run: npm run e2e -- --build --library .e2e/public-library
+      - if: matrix.part != '1x'
+        run: npm run e2e -- ${{ matrix.part == '6x' && '--build' || '' }} --slow 6 --library .e2e/public-library
 
       # How fast it feels (tools/e2e/speed.ts), beside the last release's numbers
       # (speed-compare.ts, on the run's summary page). Not a pass or a fail; the
       # numbers are kept with the run, so a release can become the baseline.
-      - run: npm run e2e -- speed --library .e2e/public-library --json .e2e/speed-1x.json
-      - run: npm run e2e -- speed --slow 6 --library .e2e/public-library --json .e2e/speed-6x.json
-      - run: npm run e2e:speed-compare -- .e2e/speed-1x.json .e2e/speed-6x.json
-      - uses: actions/upload-artifact@v7
+      - if: matrix.part == 'speed report'
+        run: npm run e2e -- speed --library .e2e/public-library --json .e2e/speed-1x.json
+      - if: matrix.part == 'speed report'
+        run: npm run e2e -- speed --slow 6 --library .e2e/public-library --json .e2e/speed-6x.json
+      - if: matrix.part == 'speed report'
+        run: npm run e2e:speed-compare -- .e2e/speed-1x.json .e2e/speed-6x.json
+      - if: matrix.part == 'speed report'
+        uses: actions/upload-artifact@v7
         with:
           name: speed-report
           path: .e2e/speed-*.json
@@ -73,7 +92,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-run
+          name: e2e-run-${{ matrix.part }}
           path: |
             .e2e/run/home/logs
             .e2e/public-library/.ribbon
