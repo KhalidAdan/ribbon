@@ -74,7 +74,10 @@ export const openCheck: Check = {
     await page.waitForTimeout(500);
     o = await open(r);
     t.expect(o.place === left, "opens at the page left", `${o.place}, left at ${left}`);
-    t.expect(o.snapshot !== null, "draws the page left before the book is ready", `${o.snapshot} ms, ready in ${o.ready} ms`);
+    // At once: from its snapshot while the book opens, or the book itself within the first frames. A
+    // fast machine can be ready before any frame shows the opening (GitHub's runner: ready in 17 ms),
+    // and a frame is all this sees; at 6x the opening takes most of a second, so the snapshot still shows.
+    t.expect(o.snapshot !== null || o.ready <= 50, "draws the page left at once", `${o.snapshot === null ? "no frame while opening" : `snapshot at ${o.snapshot} ms`}, ready in ${o.ready} ms`);
     t.expect(o.firstLines.length === 1, "the real page replaces the snapshot in place", o.firstLines.join(" | "));
     t.expect(o.paired !== null && o.ready <= o.paired, "is ready no later than its pairing", `ready ${o.ready} ms, paired ${o.paired} ms`);
 
