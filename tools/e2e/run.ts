@@ -11,10 +11,12 @@
  *   npm run e2e -- speed            # the speed report instead (see speed.ts)
  *
  * Options: --library <folder> (default .e2e/library, or RIBBON_E2E_LIBRARY),
- * --exe <path>, --attach (an app already running with the debugging port).
+ * --exe <path>, --attach (an app already running with the debugging port),
+ * --json <file> (the speed report's numbers, for speed-compare.ts).
  * Exits non-zero, listing what failed, when any check fails.
  */
 import { spawnSync } from "node:child_process";
+import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { launch, type Ribbon } from "./app";
 import { Tally } from "./tally";
@@ -41,7 +43,7 @@ const option = (name: string): string | undefined => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const named = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.match(/^--(slow|library|exe|port)$/));
+const named = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.match(/^--(slow|library|exe|port|json)$/));
 const slow = Number(option("slow") ?? 1);
 
 if (flag("build")) {
@@ -59,9 +61,11 @@ if (unknown.length > 0) {
 // Cargo builds into target/ at the root (.cargo/config.toml) unless CARGO_TARGET_DIR says otherwise, as on GitHub's Windows runner.
 const target = process.env.CARGO_TARGET_DIR || path.join(root, "target");
 
+const library = option("library") ?? process.env.RIBBON_E2E_LIBRARY ?? path.join(root, ".e2e", "library");
+
 const r = await launch({
   exe: option("exe") ?? path.join(target, "release", process.platform === "win32" ? "ribbon.exe" : "ribbon"),
-  library: option("library") ?? process.env.RIBBON_E2E_LIBRARY ?? path.join(root, ".e2e", "library"),
+  library,
   work: path.join(root, ".e2e", "run"),
   port: Number(option("port") ?? 9222),
   attach: flag("attach"),
@@ -70,7 +74,15 @@ const r = await launch({
 let failures: string[] = [];
 try {
   if (named.includes("speed")) {
-    await speedReport(r, slow);
+    const report = await speedReport(r, slow);
+    const json = option("json");
+    if (json) {
+      const version = (JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")) as { version: string }).version;
+      const commit = process.env.GITHUB_SHA?.slice(0, 7) ?? spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root }).stdout?.toString().trim();
+      const where = process.env.GITHUB_ACTIONS ? `GitHub Actions (${process.env.ImageOS ?? process.env.RUNNER_OS})` : `by hand (${process.platform})`;
+      const measured = new Date().toISOString().slice(0, 10);
+      await fs.writeFile(json, JSON.stringify({ ...report, version, commit, measured, where, library: path.basename(library) }, null, 2) + "\n");
+    }
   } else {
     const chosen = named.length > 0 ? CHECKS.filter((c) => named.includes(c.name)) : CHECKS;
     await r.slow(slow);

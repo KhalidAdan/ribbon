@@ -44,17 +44,20 @@ npm run e2e -- --build --library .e2e/public-library
 npm run e2e -- --slow 6 --library .e2e/public-library
 ```
 
-Every check passes at both speeds. When a
-release touches the reader, the player or opening books, also run the speed
-report at both speeds, on the PC (a shared runner's numbers say little), and
-compare it with the last release's numbers:
+Every check passes at both speeds.
+
+The same run takes the speed report at both speeds and sets it beside the last
+release's numbers (`tools/e2e/speed-baseline.json`) on the run's summary page,
+marking what moved by more than a quarter and more than 2 ms. A shared runner
+is noisy, so a mark is a question rather than a verdict, but a number that got
+worse is a question to answer before the release, not after. When a release
+touches the reader, the player or opening books, also take the report on the PC,
+where the hardware is real:
 
 ```bash
-npm run e2e -- speed
-npm run e2e -- speed --slow 6
+npm run e2e -- speed --json .e2e/speed-1x.json
+npm run e2e -- speed --slow 6 --json .e2e/speed-6x.json
 ```
-
-A number that got worse is a question to answer before the release, not after.
 
 ## 3. The version, in five files
 
