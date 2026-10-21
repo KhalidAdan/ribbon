@@ -9,6 +9,15 @@ import { FIXTURE_ROOT } from "../tools/make-fixtures";
 
 const choice = (bookId: string, order: number, extra: Partial<SeriesChoice> = {}): SeriesChoice => ({ bookId, included: true, order, ...extra });
 
+/** Until the rescan that opening a cached library starts behind it is done. */
+async function rescanned(c: AppController): Promise<void> {
+  const started = Date.now();
+  while (c.getState().scanning !== null || c.getState().lastScanMs === null) {
+    if (Date.now() - started > 60_000) throw new Error("timed out waiting for the rescan");
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 describe("series numbers", () => {
   it("a numbered book goes where its number says; unnumbered ones keep their neighbours", () => {
     const sorted = sortByNumber([choice("a", 1), choice("b", 2), choice("c", 3, { number: 1.5 }), choice("d", 4)]);
@@ -96,5 +105,9 @@ describe("editing a series through the app", () => {
     const again = new AppController(platform(FIXTURE_ROOT));
     await again.pickLibrary();
     check(again);
+    // Both opened a cached library, so a rescan runs behind each. Its logging must not outlive the
+    // file: on a slow runner vitest failed the run ("Closing rpc while onUserConsoleLog was pending").
+    await rescanned(c);
+    await rescanned(again);
   });
 });
