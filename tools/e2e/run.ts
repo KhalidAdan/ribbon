@@ -56,8 +56,11 @@ if (unknown.length > 0) {
   process.exit(2);
 }
 
+// Cargo builds into target/ at the root (.cargo/config.toml) unless CARGO_TARGET_DIR says otherwise, as on GitHub's Windows runner.
+const target = process.env.CARGO_TARGET_DIR || path.join(root, "target");
+
 const r = await launch({
-  exe: option("exe") ?? path.join(root, "target", "release", process.platform === "win32" ? "ribbon.exe" : "ribbon"),
+  exe: option("exe") ?? path.join(target, "release", process.platform === "win32" ? "ribbon.exe" : "ribbon"),
   library: option("library") ?? process.env.RIBBON_E2E_LIBRARY ?? path.join(root, ".e2e", "library"),
   work: path.join(root, ".e2e", "run"),
   port: Number(option("port") ?? 9222),

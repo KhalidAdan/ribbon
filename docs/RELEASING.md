@@ -2,9 +2,10 @@
 
 A release is a version number, the installers on GitHub (two for Windows, a
 disk image for the Mac), and the end-to-end checks passing on the commit they
-came from. GitHub builds the installers from a version tag
-([release.yml](../.github/workflows/release.yml)); the end-to-end checks run on
-the PC. In order:
+came from. GitHub runs the checks and the end-to-end checks on every change
+([checks.yml](../.github/workflows/checks.yml), [e2e.yml](../.github/workflows/e2e.yml))
+and builds the installers from a version tag
+([release.yml](../.github/workflows/release.yml)). In order:
 
 ## 1. Everything merged, everything green
 
@@ -26,17 +27,27 @@ npm run test:rust
 
 ## 2. The end-to-end checks, at both speeds
 
-On the PC. They drive WebView2 and use the local test library, which cannot go
-into a public repository, so they do not run on GitHub.
+GitHub runs them at both speeds, on Windows, for every pull request and every
+push to `main` ([e2e.yml](../.github/workflows/e2e.yml)), with the public test
+library (The Wonderful Wizard of Oz, [tools/e2e](../tools/e2e/README.md)). `main`
+is ready when its last run passed:
 
 ```bash
-npm run e2e -- --build
-npm run e2e -- --slow 6
+gh run list --workflow e2e.yml --branch main --limit 1
 ```
 
-Every check passes at both speeds ([tools/e2e](../tools/e2e/README.md)). When a
+The same on the PC, with the public library or one of your own:
+
+```bash
+npm run e2e:library
+npm run e2e -- --build --library .e2e/public-library
+npm run e2e -- --slow 6 --library .e2e/public-library
+```
+
+Every check passes at both speeds. When a
 release touches the reader, the player or opening books, also run the speed
-report at both speeds and compare it with the last release's numbers:
+report at both speeds, on the PC (a shared runner's numbers say little), and
+compare it with the last release's numbers:
 
 ```bash
 npm run e2e -- speed

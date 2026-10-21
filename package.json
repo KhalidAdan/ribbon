@@ -17,7 +17,8 @@
     "shots": "tsx tools/shots.ts",
     "demo-library": "tsx tools/make-demo-library.ts",
     "flows": "tsx tools/flows.ts",
-    "e2e": "tsx tools/e2e/run.ts"
+    "e2e": "tsx tools/e2e/run.ts",
+    "e2e:library": "tsx tools/e2e/fetch-library.ts"
   },
   "keywords": [],
   "author": "",

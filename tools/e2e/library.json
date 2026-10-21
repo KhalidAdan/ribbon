@@ -1,0 +1,149 @@
+{
+  "about": "The public test library for the end-to-end checks (fetch-library.ts): The Wonderful Wizard of Oz, LibriVox recording read by Phil Chenevert (public domain), from archive.org. The EPUB, from Project Gutenberg, is kept in tools/e2e/library.",
+  "files": [
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_01_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_01_baum_64kb.mp3",
+      "bytes": 3611389,
+      "sha256": "483b79ed4d7ed3d86c5748c97544e184ea732fffa10bbb4079f22b00b0f151db"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_02_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_02_baum_64kb.mp3",
+      "bytes": 5828263,
+      "sha256": "74caabfc953c108733edc231dcd3db77e73b1eef54a2a25f7bdbb9d423877a2a"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_03_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_03_baum_64kb.mp3",
+      "bytes": 5791693,
+      "sha256": "9a51fc9b5428b3718c7f0d454d11eeb6c9bf9d8d6e740c71cfbdfaf1b9126070"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_04_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_04_baum_64kb.mp3",
+      "bytes": 4266974,
+      "sha256": "051cff4d09ee4af9238b87295b1d248e4201882c42d09efc77b1402e2ea0ecfe"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_05_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_05_baum_64kb.mp3",
+      "bytes": 5852086,
+      "sha256": "366f9c556a35481cb95a455aab1a0400d64ac2b5862f5e04a4d07c651ff40a31"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_06_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_06_baum_64kb.mp3",
+      "bytes": 4529860,
+      "sha256": "232b981ad63282adf098e41784a1db9d3c3c5b9ec3f8d8c5906324508f93c0ad"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_07_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_07_baum_64kb.mp3",
+      "bytes": 5486579,
+      "sha256": "f4438bb9927b8b4705c4f418d177196ccbc6ee72a2345726749278e5feb40485"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_08_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_08_baum_64kb.mp3",
+      "bytes": 5827419,
+      "sha256": "f9b21edac86181c1c2685305b7f4473436c4c62e7a115d9f9db75b81fe0cea9c"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_09_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_09_baum_64kb.mp3",
+      "bytes": 4271153,
+      "sha256": "f369d36acc1a8b53c1985e714984c957b9e0521bcf3732ec6b02383578a17dc2"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_10_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_10_baum_64kb.mp3",
+      "bytes": 5947586,
+      "sha256": "015083236dc80637934ecc05aacd776a03ceb4935738ab06ba035018fc1ade69"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_11_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_11_baum_64kb.mp3",
+      "bytes": 10802179,
+      "sha256": "74196bdb52123bc141af6056fa6d076d0c0ae16b12615738fe80afdab8b6edce"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_12_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_12_baum_64kb.mp3",
+      "bytes": 10896020,
+      "sha256": "fdc91a6b002597dd8004ba410dd77ce2da69163b226b1873e066ccc5b993ea53"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_13_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_13_baum_64kb.mp3",
+      "bytes": 3476596,
+      "sha256": "d9ca8309e7fef41d13c451feff0044ed69c39056e6d08342990872bf7f5fdeba"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_14_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_14_baum_64kb.mp3",
+      "bytes": 5501825,
+      "sha256": "f12917a2f82c0c2fb367c8a66243a59d0db271fff4667d6c6c643e338bf318e2"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_15_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_15_baum_64kb.mp3",
+      "bytes": 8098621,
+      "sha256": "15b5adafc8d32a90b2afaae628f7b9bff0a639d648ec08930ed74a6271b5d7c8"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_16_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_16_baum_64kb.mp3",
+      "bytes": 2916345,
+      "sha256": "c039d6a77a1328620bcfde11c48f6193627230a95fd7e9cf9b98dce9b44c72d5"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_17_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_17_baum_64kb.mp3",
+      "bytes": 3433355,
+      "sha256": "6fafd8db52e7f631f55a2ea997720c52ba58d6396c0541956bcdbdb4142914be"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_18_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_18_baum_64kb.mp3",
+      "bytes": 3547029,
+      "sha256": "4193f41b9a45421b1377e34187d2be8868602ef22c2217722499daabfd4d52a1"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_19_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_19_baum_64kb.mp3",
+      "bytes": 3104005,
+      "sha256": "d93290864ddf7311e1848ed0edb8d44c8bdc4bf85360dceafe1a90968cb81b91"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_20_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_20_baum_64kb.mp3",
+      "bytes": 4634775,
+      "sha256": "26eb5a8114d59ea710c3049c0ed8078acce49aa800ac62701b675ca5cbcc6997"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_21_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_21_baum_64kb.mp3",
+      "bytes": 2963367,
+      "sha256": "9393de968b70a45053205ee733f3706b867184d9a7b78fbdb6f3d74efa5b88ce"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_22_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_22_baum_64kb.mp3",
+      "bytes": 2979034,
+      "sha256": "356ddb15718a98c2120bcb10089e5356af3d87fe63111dd7d2e864b42dfa4c36"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_23_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_23_baum_64kb.mp3",
+      "bytes": 4067414,
+      "sha256": "03aafeb617eca9bca7864c4b6035b540797d7ff1db9c7c70fb072ab5e601ae07"
+    },
+    {
+      "path": "The Wonderful Wizard of Oz/wonderfulwizardofoz_24_baum_64kb.mp3",
+      "url": "https://archive.org/download/wizardofoz_pc_librivox/wonderfulwizardofoz_24_baum_64kb.mp3",
+      "bytes": 497592,
+      "sha256": "c395952c3f27c985ebec53f325805e9ef17cf3ee379c489eee40d4e326743a1b"
+    }
+  ]
+}

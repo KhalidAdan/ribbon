@@ -1,0 +1,65 @@
+# The end-to-end checks (tools/e2e) in the built app: a book opened from cold
+# and to the page left, pages swiped, the window resized, the narrator
+# followed, the whole book scrolled. On Windows, where the webview is WebView2
+# and playwright-core drives it over its debugging port, with the public test
+# library: The Wonderful Wizard of Oz, from Project Gutenberg and LibriVox
+# (tools/e2e/fetch-library.ts). At normal speed and with the CPU six times
+# slower, as before every release (docs/RELEASING.md).
+name: End-to-end
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request makes an older run moot.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: End-to-end (windows-2022)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          ffmpeg: true
+
+      # Tauri's webview. Windows 11 comes with it; a server image may not.
+      - name: WebView2 runtime
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          if (Test-Path $key) {
+            "WebView2 $((Get-ItemProperty $key).pv) is installed"
+          } else {
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP\webview2.exe"
+            Start-Process "$env:RUNNER_TEMP\webview2.exe" -ArgumentList '/silent', '/install' -Wait
+          }
+
+      # The recording is 118 MB from archive.org: fetched once, then kept while
+      # library.json is unchanged. Only the audio is kept: each run starts the
+      # book's records afresh from the repository.
+      - uses: actions/cache@v6
+        with:
+          path: .e2e/public-library/The Wonderful Wizard of Oz/*.mp3
+          key: e2e-library-${{ hashFiles('tools/e2e/library.json') }}
+      - run: npm run e2e:library
+
+      - run: npm run e2e -- --build --library .e2e/public-library
+      - run: npm run e2e -- --slow 6 --library .e2e/public-library
+
+      # What the app saw, for a failure: its log and the records it wrote.
+      - name: Keep the run's logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-run
+          path: |
+            .e2e/run/home/logs
+            .e2e/public-library/.ribbon
+          if-no-files-found: ignore
