@@ -6,6 +6,8 @@ name: Checks
 
 on:
   pull_request:
+    # A change to the docs alone runs nothing here.
+    paths-ignore: ["docs/**", "**/*.md"]
   push:
     branches: [main]
 

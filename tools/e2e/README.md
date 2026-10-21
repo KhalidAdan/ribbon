@@ -44,8 +44,9 @@ npm run e2e:speed-compare -- .e2e/speed-1x.json .e2e/speed-6x.json
 
 `speed-compare.ts` sets each measurement beside `speed-baseline.json` and marks
 what moved by more than a quarter and more than 2 ms. GitHub does this on every
-run of [e2e.yml](../../.github/workflows/e2e.yml), on the run's summary page, and
-keeps the reports with the run (`speed-report`). The baseline is a release's
+push to `main` and every run by hand of [e2e.yml](../../.github/workflows/e2e.yml)
+(`gh workflow run e2e.yml --ref <branch>`), not on every pull request, on the
+run's summary page, and keeps the reports with the run (`speed-report`). The baseline is a release's
 numbers from GitHub, with the public library; numbers from another machine or
 book are flagged as not comparable.
 
