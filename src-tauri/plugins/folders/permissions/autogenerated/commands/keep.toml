@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-keep"
+description = "Enables the keep command without any pre-configured scope."
+commands.allow = ["keep"]
+
+[[permission]]
+identifier = "deny-keep"
+description = "Denies the keep command without any pre-configured scope."
+commands.deny = ["keep"]

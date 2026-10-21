@@ -201,6 +201,28 @@ export function envLibrary(): Promise<string | null> {
   return invoke<string | null>("env_library");
 }
 
+/**
+ * On iOS, folders are chosen with Ribbon's own picker and read only while iOS
+ * keeps their access open (src-tauri/plugins/folders): the dialog plugin has
+ * no folder picker there.
+ */
+export const onIos = (): boolean => platform() === "ios";
+
+/** iOS: choose a folder of books, opened in place and remembered; null when the picker is cancelled. */
+export function pickFolderOnIos(): Promise<string | null> {
+  return invoke<string | null>("plugin:folders|pick");
+}
+
+/** iOS: open the remembered folders again, before anything reads them; those somewhere else now, or out of reach (`now` null). */
+export function restoreFoldersOnIos(): Promise<{ was: string; now: string | null }[]> {
+  return invoke<{ was: string; now: string | null }[]>("plugin:folders|restore");
+}
+
+/** iOS: the folders still in the library; the others are let go. */
+export function keepFoldersOnIos(paths: string[]): Promise<void> {
+  return invoke<void>("plugin:folders|keep", { paths });
+}
+
 export interface HomeInfo {
   path: string;
   /** Libraries opened on this machine, most recent first. */
