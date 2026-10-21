@@ -606,7 +606,7 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
   // The player moves five times a second; these change every few seconds, and only then does the reader draw again.
   const narrator = useAppState((s) => {
     if (!alignment) return null;
-    const ms = s.player.positionMs;
+    const ms = c.narratorMs(s.player.positionMs);
     const p = text.place(msToText(alignment, ms));
     const chars = text.chars(p);
     const sentence = settings.highlight && precise(alignment, ms) ? text.sentenceAt(p) : null;

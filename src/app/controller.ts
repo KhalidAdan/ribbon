@@ -32,7 +32,7 @@ import type { Why } from "../core/poslog";
 import { BookText, type TextPlace } from "../core/reading/booktext";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
-import { alignBook, byOverlay, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
+import { alignBook, byOverlay, followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
 import * as perf from "./perf";
@@ -384,6 +384,8 @@ export class AppController {
   private jobs: JobQueue;
   private engine: PlayerEngine | null = null;
   private pausedAt: number | null = null;
+  /** The moment a Listen from here began from, before its lead-in: the text holds there until the narrator reaches it (followedMs). */
+  private listenedFrom: number | null = null;
   /** Bumped by every openBook, so a slow open that lost the race stops. */
   private openSeq = 0;
   /** Sequence for history shown before the log is read back; only ever increases. */
@@ -1890,7 +1892,12 @@ export class AppController {
   narratorInText(): TextPlace | null {
     const r = this.state.reading;
     if (!r?.text || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
-    return r.text.place(msToText(r.alignment, this.state.player.positionMs));
+    return r.text.place(msToText(r.alignment, this.narratorMs()));
+  }
+
+  /** The moment of the recording the text follows: the player's, held at the sentence during a Listen from here's lead-in. */
+  narratorMs(positionMs = this.state.player.positionMs): number {
+    return followedMs(positionMs, this.listenedFrom);
   }
 
   /** In the reader: turn to where the narrator is, heard first when no checkpoint is near, and follow it from there. */
@@ -1926,7 +1933,9 @@ export class AppController {
     const ms = textToMs(alignment, chars);
     if (this.state.current?.book.book.id !== r.bookId) await this.openBook(book, { expand: false });
     if (this.state.current?.book.book.id !== r.bookId) return;
-    this.seek(ms);
+    // A moment early, so a sentence placed a little late still starts on its first word (LEAD_IN_MS).
+    this.seek(Math.max(0, ms - LEAD_IN_MS));
+    this.listenedFrom = ms;
     await this.play();
     this.setFollowing(true);
   }
@@ -2058,6 +2067,7 @@ export class AppController {
 
   seek(positionMs: number): void {
     if (!this.engine) return;
+    this.listenedFrom = null;
     this.engine.setStopAt(null);
     this.engine.seek(positionMs);
     // A place chosen by hand is exact: no resume rewind on the next play.

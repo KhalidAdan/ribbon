@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { reopenedOnIos } from "../src/app/platform";
 import type { SourceEntry } from "../src/core/sources";
 
@@ -25,6 +25,8 @@ describe("reopening the chosen folders on iOS", () => {
   });
 
   it("opens the list as it was when the folders cannot be reopened at all", async () => {
+    // The warning is the point, so it is caught here rather than printed: printed as the file ends, it raced vitest's shutdown on Windows.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const list = await reopenedOnIos(
       listed,
       async () => {
@@ -33,5 +35,7 @@ describe("reopening the chosen folders on iOS", () => {
       async () => undefined,
     );
     expect(list).toEqual(listed);
+    expect(warn).toHaveBeenCalledWith("ribbon:", "could not open the remembered folders again:", "Error: no plugin");
+    warn.mockRestore();
   });
 });
