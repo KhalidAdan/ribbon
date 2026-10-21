@@ -9,8 +9,10 @@
 /* Begin PBXBuildFile section */
 		1EAB65C1114CA1D70367E48A /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8E12DE94C7BD12192679CECB /* Security.framework */; };
 		24C01B76F727846EC97AB17B /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = A67FDDBED56279FECE2D5CC6 /* main.mm */; };
+		2F22F105124D05C680983B54 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 2937B71FE0C83B2AF6315CD5 /* libapp.a */; };
 		3ED2EA380BEC64EB50F81D44 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FBFFB8E15BABF70FD74832D /* CoreGraphics.framework */; };
 		5C1804213679AB15F37AD113 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = CD9C61C53378616F9B08AE61 /* LaunchScreen.storyboard */; };
+		85EDD8D1EDFF2244E5E747CB /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CEFC911A484EF9712E27D539 /* Accelerate.framework */; };
 		978C7942BEA72C04B531FE60 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 840D8E92CBEE0EFFAF229318 /* Assets.xcassets */; };
 		9A6FE2AEBBB68573D561CC3E /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FCDA07D164EE8B7A03C5CC18 /* MetalKit.framework */; };
 		AE5087F4368B28EF42DCBEE8 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 801174868A82DF6402513DD9 /* QuartzCore.framework */; };
@@ -28,6 +30,7 @@
 		1FBFFB8E15BABF70FD74832D /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		1FF1C40B977571FA7659647B /* speech.rs */ = {isa = PBXFileReference; path = speech.rs; sourceTree = "<group>"; };
 		27BD97E66F6E7C3E68C645A3 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		2937B71FE0C83B2AF6315CD5 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		2A6CD24781C20C13B7533F3B /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
 		2E781A39D9F2E29758E4AE0A /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		33B252D42AECAD7EA47DAB6B /* paths.rs */ = {isa = PBXFileReference; path = paths.rs; sourceTree = "<group>"; };
@@ -52,6 +55,7 @@
 		B5EA8723589E1E60BED90548 /* xml.rs */ = {isa = PBXFileReference; path = xml.rs; sourceTree = "<group>"; };
 		CC919166E19E400638D3AC12 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		CD9C61C53378616F9B08AE61 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		CEFC911A484EF9712E27D539 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
 		CF290109C109F7F40E3CD58B /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		D26813E0A13248BACA4B55F2 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		DA49D2358DBE54BA3B45300A /* home.rs */ = {isa = PBXFileReference; path = home.rs; sourceTree = "<group>"; };
@@ -71,6 +75,7 @@
 				AE5087F4368B28EF42DCBEE8 /* QuartzCore.framework in Frameworks */,
 				1EAB65C1114CA1D70367E48A /* Security.framework in Frameworks */,
 				FFCD041054B6A884E4E6841F /* UIKit.framework in Frameworks */,
+				85EDD8D1EDFF2244E5E747CB /* Accelerate.framework in Frameworks */,
 				F3F53C57E95B4E759B7B3E45 /* WebKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -106,6 +111,7 @@
 		472D3F151772FBC916B4BE3F /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				7D666ECF54F2B83459C9BB8E /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -156,6 +162,7 @@
 		7C70A018EDE83F9EE0E96CA3 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				CEFC911A484EF9712E27D539 /* Accelerate.framework */,
 				1FBFFB8E15BABF70FD74832D /* CoreGraphics.framework */,
 				8F125D8402FE6BD540ABE4BF /* libapp.a */,
 				CF290109C109F7F40E3CD58B /* Metal.framework */,
@@ -166,6 +173,14 @@
 				2E781A39D9F2E29758E4AE0A /* WebKit.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		7D666ECF54F2B83459C9BB8E /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				9000642DB3094ECFCA6E9796 /* debug */,
+			);
+			path = arm64;
 			sourceTree = "<group>";
 		};
 		7FF4FB8B0A2F24A66813CD4A /* ribbon */ = {
@@ -190,6 +205,21 @@
 				7C70A018EDE83F9EE0E96CA3 /* Frameworks */,
 				74B055ADB2D3C91658EFBDF6 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		9000642DB3094ECFCA6E9796 /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				2937B71FE0C83B2AF6315CD5 /* libapp.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
+		"TEMP_2856B327-887D-4300-8ED6-910638C300AA" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -253,6 +283,7 @@
 				978C7942BEA72C04B531FE60 /* Assets.xcassets in Resources */,
 				5C1804213679AB15F37AD113 /* LaunchScreen.storyboard in Resources */,
 				CCC9002EEE7538CB897E81AA /* assets in Resources */,
+				2F22F105124D05C680983B54 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -381,7 +412,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = app.ribbon.desktop;
-				PRODUCT_NAME = "Ribbon";
+				PRODUCT_NAME = Ribbon;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -412,7 +443,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME) $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = app.ribbon.desktop;
-				PRODUCT_NAME = "Ribbon";
+				PRODUCT_NAME = Ribbon;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
