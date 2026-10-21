@@ -60,13 +60,18 @@ export function PlayerPane() {
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Player">
       <header className="flex shrink-0 items-start gap-3 px-3 pt-3 sm:px-5 sm:pt-4">
-        <IconButton label="Back to the shelf" icon={ChevronDownIcon} onClick={() => c.collapsePlayer()} />
+        {/* Opened over the reader, closing goes back to the page, not the shelf. */}
+        <IconButton label={state.reading ? "Back to the book" : "Back to the shelf"} icon={ChevronDownIcon} onClick={() => c.collapsePlayer()} />
         <div className="min-w-0 flex-1 pt-1">
           <p className="truncate text-[0.8125rem]/5 text-ink-3">
-            <button type="button" onClick={() => c.collapsePlayer()} className="rounded-sm focus-ring hover:text-ink">
-              Library
-            </button>
-            <span aria-hidden="true"> › </span>
+            {!state.reading && (
+              <>
+                <button type="button" onClick={() => c.collapsePlayer()} className="rounded-sm focus-ring hover:text-ink">
+                  Library
+                </button>
+                <span aria-hidden="true"> › </span>
+              </>
+            )}
             <span className="text-ink-2">{book.book.title}</span>
           </p>
           <h1 tabIndex={-1} data-autofocus className="mt-1.5 border-l border-line-strong pl-3 text-base/6 font-normal text-ink tabular-nums outline-none sm:text-[0.9375rem]/6">{sentence}</h1>

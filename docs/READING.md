@@ -74,7 +74,13 @@ mapped to offsets in the model's text before anything else sees it:
 places, links, copying and page starts never see them. A line that ends at
 one shows a hyphen, as at the publisher's own.
 
-With hyphens, a column as narrow as 16 ems (a phone) can be justified.
+With hyphens, a column as narrow as 16 ems (a phone) can be justified,
+and is when Justify is turned on. Left unset, Justify justifies columns
+of 24 ems and more (about 45 characters): a desktop's page is justified,
+and a phone's, with five or six spaces a line to spread, is
+ragged-right. On a screen narrower than a full measure, Width sets the
+side margins (about 9.5, 7.5 and 5.5% of the width) rather than the
+measure, which the screen never reaches.
 Without patterns for the book's language, columns narrower than 24 ems are
 set ragged-right even with Justify on, since lines that cannot hyphenate
 open wide gaps.
@@ -307,6 +313,27 @@ is, and, when the narrator is not on the page, **Go to the narrator** and
 text marks the sentence tapped and offers **Listen from here** for it,
 so the narrator starts where the eyes are. Another book playing shows
 under its own title.
+
+**On a phone**, and on any touch screen or window as narrow as one, the
+page is the book's: its title, quietly, at the top, and one control at
+the bottom, the dock (`src/reader/Dock.tsx`).
+- On the left, under the text, the page number: the page in the whole
+  book once every chapter is laid out, how far through until then. An
+  amber dot beside it while the narrator is on this page, a ring when it
+  is on another.
+- On the right, a capsule. Reading, with nothing playing, it is only the
+  menu: the full player, Contents, Bookmarks, Text, Close book.
+- While the book's audio is loaded, the capsule is the listening bar:
+  back thirty seconds, play, forward thirty, then the narrator's two
+  buttons. One is a target, as a map's location button: filled while the
+  page follows the narrator, a ring when the narrator is on another page,
+  which goes back to it. The other listens from the top of the page. A
+  swipe up the bar opens the full player, the same one as on the desktop.
+- Another book playing, the capsule plays and pauses that one, and names
+  it.
+
+The page's edges turn the page for a mouse, not under a finger: a
+finger swipes, and its taps belong to the text.
 
 Selecting words offers **Bookmark**. The bookmark keeps the words and
 where they start and end in the text, taken whole words, and, when the

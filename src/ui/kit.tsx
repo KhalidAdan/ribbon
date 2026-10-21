@@ -144,8 +144,8 @@ export interface MenuItem {
   disabled?: boolean;
 }
 
-/** A "more" button that opens a compact list of actions under a muted label. */
-export function Menu({ label, items, title = "Actions", align = "right" }: { label: string; items: MenuItem[]; title?: string; align?: "left" | "right" }) {
+/** A "more" button that opens a compact list of actions under a muted label. The reader's capsule gives it its own glyph and a 30px button. */
+export function Menu({ label, items, title = "Actions", align = "right", icon: Glyph = EllipsisHorizontalIcon, size = "sm" }: { label: string; items: MenuItem[]; title?: string; align?: "left" | "right"; icon?: Icon; size?: "sm" | "md" }) {
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -184,10 +184,10 @@ export function Menu({ label, items, title = "Actions", align = "right" }: { lab
           setUp(!!r && window.innerHeight - r.bottom < 40 + items.length * 34 && r.top > window.innerHeight - r.bottom);
           setOpen((v) => !v);
         }}
-        className={clsx("relative inline-flex items-center justify-center rounded-md p-[5px] text-ink-2 focus-ring hover:bg-raised hover:text-ink", open && "bg-raised text-ink")}
+        className={clsx("relative inline-flex items-center justify-center rounded-md text-ink-2 focus-ring hover:bg-raised hover:text-ink", size === "md" ? "p-[7px]" : "p-[5px]", open && "bg-raised text-ink")}
       >
         <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
-        <EllipsisHorizontalIcon className="size-4 fill-current" aria-hidden="true" />
+        <Glyph className="size-4 fill-current" aria-hidden="true" />
       </button>
       {open && (
         <div id={menuId} role="menu" aria-label={title} className={clsx("absolute z-30 min-w-44", up ? "bottom-full mb-1" : "top-full mt-1", "rounded-[10px] bg-surface p-1 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong", align === "right" ? "right-0" : "left-0")}>
