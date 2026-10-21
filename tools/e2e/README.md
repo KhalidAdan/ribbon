@@ -45,13 +45,20 @@ or a fail. Compare it with the last release's numbers.
 - **The measurement build** (`RIBBON_PROFILE=1`, which `--build` makes). It uses
   React's profiling build and puts the controller on the page as `window.__ribbon`
   for the checks. Release installers are built without it.
-- **A test library**: a folder with one book that you own as audio *and* EPUB, with
-  its narration transcribed (open it in Ribbon with a speech model once, and let
-  read-along finish), so its `.ribbon/` holds the transcript. Put it in
-  `.e2e/library` (ignored by git) or name it with `--library` or `RIBBON_E2E_LIBRARY`.
-  Ribbon writes `.ribbon/` records into it as it runs, **so never point it at your
-  real library** (and never at a share). The checks use sections 10 to 20 of the
-  book, so it should be a novel, not a short story.
+- **A test library**: a folder with one book as audio *and* EPUB, with its narration
+  transcribed (open it in Ribbon with a speech model once, and let read-along
+  finish), so its `.ribbon/` holds the transcript. The checks use sections 10 to 20
+  of the book, so it should be a novel, not a short story. Ribbon writes `.ribbon/`
+  records into it as it runs, **so never point it at your real library** (and never
+  at a share).
+  - **The public one**, which GitHub uses ([e2e.yml](../../.github/workflows/e2e.yml)):
+    The Wonderful Wizard of Oz, Project Gutenberg's EPUB with LibriVox's recording
+    read by Phil Chenevert, both in the public domain. `npm run e2e:library` puts it
+    in `.e2e/public-library`: the EPUB and the transcript come from here
+    (`library/`, `records/`), and the 118 MB recording from archive.org, checked
+    against `library.json`. Then `npm run e2e -- --library .e2e/public-library`.
+  - **Your own**: put it in `.e2e/library` (ignored by git), the default, or name it
+    with `--library` or `RIBBON_E2E_LIBRARY`.
 
 Each run starts the app with a fresh Ribbon folder and webview profile under
 `.e2e/run`, so no run depends on the one before. `--attach` drives an app already
