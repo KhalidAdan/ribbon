@@ -459,6 +459,29 @@ export function precise(a: Alignment, ms: number): boolean {
 }
 
 /**
+ * Listen from here starts this long before the sentence. A sentence's
+ * moment is placed between checkpoints a few seconds apart, so it lands
+ * within a few hundred milliseconds of the voice, either way; late, the
+ * first word is clipped ("They" heard as "ay"). On the public Oz
+ * recording, chapters I to III, a third of 296 sentences started more
+ * than 100 ms after the voice; with this lead-in, 6% do, and about a
+ * quarter start on the last sound of the sentence before.
+ */
+export const LEAD_IN_MS = 250;
+
+/**
+ * The moment the text follows: the player's, except during a Listen from
+ * here's lead-in, when it is the moment listened from. The page and the
+ * mark then wait for the sentence rather than going back to the one
+ * before, perhaps on the page before. The window allows for a seek that
+ * lands a frame or two early.
+ */
+export function followedMs(positionMs: number, listenedFrom: number | null): number {
+  if (listenedFrom === null) return positionMs;
+  return positionMs >= listenedFrom - 2 * LEAD_IN_MS && positionMs < listenedFrom ? listenedFrom : positionMs;
+}
+
+/**
  * The text mapped to the audio by the book's own Media Overlay (level 3):
  * every narrated passage is a point, exact, so the chapters are not
  * paired at all. The contents keep their units, all in the one pair.
