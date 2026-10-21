@@ -65,7 +65,8 @@ export function Drawer({ open, onClose, title, children }: Props) {
         <h2 tabIndex={-1} data-autofocus className="min-w-0 flex-1 truncate text-base/6 font-semibold text-ink outline-none sm:text-sm/5">{title}</h2>
         <IconButton size="sm" label="Close" icon={XMarkIcon} onClick={onClose} />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto quiet-scroll px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">{open && children}</div>
+      {/* Sized by what it holds, up to the drawer's height, then scrolling. A zero basis (flex-1) collapses it to nothing in WebKit when the drawer rises from the bottom, where its height is not set. */}
+      <div className="min-h-0 flex-auto overflow-y-auto quiet-scroll px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">{open && children}</div>
     </dialog>
   );
 }
