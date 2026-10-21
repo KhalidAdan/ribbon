@@ -89,14 +89,22 @@ export const swipeCheck: Check = {
     at = now;
     const box = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
     await page.mouse.move(box.w / 2, box.h / 2);
+    // The turn before moves the place before its slide is over, and a slide takes no new swipe (swipe.ts): at six times
+    // slower the trackpad's swipe could land on its last frames and be dropped. Wait for the track to be back in the middle.
+    const settled = await page
+      .waitForFunction((sel) => (document.querySelector(sel) as HTMLElement | null)?.style.transform === "", TRACK, { timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!settled) t.note("the track had not settled after the turn before");
     // A trackpad's swipe: ten sideways wheel events a frame apart, sent together and stamped with their times, as a
     // trackpad's arrive. Sent one at a time, each waiting on the page, a wait over 90 ms at six times slower read as
     // the fingers lifting, and split the swipe into two too short to turn.
     const t0 = Date.now() / 1000;
     await Promise.all(Array.from({ length: 10 }, (_, i) => cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: box.w / 2, y: box.h / 2, deltaX: 40, deltaY: 0, timestamp: t0 + (i * 16) / 1000 })));
-    await page.waitForTimeout(800);
-    now = await placeNow(page);
+    // The turn comes 90 ms after the last event and a slide later: up to three seconds for it, at six times slower.
+    for (let waited = 0; waited < 3000 && (now = await placeNow(page)) === at; waited += 100) await page.waitForTimeout(100);
     t.expect(now !== at, "a trackpad's sideways swipe turns");
+    await page.waitForFunction((sel) => (document.querySelector(sel) as HTMLElement | null)?.style.transform === "", TRACK, { timeout: 3000 }).catch(() => undefined);
 
     at = now;
     await page.mouse.move(box.w * 0.95, box.h / 2);
