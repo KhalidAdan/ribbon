@@ -24,6 +24,8 @@ tauri-plugin-fs = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
+# The folders a listener chooses on iOS, kept open across launches (plugins/folders).
+tauri-plugin-folders = { path = "plugins/folders" }
 lofty = "0.25"
 rayon = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }

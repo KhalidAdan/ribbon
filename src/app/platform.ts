@@ -26,6 +26,28 @@ function clearLegacyRoot(): void {
   }
 }
 
+/**
+ * iOS: open the remembered folders again before anything reads them, and
+ * follow any that are somewhere else now. One out of reach (a share with its
+ * network off) stays as it was, and its library says it cannot be opened.
+ */
+export async function reopenedOnIos(
+  list: SourceEntry[],
+  restore: () => Promise<{ was: string; now: string | null }[]>,
+  write: (list: SourceEntry[]) => Promise<void>,
+): Promise<SourceEntry[]> {
+  const moved = await restore().catch((e: unknown) => {
+    log.warn("could not open the remembered folders again:", String(e));
+    return [];
+  });
+  for (const m of moved) log.info(m.now ? `a folder moved: ${m.was} is now ${m.now}` : `a folder is out of reach: ${m.was}`);
+  const now = new Map(moved.flatMap((m) => (m.now ? [[m.was, m.now] as const] : [])));
+  if (now.size === 0) return list;
+  const next = list.map((s) => ({ ...s, root: now.get(s.root) ?? s.root }));
+  await write(next).catch((e: unknown) => log.warn("could not save the moved folders:", String(e)));
+  return next;
+}
+
 /** Settings that last for the session only, for the harness and tests. */
 export function memorySettings(): NonNullable<Platform["appSettings"]> {
   let store: Record<string, unknown> = {};
@@ -40,13 +62,19 @@ export function memorySources(): Platform["sources"] {
 
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
+    const ios = onIos();
     return {
       host: tauriHost(),
       async pickFolder(near) {
+        if (ios) {
+          const picked = await pickFolderOnIos();
+          log.info("picked", picked);
+          return picked;
+        }
         // Open one level up so the current library is a folder you can
         // see and click, not a folder you are already inside.
         const parent = near ? near.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]+$/, "") : undefined;
@@ -65,7 +93,8 @@ export async function detectPlatform(): Promise<Platform> {
       // older build in the webview's storage becomes the first source once.
       sources: {
         async load() {
-          const list = await sourcesRead();
+          const read = await sourcesRead();
+          const list = ios ? await reopenedOnIos(read, restoreFoldersOnIos, sourcesWrite) : read;
           if (list.length > 0) {
             clearLegacyRoot();
             return list;
@@ -77,7 +106,10 @@ export async function detectPlatform(): Promise<Platform> {
           clearLegacyRoot();
           return seeded;
         },
-        save: sourcesWrite,
+        async save(list) {
+          await sourcesWrite(list);
+          if (ios) await keepFoldersOnIos(list.map((s) => s.root)).catch((e: unknown) => log.warn("could not let go of removed folders:", String(e)));
+        },
       },
       defaultRoot: envLibrary,
       uptimeMs,

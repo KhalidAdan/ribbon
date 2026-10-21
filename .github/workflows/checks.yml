@@ -34,3 +34,13 @@ jobs:
       - run: npm test
       # After the unit tests: the Rust side reads the fixtures they generate.
       - run: npm run test:rust
+      # A build for a phone writes the signer's Apple team into the iOS project,
+      # and this repository is public (docs/MAC.md, the phone).
+      - name: No Apple team in the iOS project
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if grep -qE 'DEVELOPMENT_TEAM = "?[A-Z0-9]' src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj; then
+            echo "::error::src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj names an Apple development team: leave it out of the commit"
+            exit 1
+          fi

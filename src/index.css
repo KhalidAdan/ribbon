@@ -64,6 +64,17 @@ body,
   height: 100%;
 }
 
+/* Room for an iPhone's notch or Dynamic Island, its status bar and its home
+   indicator (viewport-fit=cover in index.html); nothing anywhere else. The
+   screens that cover the window (the reader, the player) take it too. */
+@utility safe-area {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+#root {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
 body {
   overscroll-behavior: none;
   background: var(--canvas);

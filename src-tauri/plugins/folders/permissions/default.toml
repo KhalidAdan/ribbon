@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Choose a folder of books on iOS, and keep it open across launches."
+permissions = ["allow-pick", "allow-restore", "allow-keep"]

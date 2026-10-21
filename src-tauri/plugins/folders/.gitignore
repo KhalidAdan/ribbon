@@ -1,0 +1,5 @@
+# Tauri's Swift API, copied here by the build for the iOS package (ios/Package.swift).
+/.tauri
+# Swift Package Manager's own output.
+/ios/.build
+/ios/.swiftpm

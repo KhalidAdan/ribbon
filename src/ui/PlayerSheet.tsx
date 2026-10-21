@@ -38,7 +38,7 @@ export function PlayerSheet({ open, onClose, children }: Props) {
         }
       }}
       aria-label="Player"
-      className="fixed inset-0 m-0 hidden h-full max-h-none w-full max-w-none bg-canvas p-0 font-sans text-ink antialiased open:block starting:open:translate-y-4 starting:open:opacity-0 transition-[translate,opacity] duration-200 ease-out"
+      className="fixed inset-0 m-0 hidden h-full max-h-none w-full max-w-none bg-canvas safe-area font-sans text-ink antialiased open:block starting:open:translate-y-4 starting:open:opacity-0 transition-[translate,opacity] duration-200 ease-out"
     >
       {open && children}
     </dialog>

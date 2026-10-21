@@ -14,6 +14,7 @@
     "dialog:allow-open",
     "os:allow-hostname",
     "os:allow-platform",
+    "folders:default",
     "fs:default",
     "fs:allow-read-dir",
     "fs:allow-read-file",

@@ -77,15 +77,33 @@ Tauri 2 builds for iOS and Android from the same code. Ribbon targets
 **iOS 16.4 and later** (the first with OffscreenCanvas, which the layout
 worker needs) and Android after it.
 
+The Xcode project is in `src-tauri/gen/apple`, made by `npm run tauri ios init`
+from `tauri.conf.json` (`bundle.iOS`: the minimum version, and Accelerate,
+which whisper.cpp needs and Xcode only links when the project lists it).
+
 ```bash
-npm run tauri ios init      # once: makes src-tauri/gen/apple
-npm run tauri ios dev       # the simulator, or a phone plugged in
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+npm run tauri ios build -- --target aarch64-sim --debug          # the simulator
+APPLE_DEVELOPMENT_TEAM=<team> npm run tauri ios build -- --debug   # a phone: Ribbon.ipa
+xcrun devicectl device install app --device <phone> src-tauri/gen/apple/build/arm64/Ribbon.ipa
 ```
 
-Then set `bundle.iOS.minimumSystemVersion` to `"16.4"` in
-`src-tauri/tauri.conf.json`. A free Apple ID runs Ribbon on your own iPhone
-(the app has to be reinstalled from Xcode every seven days); TestFlight and
-the App Store need the paid program.
+A phone needs Developer Mode (Settings → Privacy & Security, once it has been
+plugged into the Mac) and, the first time, the developer trusted (Settings →
+General → VPN & Device Management). A free Apple ID's Personal Team is enough
+for your own iPhone, but the app has to be installed again every seven days;
+TestFlight and the App Store need the paid program. The team is the signer's:
+**a device build writes it into `project.pbxproj`, and it never goes into this
+public repository** (the macOS checks fail on it). Leave that change out of
+commits, or `xcodegen generate` in `src-tauri/gen/apple` drops it.
+
+The library is a folder you choose, on the phone as everywhere: Ribbon never
+makes a folder of books of its own. Choosing one on iOS needs a native folder
+picker (the dialog plugin has none on mobile), with access that lasts beyond the
+picker. Nothing that runs ffmpeg (loudness, silence, bookmark clips, the
+read-along export) is offered, since iOS starts no processes. The notch, the
+Dynamic Island and the home indicator get their room (`viewport-fit=cover`,
+the `safe-area` padding).
 
 ### What stands in the way, riskiest first
 
