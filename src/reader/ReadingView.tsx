@@ -1313,7 +1313,7 @@ const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBloc
           pieces.length === 1 && pieces[0]!.on.length === 0
             ? (f.gap ? " " : "") + f.text
             : pieces.map((p, j) => (
-                <span key={j} data-start={p.start} data-gap={p.gap ? "1" : undefined} className={marked(p.on)}>
+                <span key={j} data-start={p.start} data-gap={p.gap ? "1" : undefined} data-mark={p.on.includes("sentence") ? "sentence" : undefined} className={marked(p.on)}>
                   {(p.gap ? " " : "") + p.text}
                 </span>
               ));

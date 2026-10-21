@@ -34,7 +34,8 @@ export const readAlongCheck: Check = {
       page.evaluate((bar) => {
         const s = window.__ribbon.getState().reading!;
         return {
-          mark: document.querySelector("[role=dialog] .bg-place\\/20")?.textContent?.slice(0, 30) ?? null,
+          // The sentence marked, by what it is rather than how it looks.
+          mark: document.querySelector("[role=dialog] [data-mark=sentence]")?.textContent?.slice(0, 30) ?? null,
           place: `${s.place?.section}:${s.place?.block}:${s.place?.offset}`,
           following: !!s.following,
           bar: document.querySelector(`${bar} p`)?.textContent ?? "",
