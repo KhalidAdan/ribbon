@@ -97,9 +97,10 @@ TestFlight and the App Store need the paid program. The team is the signer's:
 public repository** (the macOS checks fail on it). Leave that change out of
 commits, or `xcodegen generate` in `src-tauri/gen/apple` drops it.
 
-What the first build does: the library is the app's own Documents folder,
-which the Files app shows as On My iPhone › Ribbon, so books copied there are
-on the shelf. Nothing that runs ffmpeg (loudness, silence, bookmark clips, the
+The library is a folder you choose, on the phone as everywhere: Ribbon never
+makes a folder of books of its own. Choosing one on iOS needs a native folder
+picker (the dialog plugin has none on mobile), with access that lasts beyond the
+picker. Nothing that runs ffmpeg (loudness, silence, bookmark clips, the
 read-along export) is offered, since iOS starts no processes. The notch, the
 Dynamic Island and the home indicator get their room (`viewport-fit=cover`,
 the `safe-area` padding).
