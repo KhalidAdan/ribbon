@@ -35,7 +35,19 @@ How fast Ribbon feels: opening, page turns by key and click, scrolling, the whol
 book, reading along, playing with the library showing. Each part prints what the
 app measured of itself (`src/app/perf.ts`): React's renders, input to the frame
 that showed it, long tasks, chapter layout, time between frames. It is not a pass
-or a fail. Compare it with the last release's numbers.
+or a fail. Compare it with the last release's numbers:
+
+```bash
+npm run e2e -- speed --json .e2e/speed-1x.json              # the numbers, as JSON
+npm run e2e:speed-compare -- .e2e/speed-1x.json .e2e/speed-6x.json
+```
+
+`speed-compare.ts` sets each measurement beside `speed-baseline.json` and marks
+what moved by more than a quarter and more than 2 ms. GitHub does this on every
+run of [e2e.yml](../../.github/workflows/e2e.yml), on the run's summary page, and
+keeps the reports with the run (`speed-report`). The baseline is a release's
+numbers from GitHub, with the public library; numbers from another machine or
+book are flagged as not comparable.
 
 ## What it needs
 

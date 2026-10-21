@@ -1,4 +1,27 @@
+import type { Stat } from "../../src/app/perf";
 import { closeReader, reading, silence, type Ribbon } from "./app";
+
+/** One part of the report: what the app measured of itself while it ran, and what the script saw. */
+export interface SpeedPart {
+  title: string;
+  /** Each measurement (src/app/perf.ts): how many, the median, the 95th percentile and the worst, in ms. */
+  stats: Record<string, Stat>;
+  /** What the script counted itself, such as frames drawn without text. */
+  facts?: Record<string, number | boolean>;
+}
+
+export interface SpeedReport {
+  slow: number;
+  /** The display's refresh rate, as measured. */
+  hz: number;
+  parts: SpeedPart[];
+  /** What was measured, where and when, added when the report is written (run.ts, --json): numbers from another machine or another book do not compare. */
+  version?: string;
+  commit?: string;
+  measured?: string;
+  where?: string;
+  library?: string;
+}
 
 /**
  * How fast Ribbon feels, measured with real input through the webview:
@@ -6,10 +29,11 @@ import { closeReader, reading, silence, type Ribbon } from "./app";
  * book scrolled through, reading along, and playing with the library
  * showing. Each part prints what the app measured of itself (src/app/perf.ts):
  * React's renders, input to the frame that showed it, long tasks, layout,
- * time between frames. Not a pass or a fail: compare it with the last
- * release's numbers (docs/RELEASING.md), at 1x and at 6x.
+ * time between frames, and the report returns it all (`--json` writes it).
+ * Not a pass or a fail: compare it with the last release's numbers
+ * (speed-compare.ts, docs/RELEASING.md), at 1x and at 6x.
  */
-export async function speedReport(r: Ribbon, slow: number): Promise<void> {
+export async function speedReport(r: Ribbon, slow: number): Promise<SpeedReport> {
   const { page } = r;
   const vp = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
   const hz = await page.evaluate(
@@ -29,11 +53,13 @@ export async function speedReport(r: Ribbon, slow: number): Promise<void> {
   await r.slow(slow);
   console.log(`CPU ${slow === 1 ? "as it is" : `${slow}x slower`}; display ${hz} Hz, a frame every ${(1000 / hz).toFixed(1)} ms`);
   const reset = () => page.evaluate(() => window.__ribbonPerf.reset());
-  const part = async (title: string) => {
+  const report: SpeedReport = { slow, hz, parts: [] };
+  const part = async (title: string, facts?: SpeedPart["facts"]) => {
     await page.waitForTimeout(600);
     console.log(`\n## ${title}`);
     const all = await page.evaluate(() => window.__ribbonPerf.summary());
     for (const [k, v] of Object.entries(all).sort()) console.log(`${k.padEnd(56)} n=${String(v.n).padStart(4)}  p50=${String(v.p50).padStart(6)}  p95=${String(v.p95).padStart(6)}  max=${String(v.max).padStart(6)}`);
+    report.parts.push({ title, stats: all, ...(facts ? { facts } : {}) });
     await reset();
   };
   const start = async () => {
@@ -104,8 +130,9 @@ export async function speedReport(r: Ribbon, slow: number): Promise<void> {
         requestAnimationFrame(step);
       }),
   );
-  console.log(`whole book: ${Math.round(drive.px)} px in ${Math.round(drive.ms)} ms, ${drive.frames} frames (${Math.round(drive.frames / (drive.ms / 1000))} a second), ${drive.empty} with no text drawn`);
-  await part("Whole book, top to bottom in 10 s");
+  const perSecond = Math.round(drive.frames / (drive.ms / 1000));
+  console.log(`whole book: ${Math.round(drive.px)} px in ${Math.round(drive.ms)} ms, ${drive.frames} frames (${perSecond} a second), ${drive.empty} with no text drawn`);
+  await part("Whole book, top to bottom in 10 s", { px: Math.round(drive.px), frames: drive.frames, "frames a second": perSecond, "frames with no text": drive.empty });
 
   await reading(r, "pages");
   await start();
@@ -116,9 +143,10 @@ export async function speedReport(r: Ribbon, slow: number): Promise<void> {
   const from = await page.evaluate(() => window.__ribbon.getState().player.positionMs);
   await page.waitForTimeout(20_000);
   const played = Math.round(((await page.evaluate(() => window.__ribbon.getState().player.positionMs)) - from) / 1000);
-  console.log(`played ${played} s, following: ${await page.evaluate(() => !!window.__ribbon.getState().reading?.following)}`);
+  const following = await page.evaluate(() => !!window.__ribbon.getState().reading?.following);
+  console.log(`played ${played} s, following: ${following}`);
   await page.evaluate(() => window.__ribbon.pause());
-  await part("Reading along for 20 s (following, the mark moving)");
+  await part("Reading along for 20 s (following, the mark moving)", { "seconds played": played, following });
 
   await page.evaluate(() => window.__ribbon.play());
   await silence(page);
@@ -129,4 +157,5 @@ export async function speedReport(r: Ribbon, slow: number): Promise<void> {
   await page.evaluate(() => window.__ribbon.pause());
   await part("Playing for 10 s with the library showing");
   await r.slow(1);
+  return report;
 }
