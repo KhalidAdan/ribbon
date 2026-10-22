@@ -10,9 +10,12 @@ Built so far:
 - **Adding a folder.** The admin points the server at a folder on its
   machine; it copies in each book it doesn't have yet, reads its chapters and
   makes its covers. The folder is only ever read.
+- **The library**, for the apps: the list, each book, covers and files, with
+  HTTP caching (ETags, immutable covers, resumable downloads).
+- **Places**, each person's position log by device, read by cursor, with
+  events when a place moves or the library changes.
 
-The library the apps read, and places, come next (docs/SERVER.md,
-section 12).
+Ribbon's apps connecting to it come next (docs/SERVER.md, section 12).
 
 ## Running it
 
