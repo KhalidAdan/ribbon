@@ -1269,11 +1269,17 @@ function markOf(marks: readonly Marked[], b: LaidBlock): Span[] {
 
 const NO_SPANS: Span[] = [];
 
-/** The sentence a tap would listen from, or being read, is washed in amber, lightly, so the words keep their contrast; words bookmarked are underlined in it, and washed fainter still. */
+/**
+ * The sentence a tap would listen from, or being read, is washed in amber,
+ * strongly enough to follow at a glance while the words keep a contrast of
+ * 10:1 or more. Amber on a light page needs more of it to read as strongly
+ * as on a dark one. Words bookmarked are underlined in amber, and washed
+ * faintly.
+ */
 function marked(on: Tone[]): string | undefined {
   if (on.length === 0) return undefined;
   const sentence = on.includes("sentence");
-  return clsx("rounded-[2px] box-decoration-clone", sentence ? "bg-place/13" : "bg-place/8", on.includes("saved") && "underline decoration-place/70 decoration-2 underline-offset-[0.2em]");
+  return clsx("rounded-[2px] box-decoration-clone", sentence ? "bg-place/32 dark:bg-place/24" : "bg-place/8", on.includes("saved") && "underline decoration-place/70 decoration-2 underline-offset-[0.2em]");
 }
 
 /** One line of a block (or an image, or a break), drawn where the layout put it. Drawn again only when its marks change. */
