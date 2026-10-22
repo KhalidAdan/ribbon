@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
-import type { StoredBook } from "../src/library/books.ts";
+import { openDatabase } from "../src/db.ts";
+import { BookIndex, type StoredBook } from "../src/library/books.ts";
+import { importFolder } from "../src/library/importer.ts";
+import { nodeHost } from "../../src/host/node.ts";
 import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 
 // Adding folders of books: a book with a cover, a book in two files, and
@@ -81,5 +84,29 @@ describe("adding a folder", () => {
     const missing = await importing(path.join(dir, "no such folder"));
     expect(missing.state).toBe("failed");
     expect(missing.error).toMatch(/There's no folder at/);
+  });
+
+  it("leaves out a book that won't fit on the server's disk, and says so", async () => {
+    const dataDir = path.join(dir, "full");
+    const db = openDatabase(dataDir);
+    const done = await importFolder({ host: nodeHost(), dataDir, index: new BookIndex(db), addedBy: null, freeBytes: async () => 10 * 1024 ** 2 }, shelf, () => undefined);
+    expect(done).toMatchObject({ found: 2, added: 0, failed: 2 });
+    expect(done.notes.every((n) => /there isn't room for it on the server's disk/.test(n))).toBe(true);
+    expect(existsSync(path.join(dataDir, "books")) ? readdirSync(path.join(dataDir, "books")) : []).toEqual([]);
+    db.close();
+  });
+
+  it("tells every device as each book is added, so shelves fill as it goes", async () => {
+    const { server: fresh, admin: freshAdmin } = await serverWithAdmin(path.join(dir, "events"));
+    const heard: unknown[] = [];
+    // Nobody in particular: everyone hears of new books.
+    fresh.events.listen("anyone", (e) => heard.push(e));
+    await importAs(fresh, freshAdmin, shelf);
+    expect(heard).toEqual([
+      { type: "books", data: { added: 1 } },
+      { type: "books", data: { added: 2 } },
+    ]);
+    await fresh.app.close();
+    fresh.db.close();
   });
 });

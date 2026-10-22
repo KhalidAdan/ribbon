@@ -4,8 +4,8 @@ import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "
 import type { Problem } from "../core/problems";
 import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
 import type { BookAbout } from "../core/about";
-import { sameRoot, serverKey, sourceFrom, sourceId, type ServerRef, type Source, type SourceEntry } from "../core/sources";
-import { ServerClient, ServerError } from "./server/client";
+import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "../core/sources";
+import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf } from "./server/shelf";
 import { PlacesSync } from "./server/places-sync";
 import { AboutLookup, type LookupStatus } from "./about";
@@ -154,6 +154,8 @@ export interface ScanStatus {
   stage?: string;
   /** True while a rescan runs behind an already visible library. */
   background: boolean;
+  /** A folder being added to a server, which copies its books in, rather than read where it is. */
+  copying?: boolean;
 }
 
 /** What the shelf knows about one source beyond its books. */
@@ -174,6 +176,8 @@ export interface AppState {
   sourceStatus: Record<string, SourceStatus>;
   /** Folders found read-only from this device that the library has not said so about yet: it says so once per folder. */
   readOnlyNotice: string[];
+  /** Whether this person adds folders: anyone without a server; with one, only its admin, and into it. */
+  canAddFolders: boolean;
   /** Books downloading from a server now, by id: bytes done of the total (docs/SERVER.md, section 8). */
   downloads: Record<string, { done: number; total: number }>;
   /** A book that won't fit on this device, waiting for the person to choose what to remove, or not to download it. */
@@ -308,6 +312,10 @@ interface Opened {
   server: ServerShelf | null;
   /** For a Ribbon server's source: the position log carried to and from the server, and the event stream that says when. */
   serverPlaces: { sync: PlacesSync; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
+  /** The person signed in to this server is its admin, who adds its folders. */
+  serverAdmin: boolean;
+  /** A refresh of the server's list waiting to run: books arriving one at a time are fetched a few at once. */
+  serverRefreshSoon: ReturnType<typeof setTimeout> | null;
 }
 
 /**
@@ -435,6 +443,7 @@ export class AppController {
       sources: [],
       sourceStatus: {},
       readOnlyNotice: [],
+      canAddFolders: true,
       downloads: {},
       spaceShort: null,
       books: [],
@@ -570,6 +579,7 @@ export class AppController {
         if (s.found !== undefined) scanning.found = (scanning.found ?? 0) + s.found;
         if (s.stage && !scanning.stage) scanning.stage = s.stage;
         if (!s.background) scanning.background = false;
+        if (s.copying) scanning.copying = true;
       }
     }
     const sourceStatus: Record<string, SourceStatus> = {};
@@ -666,9 +676,15 @@ export class AppController {
 
   /** Ask for a folder and add it; a folder already in the library is checked for changes instead. */
   async pickLibrary(): Promise<void> {
-    const near = this.state.sources[this.state.sources.length - 1]?.root ?? null;
+    // With a server, a folder goes into it, and only its admin adds one (docs/SERVER.md, section 6).
+    const servers = this.openedInOrder().filter((o) => o.source.server);
+    const server = servers.find((o) => o.serverAdmin && o.server);
+    if (servers.length > 0 && !server) return;
+    const lastAdded = typeof this.appSettings.lastServerFolder === "string" ? this.appSettings.lastServerFolder : null;
+    const near = server ? lastAdded : (this.state.sources[this.state.sources.length - 1]?.root ?? null);
     const root = await this.platform.pickFolder(near);
     if (!root) return;
+    if (server) return this.addFolderToServer(server, root);
     try {
       await this.addSource(root);
     } catch (e) {
@@ -751,9 +767,12 @@ export class AppController {
       mirrorCoversDir: null,
       server: null,
       serverPlaces: null,
+      serverAdmin: false,
+      serverRefreshSoon: null,
     };
     this.opened.set(source.id, o);
     if (source.server) await this.linkServer(o, this.serverTokens()[serverKey(source.server)] ?? null);
+    this.updateCanAddFolders();
     // The position log describes each book by its claims and its files.
     lib.bookInfo = (id) => o.books.find((b) => b.book.id === id);
     this.ensureEngine();
@@ -1147,6 +1166,14 @@ export class AppController {
     o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
     void this.refreshServer(o);
+    void client
+      .me()
+      .then((me) => {
+        if (this.opened.get(o.source.id) !== o) return;
+        o.serverAdmin = me.role === "admin";
+        this.updateCanAddFolders();
+      })
+      .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
     this.letGoOfServerPlaces(o);
     o.serverPlaces = { sync: new PlacesSync(client, this.platform.host, o.source.root, () => o.lib.logDevice()), soon: null, events: new AbortController() };
     // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
@@ -1194,7 +1221,7 @@ export class AppController {
       await client
         .events((type, data) => {
           if (type === "places" && (data as { device?: string } | null)?.device !== me) void this.syncPlaces(o);
-          if (type === "books") void this.refreshServer(o);
+          if (type === "books") this.refreshServerSoon(o);
         }, signal)
         .catch((e: unknown) => {
           if (!signal.aborted && attempt === 0) log.info("the server's events stopped:", describe(e));
@@ -1207,11 +1234,86 @@ export class AppController {
     }
   }
 
+  /** Refresh a server's list shortly: books added one after another are fetched a few at once. */
+  private refreshServerSoon(o: Opened): void {
+    if (o.serverRefreshSoon) return;
+    o.serverRefreshSoon = setTimeout(() => {
+      o.serverRefreshSoon = null;
+      void this.refreshServer(o);
+    }, 1500);
+  }
+
+  /** Who adds folders: anyone, until a server is connected; then only its admin. */
+  private updateCanAddFolders(): void {
+    const servers = this.openedInOrder().filter((o) => o.source.server);
+    const can = servers.length === 0 || servers.some((o) => o.serverAdmin);
+    if (can !== this.state.canAddFolders) this.set({ canAddFolders: can });
+  }
+
+  /**
+   * Add a folder as a server's admin: the server copies its books in, and
+   * they join the shelf as they arrive, with the same progress a folder's
+   * scan shows. The folder is a path on the server's own machine, and the
+   * server only ever reads it.
+   */
+  private async addFolderToServer(o: Opened, folder: string): Promise<void> {
+    const shelf = o.server;
+    if (!shelf) return;
+    const name = sourceName(folder);
+    this.appSettings = { ...this.appSettings, lastServerFolder: folder };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    const show = (job: ServerJob | null) => {
+      const p = job?.progress;
+      const done = p ? p.added + p.skipped + p.failed : 0;
+      const stage = !p || p.found === 0 ? `Looking through ${name}…` : p.current ? `Adding ${p.current}, ${Math.min(done + 1, p.found)} of ${p.found}…` : `Adding ${done} of ${p.found}…`;
+      o.scanning = { walked: p?.found ?? 0, done, background: this.state.books.length > 0, stage, copying: true };
+      this.publishScanning();
+    };
+    show(null);
+    let job: ServerJob;
+    try {
+      job = await shelf.client.importFolder(folder);
+      log.info("adding a folder to the server:", folder, job.id);
+      let added = 0;
+      while (job.state === "waiting" || job.state === "running") {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (!alive()) return;
+        job = await shelf.client.job(job.id);
+        show(job);
+        if (job.progress.added > added) {
+          added = job.progress.added;
+          this.refreshServerSoon(o);
+        }
+      }
+    } catch (e) {
+      if (alive()) this.set({ error: `Couldn't add ${name} to the server: ${describe(e)}` });
+      return;
+    } finally {
+      if (alive()) {
+        o.scanning = null;
+        this.publishScanning();
+      }
+    }
+    await this.refreshServer(o);
+    const p = job.progress;
+    log.info(`added ${name} to the server: ${p.added} added, ${p.skipped} already there, ${p.failed} not added`);
+    if (job.state === "failed") {
+      const there = /There's no folder at/.test(job.error ?? "");
+      this.set({ error: there ? `The server can't see ${name}: it adds folders from its own computer. Pick one there.` : `Couldn't add ${name} to the server: ${job.error ?? "it stopped"}` });
+    } else if (p.failed > 0) {
+      const why = p.notes.filter((n) => !n.endsWith("already on the server."));
+      this.set({ error: `${p.added} ${p.added === 1 ? "book" : "books"} from ${name} added. ${p.failed} couldn't be: ${why.slice(0, 3).join(" ")}${why.length > 3 ? ` And ${why.length - 3} more.` : ""}` });
+    }
+  }
+
   /** Stop carrying a server source's places: before it's linked again, or goes. */
   private letGoOfServerPlaces(o: Opened): void {
     if (!o.serverPlaces) return;
     o.serverPlaces.events.abort();
     if (o.serverPlaces.soon) clearTimeout(o.serverPlaces.soon);
+    if (o.serverRefreshSoon) clearTimeout(o.serverRefreshSoon);
+    o.serverRefreshSoon = null;
     o.serverPlaces = null;
     o.lib.onAppend = null;
   }
@@ -1316,6 +1418,7 @@ export class AppController {
       o.lookup?.stop();
       this.opened.delete(id);
     }
+    this.updateCanAddFolders();
     // A server's downloads are Ribbon's own files: they go, and the sign-in with them.
     if (source.server) {
       await o?.server?.removeAll().catch((e: unknown) => log.warn("could not remove a server's downloads:", describe(e)));
@@ -2960,7 +3063,7 @@ export class AppController {
     }
     this.opened.clear();
     this.jobs.cancelAll();
-    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null });
+    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true });
   }
 
   // Series ----------------------------------------------------------------

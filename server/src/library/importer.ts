@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Host } from "../../../src/host/host.ts";
 import { ensureChapters, scanLibrary, type ScannedBook } from "../../../src/core/scan/scan.ts";
@@ -31,7 +31,12 @@ export interface ImportContext {
   index: BookIndex;
   addedBy: string | null;
   now?: () => number;
+  /** Bytes free on the disk that holds the server's data (statfs); given in tests. */
+  freeBytes?: () => Promise<number>;
 }
+
+/** Room left on the server's disk after a book is copied in, so it never fills to the last byte. */
+export const SPARE_BYTES = 1024 ** 3;
 
 /**
  * Add a folder of books to the server (docs/SERVER.md, sections 5 and 12):
@@ -79,6 +84,11 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
       : await fileFingerprint(abs(scanned.book.ebook!));
   const existing = ctx.index.find(fingerprint, claims);
   if (existing) return { added: false, id: existing };
+
+  // Checked before anything is copied: a book that won't fit is left out, said why, and the import goes on to smaller ones.
+  const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0);
+  const free = await (ctx.freeBytes ?? (() => statfs(ctx.dataDir).then((s) => s.bavail * s.bsize)))();
+  if (free < bytes + SPARE_BYTES) throw new Error(`there isn't room for it on the server's disk (${Math.round(bytes / 1024 ** 2)} MB, with ${Math.round(free / 1024 ** 2)} MB free).`);
 
   // Chapters the scan didn't read yet. Saving them beside the books is refused (the folder is read-only to us); they're kept all the same.
   const book = scanned.files.some((f) => !f.chaptersProbed) ? await ensureChapters(host, root, scanned, undefined, () => undefined) : scanned;
