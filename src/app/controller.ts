@@ -943,13 +943,22 @@ export class AppController {
 
   /** Check every source for changes. */
   async rescan(background = this.state.phase === "ready"): Promise<void> {
-    await Promise.all(this.openedInOrder().map((o) => this.rescanSource(o, background)));
+    await Promise.all(this.openedInOrder().map((o) => this.checkSource(o, background)));
   }
 
   /** Check one source for changes. */
   async rescanSourceById(id: string): Promise<void> {
     const o = this.opened.get(id);
-    if (o) await this.rescanSource(o, true);
+    if (o) await this.checkSource(o, true);
+  }
+
+  /** Check a source for changes, asked for: a server's is asked for its books and places too. */
+  private async checkSource(o: Opened, background: boolean): Promise<void> {
+    if (o.server) {
+      void this.refreshServer(o);
+      void this.syncPlaces(o);
+    }
+    await this.rescanSource(o, background);
   }
 
   /**
