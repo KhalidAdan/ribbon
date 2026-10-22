@@ -48,10 +48,12 @@ jobs:
           fi
 
   # The server (server/, docs/SERVER.md) is its own Node package, with its own
-  # dependencies and tests. It runs on Linux and Mac hosts; Linux is quickest.
+  # dependencies and tests. It runs on Linux and Mac hosts; it's checked on a
+  # Mac, where ffmpeg installs reliably (Ubuntu's mirror stalled the install
+  # past its time limit twice) and where it's first hosted.
   server:
     name: Server
-    runs-on: ubuntu-24.04
+    runs-on: macos-26
     timeout-minutes: 20
     defaults:
       run:
@@ -65,10 +67,8 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             server/package-lock.json
-      # Adding books reads them with ffprobe and makes covers with ffmpeg. Ubuntu's
-      # mirror stalls now and then: only what ffmpeg needs, and retries.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg
-        timeout-minutes: 10
+      # Adding books reads them with ffprobe and makes covers with ffmpeg.
+      - run: brew install ffmpeg
       # The server runs src/core/ from the app, which brings its own packages.
       - run: npm ci --ignore-scripts
         working-directory: .

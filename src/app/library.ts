@@ -122,6 +122,14 @@ export class LibraryService {
     return this.identity;
   }
 
+  /** Who this device is in the log. */
+  logDevice(): Promise<DeviceInfo> {
+    return this.me();
+  }
+
+  /** Told after each record this device adds to its log: a server's source sends them on. */
+  onAppend: (() => void) | null = null;
+
   /**
    * Everything in the positions folder, merged: the place in every book,
    * every record (for history), and who the devices are. One directory
@@ -298,6 +306,7 @@ export class LibraryService {
       this.lastSeq = nextSeq(this.lastSeq);
       const line = encodeRecord({ v: 1, ...r, dev: me.id, seq: this.lastSeq });
       await this.appendBytes(this.dir("positions", logName(me.id)), new TextEncoder().encode(line));
+      this.onAppend?.();
     });
   }
 

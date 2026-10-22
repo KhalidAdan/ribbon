@@ -7,6 +7,7 @@ import type { BookAbout } from "../core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, type ServerRef, type Source, type SourceEntry } from "../core/sources";
 import { ServerClient, ServerError } from "./server/client";
 import { NotEnoughSpace, ServerShelf } from "./server/shelf";
+import { PlacesSync } from "./server/places-sync";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -305,6 +306,8 @@ interface Opened {
   mirrorCoversDir: string | null;
   /** For a Ribbon server's source: what the server lists, and its downloads (server/shelf.ts). */
   server: ServerShelf | null;
+  /** For a Ribbon server's source: the position log carried to and from the server, and the event stream that says when. */
+  serverPlaces: { sync: PlacesSync; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
 }
 
 /**
@@ -747,6 +750,7 @@ export class AppController {
       mirrorCovers: new Set(),
       mirrorCoversDir: null,
       server: null,
+      serverPlaces: null,
     };
     this.opened.set(source.id, o);
     if (source.server) await this.linkServer(o, this.serverTokens()[serverKey(source.server)] ?? null);
@@ -939,13 +943,22 @@ export class AppController {
 
   /** Check every source for changes. */
   async rescan(background = this.state.phase === "ready"): Promise<void> {
-    await Promise.all(this.openedInOrder().map((o) => this.rescanSource(o, background)));
+    await Promise.all(this.openedInOrder().map((o) => this.checkSource(o, background)));
   }
 
   /** Check one source for changes. */
   async rescanSourceById(id: string): Promise<void> {
     const o = this.opened.get(id);
-    if (o) await this.rescanSource(o, true);
+    if (o) await this.checkSource(o, true);
+  }
+
+  /** Check a source for changes, asked for: a server's is asked for its books and places too. */
+  private async checkSource(o: Opened, background: boolean): Promise<void> {
+    if (o.server) {
+      void this.refreshServer(o);
+      void this.syncPlaces(o);
+    }
+    await this.rescanSource(o, background);
   }
 
   /**
@@ -1130,9 +1143,82 @@ export class AppController {
       this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
       return;
     }
-    o.server = new ServerShelf(new ServerClient(o.source.server.url, token), this.platform.host, o.source.root);
+    const client = new ServerClient(o.source.server.url, token);
+    o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
     void this.refreshServer(o);
+    this.letGoOfServerPlaces(o);
+    o.serverPlaces = { sync: new PlacesSync(client, this.platform.host, o.source.root, () => o.lib.logDevice()), soon: null, events: new AbortController() };
+    // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
+    o.lib.onAppend = () => this.syncPlacesSoon(o);
+    void this.syncPlaces(o);
+    void this.listenToServer(o, client, o.serverPlaces.events.signal);
+  }
+
+  /** Carry the position log to and from a server, and take in whatever came down. */
+  private async syncPlaces(o: Opened): Promise<void> {
+    const sp = o.serverPlaces;
+    if (!sp) return;
+    const alive = () => this.opened.get(o.source.id) === o && o.serverPlaces === sp;
+    try {
+      if (!(await sp.sync.sync()) || !alive()) return;
+      const l = await o.lib.readPositionLog();
+      if (!alive()) return;
+      this.takeSharePositions(o, l.places);
+      this.takeLog(o, l.records);
+    } catch (e) {
+      log.warn("could not share places with the server:", o.source.name, describe(e));
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+    }
+  }
+
+  private syncPlacesSoon(o: Opened): void {
+    const sp = o.serverPlaces;
+    if (!sp || sp.soon) return;
+    sp.soon = setTimeout(() => {
+      sp.soon = null;
+      void this.syncPlaces(o);
+    }, 1000);
+  }
+
+  /**
+   * The server's events, for as long as the source is open: another of
+   * this person's devices moved a place, or the library changed. A stream
+   * that drops is opened again, sooner at first, and what was missed
+   * meanwhile is caught up with a sync.
+   */
+  private async listenToServer(o: Opened, client: ServerClient, signal: AbortSignal): Promise<void> {
+    const me = (await o.lib.logDevice()).id;
+    for (let attempt = 0; !signal.aborted; attempt++) {
+      const opened = Date.now();
+      await client
+        .events((type, data) => {
+          if (type === "places" && (data as { device?: string } | null)?.device !== me) void this.syncPlaces(o);
+          if (type === "books") void this.refreshServer(o);
+        }, signal)
+        .catch((e: unknown) => {
+          if (!signal.aborted && attempt === 0) log.info("the server's events stopped:", describe(e));
+        });
+      if (signal.aborted) return;
+      // A stream that stayed up a while starts the waits over.
+      if (Date.now() - opened > 60_000) attempt = 0;
+      await new Promise((r) => setTimeout(r, Math.min(60_000, 2_000 * 2 ** Math.min(attempt, 5))));
+      if (!signal.aborted) void this.syncPlaces(o);
+    }
+  }
+
+  /** Stop carrying a server source's places: before it's linked again, or goes. */
+  private letGoOfServerPlaces(o: Opened): void {
+    if (!o.serverPlaces) return;
+    o.serverPlaces.events.abort();
+    if (o.serverPlaces.soon) clearTimeout(o.serverPlaces.soon);
+    o.serverPlaces = null;
+    o.lib.onAppend = null;
+  }
+
+  /** Catch up with every server: when the window comes back, say. */
+  private syncAllServers(): void {
+    for (const o of this.openedInOrder()) if (o.serverPlaces) void this.syncPlaces(o);
   }
 
   /** Ask a server what it has now, and fetch the covers the shelf will draw. */
@@ -1223,6 +1309,9 @@ export class AppController {
     const gone = new Set(this.state.books.filter((b) => b.source === id).map((b) => b.book.id));
     if (o) {
       await o.keeper.close().catch(() => undefined);
+      // The places still to send go before the downloads do.
+      await o.serverPlaces?.sync.sync().catch((e: unknown) => log.warn("could not send the last places to the server:", describe(e)));
+      this.letGoOfServerPlaces(o);
       o.coverJob?.abort();
       o.lookup?.stop();
       this.opened.delete(id);
@@ -2391,6 +2480,8 @@ export class AppController {
     if (typeof document !== "undefined") {
       const onVisibility = () => {
         if (document.visibilityState === "hidden") void this.checkpoint();
+        // Back in front: another device may have moved on meanwhile, and a phone's event stream doesn't last in the background.
+        else this.syncAllServers();
       };
       document.addEventListener("visibilitychange", onVisibility);
       offs.push(() => document.removeEventListener("visibilitychange", onVisibility));
@@ -2863,6 +2954,7 @@ export class AppController {
     this.engine?.pause();
     for (const o of this.opened.values()) {
       void o.keeper.close();
+      this.letGoOfServerPlaces(o);
       o.coverJob?.abort();
       o.lookup?.stop();
     }

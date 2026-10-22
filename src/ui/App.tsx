@@ -105,7 +105,9 @@ function Ready() {
 
   const reader = state.pane === "reader" ? (state.books.find((b) => b.book.id === state.readerBookId) ?? null) : null;
   const series = reader ? c.detectedSeries().find((g) => g.bookIds.includes(reader.book.id)) : undefined;
-  const folders = state.sources.length === 1 ? state.sources[0]!.name : `${state.sources.length} folders`;
+  const servers = state.sources.filter((s) => s.server).length;
+  const counted = (n: number, one: string) => (n === 0 ? "" : `${n} ${one}${n === 1 ? "" : "s"}`);
+  const folders = state.sources.length === 1 ? state.sources[0]!.name : [counted(state.sources.length - servers, "folder"), counted(servers, "server")].filter(Boolean).join(" and ");
   const crumbs: Crumb[] =
     state.pane === "settings"
       ? [{ label: "Settings" }]
