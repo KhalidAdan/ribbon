@@ -3,15 +3,25 @@
 The books, and each person's place in them, for the people you invite. The
 design is [docs/SERVER.md](../docs/SERVER.md); this is how to run it.
 
-Built so far: accounts. People sign in with a name and a password (Better
-Auth), and the admin invites them. The books, the library and places come
-next (docs/SERVER.md, section 12).
+Built so far:
+
+- **Accounts.** People sign in with a name and a password (Better Auth), and
+  the admin invites them.
+- **Adding a folder.** The admin points the server at a folder on its
+  machine; it copies in each book it doesn't have yet, reads its chapters and
+  makes its covers. The folder is only ever read.
+
+The library the apps read, and places, come next (docs/SERVER.md,
+section 12).
 
 ## Running it
 
-Node 24 or later.
+Node 24 or later, and ffmpeg (with ffprobe) on the `PATH`: adding books reads
+them with ffprobe and makes covers with ffmpeg. The server shares Ribbon's own
+logic (`src/core/`), so install the repository's packages too:
 
 ```bash
+npm install
 cd server
 npm install
 npm start
@@ -52,6 +62,19 @@ for a week. The admin pages that do this come later; until then:
 ```bash
 curl -X POST "$RIBBON_URL/api/invites" -H "authorization: Bearer <your token>"
 ```
+
+## Adding a folder
+
+Signed in as the admin, give the folder's full path on the server's machine.
+It runs as a job; ask for the job to see how it's going:
+
+```bash
+curl -X POST "$RIBBON_URL/api/library/import" -H "authorization: Bearer <your token>" \
+  -H "content-type: application/json" -d '{"folder": "/srv/audiobooks"}'
+curl "$RIBBON_URL/api/jobs/<job id>" -H "authorization: Bearer <your token>"
+```
+
+A book already on the server, by its files or its ISBN or ASIN, is skipped.
 
 ## Tests
 
