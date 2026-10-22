@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS book (
   added_by TEXT
 );
 
+CREATE INDEX IF NOT EXISTS book_by_cover ON book (cover_hash);
+
 -- What else names a book (urn:isbn:…, urn:asin:…): the same book from another folder is known by these too.
 CREATE TABLE IF NOT EXISTS book_claim (
   claim TEXT PRIMARY KEY,

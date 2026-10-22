@@ -1,11 +1,10 @@
-import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildServer, type RibbonServer } from "../src/app.ts";
+import type { RibbonServer } from "../src/app.ts";
 import type { StoredBook } from "../src/library/books.ts";
-import type { ImportProgress } from "../src/library/importer.ts";
+import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 
 // Adding folders of books: a book with a cover, a book in two files, and
 // the first book again in another folder, which is never added twice.
@@ -16,29 +15,10 @@ describe("adding a folder", () => {
   let server: RibbonServer;
   let admin = "";
 
-  /** A few seconds of tone as an MP3, tagged, with a picture inside when asked. */
-  const mp3 = (file: string, title: string, album: string, artist: string, picture?: string) => {
-    mkdirSync(path.dirname(file), { recursive: true });
-    const args = ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"];
-    if (picture) args.push("-f", "lavfi", "-i", `color=c=${picture}:s=300x450:d=1`, "-map", "0:a", "-map", "1:v", "-c:v", "mjpeg", "-disposition:v", "attached_pic", "-frames:v", "1");
-    args.push("-c:a", "libmp3lame", "-b:a", "64k", "-id3v2_version", "3", "-metadata", `title=${title}`, "-metadata", `album=${album}`, "-metadata", `artist=${artist}`, file);
-    execFileSync("ffmpeg", args);
-  };
-
   beforeAll(async () => {
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-import-"));
-    shelf = path.join(dir, "shelf");
-    copies = path.join(dir, "copies");
-    mp3(path.join(shelf, "Author One", "Red Book", "01.mp3"), "Red Book", "Red Book", "Author One", "red");
-    mp3(path.join(shelf, "Author Two", "Long Book", "01.mp3"), "Part one", "Long Book", "Author Two");
-    mp3(path.join(shelf, "Author Two", "Long Book", "02.mp3"), "Part two", "Long Book", "Author Two");
-    mkdirSync(path.join(copies, "Red Book again"), { recursive: true });
-    copyFileSync(path.join(shelf, "Author One", "Red Book", "01.mp3"), path.join(copies, "Red Book again", "01.mp3"));
-
-    server = await buildServer({ dataDir: path.join(dir, "data"), host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!" });
-    const code = server.invites.firstAdmin().code;
-    const joined = await server.app.inject({ method: "POST", url: `/api/invites/${code}/accept`, payload: { name: "admin", password: "a long password" } });
-    admin = (joined.json() as { token: string }).token;
+    ({ shelf, copies } = makeLibraries(dir));
+    ({ server, admin } = await serverWithAdmin(dir));
   }, 60_000);
   afterAll(async () => {
     await server.app.close();
@@ -47,12 +27,9 @@ describe("adding a folder", () => {
   });
 
   const importing = async (folder: string) => {
-    const r = await server.app.inject({ method: "POST", url: "/api/library/import", payload: { folder }, headers: { authorization: `Bearer ${admin}` } });
-    expect(r.statusCode).toBe(202);
-    const { job } = r.json() as { job: { id: string } };
-    await server.jobs.idle();
-    const done = await server.app.inject({ method: "GET", url: `/api/jobs/${job.id}`, headers: { authorization: `Bearer ${admin}` } });
-    return (done.json() as { job: { state: string; progress: ImportProgress; error: string | null } }).job;
+    const { status, job } = await importAs(server, admin, folder);
+    expect(status).toBe(202);
+    return job;
   };
 
   it("copies each new book in, with its chapters and covers", async () => {

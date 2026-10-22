@@ -60,4 +60,53 @@ export class BookIndex {
   count(): number {
     return Number(this.db.prepare("SELECT count(*) AS n FROM book").get()?.n ?? 0);
   }
+
+  /** Every book, oldest added first, as the library answer gives it. */
+  list(): ListedBook[] {
+    return this.db.prepare("SELECT * FROM book ORDER BY added_at, id").all().map((row) => ({
+      id: String(row.id),
+      title: String(row.title),
+      author: String(row.author),
+      narrator: String(row.narrator),
+      series: String(row.series),
+      seriesIndex: row.series_index === null ? null : Number(row.series_index),
+      durationMs: Number(row.duration_ms),
+      sizeBytes: Number(row.size_bytes),
+      audio: row.has_audio === 1,
+      ebook: row.has_ebook === 1,
+      cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
+      addedAt: new Date(Number(row.added_at)).toISOString(),
+    }));
+  }
+
+  /** Whether a book is on the server. */
+  has(id: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM book WHERE id = ?").get(id);
+  }
+
+  /** The book whose covers are named by this hash, or null. */
+  byCover(hash: string): string | null {
+    const row = this.db.prepare("SELECT id FROM book WHERE cover_hash = ?").get(hash);
+    return row ? String(row.id) : null;
+  }
+}
+
+/**
+ * A book in the library answer: what the shelf needs to draw it at its
+ * final size and colour before its cover arrives, and nothing that
+ * changes while someone listens (docs/SERVER.md, section 7).
+ */
+export interface ListedBook {
+  id: string;
+  title: string;
+  author: string;
+  narrator: string;
+  series: string;
+  seriesIndex: number | null;
+  durationMs: number;
+  sizeBytes: number;
+  audio: boolean;
+  ebook: boolean;
+  cover: Cover | null;
+  addedAt: string;
 }
