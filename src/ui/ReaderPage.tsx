@@ -1,16 +1,15 @@
-import { BookOpenIcon, BookmarkIcon, CheckIcon, ListBulletIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { BookOpenIcon, BookmarkIcon, CheckIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ScannedBook } from "../core/scan/scan";
 import { orderBySeries, hiddenBookIds, seriesNumber } from "../core/series";
 import { NEUTRAL_TONE, type Tone } from "../core/tint";
-import { formatDuration, formatLeft } from "../core/speed";
+import { formatLeft } from "../core/speed";
 import { chapterAt } from "../core/scan/chapters";
-import { groupByPart, partAt } from "../core/scan/parts";
+import { partAt } from "../core/scan/parts";
 import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
-import { Drawer } from "./Drawer";
 import { ReadHistory } from "./ReadHistory";
 import { tintFromImage } from "./tint";
 import { howFar, lengthOf, progressOf as progressIn, useShelfProgress } from "./progress";
@@ -33,7 +32,6 @@ export function ReaderPage() {
   const reading = (id: string) => c.readingProgress(id);
   const book = state.books.find((b) => b.book.id === state.readerBookId) ?? null;
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
-  const [drawer, setDrawer] = useState<"chapters" | null>(null);
 
   const series = useMemo(() => (book ? (c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null) : null), [c, book, state.books, state.sources, state.series]);
   const record = series ? state.series[series.key] : undefined;
@@ -90,7 +88,6 @@ export function ReaderPage() {
   const stories = book.parts;
   const storyNow = partAt(stories, me.posMs);
   const story = stories[storyNow] ?? null;
-  const contents = groupByPart(book.chapters, stories);
   const isCurrent = state.current?.book.book.id === book.book.id;
   // A book that is only its EPUB: read, never played.
   const toRead = readerOnly(book.book);
@@ -164,24 +161,20 @@ export function ReaderPage() {
             <p className="mt-6 max-w-[52ch] border-l border-line-strong pl-3 text-base/6 text-pretty text-ink tabular-nums sm:text-[0.9375rem]/6">{sentence}</p>
             {me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
 
+            {/* On a phone, one row: listening and reading share it under short names (the sentence above says how far in), and the bookmarks are the player's. */}
             <div className="mt-6 flex flex-wrap items-center gap-2">
               {!toRead && (
-                <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))}>
-                  {me.finished ? "Listen again" : me.started ? "Continue listening" : "Start listening"}
+                <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))} className="max-sm:flex-1">
+                  {me.finished ? "Listen again" : <Short phone="Listen">{me.started ? "Continue listening" : "Start listening"}</Short>}
                 </Button>
               )}
               {book.book.ebook && (
-                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} onClick={() => void c.openReading(book.book.id)}>
-                  {(c.readingProgress(book.book.id) ?? 0) > 0 ? "Continue reading" : "Read"}
-                </Button>
-              )}
-              {!toRead && (
-                <Button leading={ListBulletIcon} onClick={() => setDrawer("chapters")}>
-                  {stories.length > 0 ? "Contents" : "Chapters"}
+                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} onClick={() => void c.openReading(book.book.id)} className="max-sm:flex-1">
+                  {(c.readingProgress(book.book.id) ?? 0) > 0 ? <Short phone="Read">Continue reading</Short> : "Read"}
                 </Button>
               )}
               {isCurrent && state.current && state.current.bookmarks.length > 0 && (
-                <Button variant="ghost" leading={BookmarkIcon} onClick={() => c.expandPlayer("bookmarks")}>
+                <Button variant="ghost" leading={BookmarkIcon} onClick={() => c.expandPlayer("bookmarks")} className="max-sm:hidden">
                   {state.current.bookmarks.length} {state.current.bookmarks.length === 1 ? "bookmark" : "bookmarks"}
                 </Button>
               )}
@@ -244,45 +237,17 @@ export function ReaderPage() {
         )}
       </div>
 
-      <Drawer open={drawer === "chapters"} onClose={() => setDrawer(null)} title={stories.length > 0 ? "Contents" : "Chapters"}>
-        <div className={clsx(stories.length > 0 && "flex flex-col gap-5")}>
-          {contents.map((g) => {
-            const storyIndex = g.part ? stories.indexOf(g.part) : -1;
-            const done = me.finished || (storyIndex >= 0 && storyIndex < storyNow);
-            const author = g.part && g.part.author && g.part.author !== book.book.author ? g.part.author : "";
-            return (
-              <section key={g.part ? g.part.title + storyIndex : "chapters"} aria-label={g.part?.title}>
-                {g.part && (
-                  <div className="mb-1 flex items-baseline gap-3 px-3 py-1">
-                    <div className="min-w-0 flex-1">
-                      <p className={clsx("truncate text-base/6 font-semibold sm:text-sm/5", storyIndex === storyNow && me.started && !me.finished ? "text-place" : "text-ink")}>{g.part.title}</p>
-                      {author && <p className="truncate text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">{author}</p>}
-                    </div>
-                    <p className="flex shrink-0 items-center gap-1 text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">
-                      {done && <CheckIcon className="size-4 shrink-0 fill-current" aria-hidden="true" />}
-                      {done ? "Finished" : formatLeft(g.part.endMs - g.part.startMs)}
-                    </p>
-                  </div>
-                )}
-                <ol role="list" className="flex flex-col">
-                  {g.chapters.map(({ chapter: ch, index: i }) => {
-                    const here = i === chapterNow && me.started && !me.finished;
-                    return (
-                      <li key={i} className={clsx("relative grid grid-cols-[3.5rem_1fr_auto] gap-3 rounded-md py-2 pr-2 pl-3 text-base/6 sm:text-sm/5", here && "bg-raised")}>
-                        {here && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-place" aria-hidden="true" />}
-                        <span className="text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{formatDuration(ch.startMs)}</span>
-                        <span className={clsx("truncate", here ? "font-medium text-ink" : "text-ink-2")}>{ch.title}</span>
-                        <span className="text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{formatDuration(ch.endMs - ch.startMs)}</span>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </section>
-            );
-          })}
-        </div>
-      </Drawer>
     </section>
+  );
+}
+
+/** A button's words, and the shorter ones a phone shows instead. */
+function Short({ phone, children }: { phone: string; children: string }) {
+  return (
+    <>
+      <span className="sm:hidden">{phone}</span>
+      <span className="max-sm:hidden">{children}</span>
+    </>
   );
 }
 

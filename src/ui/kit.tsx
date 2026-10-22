@@ -144,10 +144,14 @@ export interface MenuItem {
   disabled?: boolean;
 }
 
+/** How wide a menu's list opens (min-w-44): its button's own box is too narrow for the list to be any wider. */
+const MENU_WIDTH = 176;
+
 /** A "more" button that opens a compact list of actions under a muted label. The phone reader's dock gives it its own glyph and a 40px button. */
 export function Menu({ label, items, title = "Actions", align = "right", icon: Glyph = EllipsisHorizontalIcon, size = "sm" }: { label: string; items: MenuItem[]; title?: string; align?: "left" | "right"; icon?: Icon; size?: "sm" | "dock" }) {
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
+  const [side, setSide] = useState(align);
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useId();
   useEffect(() => {
@@ -179,9 +183,10 @@ export function Menu({ label, items, title = "Actions", align = "right", icon: G
         aria-controls={open ? menuId : undefined}
         onClick={(e) => {
           e.stopPropagation();
-          // Open upward when the window has no room below for the list.
+          // Open upward when the window has no room below for the list, and the other way when it has no room on the side asked for.
           const r = ref.current?.getBoundingClientRect();
           setUp(!!r && window.innerHeight - r.bottom < 40 + items.length * 34 && r.top > window.innerHeight - r.bottom);
+          setSide(!r ? align : align === "left" && r.left + MENU_WIDTH > window.innerWidth - 8 ? "right" : align === "right" && r.right - MENU_WIDTH < 8 ? "left" : align);
           setOpen((v) => !v);
         }}
         className={clsx("relative inline-flex items-center justify-center rounded-md text-ink-2 focus-ring hover:bg-raised hover:text-ink", size === "dock" ? "size-10" : "p-[5px]", open && "bg-raised text-ink")}
@@ -190,7 +195,7 @@ export function Menu({ label, items, title = "Actions", align = "right", icon: G
         <Glyph className={clsx(size === "dock" ? "size-5" : "size-4", "fill-current")} aria-hidden="true" />
       </button>
       {open && (
-        <div id={menuId} role="menu" aria-label={title} className={clsx("absolute z-30 min-w-44", up ? "bottom-full mb-1" : "top-full mt-1", "rounded-[10px] bg-surface p-1 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong", align === "right" ? "right-0" : "left-0")}>
+        <div id={menuId} role="menu" aria-label={title} className={clsx("absolute z-30 min-w-44", up ? "bottom-full mb-1" : "top-full mt-1", "rounded-[10px] bg-surface p-1 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong", side === "right" ? "right-0" : "left-0")}>
           <p className="px-2.5 pt-1.5 pb-1 text-xs/5 font-medium text-ink-3">{title}</p>
           {items.map((it) => (
             <button
