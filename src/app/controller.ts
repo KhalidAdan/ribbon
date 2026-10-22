@@ -1899,7 +1899,7 @@ export class AppController {
   private async chaptersOf(o: Opened, book: ScannedBook): Promise<ScannedBook> {
     if (book.files.every((f) => f.chaptersProbed)) return book;
     try {
-      const probed = await o.lib.ensureChapters(book);
+      const probed = await o.lib.ensureChapters(book, undefined, (e) => log.warn("could not keep the chapters of", book.book.title, "beside the book; using them for now:", describe(e)));
       if (probed === book) return book;
       const updated = this.stamp(o, [probed])[0]!;
       this.replaceBook(o, updated);
@@ -2038,7 +2038,7 @@ export class AppController {
     // The chapter probe rewrites files.csv; let the scan's own write land first.
     await o.saving;
     if (abort.signal.aborted) return;
-    const probed = await o.lib.ensureChapters(book, abort.signal);
+    const probed = await o.lib.ensureChapters(book, abort.signal, (e) => log.warn("could not keep the chapters of", book.book.title, "beside the book; using them for now:", describe(e)));
     if (abort.signal.aborted || probed === book) return;
     const updated = this.stamp(o, [probed])[0]!;
     const cur = this.state.current;

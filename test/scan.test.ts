@@ -179,6 +179,22 @@ describe("scanLibrary over generated fixtures", () => {
     expect(reloaded.chapters.map((c) => c.title)).toEqual(["Opening", "Middle", "Closing"]);
   });
 
+  it("ensureChapters keeps the chapters it read when they cannot be kept beside the book", async () => {
+    // A share that takes nothing: every write fails as a Mac's renames did on a Samba share without Apple support.
+    const refuse = async () => {
+      throw new Error("failed to rename old path: x to new path: y with error: Device error (os error 83)");
+    };
+    const refusing = { ...host, writeFile: refuse, mkdir: refuse };
+    const b = byPath("single-m4b");
+    const stripped = { ...b, files: b.files.map((f) => ({ ...f, chapters: [], chaptersProbed: false })), chapters: [] };
+    const unsaved: unknown[] = [];
+    const probed = await ensureChapters(refusing, FIXTURE_ROOT, stripped, undefined, (e) => unsaved.push(e));
+    expect(probed.chapters.map((c) => c.title)).toEqual(["Opening", "Middle", "Closing"]);
+    expect(probed.files[0]!.chaptersProbed).toBe(true);
+    expect(unsaved).toHaveLength(1);
+    expect(String(unsaved[0])).toContain("os error 83");
+  });
+
   it("ensureChapters recovers a cover the fast scanner missed", async () => {
     const b = byPath("single-m4b");
     await fs.rm(path.join(FIXTURE_ROOT, ".ribbon", "covers", `${b.book.id}.jpg`), { force: true });
