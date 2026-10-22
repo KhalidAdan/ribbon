@@ -2,7 +2,7 @@
 
 **A home for your books, read or heard.**
 
-Local files. One place in every book. Nothing to sign in to.
+Local files. One place in every book. Nothing in the cloud.
 
 ---
 
@@ -12,8 +12,8 @@ A reader and a player for the books you own, as files: the EPUB and the
 audiobook, alone or side by side. It reads the EPUB on a page as well
 typeset as any reader's, plays the M4B, MP3, Opus and FLAC you already
 have, and keeps your place in every book forever, whether you were reading
-or listening. That place moves between your devices as a file rather than
-through a service.
+or listening. That place moves between your devices as a file, through your
+own server or a folder you sync, never through someone else's service.
 
 Text is a first-class citizen, not a feature bolted onto a player. A book
 you only have as an EPUB is a book like any other. A book you have both
@@ -40,11 +40,11 @@ plays in ffmpeg without a key and the EPUB opens without one, it is yours
 to read and hear here.
 
 **Not a store, not a social network.** No catalogue, no recommendations, no
-friends. The library is the folder.
+friends. The library is your books, in your folders or on your own server.
 
-**Not a server.** Version one talks to the filesystem and to a sync folder.
-Server-backed libraries are a client story for version two, not a reason to
-run a daemon.
+**Not someone else's service.** Your own server, your own people, nothing in
+the cloud. Ribbon runs on a machine you choose, for the people you invite
+([SERVER.md](SERVER.md)). No store, no tracking, no one else's service.
 
 **Not two apps.** A book you own as audio and as an EPUB is one book with one
 place, and reading it is as much the product as hearing it. Not a reader
@@ -52,10 +52,15 @@ for every format: EPUBs without DRM, the way the audio is files without DRM.
 
 ## Principles
 
-**Position is a file.** Every book keeps its place in a small log of files
-beside it: where you were reading, where you were listening, when, on which
-device. The newest wins. The existing sync engine moves the files like any
-others. No account, no server, and it survives the app being uninstalled.
+**Your place is still a file.** Every book keeps your place in a small log
+of files: where you were reading, where you were listening, when, on which
+device. The newest wins. In a folder, the log sits beside the book and any
+sync moves it like any other file; on a server, each person's log is kept
+there, readable, and theirs to take away. Either way it survives the app
+being uninstalled.
+
+**Folders still work.** Ribbon without a server is the app it was: your
+books in a folder, your place beside them, nothing to sign in to.
 
 **One place, two editions.** Reading and listening each keep their own exact
 place. Switching maps one onto the other: first by chapter and how far
@@ -125,14 +130,15 @@ One app, one platform (the desktop), one library of folders. Shipped, as of
 
 **The phone.** The picture of success below has three places in it, and
 version one is one of them. Ribbon on iOS (16.4 and later) and Android, with
-the books on the device, its place moving with you as a file. The plan and
-what stands in its way are in [MAC.md](MAC.md).
+the books downloaded to the device from your server, its place moving with
+you. The plan and what stands in its way are in [MAC.md](MAC.md).
 
-**Version two: the best Audiobookshelf client.** Audiobookshelf is already
-the de facto self-hosted audiobook server with a client API. Rather than
-build another server, become the client people choose. The position files
-stay for people without a server; Audiobookshelf becomes a second library
-source with its own progress sync.
+**The server.** A phone can't prepare a book (no ffmpeg, no transcribing), a
+network share won't always take its writes, the Apple TV needs something to
+talk to, and the people you share books with need places of their own.
+Ribbon's own server prepares each book once, keeps each person's place, and
+gives every device the finished book. It runs on a machine you choose, for
+the people you invite. The design is in [SERVER.md](SERVER.md).
 
 **On the radar, not committed:**
 
