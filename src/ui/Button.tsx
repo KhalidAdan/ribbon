@@ -48,8 +48,8 @@ interface IconProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"
   icon: Icon;
   variant?: Exclude<Variant, "danger">;
   size?: Size;
-  /** The glyph's size: 16px, unless an icon needs the room (the reader's thirty-second arrows carry a number). */
-  glyph?: "size-4" | "size-5";
+  /** The glyph's size: 16px, unless an icon needs the room (the phone reader's dock draws its controls larger, and its thirty-second arrows carry a number). */
+  glyph?: "size-4" | "size-5" | "size-6";
   type?: "button" | "submit";
   children?: ReactNode;
 }

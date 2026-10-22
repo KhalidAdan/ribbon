@@ -318,19 +318,25 @@ under its own title.
 page is the book's: its title, quietly, at the top, and one control at
 the bottom, the dock (`src/reader/Dock.tsx`).
 - On the left, under the text, the page number: the page in the whole
-  book once every chapter is laid out, how far through until then. An
-  amber dot beside it while the narrator is on this page, a ring when it
-  is on another.
-- On the right, a capsule. Reading, with nothing playing, it is only the
-  menu: the full player, Contents, Bookmarks, Text, Close book.
+  book once every chapter is laid out, how far through until then. While
+  the narrator reads on another page and the page is not following it,
+  the page number gives way to where the narrator is, **Narrator on 27**,
+  with an arrow the way it lies; a tap goes back to it and follows it
+  again. Paused, the page number stays: the reader is reading.
+- On the right, a capsule of 40px controls. Reading, with nothing
+  playing, it is the contents and the menu: Listen from here (the top of
+  the page), the full player, Contents, Bookmarks, Text, Close book.
 - While the book's audio is loaded, the capsule is the listening bar:
-  back thirty seconds, play, forward thirty, then the narrator's two
-  buttons. One is a target, as a map's location button: filled while the
-  page follows the narrator, a ring when the narrator is on another page,
-  which goes back to it. The other listens from the top of the page. A
+  back thirty seconds, play, forward thirty, the menu. Under a finger
+  each control's 48px target reaches only into the gaps beside it. A
   swipe up the bar opens the full player, the same one as on the desktop.
 - Another book playing, the capsule plays and pauses that one, and names
   it.
+
+The page follows the narrator while it plays and the page shown is the
+narrator's: from Listen from here, from Narrator on 27, from turning
+back to its page, and from pressing play on it. Turning a
+page by hand stops following.
 
 The page's edges turn the page for a mouse, not under a finger: a
 finger swipes, and its taps belong to the text.

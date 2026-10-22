@@ -13,7 +13,7 @@ import { Button, IconButton } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
 import { EmptyState, ProgressLine, Toggle, type MenuItem } from "../ui/kit";
 import { useCompact } from "../ui/useCompact";
-import { Dock } from "./Dock";
+import { Dock, type Folio } from "./Dock";
 import { useListening, type Visible } from "./listening";
 import { facesLoaded, FAMILY, loadFaces } from "./typeset";
 import { fitsKey, loadSnapshot, savePage, savePlace } from "./snapshot";
@@ -69,8 +69,9 @@ export function ReadingView() {
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
   const listen = !!r.alignment && !!book && book.book.durationMs > 0;
   const title = book?.book.title ?? "";
-  // The dock's menu: what the header holds on a wider window, and the full player.
+  // The dock's menu: listening from the page, the full player, and what the header holds on a wider window.
   const menu: MenuItem[] = [
+    ...(listen ? [{ label: "Listen from here", onSelect: () => void c.listenFromHere() }] : []),
     ...(anyLoaded ? [{ label: "Player…", onSelect: () => c.expandPlayer() }] : []),
     { label: "Contents…", onSelect: () => setContents(true), disabled: !ebook },
     { label: "Bookmarks…", onSelect: () => setBookmarks(true), disabled: !ebook },
@@ -78,7 +79,8 @@ export function ReadingView() {
     { label: "Close book", onSelect: () => void c.closeReading() },
   ];
   // While there is no page to follow (opening, failed, getting read-along ready), the dock still plays and still closes the book.
-  const idleDock = compact ? <Dock bookId={r.bookId} text={null} visible={null} folio="" inset={28} listen={false} title={title} menu={menu} c={c} /> : null;
+  const idleDock = compact ? <Dock bookId={r.bookId} text={null} visible={null} place={null} folioAt={null} inset={28} title={title} menu={menu} onContents={null} c={c} /> : null;
+  const openContents = () => setContents(true);
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="safe-area fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
@@ -134,6 +136,7 @@ export function ReadingView() {
           compact={compact}
           title={title}
           menu={menu}
+          onContents={openContents}
           onJustified={setJustified}
           c={c}
         />
@@ -500,7 +503,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, compact, title, menu, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; compact: boolean; title: string; menu: MenuItem[]; onJustified: (on: boolean) => void; c: AppController }) {
+function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, compact, title, menu, onContents, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; compact: boolean; title: string; menu: MenuItem[]; onContents: () => void; onJustified: (on: boolean) => void; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -519,10 +522,11 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
   useEffect(() => onJustified(justify), [justify, onJustified]);
   const fits = viewport ? fitsKey(viewport, settings) : "";
   const progress = text.progress(place);
-  // On a phone, the page number under the text: the page in the whole book once every chapter is laid out, how far through until then.
+  // On a phone, the page number under the text, for the reader's place or the narrator's: the page in the whole book once
+  // every chapter is laid out, how far through until then.
   const linear = useMemo(() => ebook.sections.flatMap((s, i) => (s.linear ? [i] : [])), [ebook]);
-  const inBook = compact && settings.layout === "pages" ? bookPage(linear.map((s) => (engine.isFresh(s) ? layout(s)?.pages.length : undefined)), linear.indexOf(place.section), pageOf(layout(place.section)?.pages ?? [], place)) : null;
-  const folio = inBook ? `${inBook.page} of ${inBook.of}` : `${Math.round(progress * 100)}%`;
+  const counts = compact && settings.layout === "pages" ? linear.map((s) => (engine.isFresh(s) ? layout(s)?.pages.length : undefined)) : null;
+  const folioAt = (p: TextPlace): Folio => (counts && bookPage(counts, linear.indexOf(p.section), pageOf(layout(p.section)?.pages ?? [], p))) ?? { percent: Math.round(text.progress(p) * 100) };
   // The dock lines up with the text's own edges.
   const inset = viewport && metrics ? Math.max(16, Math.round((viewport.width - (metrics.columns * metrics.column + (metrics.columns - 1) * metrics.gap)) / 2)) : 28;
 
@@ -633,18 +637,18 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
     const p = c.narratorInText();
     if (p) c.moveReading(p, "periodic", "follow");
   }, [following, outOfView, visible, c]);
-  // Turned back to where the narrator is, while it plays: follow it again. Only as it comes into view, so
-  // "Follow along" turned off stays off, and only once the page shown is the one turned to.
+  // Turned back to where the narrator is while it plays, or play pressed on the narrator's page: follow it. Only as it
+  // comes into view or starts, so "Follow along" turned off stays off, and only once the page shown is the one turned to.
   const playing = !!narrator?.playing;
   const narratorShown = (() => {
     if (narrator?.inView !== true || !visible) return false;
     const at = text.chars(place);
     return at >= text.chars(visible.from) && at < text.chars(visible.to);
   })();
-  const wasShown = useRef(narratorShown);
+  const was = useRef({ shown: narratorShown, playing });
   useEffect(() => {
-    if (narratorShown && !wasShown.current && playing && !following) c.setFollowing(true);
-    wasShown.current = narratorShown;
+    if (narratorShown && playing && !following && (!was.current.shown || !was.current.playing)) c.setFollowing(true);
+    was.current = { shown: narratorShown, playing };
   }, [narratorShown, playing, following, c]);
   const mark = tap?.mark ?? readMark;
   const marks = useMemo<Marked[]>(
@@ -725,7 +729,7 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
         )}
       </div>
       {compact ? (
-        <Dock bookId={bookId} text={text} visible={visible} folio={folio} inset={inset} listen={listen} title={title} menu={menu} c={c} />
+        <Dock bookId={bookId} text={text} visible={visible} place={place} folioAt={folioAt} inset={inset} title={title} menu={menu} onContents={onContents} c={c} />
       ) : (
         <>
           {bar && <ListeningBar bookId={bookId} text={text} visible={visible} c={c} />}
