@@ -32,6 +32,18 @@ export interface ScannedBook {
   original?: Book;
   /** The hand edits in effect; set by the app. */
   edits?: EditValues;
+  /** A book on a Ribbon server that isn't on this device yet: it downloads before it plays (core/server-books.ts). Set by the app. */
+  remote?: RemoteBook;
+}
+
+/** What the shelf and the download need to know about a server's book before its files are here. */
+export interface RemoteBook {
+  /** The book's id on its server. */
+  serverId: string;
+  audio: boolean;
+  ebook: boolean;
+  /** Its cover's shape and colour, to lay the shelf out before the picture arrives. */
+  cover: { hash: string; aspect: number; colour: string } | null;
 }
 
 export interface ScanOptions {

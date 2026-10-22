@@ -1,4 +1,5 @@
 import fastifyCompress from "@fastify/compress";
+import fastifyCors from "@fastify/cors";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
@@ -48,6 +49,16 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
   // JSON shrinks a lot; audio, pictures and EPUBs are compressed already and go as they are.
   await app.register(fastifyCompress, { encodings: ["br", "gzip"] });
+  // The apps call the API from their own origin. They sign in with a token in a header, never a cookie, so any
+  // origin may ask: a page elsewhere has nothing of the person's to send along.
+  await app.register(fastifyCors, {
+    origin: true,
+    credentials: false,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["authorization", "content-type", "if-none-match", "range", "if-range"],
+    exposedHeaders: ["etag", "set-auth-token", "content-range", "accept-ranges", "content-length", "last-modified"],
+    maxAge: 86_400,
+  });
 
   // Passwords travel only over HTTPS, or within this machine (docs/SERVER.md, section 6).
   app.addHook("onRequest", async (request, reply) => {

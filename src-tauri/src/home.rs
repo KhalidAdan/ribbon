@@ -88,11 +88,40 @@ pub struct SourceEntry {
     pub root: String,
     /// ISO 8601.
     pub added_at: String,
+    /// For a Ribbon server's source: which server, and who's signed in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<ServerRef>,
+}
+
+/// A Ribbon server (docs/SERVER.md, section 11). The sign-in itself is kept in the settings.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ServerRef {
+    pub url: String,
+    pub person: String,
+}
+
+/// A source's line after its stamp: the folder, then for a server its address and the name signed in with.
+fn source_from_row(added_at: String, rest: String) -> SourceEntry {
+    let fields: Vec<&str> = rest.rsplitn(3, '\t').collect();
+    if let [person, url, root] = fields[..] {
+        if url.starts_with("http://") || url.starts_with("https://") {
+            let server = Some(ServerRef { url: url.to_string(), person: person.to_string() });
+            return SourceEntry { root: root.to_string(), added_at, server };
+        }
+    }
+    SourceEntry { root: rest, added_at, server: None }
+}
+
+fn source_row(s: SourceEntry) -> (String, String) {
+    match s.server {
+        Some(server) => (s.added_at, format!("{}\t{}\t{}", s.root, server.url, server.person)),
+        None => (s.added_at, s.root),
+    }
 }
 
 fn read_sources_file() -> Option<Vec<SourceEntry>> {
     let text = std::fs::read_to_string(sources_path()).ok()?;
-    Some(parse_tsv(&text).into_iter().map(|(added_at, root)| SourceEntry { root, added_at }).collect())
+    Some(parse_tsv(&text).into_iter().map(|(added_at, rest)| source_from_row(added_at, rest)).collect())
 }
 
 /// The library's sources, in the order they were added. The first time
@@ -103,7 +132,7 @@ pub fn sources_read() -> Vec<SourceEntry> {
     if let Some(list) = read_sources_file() {
         return list;
     }
-    let seeded: Vec<SourceEntry> = home_info().libraries.into_iter().take(1).map(|e| SourceEntry { root: e.root, added_at: e.last_opened }).collect();
+    let seeded: Vec<SourceEntry> = home_info().libraries.into_iter().take(1).map(|e| SourceEntry { root: e.root, added_at: e.last_opened, server: None }).collect();
     if !seeded.is_empty() {
         if let Err(e) = sources_write(seeded.clone()) {
             log::warn!("could not write the sources file: {e}");
@@ -114,7 +143,7 @@ pub fn sources_read() -> Vec<SourceEntry> {
 
 #[tauri::command]
 pub fn sources_write(sources: Vec<SourceEntry>) -> Result<(), String> {
-    write_tsv(sources_path(), sources.into_iter().map(|s| (s.added_at, s.root)))
+    write_tsv(sources_path(), sources.into_iter().map(source_row))
 }
 
 #[derive(Serialize)]
@@ -238,6 +267,18 @@ mod tests {
     fn tsv_rows_keep_the_path_after_the_first_tab() {
         let rows = parse_tsv("2026-01-01T00:00:00Z\t\\\\nas\\media\\Books\n\n2026-01-02T00:00:00Z\t\nbad line\n2026-01-03T00:00:00Z\tE:\\a\tb\n");
         assert_eq!(rows, vec![("2026-01-01T00:00:00Z".to_string(), "\\\\nas\\media\\Books".to_string()), ("2026-01-03T00:00:00Z".to_string(), "E:\\a\tb".to_string())]);
+    }
+
+    #[test]
+    fn a_server_source_keeps_its_address_and_name() {
+        let server = SourceEntry { root: "/home/servers/ab".into(), added_at: "2026-10-22T00:00:00Z".into(), server: Some(ServerRef { url: "https://books.example.net".into(), person: "ann".into() }) };
+        let folder = SourceEntry { root: "E:\\Books".into(), added_at: "2026-10-22T00:00:00Z".into(), server: None };
+        for entry in [server, folder] {
+            let (stamp, rest) = source_row(entry.clone());
+            assert_eq!(source_from_row(stamp, rest), entry);
+        }
+        // A folder whose path holds a tab is still a folder.
+        assert_eq!(source_from_row("t".into(), "E:\\a\tb\tc".into()).server, None);
     }
 
     #[test]

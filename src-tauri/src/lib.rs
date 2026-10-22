@@ -4,6 +4,7 @@ pub mod speech;
 mod home;
 mod online;
 mod scan;
+mod server;
 mod tags;
 
 use std::sync::OnceLock;
@@ -110,6 +111,8 @@ pub fn run() {
             frames::audio_prepare,
             speech::speech_download_model,
             speech::speech_model_ok,
+            server::server_download,
+            server::server_free_space,
             uptime_ms,
             env_library
         ])

@@ -79,6 +79,35 @@ export function nodeHost(opts: Pick<Host, "readEbookPackage" | "extractCover"> =
         }
       })();
     },
+    async serverDownload(url: string, token: string, target: string, size: number, onProgress: (done: number, total: number) => void): Promise<void> {
+      // The same contract as the app's Rust download: a .part file, carried on from where it stopped.
+      const part = `${target}.part`;
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      const have = await fs.stat(part).then((s) => s.size).catch(() => 0);
+      const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+      if (have > 0 && have < size) headers.range = `bytes=${have}-`;
+      const r = await fetch(url, { headers });
+      if (r.status !== 200 && r.status !== 206) throw new Error(`the server answered ${r.status}`);
+      const file = await fs.open(part, r.status === 206 ? "a" : "w");
+      let done = r.status === 206 ? have : 0;
+      try {
+        for await (const chunk of r.body as unknown as AsyncIterable<Uint8Array>) {
+          await file.write(chunk);
+          done += chunk.length;
+          onProgress(done, size);
+        }
+      } finally {
+        await file.close();
+      }
+      if (done !== size) throw new Error("the download was cut short; it will carry on from there");
+      await fs.rename(part, target);
+    },
+    async freeSpace(at: string): Promise<number> {
+      let dir = at;
+      while (!(await fs.stat(dir).then(() => true, () => false))) dir = path.dirname(dir);
+      const s = await fs.statfs(dir);
+      return s.bavail * s.bsize;
+    },
     join: (...parts: string[]) => path.join(...parts),
     async deviceName(): Promise<string> {
       return os.hostname();

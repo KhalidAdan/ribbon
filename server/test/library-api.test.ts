@@ -45,7 +45,7 @@ describe("the library API", () => {
     const { books } = first.json() as { books: ListedBook[] };
     expect(books.map((b) => b.title).sort()).toEqual(["Long Book", "Red Book"]);
     red = books.find((b) => b.title === "Red Book")!;
-    expect(red).toMatchObject({ author: "Author One", audio: true, ebook: false });
+    expect(red).toMatchObject({ author: "Author One", audio: true, ebook: false, ebookBytes: null });
     expect(red.cover).toMatchObject({ aspect: 0.667 });
     expect(red.cover!.colour).toMatch(/^#[0-9a-f]{6}$/);
     // Nothing about anyone's place: those change while people listen and would spoil the 304s.

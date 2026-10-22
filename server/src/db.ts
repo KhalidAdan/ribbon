@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS book (
   size_bytes INTEGER NOT NULL,
   has_audio INTEGER NOT NULL,
   has_ebook INTEGER NOT NULL,
+  -- The EPUB's size: with the book's id, the id an app gives the book once it's downloaded.
+  ebook_bytes INTEGER,
   cover_hash TEXT,
   cover_aspect REAL,
   cover_colour TEXT,

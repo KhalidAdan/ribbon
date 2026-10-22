@@ -35,15 +35,15 @@ describe("accounts", () => {
     expect(page.statusCode).toBe(200);
     expect(page.body).toContain("Join this Ribbon library");
 
-    const joined = await post(`/api/invites/${first.code}/accept`, { name: "Khalid", password: "a long password" });
+    const joined = await post(`/api/invites/${first.code}/accept`, { name: "Ann", password: "a long password" });
     expect(joined.statusCode).toBe(200);
     const body = joined.json() as { token: string; user: { name: string; role: string } };
-    expect(body.user).toMatchObject({ name: "Khalid", role: "admin" });
+    expect(body.user).toMatchObject({ name: "Ann", role: "admin" });
     expect(body.token).toBeTruthy();
     adminToken = body.token;
 
     const me = await server.app.inject({ method: "GET", url: "/api/me", headers: bearer(adminToken) });
-    expect(me.json()).toMatchObject({ user: { name: "khalid", role: "admin" } });
+    expect(me.json()).toMatchObject({ user: { name: "ann", role: "admin" } });
   });
 
   it("spends an invite once", async () => {
@@ -105,5 +105,30 @@ describe("accounts", () => {
     // A request from elsewhere claiming HTTPS itself isn't believed.
     const claimed = await post("/api/auth/sign-in/username", { username: "yusuf", password: "another long password" }, { "x-forwarded-proto": "https" }, "100.64.0.5");
     expect(claimed.statusCode).toBe(403);
+  });
+});
+
+describe("the apps' origins", () => {
+  let dir: string;
+  let server: RibbonServer;
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "ribbon-origins-"));
+    server = await buildServer({ dataDir: dir, host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!" });
+    await server.app.inject({ method: "POST", url: `/api/invites/${server.invites.firstAdmin().code}/accept`, payload: { name: "ann", password: "a long password" } });
+  });
+  afterAll(async () => {
+    await server.app.close();
+    server.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("lets the desktop and phone apps call the API from their own origin", async () => {
+    const preflight = await server.app.inject({ method: "OPTIONS", url: "/api/books", headers: { origin: "tauri://localhost", "access-control-request-method": "GET", "access-control-request-headers": "authorization,if-none-match" } });
+    expect(preflight.statusCode).toBe(204);
+    expect(preflight.headers["access-control-allow-origin"]).toBe("tauri://localhost");
+    expect(String(preflight.headers["access-control-allow-headers"])).toContain("if-none-match");
+    const signIn = await server.app.inject({ method: "POST", url: "/api/auth/sign-in/username", headers: { origin: "tauri://localhost" }, payload: { username: "ann", password: "a long password" } });
+    expect(signIn.statusCode).toBe(200);
+    expect(String(signIn.headers["access-control-expose-headers"])).toContain("set-auth-token");
   });
 });

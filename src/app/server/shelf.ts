@@ -1,0 +1,152 @@
+import type { Host } from "../../host/host";
+import type { ScannedBook } from "../../core/scan/scan";
+import { localIdOf, opfFor, remoteBook, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook } from "../../core/server-books";
+import type { ServerClient } from "./client";
+
+/** A book's id on a server, which names its folder here (server/src/library/importer.ts). */
+const SERVER_ID = /^[0-9a-f]{16}$/;
+
+/** Room left over after a download, so a phone isn't filled to the last byte. */
+export const SPACE_MARGIN_BYTES = 200 * 1024 * 1024;
+
+/** A book that won't fit on this device as it stands: how much it needs, and how much there is. */
+export class NotEnoughSpace extends Error {
+  constructor(
+    readonly neededBytes: number,
+    readonly freeBytes: number,
+  ) {
+    super("not enough space for this book");
+    this.name = "NotEnoughSpace";
+  }
+}
+
+/**
+ * A Ribbon server's side of a source (docs/SERVER.md, sections 8 and 11).
+ * The source's folder is one of Ribbon's own on this device; the books
+ * downloaded into it are an ordinary library, read by the scanner like any
+ * other. This keeps what the server lists (cached in the folder, so the
+ * shelf draws at once on launch and the server answers "unchanged"), the
+ * covers of books not downloaded yet, and the downloads themselves.
+ */
+export class ServerShelf {
+  private listed: ServerBook[] = [];
+  private etag: string | null = null;
+  /** The pictures kept here, by hash: a book's cover shows once it's on disk, never as a broken image. */
+  private covers = new Set<string>();
+
+  constructor(
+    readonly client: ServerClient,
+    private readonly host: Host,
+    private readonly root: string,
+  ) {}
+
+  /** The list as it was last time, from the folder: what the shelf draws before the server answers. */
+  async loadCached(): Promise<void> {
+    const cached = await this.host
+      .readFile(this.at(".ribbon", "server-books.json"))
+      .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; books: ServerBook[] })
+      .catch(() => null);
+    if (cached) {
+      this.listed = cached.books;
+      this.etag = cached.etag;
+    }
+  }
+
+  /** Ask the server for its list; true when it changed. */
+  async refresh(): Promise<boolean> {
+    const answer = await this.client.books(this.etag);
+    if (answer === "unchanged") return false;
+    this.listed = answer.books;
+    this.etag = answer.etag;
+    await this.host.mkdir(this.at(".ribbon"));
+    await this.host.writeFile(this.at(".ribbon", "server-books.json"), new TextEncoder().encode(JSON.stringify({ etag: this.etag, books: this.listed })));
+    return true;
+  }
+
+  /** The server's books that aren't on this device yet, given the ones that are. */
+  remote(local: readonly ScannedBook[]): ScannedBook[] {
+    const here = new Set(local.map((b) => b.book.id));
+    return this.listed.filter((b) => !here.has(localIdOf(b))).map(remoteBook);
+  }
+
+  /**
+   * Find the shelf's cover of every listed book, fetching the ones not kept
+   * here yet; each is fetched once, ever. With the server out of reach the
+   * ones already here still count. How many covers can show now that
+   * couldn't before.
+   */
+  async fetchCovers(): Promise<number> {
+    let found = 0;
+    let reachable = true;
+    for (const b of this.listed) {
+      if (!b.cover || this.covers.has(b.cover.hash)) continue;
+      const file = this.at(...serverCoverPath(b.cover.hash).split("/"));
+      if (!(await this.host.exists(file))) {
+        if (!reachable) continue;
+        try {
+          const bytes = await this.client.cover(b.cover.hash, SHELF_COVER_WIDTH);
+          await this.host.mkdir(this.at(".ribbon", "server-covers"));
+          await this.host.writeFile(file, bytes);
+        } catch {
+          reachable = false;
+          continue;
+        }
+      }
+      this.covers.add(b.cover.hash);
+      found++;
+    }
+    return found;
+  }
+
+  /** Whether a cover is on disk, so the shelf can draw it. */
+  hasCover(hash: string): boolean {
+    return this.covers.has(hash);
+  }
+
+  /**
+   * Download a book into its folder here, named by its server id: its audio,
+   * its EPUB, a `metadata.opf` so the scanner names it as the server does, and
+   * its cover. The space is checked first; a book that won't fit throws
+   * NotEnoughSpace before anything is downloaded.
+   */
+  async download(book: ScannedBook, onProgress: (done: number, total: number) => void): Promise<void> {
+    const serverId = book.remote?.serverId;
+    if (!serverId || !this.host.serverDownload) throw new Error("This device can't keep a server's books.");
+    const detail = await this.client.book(serverId);
+    const total = detail.files.reduce((s, f) => s + f.sizeBytes, 0) + (detail.ebookBytes ?? 0);
+    const free = (await this.host.freeSpace?.(this.root)) ?? Number.POSITIVE_INFINITY;
+    if (free < total + SPACE_MARGIN_BYTES) throw new NotEnoughSpace(total + SPACE_MARGIN_BYTES, free);
+
+    const folder = this.at(serverId);
+    await this.host.mkdir(folder);
+    let before = 0;
+    for (const f of detail.files) {
+      // The audio sits in the book's folder itself, as the scanner expects one book's files.
+      await this.host.serverDownload(this.client.fileUrl(serverId, f.path), this.client.token, this.host.join(folder, f.path.split("/").pop()!), f.sizeBytes, (done) => onProgress(before + done, total));
+      before += f.sizeBytes;
+    }
+    if (detail.book.ebook && detail.ebookBytes !== undefined) {
+      await this.host.serverDownload(this.client.fileUrl(serverId, detail.book.ebook), this.client.token, this.host.join(folder, "book.epub"), detail.ebookBytes, (done) => onProgress(before + done, total));
+    }
+    await this.host.writeFile(this.host.join(folder, "metadata.opf"), new TextEncoder().encode(opfFor(detail.book)));
+    if (detail.cover) await this.host.writeFile(this.host.join(folder, "cover.jpg"), await this.client.cover(detail.cover.hash, 800));
+    onProgress(total, total);
+  }
+
+  /** Take a downloaded book off this device. The server keeps it, and the person's place in it. */
+  async remove(serverId: string): Promise<void> {
+    if (!SERVER_ID.test(serverId)) throw new Error("Not a server's book.");
+    await this.host.remove(this.at(serverId));
+  }
+
+  /** Take every downloaded book off this device, as on disconnecting. The records stay, so connecting again finds each place. */
+  async removeAll(): Promise<void> {
+    for (const e of await this.host.readDir(this.root)) {
+      if (e.isDir && SERVER_ID.test(e.name)) await this.host.remove(this.at(e.name));
+    }
+  }
+
+  private at(...parts: string[]): string {
+    return this.host.join(this.root, ...parts);
+  }
+}

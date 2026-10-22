@@ -4,7 +4,7 @@ import { admin, bearer, username } from "better-auth/plugins";
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyRequest } from "fastify";
 import type { DatabaseSync } from "node:sqlite";
-import type { ServerConfig } from "./config.ts";
+import { APP_ORIGINS, type ServerConfig } from "./config.ts";
 
 /** A device stays signed in for a year, and every day it's used pushes that out again: a phone that's opened shouldn't ask for a password. */
 const SESSION_DAYS = 365;
@@ -30,6 +30,8 @@ export function authOptions(db: DatabaseSync, config: ServerConfig) {
     baseURL: config.url,
     basePath: "/api/auth",
     secret: config.secret,
+    // The apps call from their own origins; Better Auth trusts these, besides the server's own address, for what a cookie could do.
+    trustedOrigins: [config.url, ...(config.appOrigins ?? APP_ORIGINS)],
     emailAndPassword: { enabled: true, minPasswordLength: 8 },
     session: { expiresIn: SESSION_DAYS * 86_400, updateAge: 86_400 },
     plugins: [username(), admin(), bearer()],

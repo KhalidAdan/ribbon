@@ -95,7 +95,8 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
       await copyIn(abs(f.path), path.join(building, ...to.split("/")), f.sizeBytes);
       files.push({ ...f, path: to, coverFile: "" });
     }
-    if (book.book.ebook) await copyIn(abs(book.book.ebook), path.join(building, "book.epub"));
+    const ebookBytes = book.book.ebook ? (await stat(abs(book.book.ebook))).size : undefined;
+    if (book.book.ebook) await copyIn(abs(book.book.ebook), path.join(building, "book.epub"), ebookBytes);
 
     // The cover: a picture beside the book (or one Ribbon pulled out on a computer), else the one inside the first audio file that has one.
     const picture = book.book.cover ? abs(book.book.cover) : undefined;
@@ -108,6 +109,7 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
       chapters: book.chapters,
       parts: book.parts,
       cover,
+      ...(ebookBytes !== undefined ? { ebookBytes } : {}),
     };
     await writeFile(path.join(building, "book.json"), JSON.stringify(stored, null, 2));
     await rename(building, final);
