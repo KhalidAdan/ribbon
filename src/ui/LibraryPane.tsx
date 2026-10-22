@@ -69,6 +69,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
   return (
     <section className="h-full overflow-y-auto quiet-scroll" aria-label="Library">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-4 pt-8 pb-16 sm:px-8">
+        <ReadOnlyNotice />
         {!empty && (
           <div className="sm:hidden">
             <SearchField value={query} onChange={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
@@ -175,6 +176,31 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * Said once per folder: it turned out to be read-only from this device,
+ * so the place in its books is kept here and nowhere else (read-only.ts).
+ * Settings says it beside the folder for as long as it is so.
+ */
+function ReadOnlyNotice() {
+  const c = useController();
+  const names = useAppState((s) => s.readOnlyNotice.flatMap((id) => s.sources.find((x) => x.id === id)?.name ?? []));
+  if (names.length === 0) return null;
+  const one = names.length === 1;
+  return (
+    <div role="status" className="flex flex-col gap-3 rounded-[10px] bg-surface p-4 ring-1 ring-line sm:flex-row sm:items-center sm:gap-6">
+      <div className="min-w-0 flex-1">
+        <p className="text-base/6 font-medium text-pretty text-ink sm:text-sm/5">{one ? `${names[0]} is read-only from ${c.here}` : `${names.length} folders are read-only from ${c.here}`}</p>
+        <p className="mt-1 max-w-[65ch] text-base/6 text-pretty text-ink-2 sm:text-sm/5">
+          {!one && `${names.join(", ")}. `}Ribbon reads {one ? "its" : "their"} books as usual but can’t write beside them, so your place is kept on {c.here}. Your other devices won’t see it until {one ? "the folder" : "they"} can be written from here.
+        </p>
+      </div>
+      <Button onClick={() => c.dismissReadOnly()} className="self-start sm:self-center">
+        Got it
+      </Button>
+    </div>
   );
 }
 

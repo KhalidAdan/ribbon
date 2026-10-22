@@ -342,7 +342,11 @@ working. A later version will stop.
 - Positions are kept on the machine first: in the Ribbon folder's local
   mirror, flushed to disk. They reach the log beside the books within
   fifteen seconds while playing, and at once on a pause, a seek or a
-  close. A share that is away gets them when it is back.
+  close. A share that is away gets them when it is back. A folder that
+  is read-only from the device (the iPhone's Files app reaches some
+  shares that way) is not tried again until the folder is opened again:
+  its places stay on the device, and the library says so once and
+  Settings says so beside the folder.
 - The device identifier is made once and kept in the Ribbon folder's
   `settings.json`.
 - Reading places are kept on the machine first too, in `settings.json`

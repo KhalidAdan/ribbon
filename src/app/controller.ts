@@ -10,6 +10,7 @@ import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
+import { isReadOnly } from "./read-only";
 import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
 import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "../core/poslog";
@@ -108,6 +109,8 @@ export interface Platform {
   defaultRoot?: () => Promise<string | null>;
   /** Milliseconds since the host process started, when the host knows. */
   uptimeMs?: () => Promise<number>;
+  /** A phone, which the app's sentences call "this phone"; any other device is "this machine". */
+  phone?: boolean;
   /** App-level settings that outlive a library, when the platform keeps them. */
   appSettings?: {
     read(): Promise<Record<string, unknown>>;
@@ -157,6 +160,8 @@ export interface SourceStatus {
   lastScanMs: number | null;
   /** Why the source could not be opened, or null. */
   error: string | null;
+  /** The folder is read-only from this device: places in its books are kept on this device alone (read-only.ts). */
+  readOnly: boolean;
 }
 
 export interface AppState {
@@ -164,6 +169,8 @@ export interface AppState {
   /** The folders the library is populated from, in the order they were added. */
   sources: Source[];
   sourceStatus: Record<string, SourceStatus>;
+  /** Folders found read-only from this device that the library has not said so about yet: it says so once per folder. */
+  readOnlyNotice: string[];
   /** Every book from every source, in source order. */
   books: ScannedBook[];
   positions: Record<string, Position | null>;
@@ -406,11 +413,17 @@ export class AppController {
   /** This installation in the position log: a random id, made once and kept in the app's settings. */
   private deviceId: string = globalThis.crypto.randomUUID();
 
+  /** This device, as the app's sentences name it. */
+  get here(): string {
+    return this.platform.phone ? "this phone" : "this machine";
+  }
+
   constructor(private readonly platform: Platform) {
     this.state = {
       phase: "boot",
       sources: [],
       sourceStatus: {},
+      readOnlyNotice: [],
       books: [],
       positions: {},
       current: null,
@@ -547,14 +560,36 @@ export class AppController {
     const sourceStatus: Record<string, SourceStatus> = {};
     for (const s of this.state.sources) {
       const o = this.opened.get(s.id);
-      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null }), scanning: o?.scanning ?? null };
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o?.scanning ?? null };
     }
     this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
   }
 
   private setSourceStatus(id: string, patch: Partial<SourceStatus>): void {
-    const prev = this.state.sourceStatus[id] ?? { scanning: null, lastScanMs: null, error: null };
+    const prev = this.state.sourceStatus[id] ?? { scanning: null, lastScanMs: null, error: null, readOnly: false };
     this.set({ sourceStatus: { ...this.state.sourceStatus, [id]: { ...prev, ...patch } } });
+  }
+
+  /** A folder turned out to be read-only from this device: say so beside it in Settings, and once at the top of the library. */
+  private folderReadOnly(source: Source): void {
+    if (!this.opened.has(source.id)) return;
+    log.warn(`${source.name}: read-only from this device; places in its books are kept on this machine`);
+    this.setSourceStatus(source.id, { readOnly: true });
+    if (!this.readOnlyTold().includes(source.root) && !this.state.readOnlyNotice.includes(source.id)) this.set({ readOnlyNotice: [...this.state.readOnlyNotice, source.id] });
+  }
+
+  /** The folders the library has already said are read-only from this device. */
+  private readOnlyTold(): string[] {
+    const told = this.appSettings.readOnlyTold;
+    return Array.isArray(told) ? told.filter((root): root is string => typeof root === "string") : [];
+  }
+
+  /** The notice about read-only folders was read: it is not shown for them again. */
+  dismissReadOnly(): void {
+    const roots = this.state.readOnlyNotice.flatMap((id) => this.state.sources.find((s) => s.id === id)?.root ?? []);
+    this.appSettings = { ...this.appSettings, readOnlyTold: [...new Set([...this.readOnlyTold(), ...roots])] };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    this.set({ readOnlyNotice: [] });
   }
 
   private saveSources(): Promise<void> {
@@ -594,7 +629,7 @@ export class AppController {
       return;
     }
     const sources = entries.map(sourceFrom);
-    this.set({ phase: "loading", sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, { scanning: null, lastScanMs: null, error: null }])) });
+    this.set({ phase: "loading", sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, { scanning: null, lastScanMs: null, error: null, readOnly: false }])) });
     await Promise.all(
       sources.map((s) =>
         this.openSource(s).catch((e: unknown) => {
@@ -650,7 +685,7 @@ export class AppController {
     this.set({
       phase: this.opened.size === 0 ? "loading" : this.state.phase,
       sources: [...this.state.sources, source],
-      sourceStatus: { ...this.state.sourceStatus, [source.id]: { scanning: null, lastScanMs: null, error: null } },
+      sourceStatus: { ...this.state.sourceStatus, [source.id]: { scanning: null, lastScanMs: null, error: null, readOnly: false } },
       error: null,
     });
     try {
@@ -672,7 +707,7 @@ export class AppController {
       marks.push(`${what} ${Math.round(now - last)}`);
       last = now;
     };
-    const lib = new LibraryService(this.platform.host, root);
+    const lib = new LibraryService(this.platform.host, root, () => this.folderReadOnly(source));
     lib.setDevice(this.deviceId);
     const o: Opened = {
       source,
@@ -974,7 +1009,9 @@ export class AppController {
         () => log.info("records saved in", Date.now() - saveStarted, "ms", source.name),
         (e: unknown) => log.warn("could not save records:", describe(e)),
       );
-      void this.fetchCovers(o).then(() => this.mirrorCoversFor(o));
+      void this.fetchCovers(o)
+        .then(() => this.mirrorCoversFor(o))
+        .catch((e: unknown) => isReadOnly(e) || log.warn("could not keep covers beside the books:", describe(e)));
       if (background) this.offerSeriesSetup();
       this.maybeLookup();
     } catch (e) {
@@ -1044,6 +1081,7 @@ export class AppController {
     this.set({
       sources: this.state.sources.filter((s) => s.id !== id),
       sourceStatus,
+      readOnlyNotice: this.state.readOnlyNotice.filter((s) => s !== id),
       problems: this.state.problems.filter((p) => p.source !== id),
       series,
       about,

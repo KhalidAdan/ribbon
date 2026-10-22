@@ -87,7 +87,7 @@ function controller(pane: AppState["pane"]): AppController {
   set(c, {
     phase: "ready",
     sources: [{ id: "s1", root: "/library", name: "library", addedAt: "2026-01-01T00:00:00.000Z" }],
-    sourceStatus: { s1: { scanning: null, lastScanMs: 1200, error: null } },
+    sourceStatus: { s1: { scanning: null, lastScanMs: 1200, error: null, readOnly: false } },
     books,
     positions,
     series: { saga: series },

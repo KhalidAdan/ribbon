@@ -88,6 +88,7 @@ export function SettingsPane() {
                         {s.root}
                       </span>
                       <span className={clsx("block", status?.error ? "text-red-600 dark:text-red-400" : "")}>{line}</span>
+                      {status?.readOnly && !status.error && <span className="block">Read-only from {c.here}: your place in its books is kept on {c.here}.</span>}
                     </>
                   }
                   aside={

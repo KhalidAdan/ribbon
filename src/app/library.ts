@@ -15,6 +15,7 @@ import { aboutToBytes, bytesToAbout, type BookAbout } from "../core/about";
 import { locate } from "../core/timeline";
 import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
+import { guardWrites } from "./read-only";
 import type { PairingFix } from "../core/reading/align";
 
 /**
@@ -24,11 +25,20 @@ import type { PairingFix } from "../core/reading/align";
  */
 export class LibraryService {
   private device: string | null = null;
+  readonly host: Host;
 
+  /**
+   * `onReadOnly` is called once if the folder turns out to be read-only
+   * from this device; from then on, writes beside the books fail at once
+   * (read-only.ts) rather than going to the share again.
+   */
   constructor(
-    readonly host: Host,
+    host: Host,
     readonly root: string,
-  ) {}
+    onReadOnly?: () => void,
+  ) {
+    this.host = onReadOnly ? guardWrites(host, root, onReadOnly) : host;
+  }
 
   /** Absolute path for a library-relative path. */
   absPath(relPath: string): string {
