@@ -585,10 +585,16 @@ export function orderFiles(files: AudioFile[]): void {
 
 /**
  * Read embedded chapter markers with ffprobe for any file of the book
- * that has not been probed yet, then rebuild and persist the chapters.
- * Returns the book unchanged when nothing was pending.
+ * that has not been probed yet, then rebuild the chapters and keep them
+ * beside the book. Returns the book unchanged when nothing was pending.
+ *
+ * Keeping them beside the book is a cache for next time: the chapters
+ * read are returned either way. A folder that cannot be written (read
+ * only from here, or a share that refuses renames) still gets its
+ * chapters for this session, and `onUnsaved` is told why they were not
+ * kept.
  */
-export async function ensureChapters(host: Host, root: string, book: ScannedBook, signal?: AbortSignal): Promise<ScannedBook> {
+export async function ensureChapters(host: Host, root: string, book: ScannedBook, signal?: AbortSignal, onUnsaved?: (e: unknown) => void): Promise<ScannedBook> {
   const pending = book.files.filter((f) => !f.chaptersProbed);
   if (pending.length === 0) return book;
   const files = book.files.map((f) => ({ ...f }));
@@ -616,13 +622,21 @@ export async function ensureChapters(host: Host, root: string, book: ScannedBook
   let cover = book.book.cover;
   if (!cover && files.some((f) => f.hasCover)) {
     const candidate = `${RIBBON_DIR}/covers/${book.book.id}.jpg`;
-    const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters, parts: book.parts }], undefined, signal);
-    if (done.length > 0) cover = candidate;
+    try {
+      const done = await extractMissingCovers(host, root, [{ book: { ...book.book, cover: candidate }, files, chapters, parts: book.parts }], undefined, signal);
+      if (done.length > 0) cover = candidate;
+    } catch {
+      // A cover that cannot be kept beside the book waits for the next time.
+    }
   }
   const updated: ScannedBook = { book: { ...book.book, durationMs, cover }, files, chapters, parts: buildParts(files) };
-  await updateFileRows(host, root, updated);
-  await host.mkdir(host.join(root, RIBBON_DIR, "chapters"));
-  await host.writeFile(host.join(root, RIBBON_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
+  try {
+    await updateFileRows(host, root, updated);
+    await host.mkdir(host.join(root, RIBBON_DIR, "chapters"));
+    await host.writeFile(host.join(root, RIBBON_DIR, "chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
+  } catch (e) {
+    onUnsaved?.(e);
+  }
   return updated;
 }
 

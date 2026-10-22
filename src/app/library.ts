@@ -72,9 +72,9 @@ export class LibraryService {
     return scanLibrary(this.host, this.root, opts);
   }
 
-  /** Probe embedded chapter markers once per book, on first open. */
-  ensureChapters(book: ScannedBook, signal?: AbortSignal): Promise<ScannedBook> {
-    return ensureChapters(this.host, this.root, book, signal);
+  /** Probe embedded chapter markers once per book, on first open. They are used even when they cannot be kept beside the book (`onUnsaved`). */
+  ensureChapters(book: ScannedBook, signal?: AbortSignal, onUnsaved?: (e: unknown) => void): Promise<ScannedBook> {
+    return ensureChapters(this.host, this.root, book, signal, onUnsaved);
   }
 
   async deviceName(): Promise<string> {
