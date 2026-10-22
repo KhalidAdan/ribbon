@@ -9,10 +9,13 @@ import type { ServerConfig } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { invitePage } from "./invite-page.ts";
 import { Invites, type Role } from "./invites.ts";
+import { Events } from "./events.ts";
 import { Jobs } from "./jobs.ts";
 import { BookIndex } from "./library/books.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
+import { Places } from "./places.ts";
+import { placesRoutes } from "./places-routes.ts";
 
 export interface RibbonServer {
   app: FastifyInstance;
@@ -21,6 +24,8 @@ export interface RibbonServer {
   invites: Invites;
   jobs: Jobs;
   books: BookIndex;
+  places: Places;
+  events: Events;
 }
 
 /**
@@ -36,6 +41,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const invites = new Invites(db);
   const jobs = new Jobs(db);
   const books = new BookIndex(db);
+  const places = new Places(config.dataDir);
+  const events = new Events();
 
   // A proxy on this machine (Caddy, Tailscale Serve) says whether the request came in over HTTPS; anyone else's word for it isn't taken.
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
@@ -98,10 +105,11 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
     }
   });
 
-  libraryRoutes(app, { auth, jobs, books, dataDir: config.dataDir });
+  libraryRoutes(app, { auth, jobs, books, events, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, dataDir: config.dataDir });
+  placesRoutes(app, { auth, places, events });
 
-  return { app, auth, db, invites, jobs, books };
+  return { app, auth, db, invites, jobs, books, places, events };
 }
 
 /** Hand a request to Better Auth as the Fetch request it expects, and its answer back to Fastify. */
