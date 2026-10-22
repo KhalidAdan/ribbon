@@ -1,6 +1,8 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { admin, bearer, username } from "better-auth/plugins";
+import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyRequest } from "fastify";
 import type { DatabaseSync } from "node:sqlite";
 import type { ServerConfig } from "./config.ts";
 
@@ -55,4 +57,19 @@ export type Auth = ReturnType<typeof makeAuth>;
  */
 export function placeholderEmail(name: string): string {
   return `${name.toLowerCase()}@people.ribbon.invalid`;
+}
+
+/** Someone signed in, as a route sees them. */
+export interface Person {
+  id: string;
+  name: string;
+  role: string;
+}
+
+/** The request's person, from its session cookie or its bearer token, or null. */
+export async function signedIn(auth: Auth, request: FastifyRequest): Promise<Person | null> {
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+  if (!session) return null;
+  const user = session.user as typeof session.user & { username?: string | null; role?: string | null };
+  return { id: user.id, name: user.username ?? user.name, role: user.role ?? "user" };
 }

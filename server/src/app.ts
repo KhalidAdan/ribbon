@@ -3,24 +3,22 @@ import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { fromNodeHeaders } from "better-auth/node";
 import type { DatabaseSync } from "node:sqlite";
-import { authOptions, makeAuth, placeholderEmail, type Auth } from "./auth.ts";
+import { authOptions, makeAuth, placeholderEmail, signedIn, type Auth } from "./auth.ts";
 import type { ServerConfig } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { invitePage } from "./invite-page.ts";
 import { Invites, type Role } from "./invites.ts";
+import { Jobs } from "./jobs.ts";
+import { BookIndex } from "./library/books.ts";
+import { libraryRoutes } from "./library/routes.ts";
 
 export interface RibbonServer {
   app: FastifyInstance;
   auth: Auth;
   db: DatabaseSync;
   invites: Invites;
-}
-
-/** Someone signed in, as a route sees them. */
-interface Person {
-  id: string;
-  name: string;
-  role: string;
+  jobs: Jobs;
+  books: BookIndex;
 }
 
 /**
@@ -34,6 +32,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   await (await getMigrations(options)).runMigrations();
   const auth = makeAuth(options);
   const invites = new Invites(db);
+  const jobs = new Jobs(db);
+  const books = new BookIndex(db);
 
   // A proxy on this machine (Caddy, Tailscale Serve) says whether the request came in over HTTPS; anyone else's word for it isn't taken.
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
@@ -94,15 +94,9 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
     }
   });
 
-  return { app, auth, db, invites };
-}
+  libraryRoutes(app, { auth, jobs, books, dataDir: config.dataDir });
 
-/** The request's person, from its session cookie or its bearer token, or null. */
-async function signedIn(auth: Auth, request: FastifyRequest): Promise<Person | null> {
-  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
-  if (!session) return null;
-  const user = session.user as typeof session.user & { username?: string | null; role?: string | null };
-  return { id: user.id, name: user.username ?? user.name, role: user.role ?? "user" };
+  return { app, auth, db, invites, jobs, books };
 }
 
 /** Hand a request to Better Auth as the Fetch request it expects, and its answer back to Fastify. */

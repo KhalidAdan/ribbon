@@ -62,7 +62,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      # Adding books reads them with ffprobe and makes covers with ffmpeg.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # The server runs src/core/ from the app, which brings its own packages.
+      - run: npm ci --ignore-scripts
+        working-directory: .
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
