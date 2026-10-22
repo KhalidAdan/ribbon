@@ -52,7 +52,7 @@ jobs:
   server:
     name: Server
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: server
@@ -65,8 +65,10 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             server/package-lock.json
-      # Adding books reads them with ffprobe and makes covers with ffmpeg.
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      # Adding books reads them with ffprobe and makes covers with ffmpeg. Ubuntu's
+      # mirror stalls now and then: only what ffmpeg needs, and retries.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg
+        timeout-minutes: 10
       # The server runs src/core/ from the app, which brings its own packages.
       - run: npm ci --ignore-scripts
         working-directory: .
