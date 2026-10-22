@@ -1,7 +1,7 @@
 # The Ribbon server
 
 **A design for review, not built yet.** It records what was decided on
-2026-10-22 and proposes the rest; the questions still open are in section 12.
+2026-10-22 and proposes the rest; the questions still open are in section 13.
 
 ## 1. Why a server
 
@@ -39,9 +39,12 @@ finished result.
 | Who brings people in? | **The admin invites them.** |
 | Hosting, privacy, HTTPS? | **The host's business.** The server doesn't depend on Tailscale or any network; the owner runs his behind Tailscale so it isn't on the open internet. |
 | Streaming, or keeping books on the device? | **Download before playing** on desktops and phones. The Apple TV streams (section 8). |
+| A device running out of space? | **Check before every download, and let the person choose** what to remove, or not to download. Nothing is removed on its own. |
+| While a book is being prepared? | **Only what's exact is offered** (section 9): listening and reading never wait; moving between them goes by chapter until the narration is transcribed, then by sentence. |
 | Which clients first? | **The desktop app (Windows and Mac) and the iPhone.** |
-| What works first? | **Everyone listens with their own place** (section 11). |
-| Above all | **Fast, with no pop-in or layout shift** (section 7). |
+| What works first? | **Everyone listens with their own place** (section 12). |
+| The web framework | **Fastify.** |
+| Above all | **Fast, with no pop-in or layout shift** (section 7), and HTTP caching used wherever it helps. |
 
 The owner's first server is his old T2 MacBook. Nothing in the design
 depends on it.
@@ -88,11 +91,11 @@ Most of what the server needs exists, because Ribbon was layered for it
   and merges them with the same code. A phone that listened on a plane sends
   what it appended when it's back; nothing can conflict.
 
-So the server is **a Node package in this repository** (`server/`), sharing
-`src/core/` with the apps. Speed comes from where the work runs, not the
-language: answering requests and sending files is quick in Node, and
-anything heavy (probing, indexing, transcribing) runs in the Rust tools as a
-job, never while someone waits on a request.
+So the server is **a Node package in this repository** (`server/`), on
+**Fastify**, sharing `src/core/` with the apps. Speed comes from where the
+work runs as much as from the framework: answering requests and sending
+files is quick in Node, and anything heavy (probing, indexing, transcribing)
+runs in the Rust tools as a job, never while someone waits on a request.
 
 ## 5. What the server keeps
 
@@ -164,13 +167,26 @@ The rule: **nothing on screen moves or appears late because of the server.**
   (`mirror/covers`). Every app keeps them on disk, so from the second launch
   on, every cover is drawn from the device.
 - **The library list is cached on the device too**, and drawn at once on
-  launch; the server answers "nothing changed" (an ETag) in a few
-  milliseconds, or sends only what did.
+  launch; the server answers "nothing changed" in a few milliseconds, or
+  sends only what did.
 - **Changes are pushed** (server-sent events): a book added, your place moved
   on another device. No polling.
 - **No waiting on work.** Importing, probing, covers and (later) transcribing
   are jobs that run in the background; a request only ever reads what's
   already made.
+
+**HTTP caching, wherever it helps:**
+
+| What | Headers | So that |
+| --- | --- | --- |
+| Covers | `Cache-Control: private, max-age=31536000, immutable`, a hash in the URL | A cover is fetched once per device, ever. A new picture is a new URL. |
+| The library, a book's details, its records | `ETag`, `Cache-Control: private, no-cache`; the app sends `If-None-Match` | The device asks every time and almost always gets `304 Not Modified`, with no body. |
+| A book's files (audio, EPUB) | `ETag` and `Last-Modified` (files never change once copied in), `Accept-Ranges: bytes`; the app resumes with `Range` and `If-Range` | A download that stopped carries on from where it was, and starts over only if the file really changed. |
+| Your places | `GET /api/places?after=` with the last record this device has | Only new records travel, never the whole log. |
+| JSON answers | Compressed (Brotli or gzip, as the app accepts) | The library list for thousands of books stays small. |
+
+`private` keeps anything behind a sign-in out of shared caches; a proxy in
+front of the server never stores one person's answers for another.
 
 ## 8. Getting books onto devices
 
@@ -186,8 +202,15 @@ car or on a plane.
 - **Downloads go on in the background** where the system allows it. On the
   iPhone that needs a native download (iOS's background transfers), not the
   web view's: work for milestone 1.
-- **Space:** "Remove from this device" on any book; places and bookmarks stay
-  on the server. When finished books leave a phone is section 12.
+- **Space, checked before every download** (decided). The app compares the
+  book's size (the server knows it) with the space free on the device,
+  leaving a margin. With enough room, the download starts. Without it,
+  nothing is removed on its own: the app says how much is needed and lists
+  the books already on the device with their sizes, finished ones first,
+  and the person picks which to remove, or not to download. "Remove from this
+  device" is on every downloaded book too. Places and bookmarks stay on the
+  server either way. Reading the free space needs a small native call on each
+  system (Rust on the desktop, the iOS storage API on the phone).
 - **Places and bookmarks always sync**, whatever is downloaded.
 
 **The Apple TV streams.** tvOS gives an app almost no lasting storage, only
@@ -196,7 +219,40 @@ streams the audio from the server, which therefore also serves audio with
 Range requests and starts an MP3 at the exact frame (`frames.rs` in the app
 today), and it keeps covers in its cache.
 
-## 9. The API (first milestone)
+## 9. From added to ready
+
+A book becomes usable in stages, and **each stage offers only what it makes
+exact** (decided). Nothing is guessed silently: what isn't exact yet isn't
+offered, and the book says what it's waiting for.
+
+| Stage (on the server) | How long | Listen | Read | Move between them |
+| --- | --- | --- | --- | --- |
+| Copied in, chapters read, covers made | minutes | yes | | |
+| EPUB parsed | seconds | yes | yes | |
+| Text paired with audio, by chapter | seconds | yes | yes | **chapter starts only** |
+| Narration transcribed | hours | yes | yes | **any sentence, with the highlight** |
+
+- **Listening and reading never wait for read-along.** A book can be
+  listened to as soon as its audio is in, and read as soon as its EPUB is.
+- **Paired by chapter,** the only places known exactly in both editions are
+  chapter starts. So moving between them is offered at those: "Listen from
+  the start of this chapter", opening the text at the narrator's chapter.
+  "Listen from here" at a sentence, following the narrator page by page,
+  and the highlight wait for the transcript.
+- **Transcribed,** everything read-along does is offered.
+- **The book says where it stands** on its page, in plain words: "Read-along:
+  by chapter for now; sentences in about 2 hours". The estimate comes from
+  how long the server's last transcriptions took.
+- **Devices catch up on their own.** A book downloaded at an earlier stage
+  gets the rest when it's ready: the server pushes an event, and the device
+  fetches only the new records (the transcript, the pairing), which are
+  small.
+- **Order of work:** books someone has opened go first, then the newest.
+- **A book whose text and audio don't pair** (a different edition, a missing
+  chapter) is flagged on the admin pages for a person to fix. It's never
+  offered as read-along on a guess.
+
+## 10. The API (first milestone)
 
 JSON over HTTP. A sketch, to be settled in code review:
 
@@ -215,7 +271,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 The admin pages have their own: invites, people, devices, adding a folder,
 and the jobs that follow.
 
-## 10. The apps
+## 11. The apps
 
 - **A server is a kind of library**, next to a folder. "Add a folder" gets a
   sibling, "Connect to a server": its address, your name and password.
@@ -231,7 +287,7 @@ and the jobs that follow.
 
 Folders stay for people without a server; nothing about them changes.
 
-## 11. Milestones
+## 12. Milestones
 
 **1. Everyone listens with their own place.**
 
@@ -239,17 +295,19 @@ Folders stay for people without a server; nothing about them changes.
   admin pages for those and for adding a folder.
 - Adding a folder: scan it with the existing scanner, show what was found and
   what's already there, copy the new books in, read their chapters (ffprobe
-  runs on the server), make their covers.
-- The API in section 9, with the caching in section 7.
+  runs on the server), make their covers, parse their EPUBs and pair text with
+  audio by chapter: the first three stages of section 9.
+- The API in section 10, with the caching in section 7.
 - Ribbon on the desktop (Windows and Mac) and the iPhone: connect to a
-  server, show its library with no pop-in, download a book, play and read it
-  from the device, each person's place kept and synced across their devices.
+  server, show its library with no pop-in, check the space and download a
+  book, play and read it from the device, move between the two by chapter,
+  each person's place kept and synced across their devices.
 - Done when: the owner and a brother each listen to the same book on their
   phones, each from their own place, and the owner's place follows him from
   the phone to the desktop.
 
-**2. Read-along prepared on the server.** The server pairs each book's text
-with its audio and transcribes the narration with whisper as a job, and the
+**2. Read-along prepared on the server.** The server transcribes the
+narration with whisper as a job, the last stage of section 9, and the
 read-along comes down with the book (its transcript, or a finished read-along
 EPUB with Media Overlays), so no device does any of it. Whisper's speed on the
 host gets measured first: on an Intel CPU a long book may take an hour or two,
@@ -258,14 +316,12 @@ which is fine overnight.
 **3. The Apple TV** (streaming), Android, bookmarks and highlights per
 person, and what the first two milestones teach.
 
-## 12. Still to decide
+## 13. Still to decide
 
-1. **When finished books leave a phone**: at once, after a few days, or only
-   when space runs short.
-2. **Whether a download can start playing before it's done**, once the first
+1. **Whether a download can start playing before it's done**, once the first
    minutes are down. Download before playing is the decision; this would only
    shorten the wait the first time a long book is opened.
-3. **NORTHSTAR.** "Not a server" and "Nothing to sign in to" no longer hold.
+2. **NORTHSTAR.** "Not a server" and "Nothing to sign in to" no longer hold.
    A proposal for the new lines, to agree before this is built:
    - *Your own server, your own people, nothing in the cloud.* Ribbon runs on
      a machine you choose, for the people you invite. No store, no tracking,
