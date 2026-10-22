@@ -1,0 +1,143 @@
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import { APIError } from "better-auth/api";
+import { getMigrations } from "better-auth/db/migration";
+import { fromNodeHeaders } from "better-auth/node";
+import type { DatabaseSync } from "node:sqlite";
+import { authOptions, makeAuth, placeholderEmail, type Auth } from "./auth.ts";
+import type { ServerConfig } from "./config.ts";
+import { openDatabase } from "./db.ts";
+import { invitePage } from "./invite-page.ts";
+import { Invites, type Role } from "./invites.ts";
+
+export interface RibbonServer {
+  app: FastifyInstance;
+  auth: Auth;
+  db: DatabaseSync;
+  invites: Invites;
+}
+
+/** Someone signed in, as a route sees them. */
+interface Person {
+  id: string;
+  name: string;
+  role: string;
+}
+
+/**
+ * The server, ready to listen: its database opened and brought up to date,
+ * accounts, invites and the routes over them (docs/SERVER.md). Built
+ * without listening, so the tests drive it with `app.inject`.
+ */
+export async function buildServer(config: ServerConfig, opts: { logger?: boolean } = {}): Promise<RibbonServer> {
+  const db = openDatabase(config.dataDir);
+  const options = authOptions(db, config);
+  await (await getMigrations(options)).runMigrations();
+  const auth = makeAuth(options);
+  const invites = new Invites(db);
+
+  // A proxy on this machine (Caddy, Tailscale Serve) says whether the request came in over HTTPS; anyone else's word for it isn't taken.
+  const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
+
+  // Passwords travel only over HTTPS, or within this machine (docs/SERVER.md, section 6).
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.method !== "POST" || !sendsPassword(request.url) || isSecure(request)) return;
+    await reply.code(403).send({ error: "Passwords are only sent over HTTPS. Reach this server through HTTPS, or from the machine it runs on." });
+  });
+
+  app.get("/healthz", async () => ({ ok: true }));
+
+  // Better Auth's own routes: sign in with a name, sign out, sessions, the admin's tools.
+  app.route({ method: ["GET", "POST"], url: "/api/auth/*", handler: (request, reply) => passToAuth(auth, request, reply) });
+
+  app.get("/api/me", async (request, reply) => {
+    const me = await signedIn(auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    return { user: me };
+  });
+
+  app.post("/api/invites", async (request, reply) => {
+    const me = await signedIn(auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can invite people." });
+    const invite = invites.create("user", me.id);
+    return { code: invite.code, url: `${config.url}/invite/${invite.code}`, expiresAt: new Date(invite.expiresAt).toISOString() };
+  });
+
+  app.get<{ Params: { code: string } }>("/invite/:code", async (request, reply) => {
+    return reply.type("text/html; charset=utf-8").header("cache-control", "no-store").send(invitePage({ code: request.params.code, usable: invites.usable(request.params.code), serverUrl: config.url }));
+  });
+
+  app.post<{ Params: { code: string }; Body: { name?: unknown; password?: unknown } }>("/api/invites/:code/accept", async (request, reply) => {
+    const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
+    const password = typeof request.body?.password === "string" ? request.body.password : "";
+    if (!name || !password) return reply.code(400).send({ error: "A name and a password, please." });
+    const { code } = request.params;
+    const role = invites.reserve(code);
+    if (!role) return reply.code(410).send({ error: "This invite has been used already, or it has expired. Ask the server's admin for a new one." });
+    try {
+      const { headers, response } = await auth.api.signUpEmail({
+        body: { email: placeholderEmail(name), name, username: name, password },
+        headers: fromNodeHeaders(request.headers),
+        returnHeaders: true,
+      });
+      setRole(db, response.user.id, role);
+      invites.spend(code, response.user.id);
+      const token = headers.get("set-auth-token");
+      return { token, user: { id: response.user.id, name, role } };
+    } catch (e) {
+      invites.release(code);
+      if (e instanceof APIError) {
+        const said = inOurWords(e);
+        return reply.code(said.taken ? 409 : e.statusCode >= 500 ? 500 : 400).send({ error: said.message });
+      }
+      throw e;
+    }
+  });
+
+  return { app, auth, db, invites };
+}
+
+/** The request's person, from its session cookie or its bearer token, or null. */
+async function signedIn(auth: Auth, request: FastifyRequest): Promise<Person | null> {
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
+  if (!session) return null;
+  const user = session.user as typeof session.user & { username?: string | null; role?: string | null };
+  return { id: user.id, name: user.username ?? user.name, role: user.role ?? "user" };
+}
+
+/** Hand a request to Better Auth as the Fetch request it expects, and its answer back to Fastify. */
+async function passToAuth(auth: Auth, request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const url = new URL(request.url, `${request.protocol}://${request.headers.host ?? "localhost"}`);
+  const init: RequestInit = { method: request.method, headers: fromNodeHeaders(request.headers) };
+  if (request.body !== undefined && request.method !== "GET") init.body = JSON.stringify(request.body);
+  const response = await auth.handler(new Request(url, init));
+  reply.code(response.status);
+  for (const [key, value] of response.headers) if (key !== "set-cookie") reply.header(key, value);
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length > 0) reply.header("set-cookie", cookies);
+  await reply.send(response.body ? await response.text() : null);
+}
+
+/** Routes that carry a password in their body. */
+function sendsPassword(url: string): boolean {
+  const pathname = url.split("?")[0]!;
+  return pathname.startsWith("/api/auth/") || /^\/api\/invites\/[^/]+\/accept$/.test(pathname);
+}
+
+function isSecure(request: FastifyRequest): boolean {
+  return request.protocol === "https" || ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.ip);
+}
+
+/** Better Auth's admin plugin keeps the role on the user; an invite's role is set when its account is made. */
+function setRole(db: DatabaseSync, userId: string, role: Role): void {
+  db.prepare('UPDATE "user" SET role = ? WHERE id = ?').run(role, userId);
+}
+
+/** Better Auth's messages for a refused sign-up, said the way Ribbon says things, and whether the name was the trouble. */
+function inOurWords(e: APIError): { message: string; taken: boolean } {
+  const message = e.body?.message ?? e.message;
+  if (/taken|already exists/i.test(message)) return { message: "That name is taken. Try another.", taken: true };
+  if (/username.*(invalid|short|long)|invalid username/i.test(message)) return { message: "A name is 3 to 30 letters, numbers, dots and underscores.", taken: false };
+  if (/password.*short/i.test(message)) return { message: "The password needs at least 8 characters.", taken: false };
+  return { message, taken: false };
+}

@@ -46,3 +46,23 @@ jobs:
             echo "::error::src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj names an Apple development team: leave it out of the commit"
             exit 1
           fi
+
+  # The server (server/, docs/SERVER.md) is its own Node package, with its own
+  # dependencies and tests. It runs on Linux and Mac hosts; Linux is quickest.
+  server:
+    name: Server
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
