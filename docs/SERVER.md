@@ -284,7 +284,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | --- | --- |
 | `/api/auth/*` | Better Auth's own routes: sign up with an invite code, sign in with a name and password, sign out, sessions. |
 | `POST /api/invites` | (Admin) Makes an invite: a one-time code and its link. |
-| `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, chapters, whether there's an EPUB, each cover's hash, aspect ratio and colour. No places or progress in it, so its ETag holds for days. |
+| `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, size, whether there's audio and an EPUB, each cover's hash, aspect ratio and colour. No places or progress in it, so its ETag holds for days. Chapters come with a book's details. |
 | `GET /api/books/:id` | One book: its files, chapters, parts and records. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
 | `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads (and, later, the TV's streaming). |

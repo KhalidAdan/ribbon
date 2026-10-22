@@ -1,3 +1,4 @@
+import fastifyCompress from "@fastify/compress";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
@@ -10,6 +11,7 @@ import { invitePage } from "./invite-page.ts";
 import { Invites, type Role } from "./invites.ts";
 import { Jobs } from "./jobs.ts";
 import { BookIndex } from "./library/books.ts";
+import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 
 export interface RibbonServer {
@@ -37,6 +39,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
 
   // A proxy on this machine (Caddy, Tailscale Serve) says whether the request came in over HTTPS; anyone else's word for it isn't taken.
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
+  // JSON shrinks a lot; audio, pictures and EPUBs are compressed already and go as they are.
+  await app.register(fastifyCompress, { encodings: ["br", "gzip"] });
 
   // Passwords travel only over HTTPS, or within this machine (docs/SERVER.md, section 6).
   app.addHook("onRequest", async (request, reply) => {
@@ -95,6 +99,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   });
 
   libraryRoutes(app, { auth, jobs, books, dataDir: config.dataDir });
+  await libraryApi(app, { auth, books, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books };
 }
