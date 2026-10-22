@@ -588,22 +588,27 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
   }, [readSelection]);
   const onClick = (e: React.MouseEvent) => {
     const t = e.target as HTMLElement;
-    if (tap) {
-      if (!t.closest("[data-tap]")) setTap(null);
-      return;
-    }
-    if (t.closest("button, [data-link]") || !t.closest("[data-block]")) return;
+    // The offer's own buttons answer for themselves.
+    if (t.closest("[data-tap]")) return;
+    const next = tapped(e, t);
+    // Another sentence moves the offer to it; the same one again, or anywhere that is not a sentence, puts the offer away.
+    const same = !!next && !!tap && next.saved === tap.saved && next.mark?.section === tap.mark?.section && next.mark?.block === tap.mark?.block && next.mark?.start === tap.mark?.start;
+    setTap(same ? null : next);
+  };
+  // What a tap on the text offers: to listen from the sentence tapped, and to take back the bookmark it is in.
+  const tapped = (e: React.MouseEvent, t: HTMLElement) => {
+    if (t.closest("button, [data-link]") || !t.closest("[data-block]")) return null;
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed) return;
+    if (sel && !sel.isCollapsed) return null;
     const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
     const p = range ? placeAt(range.startContainer, range.startOffset) : null;
     const rect = box.current?.getBoundingClientRect();
-    if (!p || !rect) return;
+    if (!p || !rect) return null;
     const sentence = listen ? text.sentenceAt(p) : null;
     const on = saved.find((r) => inRange(r, p));
-    if (!sentence && !on) return;
+    if (!sentence && !on) return null;
     const line = t.closest("[data-block]")!.getBoundingClientRect();
-    setTap({ mark: sentence, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top });
+    return { mark: sentence, saved: on?.id ?? null, x: e.clientX - rect.left, y: line.bottom - rect.top };
   };
   // The narrator, as far as the page cares, while this book's audio is loaded: the sentence it is in (when the
   // mapping is close enough to say which), whether it is on the page shown, and whether it plays and is followed.
