@@ -27,6 +27,7 @@ export function SettingsPane() {
     speech: s.speech,
     history: s.history,
     perfLog: s.perfLog,
+    canAddFolders: s.canAddFolders,
   }));
   const c = useController();
   const groups = groupProblems(state.problems);
@@ -52,7 +53,13 @@ export function SettingsPane() {
           <SectionHeader
             id="settings-folders"
             title="Folders"
-            description="The library is these folders and servers together. Books stay where they are; Ribbon keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk."
+            description={
+              state.sources.some((s) => s.server)
+                ? state.canAddFolders
+                  ? "The library is these folders and servers together. A folder you add goes into the server: it copies the books in, and the folder itself is never changed."
+                  : "The library is these folders and servers together. The server's admin adds its books."
+                : "The library is these folders and servers together. Books stay where they are; Ribbon keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk."
+            }
             actions={
               <>
                 {state.sources.length > 1 && (
@@ -63,9 +70,11 @@ export function SettingsPane() {
                 <Button size="sm" variant="ghost" leading={ServerIcon} onClick={() => setConnecting(true)}>
                   Connect to a server
                 </Button>
-                <Button size="sm" leading={FolderPlusIcon} onClick={() => void c.pickLibrary()}>
-                  Add a folder
-                </Button>
+                {state.canAddFolders && (
+                  <Button size="sm" leading={FolderPlusIcon} onClick={() => void c.pickLibrary()}>
+                    Add a folder
+                  </Button>
+                )}
               </>
             }
           />

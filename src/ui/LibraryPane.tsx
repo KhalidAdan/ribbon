@@ -25,7 +25,7 @@ import { applyView, filterCount, SORT_LABELS } from "../core/view";
  */
 export function LibraryPane({ query, onQuery, found }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null }) {
   // Not the player's place: the shelf follows it by the minute (useShelfProgress).
-  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null }));
+  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null, canAddFolders: s.canAddFolders }));
   useCovers();
   const progress = useShelfProgress();
   const c = useController();
@@ -83,9 +83,15 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
         {empty && state.scanning ? (
           <ScanProgress status={state.scanning} />
         ) : empty ? (
-          <EmptyState icon={FolderOpenIcon} title="No books here" action={<Button onClick={() => void c.pickLibrary()}>Add a folder</Button>}>
-            Ribbon found no audiobooks or EPUBs in {folder}. Add the folder your books live in.
-          </EmptyState>
+          state.sources.some((s) => s.server) ? (
+            <EmptyState icon={FolderOpenIcon} title="No books yet" action={state.canAddFolders ? <Button onClick={() => void c.pickLibrary()}>Add a folder</Button> : undefined}>
+              {state.canAddFolders ? "Add the folder your books live in, and the server copies them in." : "The server's admin hasn't added any books yet."}
+            </EmptyState>
+          ) : (
+            <EmptyState icon={FolderOpenIcon} title="No books here" action={<Button onClick={() => void c.pickLibrary()}>Add a folder</Button>}>
+              Ribbon found no audiobooks or EPUBs in {folder}. Add the folder your books live in.
+            </EmptyState>
+          )
         ) : results ? (
           <section aria-labelledby="results-title" className="flex flex-col gap-5">
             <SectionHeader

@@ -21,7 +21,7 @@ export function ScanProgress({ status }: { status: ScanStatus }) {
   return (
     <div role="status" aria-live="polite">
       <p className="text-base/6 font-medium text-ink tabular-nums sm:text-sm/5">{label}</p>
-      <p className="mt-0.5 text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">Books appear as they are found. Nothing is copied or changed.</p>
+      <p className="mt-0.5 text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">{status.copying ? "Books appear as the server copies them in. The folder itself is never changed." : "Books appear as they are found. Nothing is copied or changed."}</p>
       {walking ? <div className="mt-3 h-[3px] w-1/3 animate-pulse rounded-full bg-place/60" aria-hidden="true" /> : <ProgressLine fraction={fraction} className="mt-3" />}
       <ul role="list" className="mt-8 grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-x-5 gap-y-8" aria-hidden="true">
         {Array.from({ length: cards }, (_, i) => (

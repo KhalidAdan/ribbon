@@ -25,10 +25,15 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       "import",
       first,
       async (report) => {
-        const done = await importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id }, folder, report);
-        // Every device showing the library should know there's more in it.
-        if (done.added > 0) deps.events.toEveryone({ type: "books", data: { added: done.added } });
-        return done;
+        // Every device showing the library hears of each book as it's added, so shelves fill as the import goes.
+        let added = 0;
+        return importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id }, folder, (progress) => {
+          report(progress);
+          if (progress.added > added) {
+            added = progress.added;
+            deps.events.toEveryone({ type: "books", data: { added } });
+          }
+        });
       },
       me.id,
     );

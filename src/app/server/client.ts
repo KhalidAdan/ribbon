@@ -1,6 +1,25 @@
 import type { DeviceInfo, LogRecord } from "../../core/poslog";
 import type { ServerBook, ServerBookDetail } from "../../core/server-books";
 
+/** How a folder being added to a server is going (server/src/library/importer.ts, `ImportProgress`). */
+export interface ImportProgress {
+  folder: string;
+  found: number;
+  added: number;
+  skipped: number;
+  failed: number;
+  current: string | null;
+  notes: string[];
+}
+
+/** A job on the server: adding a folder, for now. */
+export interface ServerJob {
+  id: string;
+  state: "waiting" | "running" | "done" | "failed";
+  progress: ImportProgress;
+  error: string | null;
+}
+
 /** Something a server said no to, or couldn't be asked, in words to show. */
 export class ServerError extends Error {
   constructor(
@@ -54,6 +73,21 @@ export class ServerClient {
   /** A cover's bytes at one of the widths the server makes (200, 400 or 800). */
   async cover(hash: string, width: number): Promise<Uint8Array> {
     return new Uint8Array(await (await this.get(`/covers/${hash}-${width}.jpg`)).arrayBuffer());
+  }
+
+  /** Who's signed in: their name, and whether they're the server's admin. */
+  async me(): Promise<{ name: string; role: string }> {
+    return ((await (await this.get("/api/me")).json()) as { user: { name: string; role: string } }).user;
+  }
+
+  /** As the admin: add a folder on the server's machine. The server copies its books in as a job. */
+  async importFolder(folder: string): Promise<ServerJob> {
+    const r = await this.send("/api/library/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ folder }) });
+    return ((await r.json()) as { job: ServerJob }).job;
+  }
+
+  async job(id: string): Promise<ServerJob> {
+    return ((await (await this.get(`/api/jobs/${encodeURIComponent(id)}`)).json()) as { job: ServerJob }).job;
   }
 
   /** This person's position records from every device, newer than the cursor (none: from the start), and the cursor to ask with next. */

@@ -63,3 +63,85 @@ describe("one person's two devices, through the server", () => {
     expect(finishedOn(desktop)).toBe(true);
   });
 });
+
+/**
+ * Adding a folder the old way, Settings → Add a folder, when the app is
+ * signed in to a server: its admin's folder goes into the server, and
+ * everyone's shelf fills from it; nobody else adds folders.
+ */
+describe("adding a folder through a server", () => {
+  let dir: string;
+  let server: RibbonServer;
+  let url = "";
+  let shelf = "";
+  let memberPassword = "";
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "ribbon-app-add-"));
+    ({ shelf } = makeLibraries(dir));
+    const made = await serverWithAdmin(dir);
+    server = made.server;
+    const { code } = (await server.app.inject({ method: "POST", url: "/api/invites", headers: { authorization: `Bearer ${made.admin}` } })).json() as { code: string };
+    memberPassword = "a brother's password";
+    await server.app.inject({ method: "POST", url: `/api/invites/${code}/accept`, payload: { name: "brother", password: memberPassword } });
+    await server.app.listen({ host: "127.0.0.1", port: 0 });
+    url = `http://127.0.0.1:${(server.app.server.address() as AddressInfo).port}`;
+  }, 60_000);
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await server.app.close();
+    server.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const until = async (ok: () => boolean, ms = 15_000) => {
+    for (let i = 0; i < ms / 25 && !ok(); i++) await new Promise((r) => setTimeout(r, 25));
+  };
+
+  async function signedIn(name: string, password: string, picked: string) {
+    const home = mkdtempSync(path.join(dir, "home-"));
+    const pickFolder = vi.fn(async () => picked);
+    const platform: Platform = { host: nodeHost(), pickFolder, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: memorySettings(), home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    const c = new AppController(platform);
+    await c.boot();
+    await c.connectServer(url, name, password);
+    return { c, pickFolder };
+  }
+
+  it("puts the admin's folder on everyone's shelf, and only the admin adds one", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const admin = await signedIn("admin", "a long password", shelf);
+    const brother = await signedIn("brother", memberPassword, shelf);
+    await until(() => admin.c.getState().canAddFolders && !brother.c.getState().canAddFolders);
+    expect(admin.c.getState().canAddFolders).toBe(true);
+    expect(brother.c.getState().canAddFolders).toBe(false);
+
+    // The brother's Add a folder does nothing: no picker, nothing added.
+    await brother.c.pickLibrary();
+    expect(brother.pickFolder).not.toHaveBeenCalled();
+
+    // The admin's goes into the server, with progress as a scan shows it, and both shelves fill.
+    const stages: string[] = [];
+    const watching = setInterval(() => {
+      const s = admin.c.getState().scanning;
+      if (s?.copying && s.stage && stages.at(-1) !== s.stage) stages.push(s.stage);
+    }, 10);
+    await admin.c.pickLibrary();
+    clearInterval(watching);
+    expect(admin.pickFolder).toHaveBeenCalledTimes(1);
+    expect(stages[0]).toBe("Looking through shelf…");
+    expect(admin.c.getState().scanning).toBeNull();
+    const titles = (c: AppController) => c.getState().books.map((b) => b.book.title).sort();
+    expect(titles(admin.c)).toEqual(["Long Book", "Red Book"]);
+    await until(() => titles(brother.c).length === 2);
+    expect(titles(brother.c)).toEqual(["Long Book", "Red Book"]);
+  });
+
+  it("says so when the server can't see the folder", async () => {
+    const admin = await signedIn("admin", "a long password", path.join(dir, "not on the server"));
+    await until(() => admin.c.getState().canAddFolders);
+    await admin.c.pickLibrary();
+    expect(admin.c.getState().error).toBe("The server can't see not on the server: it adds folders from its own computer. Pick one there.");
+  });
+});
