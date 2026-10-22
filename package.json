@@ -1,6 +1,6 @@
 {
   "name": "ribbon",
-  "version": "0.13.1",
+  "version": "0.13.2",
   "description": "A home for your books, read or heard.",
   "scripts": {
     "dev": "vite",
