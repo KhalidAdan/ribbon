@@ -59,7 +59,7 @@ const SCENES: Scene[] = [
   { name: "first-run", setup: `c.set({ phase: "pick" })` },
   { name: "loading", setup: `c.set({ phase: "loading", scanning: { walked: 1586, done: 412, background: false } })` },
   { name: "error", setup: `c.set({ error: "Could not open \\server\media: the network name cannot be found." })` },
-  { name: "reconnecting", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: false }); c.set({ player: { ...c.getState().player, reconnecting: true }, placeKept: { local: true, pendingShare: 1, shareFailing: true } }); c.expandPlayer()` },
+  { name: "reconnecting", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: false }); c.set({ player: { ...c.getState().player, reconnecting: true } }); c.expandPlayer()` },
 ];
 
 interface Options {

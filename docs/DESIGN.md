@@ -80,7 +80,7 @@ greys.
   focus.
 - The full player is a canvas of its own, like a focused editor: a
   breadcrumb top left, the book centred, grouped settings as inset
-  cards below, and a footer that says where your place is kept.
+  cards below.
 
 ## 6. Sentences
 
