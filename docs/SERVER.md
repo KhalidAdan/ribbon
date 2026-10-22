@@ -44,6 +44,7 @@ finished result.
 | Which clients first? | **The desktop app (Windows and Mac) and the iPhone.** |
 | What works first? | **Everyone listens with their own place** (section 12). |
 | The web framework | **Fastify.** |
+| NORTHSTAR | **"Not someone else's service", "Your place is still a file", "Folders still work"**, now in [NORTHSTAR.md](NORTHSTAR.md) in place of "Not a server" and "Nothing to sign in to". |
 | Above all | **Fast, with no pop-in or layout shift** (section 7), and HTTP caching used wherever it helps. |
 
 The owner's first server is his old T2 MacBook. Nothing in the design
@@ -169,6 +170,13 @@ The rule: **nothing on screen moves or appears late because of the server.**
 - **The library list is cached on the device too**, and drawn at once on
   launch; the server answers "nothing changed" in a few milliseconds, or
   sends only what did.
+- **What changes often never rides with what doesn't.** Titles, covers,
+  chapters and the rest change when a book is added or edited; places,
+  progress and "finished" change every few seconds while someone listens.
+  So places have their own request, and nothing about where anyone is goes
+  into the library, a book's details or its records. Those answers stay the
+  same for days and are almost always a `304`; progress on the shelf is
+  worked out on the device from the places it already has.
 - **Changes are pushed** (server-sent events): a book added, your place moved
   on another device. No polling.
 - **No waiting on work.** Importing, probing, covers and (later) transcribing
@@ -260,11 +268,11 @@ JSON over HTTP. A sketch, to be settled in code review:
 | --- | --- |
 | `POST /api/sign-in` `{name, password, device}` | Returns a device token. |
 | `POST /api/invites/:code` `{name, password}` | Accepts an invite. |
-| `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, chapters, whether there's an EPUB, each cover's hash, aspect ratio and colour. ETag. |
+| `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, chapters, whether there's an EPUB, each cover's hash, aspect ratio and colour. No places or progress in it, so its ETag holds for days. |
 | `GET /api/books/:id` | One book: its files, chapters, parts and records. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
 | `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads (and, later, the TV's streaming). |
-| `GET /api/places?after=` | Your position records from every device, newer than what this device has. |
+| `GET /api/places?after=` | Your position records from every device, newer than the last one this device has: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added. |
 
@@ -321,11 +329,3 @@ person, and what the first two milestones teach.
 1. **Whether a download can start playing before it's done**, once the first
    minutes are down. Download before playing is the decision; this would only
    shorten the wait the first time a long book is opened.
-2. **NORTHSTAR.** "Not a server" and "Nothing to sign in to" no longer hold.
-   A proposal for the new lines, to agree before this is built:
-   - *Your own server, your own people, nothing in the cloud.* Ribbon runs on
-     a machine you choose, for the people you invite. No store, no tracking,
-     no one else's service.
-   - *Your place is still a file.* Each person's place is kept as the
-     position log on that machine, readable, and theirs to take away.
-   - *Folders still work.* Ribbon without a server is the app it was.
