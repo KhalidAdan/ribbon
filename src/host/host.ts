@@ -176,6 +176,15 @@ export interface Host {
   downloadSpeechModel?(onProgress: (done: number, total: number) => void): Promise<string>;
   /** True when a file looks like a whisper.cpp model. */
   speechModelOk?(path: string): Promise<boolean>;
+  /**
+   * Download one file of a book from a Ribbon server, straight to disk at
+   * `target`, as the person signed in (`token`): through a `.part` file,
+   * carrying on from one a stopped download left (docs/SERVER.md, section 8).
+   * Optional: hosts without it can't keep a server's books.
+   */
+  serverDownload?(url: string, token: string, target: string, size: number, onProgress: (done: number, total: number) => void): Promise<void>;
+  /** The space free on the disk that holds `path`, in bytes. Optional. */
+  freeSpace?(path: string): Promise<number>;
   /** Every small text file in a directory, in one call. */
   readTextDir(dir: string): Promise<TextFile[]>;
   /**

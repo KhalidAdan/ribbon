@@ -13,7 +13,12 @@ export interface ServerConfig {
   url: string;
   /** Signs sessions. Made once and kept in the data folder, unless RIBBON_SECRET gives one. */
   secret: string;
+  /** Where Ribbon's apps sign in from, besides the server's own address. The desktop and phone apps' own origins unless given. */
+  appOrigins?: string[];
 }
+
+/** The origins Ribbon's apps run at: Tauri's on each system, and the browser harness in development. */
+export const APP_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://localhost:1420"];
 
 /** The server's settings, from the environment, with the defaults a first run needs. */
 export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -26,6 +31,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port,
     url: (env.RIBBON_URL ?? `http://localhost:${port}`).replace(/\/+$/, ""),
     secret: env.RIBBON_SECRET ?? keptSecret(dataDir),
+    appOrigins: env.RIBBON_APP_ORIGINS ? env.RIBBON_APP_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : APP_ORIGINS,
   };
 }
 

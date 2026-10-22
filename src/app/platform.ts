@@ -1,6 +1,6 @@
 import type { Platform } from "./controller";
 import type { SourceEntry } from "../core/sources";
-import { browserFileUrl, browserHost, browserLibraryRoot } from "../host/browser";
+import { browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
 /** Where the remembered library lived before the Ribbon folder existed. */
@@ -162,5 +162,6 @@ export async function detectPlatform(): Promise<Platform> {
     sources: memorySources(),
     defaultRoot: () => browserLibraryRoot(),
     appSettings: memorySettings(),
+    home: { path: () => browserHome(), reveal: async () => undefined, reset: async () => false },
   };
 }

@@ -14,6 +14,7 @@ import { Cover } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
 import { SearchField } from "./SearchField";
 import { EmptyState, Menu, ProgressLine, SectionHeader, SegmentedProgress } from "./kit";
+import { Downloads } from "./Servers";
 import { describeFilter, useShelfFacts, ViewBar } from "./ShelfView";
 import { applyView, filterCount, SORT_LABELS } from "../core/view";
 
@@ -70,6 +71,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
     <section className="h-full overflow-y-auto quiet-scroll" aria-label="Library">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-12 px-4 pt-8 pb-16 sm:px-8">
         <ReadOnlyNotice />
+        <Downloads />
         {!empty && (
           <div className="sm:hidden">
             <SearchField value={query} onChange={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
@@ -216,6 +218,7 @@ function BookGrid({ children }: { children: React.ReactNode }) {
 function standing(book: ScannedBook, p: Progress): string {
   if (p.finished) return "Finished";
   if (p.started) return howFar(book, p);
+  if (book.remote) return `On the server · ${readerOnly(book.book) ? "EPUB" : lengthOf(book)}`;
   return book.parts.length > 0 ? `${book.parts.length} stories · ${formatLeft(book.book.durationMs)}` : lengthOf(book);
 }
 

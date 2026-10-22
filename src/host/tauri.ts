@@ -162,6 +162,17 @@ export function tauriHost(): Host {
       }
     },
     speechModelOk: (path) => invoke<boolean>("speech_model_ok", { path }),
+    async serverDownload(url, token, target, size, onProgress) {
+      const unlisten = await listen<{ target: string; done: number; total: number }>("ribbon://download-progress", (e) => {
+        if (e.payload.target === target) onProgress(e.payload.done, e.payload.total);
+      });
+      try {
+        await invoke("server_download", { url, token, target, size });
+      } finally {
+        unlisten();
+      }
+    },
+    freeSpace: (path) => invoke<number>("server_free_space", { path }),
     recordsMirror: {
       read: (root) => invoke<{ dir: string; library: string; files: string; positions: string | null; covers: string[] } | null>("mirror_read", { root }),
       write: (root, parts) => invoke<void>("mirror_write", { root, library: parts.library ?? null, files: parts.files ?? null, positions: parts.positions ?? null }),

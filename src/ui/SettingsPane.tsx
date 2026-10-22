@@ -1,4 +1,4 @@
-import { ArrowPathIcon, CheckCircleIcon, FolderPlusIcon, PlusIcon } from "@heroicons/react/16/solid";
+import { ArrowPathIcon, CheckCircleIcon, FolderPlusIcon, PlusIcon, ServerIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { groupProblems } from "../core/problems";
@@ -6,6 +6,7 @@ import { isHandMade } from "../core/series";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";
+import { ConnectServer } from "./Servers";
 
 declare const __APP_VERSION__: string;
 
@@ -31,6 +32,7 @@ export function SettingsPane() {
   const groups = groupProblems(state.problems);
   const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);
   const [homePath, setHomePath] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   useEffect(() => {
     void c.homePath().then(setHomePath);
   }, [c]);
@@ -50,7 +52,7 @@ export function SettingsPane() {
           <SectionHeader
             id="settings-folders"
             title="Folders"
-            description="The library is these folders together. Books stay where they are; Ribbon keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk."
+            description="The library is these folders and servers together. Books stay where they are; Ribbon keeps its records beside them in a .ribbon folder. Removing a folder here changes nothing on disk."
             actions={
               <>
                 {state.sources.length > 1 && (
@@ -58,12 +60,16 @@ export function SettingsPane() {
                     {state.scanning ? "Checking…" : "Check all"}
                   </Button>
                 )}
+                <Button size="sm" variant="ghost" leading={ServerIcon} onClick={() => setConnecting(true)}>
+                  Connect to a server
+                </Button>
                 <Button size="sm" leading={FolderPlusIcon} onClick={() => void c.pickLibrary()}>
                   Add a folder
                 </Button>
               </>
             }
           />
+          <ConnectServer open={connecting} onClose={() => setConnecting(false)} />
           <Group>
             {state.sources.map((s) => {
               const status = state.sourceStatus[s.id];
@@ -85,7 +91,7 @@ export function SettingsPane() {
                   description={
                     <>
                       <span className="block truncate font-mono text-[0.75rem]/5 text-ink-3" title={s.root}>
-                        {s.root}
+                        {s.server ? `${s.server.person} on ${s.server.url}` : s.root}
                       </span>
                       <span className={clsx("block", status?.error ? "text-red-600 dark:text-red-400" : "")}>{line}</span>
                       {status?.readOnly && !status.error && <span className="block">Read-only from {c.here}: your place in its books is kept on {c.here}.</span>}
@@ -94,7 +100,14 @@ export function SettingsPane() {
                   aside={
                     <>
                       <IconButton size="sm" label={`Check ${s.name} for changes`} icon={ArrowPathIcon} onClick={() => void c.rescanSourceById(s.id)} disabled={busy} className={clsx(busy && "[&>svg]:animate-spin")} />
-                      <Menu label={`${s.name}: more`} title={s.name} items={[{ label: "Remove from the library", onSelect: () => void c.removeSource(s.id), danger: true }]} />
+                      <Menu
+                        label={`${s.name}: more`}
+                        title={s.name}
+                        items={[
+                          ...(s.server ? [{ label: "Sign in again…", onSelect: () => setConnecting(true) }] : []),
+                          { label: s.server ? "Disconnect, and remove its downloads" : "Remove from the library", onSelect: () => void c.removeSource(s.id), danger: true },
+                        ]}
+                      />
                     </>
                   }
                 />

@@ -15,6 +15,7 @@ import { tintFromImage } from "./tint";
 import { howFar, lengthOf, progressOf as progressIn, useShelfProgress } from "./progress";
 import { readerOnly } from "../core/ebook";
 import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
+import { formatBytes } from "./Servers";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -25,7 +26,7 @@ import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
  */
 export function ReaderPage() {
   // How far along comes from useShelfProgress: by the minute while the book plays.
-  const state = useAppState((s) => ({ books: s.books, readerBookId: s.readerBookId, sources: s.sources, series: s.series, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled }));
+  const state = useAppState((s) => ({ books: s.books, readerBookId: s.readerBookId, sources: s.sources, series: s.series, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled, download: s.readerBookId ? s.downloads[s.readerBookId] : undefined }));
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();
@@ -92,10 +93,18 @@ export function ReaderPage() {
   // A book that is only its EPUB: read, never played.
   const toRead = readerOnly(book.book);
   const left = book.book.durationMs - me.posMs;
+  // A server's book: downloaded before it plays or opens, and removable from this device after.
+  const fromServer = !!state.sources.find((s) => s.id === book.source)?.server;
+  const remote = book.remote;
+  const download = state.download;
   const where = story ? `story ${storyNow + 1} of ${stories.length}, ${story.title}` : book.chapters.length > 1 ? `chapter ${chapterNow + 1} of ${book.chapters.length}` : null;
   const sentence = hidden.has(book.book.id)
     ? "Left off the shelf for this series. It is still here when you want it."
-    : toRead
+    : download
+      ? `Downloading, ${formatBytes(download.done)} of ${formatBytes(download.total)}. It opens when it's here.`
+      : remote && !me.started
+        ? `On the server. ${toRead ? "It downloads before it opens" : `${formatLeft(book.book.durationMs)}; it downloads (${formatBytes(book.book.sizeBytes)}) before it plays`}.`
+        : toRead
       ? me.finished
         ? "Finished. Read it again any time."
         : me.started
@@ -119,12 +128,15 @@ export function ReaderPage() {
   }, 0);
 
   const facts: { term: string; value: string }[] = [
-    ...(toRead ? [] : [{ term: "Length", value: formatLeft(book.book.durationMs) }, stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) }]),
+    ...(toRead ? [] : [{ term: "Length", value: formatLeft(book.book.durationMs) }]),
+    // A server's book has its chapters read once it's here.
+    ...(toRead || book.remote ? [] : [stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) }]),
     ...(book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
-    ...(toRead ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
+    ...(toRead || book.remote ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
+    ...(book.remote && !toRead ? [{ term: "Download", value: formatBytes(book.book.sizeBytes) }] : []),
   ];
 
   const wash = { "--tone": tone.accent } as CSSProperties;
@@ -159,17 +171,17 @@ export function ReaderPage() {
             )}
 
             <p className="mt-6 max-w-[52ch] border-l border-line-strong pl-3 text-base/6 text-pretty text-ink tabular-nums sm:text-[0.9375rem]/6">{sentence}</p>
-            {me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
+            {download ? <ProgressLine fraction={download.total > 0 ? download.done / download.total : 0} className="mt-4 max-w-sm" /> : me.started && !me.finished && <ProgressLine fraction={me.fraction} className="mt-4 max-w-sm" />}
 
             {/* On a phone, one row: listening and reading share it under short names (the sentence above says how far in), and the bookmarks are the player's. */}
             <div className="mt-6 flex flex-wrap items-center gap-2">
               {!toRead && (
-                <Button variant="primary" leading={PlayIcon} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))} className="max-sm:flex-1">
+                <Button variant="primary" leading={PlayIcon} disabled={!!download} onClick={() => void (me.finished ? c.listenAgain(book.book.id) : c.playBook(book))} className="max-sm:flex-1">
                   {me.finished ? "Listen again" : <Short phone="Listen">{me.started ? "Continue listening" : "Start listening"}</Short>}
                 </Button>
               )}
               {book.book.ebook && (
-                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} onClick={() => void c.openReading(book.book.id)} className="max-sm:flex-1">
+                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} disabled={!!download} onClick={() => void c.openReading(book.book.id)} className="max-sm:flex-1">
                   {(c.readingProgress(book.book.id) ?? 0) > 0 ? <Short phone="Read">Continue reading</Short> : "Read"}
                 </Button>
               )}
@@ -188,6 +200,7 @@ export function ReaderPage() {
                   { label: "Edit details and cover…", onSelect: () => c.openEditBook(book.book.id) },
                   ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
                   ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
+                  ...(fromServer && !remote ? [{ label: `Remove from ${c.here} (${formatBytes(book.book.sizeBytes)})`, onSelect: () => void c.removeDownload(book.book.id), danger: true }] : []),
                 ]}
               />
             </div>

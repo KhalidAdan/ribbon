@@ -184,6 +184,14 @@ export function devLibrary(root: string | undefined): Plugin {
               return json(res, 200, await host.catalogSearch!(String(args.title ?? ""), String(args.author ?? ""), String(args.region ?? "us")));
             case "readTextDir":
               return json(res, 200, await host.readTextDir(inside(String(args.dir ?? args.path))));
+            // A server's books download into Ribbon's own folder, which for the harness is one inside the library's records.
+            case "home":
+              return json(res, 200, path.join(absRoot, ".ribbon", "dev-home"));
+            case "serverDownload":
+              await host.serverDownload!(String(args.url), String(args.token), inside(String(args.target)), Number(args.size), () => undefined);
+              return json(res, 200, true);
+            case "freeSpace":
+              return json(res, 200, await host.freeSpace!(inside(String(args.path))));
             case "run": {
               const tool = String(args.tool);
               if (tool !== "ffprobe" && tool !== "ffmpeg") return json(res, 400, { error: "bad tool" });

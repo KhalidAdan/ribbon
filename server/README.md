@@ -15,7 +15,11 @@ Built so far:
 - **Places**, each person's position log by device, read by cursor, with
   events when a place moves or the library changes.
 
-Ribbon's apps connecting to it come next (docs/SERVER.md, section 12).
+- **The apps connect.** In Ribbon, Settings → Connect to a server: the
+  server's books join the shelf, and each one downloads before it plays.
+
+Sharing each person's place between their devices through the server comes
+next (docs/SERVER.md, section 12).
 
 ## Running it
 

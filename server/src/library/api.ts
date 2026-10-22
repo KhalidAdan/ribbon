@@ -1,6 +1,7 @@
 import fastifyStatic from "@fastify/static";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
@@ -32,6 +33,8 @@ const ASK_FIRST = "private, no-cache";
  */
 export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; dataDir: string }): Promise<void> {
   // Sends files with Range, ETag and Last-Modified (the `send` module); no routes of its own.
+  // Made now, not with the first book: the files plugin wants its folder to exist.
+  mkdirSync(path.join(deps.dataDir, "books"), { recursive: true });
   await app.register(fastifyStatic, { root: path.join(deps.dataDir, "books"), serve: false });
 
   const mustSignIn = async (request: FastifyRequest, reply: FastifyReply) => {

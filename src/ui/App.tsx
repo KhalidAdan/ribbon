@@ -18,6 +18,7 @@ import { TopBar, Tabs, type Crumb } from "./Shell";
 import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
+import { SpaceShort } from "./Servers";
 import { StatsPane } from "./StatsPane";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
@@ -136,6 +137,7 @@ function Ready() {
       <SeriesSetup />
       <NewSeries />
       <EditBookHost />
+      <SpaceShort />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
       <Tabs
         current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}

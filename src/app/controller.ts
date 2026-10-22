@@ -4,7 +4,9 @@ import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "
 import type { Problem } from "../core/problems";
 import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "../core/series";
 import type { BookAbout } from "../core/about";
-import { sameRoot, sourceFrom, type Source, type SourceEntry } from "../core/sources";
+import { sameRoot, serverKey, sourceFrom, sourceId, type ServerRef, type Source, type SourceEntry } from "../core/sources";
+import { ServerClient, ServerError } from "./server/client";
+import { NotEnoughSpace, ServerShelf } from "./server/shelf";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -171,6 +173,10 @@ export interface AppState {
   sourceStatus: Record<string, SourceStatus>;
   /** Folders found read-only from this device that the library has not said so about yet: it says so once per folder. */
   readOnlyNotice: string[];
+  /** Books downloading from a server now, by id: bytes done of the total (docs/SERVER.md, section 8). */
+  downloads: Record<string, { done: number; total: number }>;
+  /** A book that won't fit on this device, waiting for the person to choose what to remove, or not to download it. */
+  spaceShort: { bookId: string; title: string; neededBytes: number; freeBytes: number } | null;
   /** Every book from every source, in source order. */
   books: ScannedBook[];
   positions: Record<string, Position | null>;
@@ -297,6 +303,8 @@ interface Opened {
   /** Covers copied into the local mirror, and where they are. */
   mirrorCovers: Set<string>;
   mirrorCoversDir: string | null;
+  /** For a Ribbon server's source: what the server lists, and its downloads (server/shelf.ts). */
+  server: ServerShelf | null;
 }
 
 /**
@@ -424,6 +432,8 @@ export class AppController {
       sources: [],
       sourceStatus: {},
       readOnlyNotice: [],
+      downloads: {},
+      spaceShort: null,
       books: [],
       positions: {},
       current: null,
@@ -520,7 +530,9 @@ export class AppController {
     const books: ScannedBook[] = [];
     const positions: Record<string, Position | null> = {};
     for (const o of this.openedInOrder()) {
-      for (const b of o.books) {
+      // A server's books not on this device yet come after the ones that are.
+      const remote = (o.server?.remote(o.books) ?? []).map((b) => ({ ...b, source: o.source.id }));
+      for (const b of [...o.books, ...remote]) {
         const id = b.book.id;
         if (seen.has(id)) {
           log.warn("two sources hold the same book id; keeping the first:", id, b.book.title);
@@ -593,7 +605,7 @@ export class AppController {
   }
 
   private saveSources(): Promise<void> {
-    return this.platform.sources.save(this.state.sources.map((s) => ({ root: s.root, addedAt: s.addedAt }))).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
+    return this.platform.sources.save(this.state.sources.map((s) => ({ root: s.root, addedAt: s.addedAt, ...(s.server ? { server: s.server } : {}) }))).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
   }
 
   // Lifecycle -----------------------------------------------------------
@@ -614,10 +626,13 @@ export class AppController {
       this.clockOffset = ms - asked;
       log.info(`web side booted ${Math.round(ms)} ms after process start`);
     });
-    const entries = await this.platform.sources.load().catch((e: unknown) => {
-      log.warn("could not read the sources:", describe(e));
-      return [] as SourceEntry[];
-    });
+    const entries = await this.platform.sources
+      .load()
+      .then((list) => this.placeServers(list))
+      .catch((e: unknown) => {
+        log.warn("could not read the sources:", describe(e));
+        return [] as SourceEntry[];
+      });
     const given = (await this.platform.defaultRoot?.()) ?? null;
     if (given && !entries.some((e) => sameRoot(e.root, given))) {
       log.info("adding the folder given at launch", given);
@@ -669,7 +684,7 @@ export class AppController {
    * nothing before that paint waits on the share when the local mirror
    * has a copy. If not, the scan runs in the foreground with live counts.
    */
-  async addSource(pickedRoot: string): Promise<void> {
+  async addSource(pickedRoot: string, server?: ServerRef): Promise<void> {
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     const existing = this.state.sources.find((s) => sameRoot(s.root, root));
@@ -680,8 +695,8 @@ export class AppController {
       else await this.openSource(existing);
       return;
     }
-    const source = sourceFrom({ root, addedAt: new Date().toISOString() });
-    log.info("add source", root);
+    const source = sourceFrom({ root, addedAt: new Date().toISOString(), ...(server ? { server } : {}) });
+    log.info("add source", server ? server.url : root);
     this.set({
       phase: this.opened.size === 0 ? "loading" : this.state.phase,
       sources: [...this.state.sources, source],
@@ -731,8 +746,10 @@ export class AppController {
       lookup: null,
       mirrorCovers: new Set(),
       mirrorCoversDir: null,
+      server: null,
     };
     this.opened.set(source.id, o);
+    if (source.server) await this.linkServer(o, this.serverTokens()[serverKey(source.server)] ?? null);
     // The position log describes each book by its claims and its files.
     lib.bookInfo = (id) => o.books.find((b) => b.book.id === id);
     this.ensureEngine();
@@ -1051,29 +1068,170 @@ export class AppController {
    * records stay beside its books and its mirror stays in the Ribbon
    * folder, so adding it back is instant.
    */
+  // Servers -------------------------------------------------------------
+
+  /**
+   * Connect to a Ribbon server (docs/SERVER.md, section 11): sign in, and
+   * add it as a source whose folder is one of Ribbon's own, where its books
+   * are downloaded before they play. The sign-in token is kept in the app's
+   * settings, never in the sources file. Connecting again to a server
+   * already here signs it in again.
+   */
+  async connectServer(address: string, name: string, password: string): Promise<void> {
+    const server: ServerRef = { url: serverUrl(address), person: name.trim() };
+    const home = await this.platform.home?.path();
+    if (!home) throw new Error("This version of Ribbon can't keep a server's books.");
+    const client = await ServerClient.signIn(server.url, server.person, password);
+    const root = this.serverRoot(home, server);
+    await this.platform.host.mkdir(root);
+    await this.keepServerToken(server, client.token);
+    const open = this.opened.get(sourceId(root));
+    if (open) {
+      this.setSourceStatus(open.source.id, { error: null });
+      await this.linkServer(open, client.token);
+      return;
+    }
+    await this.addSource(root, server);
+  }
+
+  /** A server's folder: one of Ribbon's own, named by the server and who's signed in. */
+  private serverRoot(home: string, server: ServerRef): string {
+    return this.platform.host.join(home, "servers", sourceId(serverKey(server)));
+  }
+
+  /** Each server source's folder, worked out again from Ribbon's own: a phone's app folder moves when the app is updated. */
+  private async placeServers(entries: SourceEntry[]): Promise<SourceEntry[]> {
+    if (!entries.some((e) => e.server)) return entries;
+    const home = await this.platform.home?.path().catch(() => null);
+    if (!home) return entries;
+    const placed = entries.map((e) => (e.server ? { ...e, root: this.serverRoot(home, e.server) } : e));
+    // Made again if it's gone: the server still has the books, and the place in each.
+    for (const e of placed) if (e.server) await this.platform.host.mkdir(e.root).catch((err: unknown) => log.warn("could not make a server's folder:", describe(err)));
+    return placed;
+  }
+
+  /** The sign-in tokens of the servers this device is connected to, by `serverKey`. */
+  private serverTokens(): Record<string, string> {
+    const kept = this.appSettings.serverTokens;
+    return kept && typeof kept === "object" ? (kept as Record<string, string>) : {};
+  }
+
+  /** Keep a server's sign-in in the app's settings, or forget it (null). */
+  private async keepServerToken(server: ServerRef, token: string | null): Promise<void> {
+    const { [serverKey(server)]: _was, ...others } = this.serverTokens();
+    this.appSettings = { ...this.appSettings, serverTokens: token ? { ...others, [serverKey(server)]: token } : others };
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** Give an opened server source its shelf: the list as last seen at once, then the server's own. */
+  private async linkServer(o: Opened, token: string | null): Promise<void> {
+    if (!o.source.server) return;
+    if (!token) {
+      this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      return;
+    }
+    o.server = new ServerShelf(new ServerClient(o.source.server.url, token), this.platform.host, o.source.root);
+    await o.server.loadCached();
+    void this.refreshServer(o);
+  }
+
+  /** Ask a server what it has now, and fetch the covers the shelf will draw. */
+  private async refreshServer(o: Opened): Promise<void> {
+    const shelf = o.server;
+    if (!shelf) return;
+    const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    try {
+      if ((await shelf.refresh()) && alive()) this.publishBooks();
+    } catch (e) {
+      log.warn("could not ask the server for its books:", o.source.name, describe(e));
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+    }
+    // The covers kept here show even when the server is out of reach.
+    const found = await shelf.fetchCovers().catch(() => 0);
+    if (found > 0 && alive()) this.publishBooks({ coverVersion: this.state.coverVersion + 1 });
+  }
+
+  /**
+   * Download a server's book before it plays or opens, the space checked
+   * first. The book as it is on this device afterwards, or null when it
+   * isn't (not enough space, the server out of reach).
+   */
+  private async downloadRemote(book: ScannedBook): Promise<ScannedBook | null> {
+    const o = this.openedOf(book);
+    const serverId = book.remote?.serverId;
+    if (!o?.server || !serverId || this.state.downloads[book.book.id]) return null;
+    const id = book.book.id;
+    this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, spaceShort: null });
+    try {
+      await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
+      await this.rescanSource(o, true);
+      return o.books.find((b) => b.book.path === serverId || b.book.path.startsWith(`${serverId}/`)) ?? null;
+    } catch (e) {
+      if (e instanceof NotEnoughSpace) this.set({ spaceShort: { bookId: id, title: book.book.title, neededBytes: e.neededBytes, freeBytes: e.freeBytes } });
+      else this.set({ error: `Couldn't download ${book.book.title}: ${describe(e)}` });
+      return null;
+    } finally {
+      const { [id]: _done, ...rest } = this.state.downloads;
+      this.set({ downloads: rest });
+    }
+  }
+
+  /** Download a server's book without opening it: after making room, say. */
+  async downloadBook(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    if (book?.remote) await this.downloadRemote(book);
+  }
+
+  /** The books downloaded from servers, biggest first: what the person can remove to make room. */
+  downloadedBooks(): ScannedBook[] {
+    return this.state.books.filter((b) => !b.remote && this.openedOf(b)?.server).sort((a, b) => b.book.sizeBytes - a.book.sizeBytes);
+  }
+
+  /** Take a server's book off this device. The server keeps it, and the person's place in it. */
+  async removeDownload(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o?.server || book.remote) return;
+    if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
+    await o.server.remove(book.book.path.split("/")[0]!);
+    await this.rescanSource(o, true);
+  }
+
+  /** The person chose not to make room: the book stays on the server. */
+  dismissSpaceShort(): void {
+    this.set({ spaceShort: null });
+  }
+
+  /** Stop the open book, its place kept, before its files go. */
+  private async letGoOfCurrent(): Promise<void> {
+    if (this.state.player.playing) {
+      this.engine?.pause();
+      await this.persistPosition("pause");
+    }
+    this.chapterProbe?.abort();
+    this.engine?.pause();
+    this.set({ current: null, playerExpanded: false, playerDrawer: null, resumeOffer: null, previewing: null });
+  }
+
   async removeSource(id: string): Promise<void> {
     const o = this.opened.get(id);
     const source = this.state.sources.find((s) => s.id === id);
     if (!source) return;
     log.info("remove source", source.root);
-    const cur = this.state.current;
-    if (cur && cur.book.source === id) {
-      if (this.state.player.playing) {
-        this.engine?.pause();
-        await this.persistPosition("pause");
-      }
-      this.chapterProbe?.abort();
-      this.engine?.pause();
-      this.set({ current: null, playerExpanded: false, playerDrawer: null, resumeOffer: null, previewing: null });
-    }
+    if (this.state.current?.book.source === id) await this.letGoOfCurrent();
     this.jobs.cancelWhere((b) => b.source === id);
+    const gone = new Set(this.state.books.filter((b) => b.source === id).map((b) => b.book.id));
     if (o) {
       await o.keeper.close().catch(() => undefined);
       o.coverJob?.abort();
       o.lookup?.stop();
       this.opened.delete(id);
     }
-    const gone = new Set((o?.books ?? []).map((b) => b.book.id));
+    // A server's downloads are Ribbon's own files: they go, and the sign-in with them.
+    if (source.server) {
+      await o?.server?.removeAll().catch((e: unknown) => log.warn("could not remove a server's downloads:", describe(e)));
+      await this.keepServerToken(source.server, null);
+    }
     const { [id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
     const series = Object.fromEntries(Object.entries(this.state.series).filter(([k]) => !o?.seriesKeys.has(k)));
     const about = Object.fromEntries(Object.entries(this.state.about).filter(([k]) => !gone.has(k)));
@@ -1115,6 +1273,8 @@ export class AppController {
   coverUrl(book: ScannedBook): string | null {
     const o = this.openedOf(book);
     if (!o || !book.book.cover) return null;
+    // A server's book not downloaded yet: its cover once it's fetched.
+    if (book.remote) return book.remote.cover && o.server?.hasCover(book.remote.cover.hash) ? this.platform.fileUrl(o.lib.absPath(book.book.cover)) : null;
     const name = LibraryService.mirrorCoverName(book);
     if (name && o.mirrorCoversDir && o.mirrorCovers.has(name)) return this.platform.fileUrl(o.lib.host.join(o.mirrorCoversDir, name));
     if (!o.assetsReady || o.scanning) return null;
@@ -1195,6 +1355,12 @@ export class AppController {
    * and swapped in when they arrive.
    */
   async openBook(book: ScannedBook, opts: { expand?: boolean; autoplay?: boolean } = {}): Promise<void> {
+    // A server's book is downloaded before it plays (docs/SERVER.md, section 8).
+    if (book.remote) {
+      const here = await this.downloadRemote(book);
+      if (!here) return;
+      book = here;
+    }
     const lib = this.libOf(book);
     // A book that is only its EPUB has nothing to play.
     if (!lib || readerOnly(book.book)) return;
@@ -1299,6 +1465,12 @@ export class AppController {
     const book = this.state.books.find((b) => b.book.id === bookId);
     const o = book && this.openedOf(book);
     if (!book || !o) return;
+    // A server's book is downloaded before it opens, as before it plays.
+    if (book.remote) {
+      const here = await this.downloadRemote(book);
+      if (here) await this.openReading(here.book.id);
+      return;
+    }
     if (this.state.reading) await this.closeReading();
     perf.begin("open the reader");
     this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
@@ -2992,4 +3164,15 @@ function afterNextPaint(): Promise<void> {
       }, 0),
     );
   });
+}
+
+/**
+ * A server's address as someone types it, made a URL: a scheme when it has
+ * none (plain HTTP only on this machine), and no trailing slash.
+ */
+export function serverUrl(address: string): string {
+  let a = address.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(a)) a = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/i.test(a) ? `http://${a}` : `https://${a}`;
+  const url = new URL(a);
+  return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
 }

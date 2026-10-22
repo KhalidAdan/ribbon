@@ -12,7 +12,7 @@ type Cursor = Record<string, number>;
 
 export interface NewPlaces {
   records: LogRecord[];
-  /** Who wrote them, by device id: what a device calls itself ("Ribbon on Khalid's iPhone"). */
+  /** Who wrote them, by device id: what a device calls itself ("Ribbon on Ann's iPhone"). */
   devices: DeviceInfo[];
   /** What to ask with next time, so only newer records come back. */
   cursor: string;

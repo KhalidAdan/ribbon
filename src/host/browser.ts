@@ -56,11 +56,22 @@ export function browserHost(base = "/__ribbon"): Host {
     openEbook: (path) => call<string>("ebook", { path }),
     // EPUB covers only; audio covers fall back to ffmpeg, as before.
     extractCover: (src, target) => call<boolean>("cover", { src, target }),
+    // In one request: the progress shows only at the end.
+    async serverDownload(url, token, target, size, onProgress) {
+      await call<boolean>("serverDownload", { url, token, target, size });
+      onProgress(size, size);
+    },
+    freeSpace: (path) => call<number>("freeSpace", { path }),
   };
 }
 
 export function browserFileUrl(absPath: string, base = "/__ribbon"): string {
   return `${base}/file?path=${encodeURIComponent(absPath)}`;
+}
+
+/** The harness's stand-in for Ribbon's own folder, inside the library's records. */
+export function browserHome(base = "/__ribbon"): Promise<string> {
+  return fetch(`${base}/home`, { method: "POST", body: "{}" }).then((r) => r.json() as Promise<string>);
 }
 
 /** The library root the dev server was started with. */

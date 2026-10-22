@@ -1,11 +1,14 @@
 import { BookmarkIcon, FolderPlusIcon } from "@heroicons/react/16/solid";
+import { useState } from "react";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
+import { ConnectServer } from "./Servers";
 
 /** The first screen: what Ribbon is in one sentence, and the one thing to do. */
 export function PickLibrary() {
   const c = useController();
   const error = useAppState((s) => s.error);
+  const [connecting, setConnecting] = useState(false);
   return (
     <main className="flex h-full flex-col">
       <header className="flex h-12 shrink-0 items-center gap-1.5 px-4 sm:px-5">
@@ -30,6 +33,13 @@ export function PickLibrary() {
               Add a folder
             </Button>
           </div>
+          <p className="mt-6 border-t border-line pt-4 text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">
+            Someone runs a Ribbon server for you?{" "}
+            <button type="button" onClick={() => setConnecting(true)} className="rounded-sm font-medium text-ink underline decoration-line-strong underline-offset-2 focus-ring hover:decoration-ink">
+              Connect to it
+            </button>
+          </p>
+          <ConnectServer open={connecting} onClose={() => setConnecting(false)} />
           {error && <p className="mt-4 text-sm/5 text-red-600 dark:text-red-400">{error}</p>}
         </div>
       </div>
