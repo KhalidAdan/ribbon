@@ -1,7 +1,8 @@
-import { BookmarkIcon, ChevronDownIcon, MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
+import { ChevronDownIcon, MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useState } from "react";
 import { SPEED_STEP, formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
+import { chapterAt } from "../core/scan/chapters";
 import { partAt } from "../core/scan/parts";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
@@ -19,8 +20,7 @@ import { Group, Row, Toggle } from "./kit";
 /**
  * The full player, a canvas of its own: where you are as a sentence, the
  * book in the middle, the transport over the chapter's scrubber, and what
- * you can change about listening in grouped rows below. The footer says
- * where your place is kept.
+ * you can change about listening in grouped rows below.
  */
 export function PlayerPane() {
   const state = useAppState();
@@ -28,7 +28,7 @@ export function PlayerPane() {
   const cur = state.current;
   const drawer = state.playerDrawer;
   const setDrawer = (d: typeof drawer) => c.setPlayerDrawer(d);
-  const [noteOpen, setNoteOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [moreAbout, setMoreAbout] = useState(false);
 
   if (!cur) {
@@ -138,6 +138,7 @@ export function PlayerPane() {
           <Group label="This book">
             <Row title="Chapters" aside={book.chapters.length > 1 && chapter ? `${p.chapterIndex + 1} of ${book.chapters.length}` : String(book.chapters.length)} onClick={() => setDrawer("chapters")} />
             <Row title="Bookmarks" aside={String(cur.bookmarks.length)} onClick={() => setDrawer("bookmarks")} />
+            <Row title="Add a bookmark" onClick={() => setAdding(true)} />
             {about && (
               <div className="rounded-md bg-raised px-3 py-2.5">
                 <p className="text-base/6 font-medium text-ink sm:text-sm/5">About</p>
@@ -151,17 +152,9 @@ export function PlayerPane() {
         </div>
       </div>
 
-      <footer className="flex shrink-0 flex-wrap items-center gap-3 border-t border-line px-4 py-3 sm:px-5">
-        <PlaceKept />
-        {noteOpen ? (
-          <BookmarkNote onDone={() => setNoteOpen(false)} />
-        ) : (
-          <Button size="sm" leading={BookmarkIcon} onClick={() => setNoteOpen(true)}>
-            Add a bookmark
-          </Button>
-        )}
-      </footer>
-
+      <Drawer open={adding} onClose={() => setAdding(false)} title="Add a bookmark">
+        {adding && <AddBookmark onDone={() => setAdding(false)} />}
+      </Drawer>
       <Drawer open={drawer === "speed"} onClose={() => setDrawer(null)} title="Speed">
         <SpeedControl />
       </Drawer>
@@ -186,69 +179,62 @@ export function PlayerPane() {
   );
 }
 
-/** Where the listener's place is kept, in a sentence. */
-function PlaceKept() {
-  const state = useAppState();
-  const kept = state.placeKept;
-  const text =
-    kept === null
-      ? "Your place is saved as you listen."
-      : kept.pendingShare > 0
-        ? kept.shareFailing
-          ? "Your place is saved on this machine. The folder is out of reach; it gets the place when it is back."
-          : "Your place is saved on this machine and is on its way to the folder."
-        : kept.local
-          ? "Your place is saved on this machine and beside the book."
-          : "Your place is saved beside the book.";
-  return (
-    <p className="flex min-w-0 flex-1 items-center gap-2 text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-      <span className={clsx("size-1.5 shrink-0 rounded-full", kept && kept.pendingShare > 0 && kept.shareFailing ? "bg-ink-3" : "bg-place")} aria-hidden="true" />
-      <span className="min-w-0">{text}</span>
-    </p>
-  );
-}
+/** The nudges in the bookmark sheet: a few seconds, for the moment you reached for the phone a little late. */
+const NUDGE_MS = 5_000;
 
-function BookmarkNote({ onDone }: { onDone: () => void }) {
+/**
+ * Add a bookmark: at the moment playing when you asked, nudged back or on
+ * to the moment you meant, with a note if you like.
+ */
+function AddBookmark({ onDone }: { onDone: () => void }) {
   const c = useController();
-  const state = useAppState();
+  const { chapters = [], durationMs } = useAppState((s) => ({ chapters: s.current?.book.chapters, durationMs: s.player.durationMs }));
+  const [at, setAt] = useState(() => c.getState().player.positionMs);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const chapter = chapters[chapterAt(chapters, at)];
+  const nudge = (ms: number) => setAt((t) => Math.max(0, Math.min(durationMs, t + ms)));
   return (
     <form
-      className="flex w-full items-center gap-2 sm:w-auto"
+      className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
         setSaving(true);
-        void c.addBookmark(note.trim()).finally(() => {
+        void c.addBookmark(note.trim(), at).finally(() => {
           setSaving(false);
           onDone();
         });
       }}
     >
-      <label htmlFor="bookmark-note" className="sr-only">
-        Bookmark note
-      </label>
-      <input
-        id="bookmark-note"
-        name="note"
-        autoFocus
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            e.stopPropagation();
-            onDone();
-          }
-        }}
-        placeholder={`A note at ${formatDuration(state.player.positionMs)}`}
-        className="min-w-0 flex-1 rounded-md bg-raised px-2.5 py-1 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:w-64 sm:text-[0.8125rem]/[1.125rem]"
-      />
-      <Button type="submit" size="sm" disabled={saving}>
-        {saving ? "Saving…" : "Save"}
-      </Button>
-      <Button size="sm" variant="ghost" onClick={onDone}>
-        Cancel
+      <div className="text-center" aria-live="polite">
+        {chapter && <p className="truncate text-base/6 text-ink-2 sm:text-sm/5">{chapter.title}</p>}
+        <p className="mt-0.5 text-xl/7 font-semibold text-ink tabular-nums">{formatDuration(at)}</p>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Button onClick={() => nudge(-NUDGE_MS)} aria-label="5 seconds earlier" className="pointer-coarse:min-h-11">
+          −5 s
+        </Button>
+        <Button onClick={() => setAt(c.getState().player.positionMs)} aria-label="The moment playing now" className="pointer-coarse:min-h-11">
+          Now
+        </Button>
+        <Button onClick={() => nudge(NUDGE_MS)} aria-label="5 seconds later" className="pointer-coarse:min-h-11">
+          +5 s
+        </Button>
+      </div>
+      <div>
+        <label htmlFor="bookmark-note" className="block text-base/6 font-medium text-ink sm:text-sm/5">
+          Note <span className="font-normal text-ink-2">(optional)</span>
+        </label>
+        <input
+          id="bookmark-note"
+          name="note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="mt-1.5 w-full rounded-md bg-raised px-2.5 py-2 text-base/6 text-ink ring-1 ring-line focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1.5 sm:text-sm/5"
+        />
+      </div>
+      <Button type="submit" variant="primary" disabled={saving} className="pointer-coarse:min-h-11">
+        {saving ? "Adding…" : "Add bookmark"}
       </Button>
     </form>
   );

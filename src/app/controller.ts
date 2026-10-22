@@ -9,7 +9,7 @@ import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
-import { PositionKeeper, type KeeperStatus } from "./positions";
+import { PositionKeeper } from "./positions";
 import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
 import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "../core/poslog";
@@ -209,8 +209,6 @@ export interface AppState {
   playerExpanded: boolean;
   /** Which drawer the full player shows, if any. */
   playerDrawer: "chapters" | "bookmarks" | "speed" | null;
-  /** Where the open book's place is kept right now, for the player's footer. */
-  placeKept: KeeperStatus | null;
   /** The book whose details are open for editing, or null. */
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
@@ -449,7 +447,6 @@ export class AppController {
       readerBookId: null,
       playerExpanded: false,
       playerDrawer: null,
-      placeKept: null,
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], recording: true },
@@ -689,9 +686,6 @@ export class AppController {
         local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
         share: (p) => lib.writePositionRecord(p),
         log: (m) => log.warn(source.name + ":", m),
-        onStatus: (status) => {
-          if (this.state.current?.book.source === source.id) this.set({ placeKept: status });
-        },
       }),
       seriesKeys: new Set(),
       assetsReady: false,
@@ -1197,7 +1191,7 @@ export class AppController {
     const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
     if (seq !== this.openSeq) return;
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
-    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null, placeKept: this.openedOf(book)?.keeper.status() ?? null });
+    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
     // Read further than listened: start where the reading stopped.
     const ahead = this.readAhead(id, position ? Date.parse(position.updatedAt) : null);
     if (ahead !== null) log.info(`starting ${book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
@@ -2278,11 +2272,11 @@ export class AppController {
 
   // Bookmarks -----------------------------------------------------------
 
-  /** Bookmark the place in the open book. */
-  async addBookmark(note: string): Promise<void> {
+  /** Bookmark the open book: where it is playing, or the moment given (the bookmark sheet's, nudged a few seconds). */
+  async addBookmark(note: string, offsetMs?: number): Promise<void> {
     const cur = this.state.current;
     if (!cur || !this.engine) return;
-    await this.addBookmarkAt(cur.book.book.id, this.engine.positionMs(), note);
+    await this.addBookmarkAt(cur.book.book.id, offsetMs ?? this.engine.positionMs(), note);
   }
 
   /**
