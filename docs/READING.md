@@ -323,12 +323,12 @@ the bottom, the dock (`src/reader/Dock.tsx`).
   the page number gives way to where the narrator is, **Narrator on 27**,
   with an arrow the way it lies; a tap goes back to it and follows it
   again. Paused, the page number stays: the reader is reading.
-- On the right, a capsule. Reading, with nothing playing, it is only the
-  menu: Listen from here (the top of the page), the full player,
-  Contents, Bookmarks, Text, Close book.
+- On the right, a capsule of 40px controls. Reading, with nothing
+  playing, it is the contents and the menu: Listen from here (the top of
+  the page), the full player, Contents, Bookmarks, Text, Close book.
 - While the book's audio is loaded, the capsule is the listening bar:
-  back thirty seconds, play, forward thirty, the menu. Four controls,
-  spaced so that each one's 48px target under a finger is its own. A
+  back thirty seconds, play, forward thirty, the menu. Under a finger
+  each control's 48px target reaches only into the gaps beside it. A
   swipe up the bar opens the full player, the same one as on the desktop.
 - Another book playing, the capsule plays and pauses that one, and names
   it.

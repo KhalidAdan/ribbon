@@ -1,4 +1,4 @@
-import { Bars3Icon, ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/16/solid";
+import { ChevronLeftIcon, ChevronRightIcon, ListBulletIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type SVGProps } from "react";
 import type { AppController } from "../app/controller";
@@ -18,17 +18,16 @@ export type Folio = { page: number; of: number } | { percent: number };
  * page number, or, while the narrator reads on another page, where it is,
  * which goes back to it. On the right, the capsule:
  *
- * - reading, with nothing playing: only the menu;
+ * - reading, with nothing playing: the contents and the menu;
  * - this book's audio loaded: the listening bar. Back, play, forward, the
  *   menu. A swipe up opens the full player;
  * - another book playing: its play button and its title, then the menu.
  *
- * Under a finger every control is a 48px target (IconButton). The controls
- * are 30px, so the bar spaces them 18px apart and no two targets overlap:
- * a thumb that lands between pause and forward presses one of them, not
- * the other by surprise.
+ * The controls are 40px, as big as a thumb sees them, 4px apart. Under a
+ * finger each is a 48px target (IconButton) that reaches only into the
+ * gaps beside it, never over its neighbour.
  */
-export function Dock({ bookId, text, visible, place, folioAt, inset, title, menu, c }: { bookId: string; text: BookText | null; visible: Visible | null; place: TextPlace | null; folioAt: ((p: TextPlace) => Folio) | null; inset: number; title: string; menu: MenuItem[]; c: AppController }) {
+export function Dock({ bookId, text, visible, place, folioAt, inset, title, menu, onContents, c }: { bookId: string; text: BookText | null; visible: Visible | null; place: TextPlace | null; folioAt: ((p: TextPlace) => Folio) | null; inset: number; title: string; menu: MenuItem[]; onContents: (() => void) | null; c: AppController }) {
   const n = useListening(bookId, text, visible, c);
   const mode = n.here ? "bar" : n.loaded ? "other" : "menu";
   const own = place && folioAt ? folioAt(place) : null;
@@ -89,18 +88,21 @@ export function Dock({ bookId, text, visible, place, folioAt, inset, title, menu
   };
 
   return (
-    <div className="flex h-14 shrink-0 items-center justify-between gap-3" style={{ paddingInline: inset }}>
+    <div className="flex h-16 shrink-0 items-center justify-between gap-2" style={{ paddingInline: inset }}>
       {narrator ? (
+        // On a narrow phone with a long book, the words give way before the page number does.
         <button
           type="button"
           onClick={() => void c.goToNarrator()}
           disabled={n.finding}
           aria-busy={n.finding || undefined}
+          aria-label={"page" in narrator ? `Narrator on ${narrator.page}` : `Narrator at ${narrator.percent}%`}
           className="flex h-11 min-w-0 items-center gap-0.5 rounded-md text-[0.8125rem]/5 font-medium whitespace-nowrap text-ink tabular-nums focus-ring active:opacity-60 disabled:opacity-40"
         >
           {narrator.behind && <ChevronLeftIcon className="-ml-1 size-4 shrink-0 fill-current text-ink-2" aria-hidden="true" />}
-          {"page" in narrator ? `Narrator on ${narrator.page}` : `Narrator at ${narrator.percent}%`}
-          {!narrator.behind && <ChevronRightIcon className="size-4 shrink-0 fill-current text-ink-2" aria-hidden="true" />}
+          <span className="min-w-0 truncate">{"page" in narrator ? "Narrator on" : "Narrator at"}</span>
+          <span className="ml-0.5 shrink-0">{"page" in narrator ? narrator.page : `${narrator.percent}%`}</span>
+          {!narrator.behind && <ChevronRightIcon className="-mr-1 size-4 shrink-0 fill-current text-ink-2" aria-hidden="true" />}
         </button>
       ) : (
         <p className="min-w-0 text-[0.8125rem]/5 font-medium whitespace-nowrap text-ink-2 tabular-nums">{!own ? "" : "page" in own ? `${own.page} of ${own.of}` : `${own.percent}%`}</p>
@@ -109,29 +111,28 @@ export function Dock({ bookId, text, visible, place, folioAt, inset, title, menu
         ref={capsule}
         role={mode === "menu" ? undefined : "group"}
         aria-label={mode === "menu" ? undefined : "Listening. Swipe up for the player"}
-        className={clsx("flex h-9 shrink-0 items-center rounded-lg bg-surface p-[3px] ring-1 ring-line dark:ring-line-strong", mode !== "menu" && "touch-none")}
+        className={clsx("flex h-12 items-center gap-1 rounded-[10px] bg-surface px-0.5 ring-1 ring-line dark:ring-line-strong", mode === "other" ? "min-w-0" : "shrink-0", mode !== "menu" && "touch-none")}
         {...lift}
       >
+        {mode === "menu" && onContents && <IconButton className="size-10" glyph="size-5" label="Contents" icon={ListBulletIcon} onClick={onContents} />}
         {mode === "bar" && (
           <>
-            <div className="flex items-center gap-[18px]">
-              <IconButton size="sm" glyph="size-5" label="Back 30 seconds" icon={Back30} onClick={() => c.skip(-30_000)} />
-              <PlayButton size="xs" />
-              <IconButton size="sm" glyph="size-5" label="Forward 30 seconds" icon={Forward30} onClick={() => c.skip(30_000)} />
-            </div>
-            <span className="mx-[9px] h-4 w-px shrink-0 bg-line-strong" aria-hidden="true" />
+            <IconButton className="size-10" glyph="size-6" label="Back 30 seconds" icon={Back30} onClick={() => c.skip(-30_000)} />
+            <PlayButton size="dock" />
+            <IconButton className="size-10" glyph="size-6" label="Forward 30 seconds" icon={Forward30} onClick={() => c.skip(30_000)} />
+            <span className="h-5 w-px shrink-0 bg-line-strong" aria-hidden="true" />
           </>
         )}
         {mode === "other" && (
-          <div className="flex min-w-0 items-center">
-            <PlayButton size="xs" />
-            <span className="min-w-0 truncate border-r border-line-strong px-2.5 text-xs/4 font-medium text-ink-2">
+          <>
+            <PlayButton size="dock" />
+            <span className="min-w-0 truncate border-r border-line-strong px-2.5 text-[0.8125rem]/5 font-medium text-ink-2">
               {n.playing ? "Playing " : "Paused, "}
               {n.title}
             </span>
-          </div>
+          </>
         )}
-        <Menu label="Menu" title={title} icon={Bars3Icon} size="md" items={menu} />
+        <Menu label="Menu" title={title} size="dock" items={menu} />
       </div>
     </div>
   );

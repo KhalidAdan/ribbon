@@ -79,7 +79,8 @@ export function ReadingView() {
     { label: "Close book", onSelect: () => void c.closeReading() },
   ];
   // While there is no page to follow (opening, failed, getting read-along ready), the dock still plays and still closes the book.
-  const idleDock = compact ? <Dock bookId={r.bookId} text={null} visible={null} place={null} folioAt={null} inset={28} title={title} menu={menu} c={c} /> : null;
+  const idleDock = compact ? <Dock bookId={r.bookId} text={null} visible={null} place={null} folioAt={null} inset={28} title={title} menu={menu} onContents={null} c={c} /> : null;
+  const openContents = () => setContents(true);
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Reading ${book?.book.title ?? "a book"}`} className="safe-area fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
@@ -135,6 +136,7 @@ export function ReadingView() {
           compact={compact}
           title={title}
           menu={menu}
+          onContents={openContents}
           onJustified={setJustified}
           c={c}
         />
@@ -501,7 +503,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, compact, title, menu, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; compact: boolean; title: string; menu: MenuItem[]; onJustified: (on: boolean) => void; c: AppController }) {
+function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, compact, title, menu, onContents, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; compact: boolean; title: string; menu: MenuItem[]; onContents: () => void; onJustified: (on: boolean) => void; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -727,7 +729,7 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
         )}
       </div>
       {compact ? (
-        <Dock bookId={bookId} text={text} visible={visible} place={place} folioAt={folioAt} inset={inset} title={title} menu={menu} c={c} />
+        <Dock bookId={bookId} text={text} visible={visible} place={place} folioAt={folioAt} inset={inset} title={title} menu={menu} onContents={onContents} c={c} />
       ) : (
         <>
           {bar && <ListeningBar bookId={bookId} text={text} visible={visible} c={c} />}
