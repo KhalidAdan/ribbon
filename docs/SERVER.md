@@ -1,7 +1,8 @@
 # The Ribbon server
 
-**A design for review, not built yet.** It records what was decided on
-2026-10-22 and proposes the rest; the questions still open are in section 13.
+**The design for Ribbon's server, agreed on 2026-10-22, not built yet.**
+Section 2 lists what was decided; the one question still open is in
+section 13. Code review settles the details.
 
 ## 1. Why a server
 
@@ -35,7 +36,7 @@ finished result.
 | Read the books where they are, or copy them in? | **Copy them onto the server** when a folder is added. |
 | A book that's already on the server? | **Never added again.** |
 | Files or a database? | **Files for the books and each person's place, and a small SQLite database** for what is metadata. |
-| How do people sign in? | **Usernames and passwords.** |
+| How do people sign in? | **Usernames and passwords, with [Better Auth](https://better-auth.com).** |
 | Who brings people in? | **The admin invites them.** |
 | Hosting, privacy, HTTPS? | **The host's business.** The server doesn't depend on Tailscale or any network; the owner runs his behind Tailscale so it isn't on the open internet. |
 | Streaming, or keeping books on the device? | **Download before playing** on desktops and phones. The Apple TV streams (section 8). |
@@ -61,7 +62,7 @@ flowchart LR
     Core["src/core/<br/>the same logic the apps run"]
     Tools["Rust tools<br/>scan · frames · EPUB · whisper"]
     Files[("Files<br/>books · each person's places")]
-    DB[("SQLite<br/>people · devices · book index · jobs")]
+    DB[("SQLite<br/>accounts · sessions · invites<br/>book index · jobs")]
   end
   Desktop["Ribbon on the desktop"] -- HTTPS --> API
   Phone["Ribbon on the iPhone"] -- HTTPS --> API
@@ -107,8 +108,9 @@ what books exist and how to find them fast, the jobs.
 
 ```text
 <server data>/                      wherever the host puts it
-  ribbon.db                         SQLite: people, invites, devices, the book
-                                    index, cover sizes and colours, jobs
+  ribbon.db                         SQLite: Better Auth's people and sessions,
+                                    invites, the book index, cover sizes and
+                                    colours, jobs
   books/<book-id>/
     audio files                     copied in, never changed
     book.epub                       copied in, if the book has one
@@ -135,14 +137,28 @@ such. An EPUB found later for an audiobook already on the server joins it.
 
 ## 6. Accounts
 
+Accounts are **[Better Auth](https://better-auth.com)** (decided), rather
+than written by hand: it has a [Fastify integration](https://better-auth.com/docs/integrations/fastify),
+keeps its tables in the same SQLite database, and hashes passwords with
+scrypt. The plugins it needs:
+
+- **username:** people sign in with a name and a password.
+- **admin:** the admin pages list people and their sessions, change roles,
+  and sign anyone out.
+- **bearer:** the desktop and phone apps send their session as a token in a
+  header rather than a cookie.
+
+How Ribbon uses it:
+
 - **People:** an admin and members. **The admin invites people** from the
   admin pages: an invite is a link with a one-time code, good for a few days,
-  where the person picks their name and password.
-- **Passwords** are stored as salted hashes (scrypt, built into Node, so no
-  native module to build).
-- **Devices:** signing in on a device gives it a long-lived token, kept by
-  the app ("Ribbon on Khalid's iPhone"). The admin pages list each person's
-  devices, and any of them can be signed out. A phone stays signed in.
+  where the person picks their name and password. Signing up is closed to
+  everyone else: a check on Better Auth's sign-up lets it through only with a
+  valid code, and spends the code.
+- **Devices are sessions.** Signing in on a device makes a long-lived session
+  for it, named for the device ("Ribbon on Khalid's iPhone"), kept by the app.
+  The admin pages list each person's sessions, and any of them can be signed
+  out. A phone stays signed in.
 - **HTTPS is the host's job.** The server speaks plain HTTP and expects to sit
   behind whatever the host uses: a reverse proxy such as Caddy, Tailscale
   Serve, a tunnel. It refuses passwords over plain HTTP from anywhere but the
@@ -266,8 +282,8 @@ JSON over HTTP. A sketch, to be settled in code review:
 
 | Request | What it does |
 | --- | --- |
-| `POST /api/sign-in` `{name, password, device}` | Returns a device token. |
-| `POST /api/invites/:code` `{name, password}` | Accepts an invite. |
+| `/api/auth/*` | Better Auth's own routes: sign up with an invite code, sign in with a name and password, sign out, sessions. |
+| `POST /api/invites` | (Admin) Makes an invite: a one-time code and its link. |
 | `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, chapters, whether there's an EPUB, each cover's hash, aspect ratio and colour. No places or progress in it, so its ETag holds for days. |
 | `GET /api/books/:id` | One book: its files, chapters, parts and records. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
@@ -282,7 +298,9 @@ and the jobs that follow.
 ## 11. The apps
 
 - **A server is a kind of library**, next to a folder. "Add a folder" gets a
-  sibling, "Connect to a server": its address, your name and password.
+  sibling, "Connect to a server": its address, your name and password. Someone
+  new first opens their invite link, a page the server serves, to pick a name
+  and a password.
 - In the app, a `ServerLibrary` gives the controller what `LibraryService`
   gives it for a folder (books, records, places) through the API instead of
   files, and keeps downloaded books in the app's own folder.
@@ -299,8 +317,8 @@ Folders stay for people without a server; nothing about them changes.
 
 **1. Everyone listens with their own place.**
 
-- The server as a Node package: invites, sign-in, people and devices, and the
-  admin pages for those and for adding a folder.
+- The server as a Node package: Better Auth's accounts, invites, people and
+  their devices, and the admin pages for those and for adding a folder.
 - Adding a folder: scan it with the existing scanner, show what was found and
   what's already there, copy the new books in, read their chapters (ffprobe
   runs on the server), make their covers, parse their EPUBs and pair text with
