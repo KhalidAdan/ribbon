@@ -1,3 +1,4 @@
+import type { DeviceInfo, LogRecord } from "../../core/poslog";
 import type { ServerBook, ServerBookDetail } from "../../core/server-books";
 
 /** Something a server said no to, or couldn't be asked, in words to show. */
@@ -55,12 +56,73 @@ export class ServerClient {
     return new Uint8Array(await (await this.get(`/covers/${hash}-${width}.jpg`)).arrayBuffer());
   }
 
-  private async get(path: string, headers: Record<string, string> = {}): Promise<Response> {
-    const r = await reach(`${this.url}${path}`, { headers: { authorization: `Bearer ${this.token}`, ...headers } });
+  /** This person's position records from every device, newer than the cursor (none: from the start), and the cursor to ask with next. */
+  async places(after: string | null): Promise<{ records: LogRecord[]; devices: DeviceInfo[]; cursor: string }> {
+    return (await (await this.get(`/api/places${after ? `?after=${encodeURIComponent(after)}` : ""}`)).json()) as { records: LogRecord[]; devices: DeviceInfo[]; cursor: string };
+  }
+
+  /** Records this device appended to its log, for the server to add to its copy of that log. */
+  async sendPlaces(device: DeviceInfo, records: readonly LogRecord[]): Promise<void> {
+    await this.send("/api/places", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device: { id: device.id, name: device.name, ...(device.app ? { app: device.app } : {}) }, records }) });
+  }
+
+  /**
+   * The server's events for this person (a place moved on another device,
+   * the library changed), each as it comes, until the stream ends or
+   * `signal` stops it.
+   */
+  async events(onEvent: (type: string, data: unknown) => void, signal: AbortSignal): Promise<void> {
+    const r = await this.send("/api/events", { headers: { accept: "text/event-stream" }, signal });
+    if (!r.body) return;
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buffer += value;
+      const { events, rest } = takeEvents(buffer);
+      buffer = rest;
+      for (const e of events) onEvent(e.type, e.data);
+    }
+  }
+
+  private get(path: string, headers: Record<string, string> = {}): Promise<Response> {
+    return this.send(path, { headers });
+  }
+
+  private async send(path: string, init: RequestInit): Promise<Response> {
+    const r = await reach(`${this.url}${path}`, { ...init, headers: { authorization: `Bearer ${this.token}`, ...(init.headers as Record<string, string>) } });
     if (r.status === 401) throw new ServerError("Sign in to the server again.", 401);
     if (!r.ok && r.status !== 304) throw new ServerError(await said(r, `The server answered ${r.status}.`), r.status);
     return r;
   }
+}
+
+/**
+ * Whole events out of a server-sent event stream read so far: `event:`
+ * names one, `data:` holds its JSON, a blank line ends it, and a line
+ * starting `:` is a comment (the server's heartbeat). What's left is the
+ * start of an event still arriving.
+ */
+export function takeEvents(buffer: string): { events: { type: string; data: unknown }[]; rest: string } {
+  const events: { type: string; data: unknown }[] = [];
+  const blocks = buffer.replace(/\r\n/g, "\n").split("\n\n");
+  const rest = blocks.pop() ?? "";
+  for (const block of blocks) {
+    let type = "message";
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) type = line.slice(6).trim();
+      else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    }
+    if (data.length === 0) continue;
+    try {
+      events.push({ type, data: JSON.parse(data.join("\n")) as unknown });
+    } catch {
+      /* not JSON: not one of the server's */
+    }
+  }
+  return { events, rest };
 }
 
 /** A request, with a failure to connect said as such. */

@@ -1,0 +1,8 @@
+{
+  // The tests run the apps' own code too (src/app), which is written for a web view.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "DOM.AsyncIterable"]
+  },
+  "include": ["."]
+}

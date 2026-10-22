@@ -8,7 +8,7 @@ import { promises as fsp } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppController, serverUrl, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
-import { ServerClient, ServerError } from "../src/app/server/client";
+import { ServerClient, ServerError, takeEvents } from "../src/app/server/client";
 import { NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
 import { scanLibrary } from "../src/core/scan/scan";
 import { localIdOf, type ServerBook, type ServerBookDetail } from "../src/core/server-books";
@@ -211,5 +211,13 @@ describe("a server's address as typed", () => {
     expect(serverUrl(" books.example.net/ ")).toBe("https://books.example.net");
     expect(serverUrl("http://books.example.net:7766")).toBe("http://books.example.net:7766");
     expect(serverUrl("https://example.net/ribbon/")).toBe("https://example.net/ribbon");
+  });
+});
+
+describe("the server's event stream", () => {
+  it("reads whole events, skips comments, and keeps an event still arriving", () => {
+    const { events, rest } = takeEvents(': connected\n\nevent: places\ndata: {"device":"urn:uuid:a"}\n\n: still here\n\nevent: books\ndata: {"add');
+    expect(events).toEqual([{ type: "places", data: { device: "urn:uuid:a" } }]);
+    expect(takeEvents(`${rest}ed":2}\n\n`).events).toEqual([{ type: "books", data: { added: 2 } }]);
   });
 });

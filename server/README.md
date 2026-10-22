@@ -17,9 +17,8 @@ Built so far:
 
 - **The apps connect.** In Ribbon, Settings → Connect to a server: the
   server's books join the shelf, and each one downloads before it plays.
-
-Sharing each person's place between their devices through the server comes
-next (docs/SERVER.md, section 12).
+  Each person's place follows them between their devices, as soon as it
+  moves.
 
 ## Running it
 
