@@ -4,6 +4,7 @@ import type { Highlight } from "../core/types";
 import type { Locator, Why } from "../core/poslog";
 import type { BookText, TextPlace } from "../core/reading/booktext";
 import { log } from "./log";
+import { isReadOnly } from "./read-only";
 
 /** The book open in the reader, while it opens, once it has, or why it could not. */
 export interface ReadingState {
@@ -60,7 +61,8 @@ export const SHARE_AFTER_MS = 5_000;
  * Keeps the place in one open book's text: on this machine at once, and
  * in the position log beside the books a few seconds after the reader
  * settles on a page, or at once for a jump or on close. A failed write
- * beside the books is tried again with the next one.
+ * beside the books is tried again with the next one, unless the folder is
+ * read-only from this device.
  */
 export class ReadingKeeper {
   private place: TextPlace;
@@ -113,6 +115,8 @@ export class ReadingKeeper {
     this.pending = null;
     this.writing = this.writing.then(() =>
       this.io.share(p.loc, p.why, p.at, p.ms).catch((e: unknown) => {
+        // A folder read-only from here keeps the place on this machine alone (keepLocal); the library has said so once.
+        if (isReadOnly(e)) return;
         log.warn("could not keep the reading place beside the books:", e instanceof Error ? e.message : String(e));
         // Keep it for the next try, unless something newer is already waiting.
         this.pending ??= p;

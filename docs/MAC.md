@@ -100,7 +100,14 @@ commits, or `xcodegen generate` in `src-tauri/gen/apple` drops it.
 The library is a folder you choose, on the phone as everywhere: Ribbon never
 makes a folder of books of its own. Choosing one on iOS needs a native folder
 picker (the dialog plugin has none on mobile), with access that lasts beyond the
-picker. Nothing that runs ffmpeg (loudness, silence, bookmark clips, the
+picker. A share the Files app reaches can be read-only from the phone, even signed
+in as a user who can write from elsewhere: every write beside the books fails
+with "Read-only file system (os error 30)". Ribbon then stops writing to that
+folder until it is opened again (`src/app/read-only.ts`), keeps the places in
+its books on the phone, and says so once at the top of the library and beside
+the folder in Settings. The other devices don't see the phone's places until
+the folder can be written. Samba's Apple settings (`vfs objects = catia fruit
+streams_xattr`) are reported to fix the share itself. Nothing that runs ffmpeg (loudness, silence, bookmark clips, the
 read-along export) is offered, since iOS starts no processes. The notch, the
 Dynamic Island and the home indicator get their room (`viewport-fit=cover`,
 the `safe-area` padding).

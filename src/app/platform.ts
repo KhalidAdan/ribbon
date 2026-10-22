@@ -69,6 +69,7 @@ export async function detectPlatform(): Promise<Platform> {
     const ios = onIos();
     return {
       host: tauriHost(),
+      phone: ios,
       async pickFolder(near) {
         if (ios) {
           const picked = await pickFolderOnIos();

@@ -1,5 +1,6 @@
 import type { Position } from "../core/types";
 import { comparePositions } from "../core/position";
+import { isReadOnly } from "./read-only";
 
 /** Where a source's positions are kept. */
 export interface PositionSinks {
@@ -23,6 +24,8 @@ export interface KeeperStatus {
   pendingShare: number;
   /** The share refused the last write. */
   shareFailing: boolean;
+  /** The folder is read-only from this device: nothing more is tried beside the books until it is opened again. */
+  readOnly: boolean;
 }
 
 export interface KeeperOptions {
@@ -43,10 +46,11 @@ const DEFAULT_RETRY = (n: number) => Math.min(60_000, 2_000 * 2 ** Math.min(n, 5
  * within `localEveryMs` (at once when urgent: a pause, a seek, the
  * window closing). The share follows within `shareEveryMs`, one writer
  * at a time, latest value per book: ten skips in a second write once.
- * A share that refuses (offline, read-only, reconnecting) keeps the
- * write queued and retried with backoff, and anything still queued
- * when the app quits is still in the local copy, which the next start
- * merges and pushes back.
+ * A share that refuses for a while (offline, reconnecting) keeps the
+ * write queued and retried with backoff. A folder that is read-only from
+ * this device is not tried again: its positions stay queued and in the
+ * local copy. Anything still queued when the app quits is in the local
+ * copy, which the next start merges and pushes back.
  *
  * Merging is newest-wins per book everywhere, so a slow read of the
  * share can never replace a newer position with an older one.
@@ -62,6 +66,7 @@ export class PositionKeeper {
   private lastLocal = 0;
   private lastShare = 0;
   private failures = 0;
+  private readOnly = false;
   private closed = false;
   private readonly localEveryMs: number;
   private readonly shareEveryMs: number;
@@ -86,7 +91,7 @@ export class PositionKeeper {
   }
 
   status(): KeeperStatus {
-    return { local: !!this.sinks.local && !this.localDirty, pendingShare: this.toShare.size, shareFailing: this.failures > 0 };
+    return { local: !!this.sinks.local && !this.localDirty, pendingShare: this.toShare.size, shareFailing: this.failures > 0, readOnly: this.readOnly };
   }
 
   private report(): void {
@@ -194,7 +199,7 @@ export class PositionKeeper {
   }
 
   private scheduleShare(urgent: boolean): void {
-    if (this.closed) return;
+    if (this.closed || this.readOnly) return;
     // After a refusal the backoff decides, not the throttle.
     const wait = this.failures > 0 ? this.retryDelayMs(this.failures - 1) : urgent ? 0 : Math.max(0, this.lastShare + this.shareEveryMs - Date.now());
     if (this.shareTimer !== null) {
@@ -231,7 +236,7 @@ export class PositionKeeper {
   /** One share writer at a time, latest value per book, oldest book first. */
   private async runShare(): Promise<void> {
     while (this.shareRun) await this.shareRun;
-    if (this.toShare.size === 0) return;
+    if (this.toShare.size === 0 || this.readOnly) return;
     this.lastShare = Date.now();
     this.shareRun = (async () => {
       for (const [id, p] of [...this.toShare]) {
@@ -242,6 +247,11 @@ export class PositionKeeper {
           if (this.failures > 0) this.sinks.log?.(`the books are reachable again; ${this.toShare.size} position(s) still to write`);
           this.failures = 0;
         } catch (e) {
+          if (isReadOnly(e)) {
+            this.readOnly = true;
+            this.sinks.log?.(`the folder is read-only from this device; ${this.toShare.size} position(s) kept on this machine, and not tried beside the books again until the folder is opened again`);
+            break;
+          }
           this.failures++;
           if (this.failures === 1 || this.failures % 10 === 0) this.sinks.log?.(`could not write a position beside the books (attempt ${this.failures}); kept on this machine and retrying: ${describe(e)}`);
           break;
