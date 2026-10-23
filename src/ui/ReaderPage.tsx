@@ -10,6 +10,7 @@ import { partAt } from "../core/scan/parts";
 import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
+import { Dialog } from "./Dialog";
 import { ReadHistory } from "./ReadHistory";
 import { tintFromImage } from "./tint";
 import { howFar, lengthOf, progressOf as progressIn, useShelfProgress } from "./progress";
@@ -33,6 +34,7 @@ export function ReaderPage() {
   const reading = (id: string) => c.readingProgress(id);
   const book = state.books.find((b) => b.book.id === state.readerBookId) ?? null;
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const series = useMemo(() => (book ? (c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null) : null), [c, book, state.books, state.sources, state.series]);
   const record = series ? state.series[series.key] : undefined;
@@ -93,7 +95,7 @@ export function ReaderPage() {
   // A book that is only its EPUB: read, never played.
   const toRead = readerOnly(book.book);
   const left = book.book.durationMs - me.posMs;
-  // A server's book: downloaded before it plays or opens, and removable from this device after.
+  // A server's book: downloaded before it plays or opens, and removable from this device after. Its admin can delete it from the server.
   const fromServer = !!state.sources.find((s) => s.id === book.source)?.server;
   const remote = book.remote;
   const download = state.download;
@@ -201,8 +203,35 @@ export function ReaderPage() {
                   ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
                   ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
                   ...(fromServer && !remote ? [{ label: `Remove from ${c.here} (${formatBytes(book.book.sizeBytes)})`, onSelect: () => void c.removeDownload(book.book.id), danger: true }] : []),
+                  ...(c.canDeleteFromServer(book.book.id) ? [{ label: "Delete from the server…", onSelect: () => setConfirmDelete(true), danger: true }] : []),
                 ]}
               />
+              <Dialog
+                open={confirmDelete}
+                onClose={() => setConfirmDelete(false)}
+                labelId="delete-from-server-title"
+                title={`Delete ${book.book.title} from the server?`}
+                description="It goes from the server and from every device that downloaded it. Everyone’s places in it are kept, and the folder it came from isn’t touched."
+                actions={
+                  <>
+                    <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => {
+                        setConfirmDelete(false);
+                        void c.deleteFromServer(book.book.id);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </>
+                }
+              >
+                {/* Nothing more to say than the description: room before the footer. */}
+                <div className="h-5 shrink-0" />
+              </Dialog>
             </div>
 
             <dl className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 sm:grid-cols-4">
