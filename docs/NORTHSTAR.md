@@ -12,8 +12,9 @@ A reader and a player for the books you own, as files: the EPUB and the
 audiobook, alone or side by side. It reads the EPUB on a page as well
 typeset as any reader's, plays the M4B, MP3, Opus and FLAC you already
 have, and keeps your place in every book forever, whether you were reading
-or listening. That place moves between your devices as a file, through your
-own server or a folder you sync, never through someone else's service.
+or listening. That place moves between your devices through your own
+server, or as a file in a folder you sync, never through someone else's
+service.
 
 Text is a first-class citizen, not a feature bolted onto a player. A book
 you only have as an EPUB is a book like any other. A book you have both
@@ -52,12 +53,13 @@ for every format: EPUBs without DRM, the way the audio is files without DRM.
 
 ## Principles
 
-**Your place is still a file.** Every book keeps your place in a small log
-of files: where you were reading, where you were listening, when, on which
-device. The newest wins. In a folder, the log sits beside the book and any
-sync moves it like any other file; on a server, each person's log is kept
-there, readable, and theirs to take away. Either way it survives the app
-being uninstalled.
+**Your place is yours.** Every book keeps your place in a small log: where
+you were reading, where you were listening, when, on which device. The
+newest wins. In a folder, the log is files beside the book, and any sync
+moves them like any other file. On a server, each person's log is kept in
+the server's database, and comes back as a file in the same format whenever
+they ask for it. Either way it's readable, theirs to take away, and it
+survives the app being uninstalled.
 
 **Folders still work.** Ribbon without a server is the app it was: your
 books in a folder, your place beside them, nothing to sign in to.
@@ -136,8 +138,8 @@ you. The plan and what stands in its way are in [MAC.md](MAC.md).
 **The server.** A phone can't prepare a book (no ffmpeg, no transcribing), a
 network share won't always take its writes, the Apple TV needs something to
 talk to, and the people you share books with need places of their own.
-Ribbon's own server prepares each book once, keeps each person's place, and
-gives every device the finished book. It runs on a machine you choose, for
+Ribbon's own server prepares each book once, keeps each person's place in
+its database, and gives every device the finished book. It runs on a machine you choose, for
 the people you invite. The design is in [SERVER.md](SERVER.md).
 
 **On the radar, not committed:**

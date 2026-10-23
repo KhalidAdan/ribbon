@@ -37,13 +37,23 @@ export function placesRoutes(app: FastifyInstance, deps: { auth: Auth; places: P
     const records = request.body?.records;
     if (!device || typeof device.id !== "string" || !Array.isArray(records)) return reply.code(400).send({ error: "Send the device ({ id, name }) and its records." });
     try {
-      const done = await deps.places.append(me.id, { id: device.id, name: typeof device.name === "string" ? device.name : "", ...(typeof device.app === "string" ? { app: device.app } : {}) }, records);
-      if (done.accepted > 0) deps.events.toPerson(me.id, { type: "places", data: { device: device.id } });
+      const done = deps.places.append(me.id, { id: device.id, name: typeof device.name === "string" ? device.name : "", ...(typeof device.app === "string" ? { app: device.app } : {}) }, records);
+      if (done.added > 0) deps.events.toPerson(me.id, { type: "places", data: { device: device.id } });
       return done;
     } catch (e) {
       if (e instanceof PlacesError) return reply.code(400).send({ error: e.message });
       throw e;
     }
+  });
+
+  // Your places, whole, as the position-log format: one record a line, every device's, in the order the server took them.
+  app.get("/api/places/export", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    reply.header("content-type", "application/x-ndjson; charset=utf-8");
+    reply.header("content-disposition", `attachment; filename="ribbon-places-${me.name.replace(/[^\w.-]+/g, "_")}.ndjson"`);
+    return deps.places.export(me.id);
   });
 
   app.get("/api/events", async (request, reply) => {

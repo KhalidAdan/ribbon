@@ -42,11 +42,13 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const invites = new Invites(db);
   const jobs = new Jobs(db);
   const books = new BookIndex(db);
-  const places = new Places(config.dataDir);
+  const places = new Places(db);
+  const imported = await places.importFiles(config.dataDir);
   const events = new Events();
 
   // A proxy on this machine (Caddy, Tailscale Serve) says whether the request came in over HTTPS; anyone else's word for it isn't taken.
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
+  if (imported > 0) app.log.info(`took ${imported} place records kept in files into the database`);
   // JSON shrinks a lot; audio, pictures and EPUBs are compressed already and go as they are.
   await app.register(fastifyCompress, { encodings: ["br", "gzip"] });
   // The apps call the API from their own origin. They sign in with a token in a header, never a cookie, so any

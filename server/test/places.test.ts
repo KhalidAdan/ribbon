@@ -1,10 +1,10 @@
-import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { RibbonServer } from "../src/app.ts";
-import { logName } from "../../src/core/poslog.ts";
+import { deviceFileName, logName, parseLog } from "../../src/core/poslog.ts";
 import { serverWithAdmin } from "./fixture.ts";
 
 const PHONE = "urn:uuid:11111111-1111-4111-8111-111111111111";
@@ -21,7 +21,6 @@ describe("places", () => {
   let server: RibbonServer;
   let owner = "";
   let brother = "";
-  let ownerId = "";
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-places-"));
@@ -30,7 +29,6 @@ describe("places", () => {
     owner = made.admin;
     const { code } = (await server.app.inject({ method: "POST", url: "/api/invites", headers: { authorization: `Bearer ${owner}` } })).json() as { code: string };
     brother = ((await server.app.inject({ method: "POST", url: `/api/invites/${code}/accept`, payload: { name: "brother", password: "a long password" } })).json() as { token: string }).token;
-    ownerId = ((await server.app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${owner}` } })).json() as { user: { id: string } }).user.id;
   });
   afterAll(async () => {
     await server.app.close();
@@ -50,7 +48,7 @@ describe("places", () => {
 
   it("keeps what a device sends, in that device's own log", async () => {
     const sent = await send(owner, { id: PHONE, name: "Ribbon on the phone" }, [pos(PHONE, 1, 60_000), pos(PHONE, 2, 61_000)]);
-    expect(sent.json()).toEqual({ accepted: 2, skipped: 0 });
+    expect(sent.json()).toEqual({ accepted: 2, skipped: 0, added: 2 });
     const all = await read(owner);
     expect(all.records.map((r) => r.ms)).toEqual([60_000, 61_000]);
     expect(all.devices).toEqual([{ id: PHONE, name: "Ribbon on the phone" }]);
@@ -75,20 +73,27 @@ describe("places", () => {
 
   it("takes from a device only its own records, and only valid ones", async () => {
     const mixed = await send(owner, { id: PHONE, name: "Ribbon on the phone" }, [pos(DESKTOP, 4, 1), { v: 1, nonsense: true }, "not a record", pos(PHONE, 5, 70_000)]);
-    expect(mixed.json()).toEqual({ accepted: 1, skipped: 3 });
+    expect(mixed.json()).toEqual({ accepted: 1, skipped: 3, added: 1 });
     const bad = await send(owner, { id: "../../etc", name: "x" }, [pos(PHONE, 6, 1)]);
     expect(bad.statusCode).toBe(400);
     cursor = (await read(owner, cursor)).cursor;
   });
 
-  it("reads a line only once it's whole", async () => {
-    const log = path.join(dir, "data", "people", ownerId, "places", logName(PHONE));
-    const line = JSON.stringify(pos(PHONE, 7, 80_000));
-    appendFileSync(log, line.slice(0, 20));
-    const half = await read(owner, cursor);
-    expect(half.records).toEqual([]);
-    appendFileSync(log, `${line.slice(20)}\n`);
-    expect((await read(owner, half.cursor)).records.map((r) => r.ms)).toEqual([80_000]);
+  it("keeps a record sent twice once, as a retry sends it", async () => {
+    const first = await send(owner, { id: PHONE, name: "Ribbon on the phone" }, [pos(PHONE, 7, 80_000)]);
+    const again = await send(owner, { id: PHONE, name: "Ribbon on the phone" }, [pos(PHONE, 7, 80_000)]);
+    expect(first.json()).toEqual({ accepted: 1, skipped: 0, added: 1 });
+    expect(again.json()).toEqual({ accepted: 1, skipped: 0, added: 0 });
+    expect((await read(owner, cursor)).records.map((r) => r.ms)).toEqual([80_000]);
+  });
+
+  it("hands back the whole log as a file in the position-log format", async () => {
+    const r = await server.app.inject({ method: "GET", url: "/api/places/export", headers: { authorization: `Bearer ${owner}` } });
+    expect(r.headers["content-type"]).toBe("application/x-ndjson; charset=utf-8");
+    expect(r.headers["content-disposition"]).toMatch(/^attachment; filename="ribbon-places-.+\.ndjson"$/);
+    const log = parseLog(r.body);
+    expect(log.skipped).toBe(0);
+    expect(log.records.map((x) => [x.dev, x.seq])).toEqual([[PHONE, 1], [PHONE, 2], [DESKTOP, 3], [PHONE, 5], [PHONE, 7]]);
   });
 
   it("asks for a sign-in", async () => {
@@ -114,5 +119,24 @@ describe("places", () => {
     await until("event: places");
     expect(seen).toContain(`data: {"device":"${DESKTOP}"}`);
     abort.abort();
+  });
+});
+
+describe("places a server kept as files before", () => {
+  it("are taken into the database once, and the files set aside", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ribbon-places-files-"));
+    const kept = path.join(dir, "data", "people", "person-1", "places");
+    mkdirSync(kept, { recursive: true });
+    writeFileSync(path.join(kept, logName(PHONE)), [pos(PHONE, 1, 1_000), pos(PHONE, 2, 2_000)].map((r) => `${JSON.stringify(r)}\n`).join(""));
+    writeFileSync(path.join(kept, deviceFileName(PHONE)), JSON.stringify({ id: PHONE, name: "Ribbon on the phone" }));
+    const { server } = await serverWithAdmin(dir);
+    const all = server.places.since("person-1", undefined);
+    expect(all.records.map((r) => r.seq)).toEqual([1, 2]);
+    expect(all.devices).toEqual([{ id: PHONE, name: "Ribbon on the phone" }]);
+    expect(existsSync(kept)).toBe(false);
+    expect(existsSync(`${kept}-imported`)).toBe(true);
+    await server.app.close();
+    server.db.close();
+    rmSync(dir, { recursive: true, force: true });
   });
 });

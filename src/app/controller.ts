@@ -7,7 +7,7 @@ import type { BookAbout } from "../core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "../core/sources";
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf } from "./server/shelf";
-import { PlacesSync } from "./server/places-sync";
+import { ServerLog } from "./server/server-log";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -311,11 +311,17 @@ interface Opened {
   /** For a Ribbon server's source: what the server lists, and its downloads (server/shelf.ts). */
   server: ServerShelf | null;
   /** For a Ribbon server's source: the position log carried to and from the server, and the event stream that says when. */
-  serverPlaces: { sync: PlacesSync; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
+  serverPlaces: { log: ServerLog; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
   /** The person signed in to this server is its admin, who adds its folders. */
   serverAdmin: boolean;
   /** A refresh of the server's list waiting to run: books arriving one at a time are fetched a few at once. */
   serverRefreshSoon: ReturnType<typeof setTimeout> | null;
+  /**
+   * Folders being added to this server, each with its job as last seen. Kept
+   * apart from `scanning`: a scan of the downloads underneath never takes
+   * over the import's progress, and covers don't hide while it runs.
+   */
+  serverImports: Map<number, { name: string; job: ServerJob | null }>;
 }
 
 /**
@@ -568,12 +574,14 @@ export class AppController {
 
   /** The scan status across every source, for the header. */
   private publishScanning(extra: Partial<AppState> = {}): void {
-    const live = this.openedInOrder().filter((o) => o.scanning);
+    // A server's imports, while there are any, are what its status says.
+    const statusOf = (o: Opened) => this.importStatus(o) ?? o.scanning;
+    const live = this.openedInOrder().filter((o) => statusOf(o));
     let scanning: ScanStatus | null = null;
     if (live.length > 0) {
       scanning = { walked: 0, done: 0, background: true };
       for (const o of live) {
-        const s = o.scanning!;
+        const s = statusOf(o)!;
         scanning.walked += s.walked;
         scanning.done += s.done;
         if (s.found !== undefined) scanning.found = (scanning.found ?? 0) + s.found;
@@ -585,7 +593,7 @@ export class AppController {
     const sourceStatus: Record<string, SourceStatus> = {};
     for (const s of this.state.sources) {
       const o = this.opened.get(s.id);
-      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o?.scanning ?? null };
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o ? statusOf(o) : null };
     }
     this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
   }
@@ -769,6 +777,7 @@ export class AppController {
       serverPlaces: null,
       serverAdmin: false,
       serverRefreshSoon: null,
+      serverImports: new Map(),
     };
     this.opened.set(source.id, o);
     if (source.server) await this.linkServer(o, this.serverTokens()[serverKey(source.server)] ?? null);
@@ -1173,6 +1182,11 @@ export class AppController {
     // Its list and covers are read and written here before the shelf's own access to the folder lands.
     await this.platform.allowFolder(o.source.root).catch((e: unknown) => log.warn("could not open a server's folder:", describe(e)));
     const client = new ServerClient(o.source.server.url, token);
+    this.letGoOfServerPlaces(o);
+    // The position log is the server's, kept here only as last read and what's still to send (server-log.ts).
+    const placesLog = new ServerLog(client, this.platform.host, o.source.root, () => o.lib.logDevice());
+    o.lib.useRemoteLog(placesLog);
+    o.serverPlaces = { log: placesLog, soon: null, events: new AbortController() };
     o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
     void this.refreshServer(o);
@@ -1184,8 +1198,6 @@ export class AppController {
         this.updateCanAddFolders();
       })
       .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
-    this.letGoOfServerPlaces(o);
-    o.serverPlaces = { sync: new PlacesSync(client, this.platform.host, o.source.root, () => o.lib.logDevice()), soon: null, events: new AbortController() };
     // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
     o.lib.onAppend = () => this.syncPlacesSoon(o);
     void this.syncPlaces(o);
@@ -1198,7 +1210,7 @@ export class AppController {
     if (!sp) return;
     const alive = () => this.opened.get(o.source.id) === o && o.serverPlaces === sp;
     try {
-      if (!(await sp.sync.sync()) || !alive()) return;
+      if (!(await sp.log.sync()) || !alive()) return;
       const l = await o.lib.readPositionLog();
       if (!alive()) return;
       this.takeSharePositions(o, l.places);
@@ -1273,11 +1285,11 @@ export class AppController {
     this.appSettings = { ...this.appSettings, lastServerFolder: folder };
     void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
     const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    const entry: { name: string; job: ServerJob | null } = { name, job: null };
+    const key = this.nextImport++;
+    o.serverImports.set(key, entry);
     const show = (job: ServerJob | null) => {
-      const p = job?.progress;
-      const done = p ? p.added + p.skipped + p.failed : 0;
-      const stage = !p || p.found === 0 ? `Looking through ${name}…` : p.current ? `Adding ${p.current}, ${Math.min(done + 1, p.found)} of ${p.found}…` : `Adding ${done} of ${p.found}…`;
-      o.scanning = { walked: p?.found ?? 0, done, background: this.state.books.length > 0, stage, copying: true };
+      entry.job = job;
       this.publishScanning();
     };
     show(null);
@@ -1300,10 +1312,8 @@ export class AppController {
       if (alive()) this.set({ error: `Couldn't add ${name} to the server: ${describe(e)}` });
       return;
     } finally {
-      if (alive()) {
-        o.scanning = null;
-        this.publishScanning();
-      }
+      o.serverImports.delete(key);
+      if (alive()) this.publishScanning();
     }
     await this.refreshServer(o);
     const p = job.progress;
@@ -1315,6 +1325,32 @@ export class AppController {
       const why = p.notes.filter((n) => !n.endsWith("already on the server."));
       this.set({ error: `${p.added} ${p.added === 1 ? "book" : "books"} from ${name} added. ${p.failed} couldn't be: ${why.slice(0, 3).join(" ")}${why.length > 3 ? ` And ${why.length - 3} more.` : ""}` });
     }
+  }
+
+  /** Each import's own number, to keep it by. */
+  private nextImport = 0;
+
+  /**
+   * One status for all of a server's imports, which its server runs one at a
+   * time: the folder being added, and how many wait behind it. Null when
+   * nothing is being added.
+   */
+  private importStatus(o: Opened): ScanStatus | null {
+    const all = [...o.serverImports.values()];
+    if (all.length === 0) return null;
+    const now = all.find((i) => i.job?.state === "running") ?? all[0]!;
+    const p = now.job?.progress;
+    const done = p ? p.added + p.skipped + p.failed : 0;
+    const waiting = all.length - 1;
+    const doing =
+      now.job?.state === "waiting" ? `Waiting to add ${now.name}…` : !p || p.found === 0 ? `Looking through ${now.name}…` : p.current ? `Adding ${p.current}, ${Math.min(done + 1, p.found)} of ${p.found}…` : `Adding ${done} of ${p.found}…`;
+    return {
+      walked: p?.found ?? 0,
+      done,
+      background: this.state.books.length > 0,
+      stage: waiting > 0 ? `${doing} Then ${waiting} more ${waiting === 1 ? "folder" : "folders"}.` : doing,
+      copying: true,
+    };
   }
 
   /** Stop carrying a server source's places: before it's linked again, or goes. */
@@ -1422,7 +1458,7 @@ export class AppController {
     if (o) {
       await o.keeper.close().catch(() => undefined);
       // The places still to send go before the downloads do.
-      await o.serverPlaces?.sync.sync().catch((e: unknown) => log.warn("could not send the last places to the server:", describe(e)));
+      await o.serverPlaces?.log.sync().catch((e: unknown) => log.warn("could not send the last places to the server:", describe(e)));
       this.letGoOfServerPlaces(o);
       o.coverJob?.abort();
       o.lookup?.stop();

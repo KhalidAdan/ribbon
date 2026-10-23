@@ -1,14 +1,13 @@
-import { appendFile, mkdir, open, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename } from "node:fs/promises";
 import path from "node:path";
-import { deviceFileName, encodeRecord, logName, parseLog, type DeviceInfo, type LogRecord } from "../../src/core/poslog.ts";
+import type { DatabaseSync } from "node:sqlite";
+import { encodeRecord, parseLog, type DeviceInfo, type LogRecord } from "../../src/core/poslog.ts";
 
 /** A device's id, as the position log writes it: a random UUID, never derived from anything (docs/POSITION-FORMAT.md, section 2). */
 const DEVICE_ID = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** A person's id from Better Auth, used as a folder name: letters, digits, dashes and underscores only. */
-const PERSON_ID = /^[A-Za-z0-9_-]+$/;
 
-/** Where a device has read each log up to: log file name to byte offset, sent back and forth as an opaque string. */
-type Cursor = Record<string, number>;
+/** The most records one answer carries; a device asks again, from the cursor, for the rest. */
+const PAGE = 2000;
 
 export interface NewPlaces {
   records: LogRecord[];
@@ -16,95 +15,105 @@ export interface NewPlaces {
   devices: DeviceInfo[];
   /** What to ask with next time, so only newer records come back. */
   cursor: string;
+  /** More than one answer holds: ask again with the cursor. */
+  more: boolean;
 }
 
 /**
- * Each person's places on the server, as the position log
- * (docs/POSITION-FORMAT.md): `people/<id>/places/`, one append-only
- * `.ndjson` per device and a `.json` saying who the device is. A device
- * sends what it appended; the server adds those lines to that device's
- * log and to no other, so nothing can conflict, and merging stays the
- * apps' own (`src/core/poslog.ts`).
+ * Each person's places on the server (docs/SERVER.md, section 5), in its
+ * database: one row for each record a device appended to its position log
+ * (docs/POSITION-FORMAT.md), in the order the server took them, and one row
+ * per device saying who it is. A device sends what it appended; a record
+ * sent twice, by a retry, is kept once, by its device and sequence number.
+ * The server never changes a record, and merging stays the apps' own
+ * (`src/core/poslog.ts`).
  *
- * Reading is by cursor: how far into each log the device has read. Only
- * whole lines newer than that come back, and nothing when nothing's new.
+ * Reading is by cursor, the last row a device has read: only newer records
+ * come back, and nothing when nothing's new. The whole log also comes back
+ * as one file in the position-log format, so a person's places are theirs
+ * to take away.
  */
 export class Places {
-  constructor(private readonly dataDir: string) {}
+  constructor(private readonly db: DatabaseSync) {}
 
-  /** Add a device's records to its log. Records that aren't valid, or that another device wrote, are left out and counted. */
-  async append(personId: string, device: DeviceInfo, records: readonly unknown[]): Promise<{ accepted: number; skipped: number }> {
-    const dir = this.dir(personId);
+  /** Add a device's records. Records that aren't valid, or that another device wrote, are left out and counted; `added` is how many were new. */
+  append(personId: string, device: DeviceInfo, records: readonly unknown[], now = Date.now()): { accepted: number; skipped: number; added: number } {
     if (!DEVICE_ID.test(device.id)) throw new PlacesError("A device's id is a urn:uuid: made once per installation.");
-    const lines: string[] = [];
+    let accepted = 0;
     let skipped = 0;
-    for (const record of records) {
-      const line = typeof record === "object" && record !== null ? encodeRecord(record as Record<string, unknown>) : "";
-      const parsed = parseLog(line).records[0];
-      // Single writer: a device only ever adds to its own log.
-      if (parsed && parsed.dev === device.id) lines.push(line);
-      else skipped++;
-    }
-    await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, deviceFileName(device.id)), JSON.stringify({ id: device.id, name: device.name ?? "", ...(device.app ? { app: device.app } : {}), format: "ribbon-position-log/1" }));
-    // One append for the whole batch: a log only ever grows by whole lines.
-    if (lines.length > 0) await appendFile(path.join(dir, logName(device.id)), lines.join(""));
-    return { accepted: lines.length, skipped };
-  }
-
-  /** Every record newer than `after` in each of the person's logs, and the cursor to ask with next. */
-  async since(personId: string, after: string | undefined): Promise<NewPlaces> {
-    const dir = this.dir(personId);
-    const cursor = decodeCursor(after);
-    const records: LogRecord[] = [];
-    const devices: DeviceInfo[] = [];
-    const names = await readdir(dir).catch(() => [] as string[]);
-    for (const name of names.filter((n) => n.endsWith(".ndjson")).sort()) {
-      const file = path.join(dir, name);
-      const from = Math.max(0, cursor[name] ?? 0);
-      const size = (await stat(file)).size;
-      if (size <= from) continue;
-      const handle = await open(file, "r");
-      try {
-        const buffer = Buffer.alloc(size - from);
-        await handle.read(buffer, 0, buffer.length, from);
-        // Only whole lines: a line still being written is read next time, whole.
-        const end = buffer.lastIndexOf(0x0a) + 1;
-        if (end === 0) continue;
-        records.push(...parseLog(buffer.subarray(0, end).toString("utf8")).records);
-        cursor[name] = from + end;
-      } finally {
-        await handle.close();
+    let added = 0;
+    const insert = this.db.prepare("INSERT OR IGNORE INTO place (person_id, device_id, seq, record, added_at) VALUES (?, ?, ?, ?, ?)");
+    this.db.exec("BEGIN");
+    try {
+      this.db
+        .prepare("INSERT INTO place_device (person_id, device_id, name, app) VALUES (?, ?, ?, ?) ON CONFLICT (person_id, device_id) DO UPDATE SET name = excluded.name, app = excluded.app")
+        .run(personId, device.id, device.name ?? "", device.app ?? null);
+      for (const record of records) {
+        const line = typeof record === "object" && record !== null ? encodeRecord(record as Record<string, unknown>) : "";
+        const parsed = parseLog(line).records[0];
+        // Single writer: a device only ever adds to its own log.
+        if (!parsed || parsed.dev !== device.id) {
+          skipped++;
+          continue;
+        }
+        accepted++;
+        added += Number(insert.run(personId, device.id, parsed.seq, line.trimEnd(), now).changes);
       }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
     }
-    for (const name of names.filter((n) => n.endsWith(".json"))) {
-      const info = await readFile(path.join(dir, name), "utf8").then((t) => JSON.parse(t) as DeviceInfo).catch(() => null);
-      if (info?.id) devices.push({ id: info.id, name: info.name ?? "" });
-    }
-    return { records, devices, cursor: encodeCursor(cursor) };
+    return { accepted, skipped, added };
   }
 
-  private dir(personId: string): string {
-    if (!PERSON_ID.test(personId)) throw new PlacesError("Not a person on this server.");
-    return path.join(this.dataDir, "people", personId, "places");
+  /** Every record newer than `after`, from every one of the person's devices, and the cursor to ask with next. */
+  since(personId: string, after: string | undefined): NewPlaces {
+    const from = /^\d+$/.test(after ?? "") ? Number(after) : 0;
+    const rows = this.db.prepare("SELECT id, record FROM place WHERE person_id = ? AND id > ? ORDER BY id LIMIT ?").all(personId, from, PAGE + 1);
+    const page = rows.slice(0, PAGE);
+    const records = parseLog(page.map((r) => String(r.record)).join("\n")).records;
+    const devices = this.db
+      .prepare("SELECT device_id, name FROM place_device WHERE person_id = ?")
+      .all(personId)
+      .map((d) => ({ id: String(d.device_id), name: String(d.name) }));
+    const last = page.at(-1);
+    return { records, devices, cursor: String(last ? Number(last.id) : from), more: rows.length > PAGE };
+  }
+
+  /** The person's whole log, every device's records in the order the server took them: the position-log format, one record a line. */
+  export(personId: string): string {
+    return this.db
+      .prepare("SELECT record FROM place WHERE person_id = ? ORDER BY id")
+      .all(personId)
+      .map((r) => `${String(r.record)}\n`)
+      .join("");
+  }
+
+  /**
+   * Places a server before 0.15 kept as files (`people/<id>/places/`, one
+   * log per device), taken into the database once. Each folder is renamed
+   * when it's in, so this runs once, and the files stay for anyone who
+   * wants them.
+   */
+  async importFiles(dataDir: string): Promise<number> {
+    let imported = 0;
+    const people = await readdir(path.join(dataDir, "people")).catch(() => [] as string[]);
+    for (const person of people) {
+      const dir = path.join(dataDir, "people", person, "places");
+      const names = await readdir(dir).catch(() => null);
+      if (!names) continue;
+      for (const name of names.filter((n) => n.endsWith(".json"))) {
+        const info = await readFile(path.join(dir, name), "utf8").then((t) => JSON.parse(t) as DeviceInfo).catch(() => null);
+        if (!info?.id || !DEVICE_ID.test(info.id)) continue;
+        const log = await readFile(path.join(dir, name.replace(/\.json$/, ".ndjson")), "utf8").catch(() => "");
+        imported += this.append(person, info, parseLog(log).records).added;
+      }
+      await rename(dir, `${dir}-imported`);
+    }
+    return imported;
   }
 }
 
 /** Something about a request for places that can't be done, said to the person asking. */
 export class PlacesError extends Error {}
-
-function encodeCursor(cursor: Cursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
-}
-
-/** A cursor as a device sent it, or the start of every log when it's absent or unreadable. */
-function decodeCursor(after: string | undefined): Cursor {
-  if (!after) return {};
-  try {
-    const parsed = JSON.parse(Buffer.from(after, "base64url").toString("utf8")) as unknown;
-    if (!parsed || typeof parsed !== "object") return {};
-    return Object.fromEntries(Object.entries(parsed).filter(([k, v]) => k.endsWith(".ndjson") && !k.includes("/") && typeof v === "number" && Number.isFinite(v)));
-  } catch {
-    return {};
-  }
-}
