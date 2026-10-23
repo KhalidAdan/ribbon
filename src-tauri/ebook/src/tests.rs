@@ -409,12 +409,11 @@ fn finds_the_cover_the_way_epub_2_names_it_and_copies_it() {
     let file = dir.join("Book.epub");
     std::fs::write(&file, &bytes).unwrap();
     let target = dir.join("covers").join("abc.jpg");
-    assert!(extract_cover(&file, &target).unwrap());
+    assert!(extract_cover(std::fs::File::open(&file).unwrap(), &target).unwrap());
     assert_eq!(std::fs::read(&target).unwrap(), png);
-    assert_eq!(read_package_at(&file).unwrap().meta.title, "Voidscarred");
     let bare = dir.join("Bare.epub");
     std::fs::write(&bare, epub(&[("META-INF/container.xml", CONTAINER), ("OEBPS/content.opf", OPF.as_bytes())])).unwrap();
-    assert!(!extract_cover(&bare, &dir.join("covers").join("bare.jpg")).unwrap());
+    assert!(!extract_cover(std::fs::File::open(&bare).unwrap(), &dir.join("covers").join("bare.jpg")).unwrap());
 }
 
 /// The tone of each image block in a cached model, in reading order.

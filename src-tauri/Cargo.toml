@@ -1,3 +1,7 @@
+# The app, and the EPUB parser it shares with the server.
+[workspace]
+members = ["ebook"]
+
 [package]
 name = "ribbon"
 version = "0.15.0"
@@ -30,12 +34,14 @@ lofty = "0.25"
 rayon = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
 fs4 = "0.13"
+# The EPUB parser, a crate of its own so the server can build it alone (ebook/).
+ribbon-ebook = { path = "ebook" }
+# The read-along export writes a copy of the EPUB.
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+# The export's tests read the chapters it wrote.
 quick-xml = "0.39.4"
-imagesize = "0.15.0"
-# Only to tell line art from pictures, for the reader's dark mode: the
-# four formats EPUBs carry, no encoders beyond what those bring, no threads.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 # Speech (whisper.cpp) on the GPU: Metal on Apple's systems, Vulkan on Windows and Linux.
 # Android runs it on the CPU for now. How it is compiled: tools/with-build-env.mjs.
@@ -56,6 +62,9 @@ whisper-rs = { version = "0.16", features = ["vulkan"] }
 opt-level = 3
 
 [profile.dev.package.ribbon]
+opt-level = 2
+
+[profile.dev.package.ribbon-ebook]
 opt-level = 2
 
 # Image decoding, for the same reason: a book's images are read once, on first open.

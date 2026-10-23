@@ -10,7 +10,7 @@
     "tauri:dev": "node tools/with-build-env.mjs tauri dev",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:rust": "node tools/with-build-env.mjs cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "node tools/with-build-env.mjs cargo test --manifest-path src-tauri/Cargo.toml --workspace",
     "typecheck": "tsc --noEmit",
     "ribbon": "tsx tools/ribbon.ts",
     "fixtures": "tsx tools/make-fixtures.ts",

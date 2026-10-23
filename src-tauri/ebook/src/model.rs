@@ -107,8 +107,8 @@ pub struct Block {
     pub tone: Option<&'static str>,
 }
 
-#[cfg(test)]
 impl Block {
+    /// The block's text, its runs joined.
     pub fn text(&self) -> String {
         self.runs.iter().map(|r| r.t.as_str()).collect()
     }
