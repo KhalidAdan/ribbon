@@ -72,6 +72,34 @@ jobs:
       # The server runs src/core/ from the app, which brings its own packages.
       - run: npm ci --ignore-scripts
         working-directory: .
+      # Read-along reads EPUBs with Ribbon's own parser (src-tauri/ebook), which the tests run.
+      - name: Rust (stable)
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> ../target
+      - run: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook
+        working-directory: .
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  # Ribbon on the Apple TV (tv/, tv/README.md), built for the simulator so it
+  # keeps building. Nothing is signed: the Apple team is the signer's own.
+  tv:
+    name: Apple TV
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # The app bundles the reader's own faces from the npm packages.
+      - run: npm ci --ignore-scripts
+      - run: brew install xcodegen
+      - run: xcodegen generate
+        working-directory: tv
+      - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=tvOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+        working-directory: tv

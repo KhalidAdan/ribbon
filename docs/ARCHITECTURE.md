@@ -83,7 +83,7 @@ flowchart LR
   text side: made once per opened book.
 - **`Alignment`** (`core/reading/align.ts`) is the only bridge between text
   and time. Everything read-along does is about making it precise.
-- **`ChapterSource`** (`src-tauri/src/ebook/source.rs`) is how a place
+- **`ChapterSource`** (`src-tauri/ebook/src/source.rs`) is how a place
   becomes bytes of the book's own files, for the export.
 
 ## 3. The reading model
@@ -154,7 +154,7 @@ classDiagram
   Alignment *-- Pair
 ```
 
-The `Ebook` comes from Rust (`ebook/mod.rs` parses the EPUB once and caches
+The `Ebook` comes from Rust (the `ribbon-ebook` crate, `src-tauri/ebook`, parses the EPUB once and caches
 the model in the Ribbon folder). Offsets are UTF-16 code units, as
 JavaScript strings count them, so a `TextPlace` indexes a block's text
 directly.
@@ -377,5 +377,6 @@ bookmarks, corrections, pairing); README.md lists which is which.
 | Read-along's transcript | `core/reading/transcript.ts`, `src-tauri/src/speech.rs` |
 | The reader on screen | `reader/ReadingView.tsx`, `core/reading/pages.ts`, `reader/typeset.ts`, `reader/layout-engine.ts` |
 | Playback | `player/engine.ts`, `src-tauri/src/frames.rs` |
-| The EPUB parser | `src-tauri/src/ebook/content.rs` |
-| The export | `core/reading/export.ts`, `src-tauri/src/ebook/export.rs`, `source.rs` |
+| The EPUB parser | `src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
+| The export | `core/reading/export.ts`, `src-tauri/src/ebook/export.rs`, `src-tauri/ebook/src/source.rs` |
+| Read-along on the Apple TV | `core/reading/readalong.ts`, `server/src/readalong-routes.ts`, `tv/` (tv/README.md) |
