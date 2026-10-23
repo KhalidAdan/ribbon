@@ -34,7 +34,9 @@ final class Library {
         do {
             async let list = server.books()
             async let places = server.progress()
-            (books, progress) = try await (list, places)
+            books = try await list
+            // A server from before it said how far people are shows its books without it.
+            progress = (try? await places) ?? [:]
             loaded = true
             problem = nil
         } catch let error as ServerError where error.status == 401 {
