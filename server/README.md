@@ -65,6 +65,14 @@ on Linux): SQLite needs it. The books can live elsewhere, mounted over
 `/data/books`. Mount a folder of books to add read-only, and add it by its
 path inside the container.
 
+To update, pull, build again, and replace the container (`docker rm -f
+ribbon-server`, then the same `docker run`): everything it keeps is in the
+data folder. To move a server to another machine, copy its data folder:
+the database as `sqlite3 ribbon.db ".backup copy.db"` takes it (a plain copy
+of a running one may be torn), then `secret`, `people/` and `books/`. The
+same secret keeps everyone signed in; a new address means the apps connect
+again.
+
 ## Settings
 
 From the environment:
