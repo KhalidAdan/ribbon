@@ -160,6 +160,6 @@ describe("adding a folder through a server", () => {
     const admin = await signedIn("admin", "a long password", path.join(dir, "not on the server"));
     await until(() => admin.c.getState().canAddFolders);
     await admin.c.pickLibrary();
-    expect(admin.c.getState().error).toBe("The server can't see not on the server: it adds folders from its own computer. Pick one there.");
+    expect(admin.c.getState().error).toBe("The server can't see not on the server. It reads a folder at the path it has on this machine, so the folder has to be at that same path on the server's computer too.");
   });
 });

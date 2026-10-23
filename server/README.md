@@ -62,8 +62,22 @@ docker run -d --name ribbon-server --restart unless-stopped --network host \
 Tailscale Serve reaches it as from this machine. Keep the data folder on a
 disk with ordinary file locking (not one mounted through FUSE, such as NTFS
 on Linux): SQLite needs it. The books can live elsewhere, mounted over
-`/data/books`. Mount a folder of books to add read-only, and add it by its
-path inside the container.
+`/data/books`.
+
+Adding a folder from the app sends the server the folder's path, and the
+server reads it there itself. When the books are on a network share the
+apps mount, mount the share on the server's machine as well and give it to
+the container read-only at the path the apps see it at, so the same path
+works on both. For a share a Mac has at `/Volumes/media`, mounted on the
+server's machine at `/mnt/media`:
+
+```bash
+--mount type=bind,source=/mnt/media,target=/Volumes/media,readonly,bind-propagation=rslave
+```
+
+`rslave` lets the container see the share even when it's mounted after the
+container starts. A Windows path (`\\server\share`, `M:\`) can't be given
+the same way yet, so add folders from a Mac, or on the server's own machine.
 
 To update, pull, build again, and replace the container (`docker rm -f
 ribbon-server`, then the same `docker run`): everything it keeps is in the
