@@ -3108,6 +3108,7 @@ dependencies = [
  "rayon",
  "reqwest",
  "ribbon-ebook",
+ "ribbon-frames",
  "serde",
  "serde_json",
  "tauri",
@@ -3134,6 +3135,10 @@ dependencies = [
  "serde_json",
  "zip",
 ]
+
+[[package]]
+name = "ribbon-frames"
+version = "0.16.0"
 
 [[package]]
 name = "rustc-hash"

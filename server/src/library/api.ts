@@ -1,4 +1,4 @@
-import fastifyStatic from "@fastify/static";
+import fastifyStatic, { type SendOptions } from "@fastify/static";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -7,6 +7,7 @@ import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
 import { COVER_WIDTHS } from "./covers.ts";
+import type { Mp3Frames } from "./frames.ts";
 
 /** A cover's file name: its picture's hash and one of the widths it's made at. */
 const COVER_NAME = new RegExp(`^([0-9a-f]{16})-(${COVER_WIDTHS.join("|")})\\.jpg$`);
@@ -25,7 +26,9 @@ const ASK_FIRST = "private, no-cache";
  *   off (the admin deletes one in routes.ts).
  * - `GET /api/books/:id`: one book in full: its files, chapters and parts.
  * - `GET /covers/:hash-:width.jpg`: a cover, at an address that never changes.
- * - `GET /api/books/:id/files/*`: a file of the book, for downloads.
+ * - `GET /api/books/:id/files/*`: a file of the book, for downloads; an
+ *   MP3 with `?ms=` is sent from the frame where that moment falls, for a
+ *   player that streams (the TV), which then starts it at its own 0.
  *
  * The two JSON answers carry an ETag and are sent "no-cache": a device
  * keeps them and asks again with If-None-Match, and gets a bare 304 when
@@ -33,7 +36,7 @@ const ASK_FIRST = "private, no-cache";
  * people listen. Files carry an ETag and Last-Modified and answer Range
  * and If-Range, so a download that stopped carries on where it was.
  */
-export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; dataDir: string }): Promise<void> {
+export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; dataDir: string; frames: Mp3Frames }): Promise<void> {
   // Sends files with Range, ETag and Last-Modified (the `send` module); no routes of its own.
   // Made now, not with the first book: the files plugin wants its folder to exist.
   mkdirSync(path.join(deps.dataDir, "books"), { recursive: true });
@@ -58,13 +61,22 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     return reply.header("cache-control", FOREVER).sendFile(path.posix.join(id, "covers", request.params.name), { cacheControl: false });
   });
 
-  app.get<{ Params: { id: string; "*": string } }>("/api/books/:id/files/*", { onRequest: mustSignIn }, async (request, reply) => {
+  app.get<{ Params: { id: string; "*": string }; Querystring: { ms?: string } }>("/api/books/:id/files/*", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     const file = request.params["*"];
     // Only the book's own files: its EPUB, the audio its record lists, and the records carried in with it. Nothing else under its folder, and nothing outside it.
     const known = stored && (file === stored.book.ebook || stored.files.some((f) => f.path === file) || (stored.records ?? []).some((kind) => file === `records/${kind}.csv`));
     if (!known) return reply.code(404).send({ error: "No such file in this book." });
-    return reply.header("cache-control", ASK_FIRST).sendFile(path.posix.join(request.params.id, file), { cacheControl: false, acceptRanges: true, etag: true, lastModified: true });
+    const where = path.posix.join(request.params.id, file);
+    const ms = Number(request.query.ms);
+    if (request.query.ms !== undefined && /\.mp3$/i.test(file) && deps.frames.available && Number.isFinite(ms) && ms > 0) {
+      // From the moment's frame on, as if the file began there: its own ranges, and no ETag of the whole file's.
+      const start = await deps.frames.start(request.params.id, stored, file, ms);
+      // The plugin hands its options to @fastify/send, which takes `start`; the plugin's types leave it out.
+      const fromFrame: SendOptions & { start: number } = { cacheControl: false, acceptRanges: true, etag: false, lastModified: false, start: start.byte };
+      return reply.header("cache-control", ASK_FIRST).header("x-ribbon-starts-at-ms", String(start.ms)).sendFile(where, fromFrame);
+    }
+    return reply.header("cache-control", ASK_FIRST).sendFile(where, { cacheControl: false, acceptRanges: true, etag: true, lastModified: true });
   });
 }
 

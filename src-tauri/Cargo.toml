@@ -1,6 +1,6 @@
-# The app, and the EPUB parser it shares with the server.
+# The app, and the EPUB parser and MP3 frame index it shares with the server.
 [workspace]
-members = ["ebook"]
+members = ["ebook", "frames"]
 
 [package]
 name = "ribbon"
@@ -34,8 +34,9 @@ lofty = "0.25"
 rayon = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
 fs4 = "0.13"
-# The EPUB parser, a crate of its own so the server can build it alone (ebook/).
+# The EPUB parser and the MP3 frame index, crates of their own so the server can build them alone.
 ribbon-ebook = { path = "ebook" }
+ribbon-frames = { path = "frames" }
 # The read-along export writes a copy of the EPUB.
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 
@@ -66,6 +67,10 @@ opt-level = 2
 
 [profile.dev.package.ribbon-ebook]
 opt-level = 2
+
+# A 10-hour MP3 is read whole to index it.
+[profile.dev.package.ribbon-frames]
+opt-level = 3
 
 # Image decoding, for the same reason: a book's images are read once, on first open.
 [profile.dev.package.zune-jpeg]

@@ -1,16 +1,16 @@
 # The Ribbon server in a container: Node, ffmpeg for reading, measuring and
-# picturing books, and Ribbon's EPUB parser for read-along (server/README.md,
-# "In Docker"). Built from the repository's root, which holds the app's own
-# logic the server runs:
+# picturing books, and Ribbon's EPUB parser and MP3 frame index for read-along
+# (server/README.md, "In Docker"). Built from the repository's root, which
+# holds the app's own logic the server runs:
 #
 #   docker build -f server/Dockerfile -t ribbon-server .
 
-# The EPUB parser (src-tauri/ebook), built alone: nothing of Tauri or whisper is in it.
-FROM rust:1-bookworm AS ebook
+# The EPUB parser and the MP3 frame index (src-tauri/ebook, src-tauri/frames), built alone: nothing of Tauri or whisper is in them.
+FROM rust:1-bookworm AS tools
 WORKDIR /ribbon
 COPY .cargo .cargo
 COPY src-tauri src-tauri
-RUN cargo build --release --locked --manifest-path src-tauri/Cargo.toml -p ribbon-ebook
+RUN cargo build --release --locked --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
 
 FROM node:24-bookworm-slim
 
@@ -26,8 +26,8 @@ COPY server/package.json server/package-lock.json server/
 RUN cd server && npm ci
 COPY src src
 COPY server server
-COPY --from=ebook /ribbon/target/release/ribbon-ebook /usr/local/bin/ribbon-ebook
-ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook
+COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /usr/local/bin/
+ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames
 
 WORKDIR /ribbon/server
 # Its data folder: the database, each person's settings, and (often a bind mount of its own) the books.

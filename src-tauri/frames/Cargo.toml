@@ -1,0 +1,12 @@
+[package]
+name = "ribbon-frames"
+version = "0.16.0"
+description = "Exact places in an MP3: where each frame starts, so a player starts at the moment asked for."
+authors = ["Khalid Adan"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[lib]
+name = "ribbon_frames"

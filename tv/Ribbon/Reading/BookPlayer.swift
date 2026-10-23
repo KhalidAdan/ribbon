@@ -8,6 +8,11 @@ import MediaPlayer
 ///
 /// Apple's queue player plays each file into the next; two are queued at a
 /// time, and the next goes on as one ends.
+///
+/// An MP3 is never sought in: Apple's player seeks in one with no seek table
+/// by its average bitrate, minutes off in a long VBR book. It's asked of the
+/// server from the moment instead, which sends it from that moment's own
+/// frame (server/src/library/frames.ts), and played from its own 0.
 @MainActor
 final class BookPlayer {
     struct File {
@@ -28,8 +33,9 @@ final class BookPlayer {
     private let files: [File]
     private let cookie: HTTPCookie?
     private let player = AVQueuePlayer()
-    /// The file each queued item plays.
+    /// The file each queued item plays, and where in the file it begins: an MP3 asked for from a moment begins there.
     private var fileOf: [ObjectIdentifier: Int] = [:]
+    private var beginsAt: [ObjectIdentifier: Int] = [:]
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
 
@@ -50,22 +56,21 @@ final class BookPlayer {
     var positionMs: Int {
         guard let item = player.currentItem, let file = fileOf[ObjectIdentifier(item)] else { return 0 }
         let seconds = item.currentTime().seconds
-        return files[file].startMs + (seconds.isFinite ? Int(seconds * 1000) : 0)
+        return files[file].startMs + (beginsAt[ObjectIdentifier(item)] ?? 0) + (seconds.isFinite ? Int(seconds * 1000) : 0)
     }
 
-    /// Play from a moment of the book: within the file already playing it seeks, otherwise it queues that file afresh.
+    /// Play from a moment of the book. An MP3 is asked for from the moment; any other file is sought in,
+    /// within the file already playing, or once that file is queued afresh.
     func play(from ms: Int) {
         let target = max(0, ms)
         let file = files.lastIndex { $0.startMs <= target } ?? 0
-        let offset = CMTime(value: CMTimeValue(target - files[file].startMs), timescale: 1000)
-        if let item = player.currentItem, fileOf[ObjectIdentifier(item)] == file {
-            player.seek(to: offset, toleranceBefore: .zero, toleranceAfter: .zero)
+        let offset = target - files[file].startMs
+        if isMP3(file) {
+            requeue(from: file, at: offset)
         } else {
-            player.removeAllItems()
-            fileOf = [:]
-            enqueue(file)
-            enqueue(file + 1)
-            player.seek(to: offset, toleranceBefore: .zero, toleranceAfter: .zero)
+            let playing = player.currentItem.flatMap { fileOf[ObjectIdentifier($0)] }
+            if playing != file { requeue(from: file, at: 0) }
+            player.seek(to: CMTime(value: CMTimeValue(offset), timescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)
         }
         loaded = true
         resume()
@@ -102,12 +107,28 @@ final class BookPlayer {
     var nowPlayingTitle = ""
     var nowPlayingAuthor = ""
 
-    private func enqueue(_ file: Int) {
+    /// The queue made again: this file, from a moment of it, then the next.
+    private func requeue(from file: Int, at offset: Int) {
+        player.removeAllItems()
+        fileOf = [:]
+        beginsAt = [:]
+        enqueue(file, from: offset)
+        enqueue(file + 1)
+    }
+
+    private func isMP3(_ file: Int) -> Bool {
+        files[file].url.pathExtension.lowercased() == "mp3"
+    }
+
+    private func enqueue(_ file: Int, from offset: Int = 0) {
         guard files.indices.contains(file) else { return }
+        var url = files[file].url
+        if offset > 0 && isMP3(file) { url.append(queryItems: [URLQueryItem(name: "ms", value: String(offset))]) }
         // Apple's player can't send a sign-in header, but it sends the session's cookie.
         let options: [String: Any] = cookie.map { [AVURLAssetHTTPCookiesKey: [$0]] } ?? [:]
-        let item = AVPlayerItem(asset: AVURLAsset(url: files[file].url, options: options))
+        let item = AVPlayerItem(asset: AVURLAsset(url: url, options: options))
         fileOf[ObjectIdentifier(item)] = file
+        if isMP3(file) { beginsAt[ObjectIdentifier(item)] = offset }
         player.insert(item, after: nil)
     }
 
@@ -118,6 +139,7 @@ final class BookPlayer {
 
     private func ended(_ item: AVPlayerItem?) {
         guard let item, let file = fileOf.removeValue(forKey: ObjectIdentifier(item)) else { return }
+        beginsAt[ObjectIdentifier(item)] = nil
         if file == files.count - 1 {
             playing = false
             onEnd?()

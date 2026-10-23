@@ -6,7 +6,7 @@ import { bookId } from "../../src/core/bookid.ts";
 import type { ReadAlong } from "../../src/core/reading/readalong.ts";
 import { localIdOf } from "../../src/core/server-books.ts";
 import type { RibbonServer } from "../src/app.ts";
-import { builtEbookTool } from "../src/config.ts";
+import { builtTool } from "../src/config.ts";
 import type { ListedBook } from "../src/library/books.ts";
 import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
@@ -27,7 +27,7 @@ describe("read-along from the server", () => {
   const phone = { id: "urn:uuid:0c3d2e1f-9a8b-4c7d-8e6f-5a4b3c2d1e0f", name: "Ribbon on an iPhone" };
 
   beforeAll(async () => {
-    const tool = builtEbookTool();
+    const tool = builtTool("ribbon-ebook");
     expect(tool, "build the EPUB tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-readalong-"));
     const library = path.join(dir, "library");
@@ -38,7 +38,7 @@ describe("read-along from the server", () => {
     const id = bookId("An Author/Read Along", statSync(path.join(folder, "01.mp3")).size);
     mkdirSync(path.join(library, ".ribbon", "aligned"), { recursive: true });
     writeFileSync(path.join(library, ".ribbon", "aligned", `${id}.csv`), "start_ms,end_ms,words,chars\n0,12000,,\n1000,3900,The first sentence is here,11\n4000,7900,A second one follows it,39\n8000,11500,The third ends the chapter,64\n");
-    const made = await serverWithAdmin(dir, { ebookTool: tool });
+    const made = await serverWithAdmin(dir, { ebookTool: tool, framesTool: builtTool("ribbon-frames") });
     server = made.server;
     token = made.admin;
     await importAs(server, token, library);
@@ -112,20 +112,32 @@ describe("read-along from the server", () => {
   });
 });
 
-describe("read-along on a server without the EPUB tool", () => {
-  it("says the server can't, rather than failing", async () => {
+describe("read-along on a server without its commands", () => {
+  /** A server with one book of an MP3 and an EPUB, and these commands. */
+  const answer = async (tools: { ebookTool: string | null; framesTool: string | null }) => {
     const dir = mkdtempSync(path.join(tmpdir(), "ribbon-readalong-none-"));
     const folder = path.join(dir, "library", "Read Along");
     mp3(path.join(folder, "01.mp3"), { title: "Read Along", album: "Read Along", artist: "An Author" });
     epub(path.join(folder, "Read Along.epub"), "Chapter One", SENTENCES);
-    const { server, admin } = await serverWithAdmin(dir, { ebookTool: null });
+    const { server, admin } = await serverWithAdmin(dir, tools);
     await importAs(server, admin, path.join(dir, "library"));
     const id = server.books.list()[0]!.id;
     const r = await server.app.inject({ method: "GET", url: `/api/books/${id}/readalong`, headers: { authorization: `Bearer ${admin}` } });
-    expect(r.statusCode).toBe(503);
-    expect((r.json() as { error: string }).error).toMatch(/ribbon-ebook/);
     await server.app.close();
     server.db.close();
     rmSync(dir, { recursive: true, force: true });
+    return { status: r.statusCode, error: (r.json() as { error: string }).error };
+  };
+
+  it("says it can't read EPUBs, rather than failing", async () => {
+    const r = await answer({ ebookTool: null, framesTool: builtTool("ribbon-frames") });
+    expect(r.status).toBe(503);
+    expect(r.error).toMatch(/ribbon-ebook/);
+  }, 60_000);
+
+  it("says it can't send an MP3 from a moment, rather than letting the narration run out of step", async () => {
+    const r = await answer({ ebookTool: builtTool("ribbon-ebook"), framesTool: null });
+    expect(r.status).toBe(503);
+    expect(r.error).toMatch(/ribbon-frames/);
   }, 60_000);
 });

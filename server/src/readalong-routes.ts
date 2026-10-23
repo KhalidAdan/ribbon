@@ -7,6 +7,7 @@ import { signedIn, type Auth } from "./auth.ts";
 import type { Events } from "./events.ts";
 import { sendRevalidated, storedBook } from "./library/api.ts";
 import type { BookIndex, ListedBook, StoredBook } from "./library/books.ts";
+import type { Mp3Frames } from "./library/frames.ts";
 import { ReadAlongError, type MadeReadAlong, type ReadAlongs } from "./library/readalong.ts";
 import { PlacesError, type Places } from "./places.ts";
 
@@ -40,12 +41,16 @@ export interface BookPlace {
  *   (docs/POSITION-FORMAT.md), with the claims the apps give the book, so
  *   the other devices find it and the device needs no log of its own.
  */
-export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; dataDir: string }): void {
+export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; frames: Mp3Frames; dataDir: string }): void {
   /** The book and its read-along, or the answer that says why there's none. */
   const readAlongOf = async (id: string, reply: FastifyReply): Promise<{ listed: ListedBook; stored: StoredBook; made: MadeReadAlong } | null> => {
     const listed = deps.books.get(id);
     const stored = listed && (await storedBook(deps, id));
     if (!listed || !stored) return (await reply.code(404).send({ error: "No such book on this server." }), null);
+    // A device that streams plays an MP3 from a moment only as the server sends it from there; without that it would be out of step with the text.
+    if (stored.files.some((f) => /\.mp3$/i.test(f.path)) && !deps.frames.available) {
+      return (await reply.code(503).send({ error: "This server can't send an MP3 from a moment: the ribbon-frames command isn't installed (server/README.md)." }), null);
+    }
     try {
       const made = await deps.readAlongs.of(id, stored);
       if (made) return { listed, stored, made };
