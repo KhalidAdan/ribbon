@@ -62,6 +62,7 @@ sentence and a moment, so the TV keeps no position log of its own.
 | `Reading/BookLayout.swift` | The text set in type by TextKit, once, so every sentence's place is known. |
 | `Reading/ReaderViewController.swift` | The column on screen, and the remote. |
 | `Look.swift` | Colours and faces (docs/DESIGN.md). |
+| `Assets.xcassets` | The icon in layers, as tvOS tilts it, and the Top Shelf pictures: made from the app's own icon by `make-icons.sh`. |
 
 ## Building it
 
