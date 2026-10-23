@@ -7,7 +7,7 @@ import type { BookAbout } from "../core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "../core/sources";
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf } from "./server/shelf";
-import { PlacesSync } from "./server/places-sync";
+import { ServerLog } from "./server/server-log";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -311,7 +311,7 @@ interface Opened {
   /** For a Ribbon server's source: what the server lists, and its downloads (server/shelf.ts). */
   server: ServerShelf | null;
   /** For a Ribbon server's source: the position log carried to and from the server, and the event stream that says when. */
-  serverPlaces: { sync: PlacesSync; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
+  serverPlaces: { log: ServerLog; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
   /** The person signed in to this server is its admin, who adds its folders. */
   serverAdmin: boolean;
   /** A refresh of the server's list waiting to run: books arriving one at a time are fetched a few at once. */
@@ -1173,6 +1173,11 @@ export class AppController {
     // Its list and covers are read and written here before the shelf's own access to the folder lands.
     await this.platform.allowFolder(o.source.root).catch((e: unknown) => log.warn("could not open a server's folder:", describe(e)));
     const client = new ServerClient(o.source.server.url, token);
+    this.letGoOfServerPlaces(o);
+    // The position log is the server's, kept here only as last read and what's still to send (server-log.ts).
+    const placesLog = new ServerLog(client, this.platform.host, o.source.root, () => o.lib.logDevice());
+    o.lib.useRemoteLog(placesLog);
+    o.serverPlaces = { log: placesLog, soon: null, events: new AbortController() };
     o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
     void this.refreshServer(o);
@@ -1184,8 +1189,6 @@ export class AppController {
         this.updateCanAddFolders();
       })
       .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
-    this.letGoOfServerPlaces(o);
-    o.serverPlaces = { sync: new PlacesSync(client, this.platform.host, o.source.root, () => o.lib.logDevice()), soon: null, events: new AbortController() };
     // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
     o.lib.onAppend = () => this.syncPlacesSoon(o);
     void this.syncPlaces(o);
@@ -1198,7 +1201,7 @@ export class AppController {
     if (!sp) return;
     const alive = () => this.opened.get(o.source.id) === o && o.serverPlaces === sp;
     try {
-      if (!(await sp.sync.sync()) || !alive()) return;
+      if (!(await sp.log.sync()) || !alive()) return;
       const l = await o.lib.readPositionLog();
       if (!alive()) return;
       this.takeSharePositions(o, l.places);
@@ -1422,7 +1425,7 @@ export class AppController {
     if (o) {
       await o.keeper.close().catch(() => undefined);
       // The places still to send go before the downloads do.
-      await o.serverPlaces?.sync.sync().catch((e: unknown) => log.warn("could not send the last places to the server:", describe(e)));
+      await o.serverPlaces?.log.sync().catch((e: unknown) => log.warn("could not send the last places to the server:", describe(e)));
       this.letGoOfServerPlaces(o);
       o.coverJob?.abort();
       o.lookup?.stop();

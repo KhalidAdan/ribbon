@@ -18,6 +18,14 @@ import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapt
 import { guardWrites } from "./read-only";
 import type { PairingFix } from "../core/reading/align";
 
+/** A position log kept somewhere other than the folder's `.ribbon/positions/`: a Ribbon server's (server/server-log.ts). */
+export interface RemoteLog {
+  /** Every record, this device's included, and who the devices are. */
+  all(): Promise<{ records: LogRecord[]; devices: DeviceInfo[] }>;
+  /** A record this device adds. */
+  add(record: LogRecord): Promise<void>;
+}
+
 /**
  * Everything the UI needs from a library folder, over a Host. Each
  * durable fact is one small CSV in `.ribbon/`. No caching beyond the
@@ -130,6 +138,14 @@ export class LibraryService {
   /** Told after each record this device adds to its log: a server's source sends them on. */
   onAppend: (() => void) | null = null;
 
+  /** The log this source keeps instead of its positions folder, when it has one: a server's. */
+  private remote: RemoteLog | null = null;
+
+  /** Keep the position log in `remote` from now on, not in the positions folder. */
+  useRemoteLog(remote: RemoteLog | null): void {
+    this.remote = remote;
+  }
+
   /**
    * Everything in the positions folder, merged: the place in every book,
    * every record (for history), and who the devices are. One directory
@@ -137,6 +153,7 @@ export class LibraryService {
    * is never mistaken for a library with no positions.
    */
   async readPositionLog(nowMs = Date.now()): Promise<{ places: Map<string, Position>; records: LogRecord[]; devices: Map<string, DeviceInfo> }> {
+    if (this.remote) return this.mergeLog(await this.remote.all(), nowMs);
     const files = await this.host.readTextDir(this.dir("positions"));
     // An empty answer from a folder that is not there is a share that is away.
     if (files.length === 0 && !(await this.host.exists(this.root))) throw new Error(`${this.root} is not reachable`);
@@ -167,11 +184,19 @@ export class LibraryService {
         }
       }
     }
+    return this.mergeLog({ records, devices: [...devices.values()] }, nowMs);
+  }
+
+  /** Every device's records merged into the place in every book, with the devices named. */
+  private async mergeLog(log: { records: LogRecord[]; devices: DeviceInfo[] }, nowMs: number): Promise<{ places: Map<string, Position>; records: LogRecord[]; devices: Map<string, DeviceInfo> }> {
+    const me = await this.me();
+    for (const r of log.records) if (r.dev === me.id && r.seq > this.lastSeq) this.lastSeq = r.seq;
+    const devices = new Map(log.devices.map((d) => [d.id, d]));
     const names = new Map([...devices].map(([id, d]) => [id, d.name || "another device"]));
     names.set(me.id, me.name);
     const places = new Map<string, Position>();
-    for (const [id, r] of mergePlaces(records, nowMs)) places.set(id, toPosition(id, r, names));
-    return { places, records, devices };
+    for (const [id, r] of mergePlaces(log.records, nowMs)) places.set(id, toPosition(id, r, names));
+    return { places, records: log.records, devices };
   }
 
   /** Every book's place, merged from every device. */
@@ -275,7 +300,8 @@ export class LibraryService {
       ms: p.offsetMs,
       ...(loc ? { loc } : {}),
     });
-    await this.host.writeFile(this.dir("positions", `${p.bookId}.csv`), await serializePosition(p));
+    // For Ribbon 0.4 reading the same folder; a server's books have no such reader.
+    if (!this.remote) await this.host.writeFile(this.dir("positions", `${p.bookId}.csv`), await serializePosition(p));
   }
 
   /**
@@ -298,6 +324,12 @@ export class LibraryService {
   appendRecord(r: { k: LogRecord["k"]; t: string; book: { ids: string[]; dur_ms?: number } } & Record<string, unknown>): Promise<void> {
     return this.serialLog(async () => {
       const me = await this.me();
+      if (this.remote) {
+        this.lastSeq = nextSeq(this.lastSeq);
+        await this.remote.add({ v: 1, ...r, dev: me.id, seq: this.lastSeq } as LogRecord);
+        this.onAppend?.();
+        return;
+      }
       await this.host.mkdir(this.dir("positions"));
       if (!this.deviceFileWritten) {
         await this.host.writeFile(this.dir("positions", deviceFileName(me.id)), new TextEncoder().encode(`${JSON.stringify(me)}\n`));
@@ -332,6 +364,7 @@ export class LibraryService {
 
   /** Rewrite this device's log with only the latest place per book and every other record. */
   compactOwnLog(): Promise<void> {
+    if (this.remote) return Promise.resolve();
     return this.serialLog(async () => {
       const me = await this.me();
       const path = this.dir("positions", logName(me.id));

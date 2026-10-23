@@ -90,9 +90,9 @@ export class ServerClient {
     return ((await (await this.get(`/api/jobs/${encodeURIComponent(id)}`)).json()) as { job: ServerJob }).job;
   }
 
-  /** This person's position records from every device, newer than the cursor (none: from the start), and the cursor to ask with next. */
-  async places(after: string | null): Promise<{ records: LogRecord[]; devices: DeviceInfo[]; cursor: string }> {
-    return (await (await this.get(`/api/places${after ? `?after=${encodeURIComponent(after)}` : ""}`)).json()) as { records: LogRecord[]; devices: DeviceInfo[]; cursor: string };
+  /** This person's position records from every device, newer than the cursor (none: from the start), the cursor to ask with next, and whether there's more past it. */
+  async places(after: string | null): Promise<{ records: LogRecord[]; devices: DeviceInfo[]; cursor: string; more?: boolean }> {
+    return (await (await this.get(`/api/places${after ? `?after=${encodeURIComponent(after)}` : ""}`)).json()) as { records: LogRecord[]; devices: DeviceInfo[]; cursor: string; more?: boolean };
   }
 
   /** Records this device appended to its log, for the server to add to its copy of that log. */

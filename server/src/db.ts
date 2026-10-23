@@ -63,6 +63,30 @@ CREATE TABLE IF NOT EXISTS book_claim (
 );
 
 -- Work the server does in the background: adding a folder, and later transcribing.
+-- Each person's places: every record their devices appended to the position
+-- log (docs/POSITION-FORMAT.md), one row each, in the order the server took
+-- them. A record sent twice is kept once, by its device and sequence number.
+CREATE TABLE IF NOT EXISTS place (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  person_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  record TEXT NOT NULL,
+  added_at INTEGER NOT NULL,
+  UNIQUE (person_id, device_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS place_by_person ON place (person_id, id);
+
+-- Who each of a person's devices is: what it calls itself.
+CREATE TABLE IF NOT EXISTS place_device (
+  person_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  app TEXT,
+  PRIMARY KEY (person_id, device_id)
+);
+
 CREATE TABLE IF NOT EXISTS job (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
