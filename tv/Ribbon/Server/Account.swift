@@ -2,38 +2,19 @@ import Foundation
 import Security
 import UIKit
 
-/// The server this TV is signed in to: its address, the sign-in token the
-/// requests carry, and the session cookie the player sends with the audio
-/// (Apple's player can send cookies but not a sign-in header).
-///
-/// Kept in the Keychain. tvOS may clear an app's files whenever it likes,
-/// but not its Keychain, so a TV stays signed in.
-struct Account: Codable, Equatable {
+/// Someone signed in on this TV: their server's address, their name, the
+/// sign-in token the requests carry, and the session cookie the player sends
+/// with the audio (Apple's player can send cookies but not a sign-in header).
+/// Each person's place is their own on the server.
+struct Account: Codable, Equatable, Identifiable {
     var url: URL
     var name: String
     var token: String
     var cookieName: String
     var cookieValue: String
 
-    private static let item = "ribbon.server"
-
-    static var saved: Account? {
-        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: item, kSecReturnData: true]
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data else { return nil }
-        return try? JSONDecoder().decode(Account.self, from: data)
-    }
-
-    func save() {
-        Account.forget()
-        let data = (try? JSONEncoder().encode(self)) ?? Data()
-        let item: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: Account.item, kSecValueData: data, kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock]
-        SecItemAdd(item as CFDictionary, nil)
-    }
-
-    static func forget() {
-        SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: item] as CFDictionary)
-    }
+    /// Who they are on which server, as the apps key a server's sign-in (`url#person`).
+    var id: String { "\(url.absoluteString)#\(name)" }
 
     /// The session cookie, for the player's requests to this server.
     var cookie: HTTPCookie? {
@@ -41,6 +22,28 @@ struct Account: Codable, Equatable {
         // Any value at all makes a cookie secure, so the key is there only for HTTPS.
         if url.scheme == "https" { properties[.secure] = "TRUE" }
         return HTTPCookie(properties: properties)
+    }
+}
+
+/// Everyone signed in on this TV, in the order they first signed in.
+///
+/// Kept in the Keychain. tvOS may clear an app's files whenever it likes,
+/// but not its Keychain, so nobody has to sign in again.
+enum People {
+    private static let item = "ribbon.people"
+
+    static func load() -> [Account] {
+        let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: item, kSecReturnData: true]
+        var found: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let data = found as? Data else { return [] }
+        return (try? JSONDecoder().decode([Account].self, from: data)) ?? []
+    }
+
+    static func save(_ people: [Account]) {
+        SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: item] as CFDictionary)
+        guard !people.isEmpty, let data = try? JSONEncoder().encode(people) else { return }
+        let entry: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: item, kSecValueData: data, kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock]
+        SecItemAdd(entry as CFDictionary, nil)
     }
 }
 

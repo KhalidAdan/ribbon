@@ -7,14 +7,22 @@ from the sofa. The TV only draws and plays; the server does the thinking
 
 tvOS has no web view, so Ribbon's own UI can't run on it, and Tauri doesn't
 build for it: this is a small native app in SwiftUI and UIKit, talking to the
-server's API. It keeps only its sign-in; tvOS may clear an app's files at
-any time, so the audio streams and the place lives on the server.
+server's API. It keeps only who has signed in on it; tvOS may clear an app's
+files at any time, so the audio streams and the place lives on the server.
 
 ## What it does
 
 - **Sign in** to a Ribbon server once: its address, your name, your password.
   The sign-in is kept in the Keychain.
+- **Who's reading?** Several people can use one TV, as with Jellyfin: each
+  signs in once, and with more than one the TV asks who's reading, starting
+  on whoever read last. Each person's shelf and place are their own, from
+  their own sign-in. Someone else signs another person in (the server's
+  address is filled in); holding Select on a person takes them off this TV,
+  and their places stay on the server.
 - **The shelf**: the server's books that have both a text and a narration.
+  Switch reader, below the books, goes back to Who's reading; so does Menu,
+  when there's more than one person.
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
   amber, and the column glides when it leaves the middle of the screen.
@@ -46,8 +54,8 @@ sentence and a moment, so the TV keeps no position log of its own.
 | --- | --- |
 | `RibbonApp.swift` | `AppModel`: signed in or not, the book open. |
 | `Server/RibbonServer.swift` | The API, as the TV uses it. |
-| `Server/Account.swift` | The sign-in in the Keychain, and this TV's device id. |
-| `ShelfView.swift`, `SignInView.swift` | The two screens before a book. |
+| `Server/Account.swift` | Everyone signed in here, in the Keychain, and this TV's device id. |
+| `PeopleView.swift`, `ShelfView.swift`, `SignInView.swift` | The screens before a book: who's reading, their books, signing in. |
 | `Reading/ReadAlong.swift` | The read-along as the server sends it, and its sentences in order. |
 | `Reading/ReadingSession.swift` | A book open: the remote's sentence, the narrator's, playing, the place. |
 | `Reading/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |

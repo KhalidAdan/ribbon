@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// Signing in to a Ribbon server, once: its address, your name and your
-/// password, top to bottom, then Sign in. The focus starts on the address;
-/// the keyboard's Next goes from field to field, and Done on the password
-/// goes on to Sign in.
+/// Signing in to a Ribbon server, once per person: its address, your name and
+/// your password, top to bottom, then Sign in. The focus starts on the first
+/// field still empty (someone added on a TV that has people already finds the
+/// address there); the keyboard's Next goes from field to field, and Done on
+/// the password goes on to Sign in. Menu goes back to Who's reading, when
+/// there is anyone to choose.
 struct SignInView: View {
     @Environment(AppModel.self) private var model
     @State private var address = ""
@@ -48,9 +50,12 @@ struct SignInView: View {
             .frame(width: 760)
         }
         .onAppear {
-            field = .address
+            address = model.signInHint.address
+            name = model.signInHint.name
             fillInForDevelopment()
+            field = address.isEmpty ? .address : name.isEmpty ? .name : password.isEmpty ? .password : .signIn
         }
+        .onExitCommand(perform: model.people.isEmpty ? nil : { model.cancelAdding() })
         .onChange(of: field) { _, now in
             // While the keyboard is up nothing here has the focus; it comes back to the field as the keyboard closes, and moves on from there.
             guard now != nil, let next = afterKeyboard else { return }

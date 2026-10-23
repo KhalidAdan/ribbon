@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// The books there are to read along with: those on the server with both a
-/// text and a narration, as covers in rows. The focus starts on the book
-/// read last on this TV, and comes back to it when that book is closed;
-/// Sign out is last, below the books.
+/// text and a narration, as covers in rows. The focus starts on the book this
+/// person read last on this TV, and comes back to it when that book is
+/// closed; Switch reader is last, below the books. With more than one person
+/// here, Menu goes back to Who's reading.
 struct ShelfView: View {
     @Environment(AppModel.self) private var model
     @State private var books: [ServerBook]?
@@ -32,13 +33,14 @@ struct ShelfView: View {
                         Text(problem).font(.ui(26)).foregroundStyle(Color.ink2)
                         Button("Try again") { Task { await load() } }
                     }
-                    Button("Sign out of \(host)") { model.signOut() }
+                    Button("Switch reader") { model.switchReader() }
                         .padding(.top, 24)
                 }
                 .padding(.horizontal, 80)
                 .padding(.vertical, 60)
             }
         }
+        .onExitCommand(perform: model.people.count > 1 ? { model.switchReader() } : nil)
         .task { await load() }
     }
 
@@ -63,9 +65,10 @@ struct ShelfView: View {
     private var host: String { model.server?.account.url.host() ?? "the server" }
 
     private var subtitle: String {
-        guard let books else { return "Asking \(host) for its books…" }
-        if books.isEmpty { return "No book on \(host) has both its text and its narration yet." }
-        return books.count == 1 ? "One book to read along with" : "\(books.count) books to read along with"
+        let who = model.server?.account.name ?? ""
+        guard let books else { return "\(who) · Asking \(host) for its books…" }
+        if books.isEmpty { return "\(who) · No book on \(host) has both its text and its narration yet." }
+        return "\(who) · " + (books.count == 1 ? "One book to read along with" : "\(books.count) books to read along with")
     }
 
     private func load() async {
@@ -77,7 +80,7 @@ struct ShelfView: View {
             // The books arrive after the screen is up: the focus goes to the one read last here, else the first.
             focused = found.first { $0.id == model.lastRead }?.id ?? found.first?.id
         } catch let error as ServerError where error.status == 401 {
-            model.signOut()
+            model.signInAgain(server.account)
         } catch {
             problem = error.localizedDescription
         }
