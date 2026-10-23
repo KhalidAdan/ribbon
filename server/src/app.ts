@@ -18,6 +18,7 @@ import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/pr
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 import { ReadAlongs } from "./library/readalong.ts";
+import { Mp3Frames } from "./library/frames.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
 import { readAlongRoutes } from "./readalong-routes.ts";
@@ -126,9 +127,10 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   });
 
   libraryRoutes(app, { auth, jobs, books, events, dataDir: config.dataDir });
-  await libraryApi(app, { auth, books, dataDir: config.dataDir });
+  const frames = new Mp3Frames(config.dataDir, config.framesTool ?? null);
+  await libraryApi(app, { auth, books, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
-  readAlongRoutes(app, { auth, books, places, events, readAlongs: new ReadAlongs(config.dataDir, config.ebookTool ?? null), dataDir: config.dataDir });
+  readAlongRoutes(app, { auth, books, places, events, readAlongs: new ReadAlongs(config.dataDir, config.ebookTool ?? null), frames, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }

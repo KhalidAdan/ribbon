@@ -244,8 +244,10 @@ car or on a plane.
 caches the system may clear at any time, so a TV can't keep a book. It
 streams the audio from the server, with Range requests, and keeps covers in
 its cache. Apple's player can't send a sign-in header, so it sends the
-session's cookie. Starting an MP3 at the exact frame (`frames.rs` in the app)
-is still to come: Apple's player seeks a VBR MP3 with no seek table by guess.
+session's cookie. It never seeks in an MP3: it seeks one with no seek table
+by its average bitrate, minutes off in a long VBR book. It asks for the file
+`?ms=` the moment instead, and the server sends it from that moment's frame
+(`ribbon-frames`, the app's own `frames.rs` index), to play from its own 0.
 
 Built (tv/README.md): the TV can neither parse an EPUB nor pair it with the
 narration, so the server does both, once, with the apps' own code (the
@@ -300,7 +302,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id` | One book: its files, chapters, parts and records. |
 | `DELETE /api/books/:id` | (Admin) Deletes a book: its files go from the server, and each device that downloaded it takes it off when it next hears from the server (the deleted ids in `GET /api/books`, never a book merely missing from the list). Everyone's places in it are kept, so a book added again carries on where each person was; the folder it was added from is never touched. Adding it again brings it back. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
-| `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads (and, later, the TV's streaming). |
+| `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads and the TV's streaming. An MP3 with `?ms=` comes from the frame where that moment falls. |
 | `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
 | `GET /api/places/export` | Your whole log as a file in the position-log format. |

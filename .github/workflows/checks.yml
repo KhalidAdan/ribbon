@@ -72,13 +72,13 @@ jobs:
       # The server runs src/core/ from the app, which brings its own packages.
       - run: npm ci --ignore-scripts
         working-directory: .
-      # Read-along reads EPUBs with Ribbon's own parser (src-tauri/ebook), which the tests run.
+      # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index (src-tauri/ebook, src-tauri/frames), which the tests run.
       - name: Rust (stable)
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> ../target
-      - run: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook
+      - run: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
         working-directory: .
       - run: npm ci
       - run: npm run typecheck

@@ -114,6 +114,8 @@ TestFlight.
 ## Not yet
 
 Pages, text sizes, speed, the sleep timer, loudness, bookmarks, books
-without a narration, and the app icon. MP3s are sought by Apple's player,
-which may land off in a VBR file with no seek table (the reason
-`src-tauri/src/frames.rs` exists); the books tried so far are CBR.
+without a narration, and the app icon.
+
+MP3s are never sought in by Apple's player, which goes by the average bitrate
+and lands minutes off in a long VBR book: the TV asks the server for the file
+from the moment (`?ms=`), and the server sends it from that moment's frame.

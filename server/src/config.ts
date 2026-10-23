@@ -17,6 +17,8 @@ export interface ServerConfig {
   appOrigins?: string[];
   /** The `ribbon-ebook` command, which parses EPUBs as the apps do (src-tauri/ebook), or null when there's none: no read-along. */
   ebookTool?: string | null;
+  /** The `ribbon-frames` command, which finds a moment's frame in an MP3 as the app does (src-tauri/frames), or null: MP3s go whole. */
+  framesTool?: string | null;
 }
 
 /** The origins Ribbon's apps run at: Tauri's on each system, and the browser harness in development. */
@@ -34,18 +36,19 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     url: (env.RIBBON_URL ?? `http://localhost:${port}`).replace(/\/+$/, ""),
     secret: env.RIBBON_SECRET ?? keptSecret(dataDir),
     appOrigins: env.RIBBON_APP_ORIGINS ? env.RIBBON_APP_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : APP_ORIGINS,
-    ebookTool: env.RIBBON_EBOOK_TOOL ?? builtEbookTool(),
+    ebookTool: env.RIBBON_EBOOK_TOOL ?? builtTool("ribbon-ebook"),
+    framesTool: env.RIBBON_FRAMES_TOOL ?? builtTool("ribbon-frames"),
   };
 }
 
 /**
- * The `ribbon-ebook` command as cargo builds it in this repository
- * (`cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook`), a
- * release build before a debug one, or null when it isn't built.
+ * One of Ribbon's commands (`ribbon-ebook`, `ribbon-frames`) as cargo builds
+ * it in this repository (`cargo build --manifest-path src-tauri/Cargo.toml -p
+ * <name>`), a release build before a debug one, or null when it isn't built.
  */
-export function builtEbookTool(): string | null {
+export function builtTool(name: string): string | null {
   const target = path.resolve(import.meta.dirname, "..", "..", "target");
-  const exe = process.platform === "win32" ? "ribbon-ebook.exe" : "ribbon-ebook";
+  const exe = process.platform === "win32" ? `${name}.exe` : name;
   return ["release", "debug"].map((profile) => path.join(target, profile, exe)).find((p) => existsSync(p)) ?? null;
 }
 

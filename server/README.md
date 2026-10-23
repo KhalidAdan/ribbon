@@ -50,21 +50,23 @@ someone does, every start prints it again.
 No one can sign in yet. Open http://localhost:7766/invite/… to make the admin account.
 ```
 
-Read-along needs the server to read EPUBs as the apps do, with Ribbon's own
-parser, `ribbon-ebook` (src-tauri/ebook), built with Rust:
+Read-along needs two of Ribbon's own commands, built with Rust: `ribbon-ebook`
+(src-tauri/ebook), to read EPUBs as the apps do, and `ribbon-frames`
+(src-tauri/frames), to send an MP3 from the exact moment a streaming player
+asks for, rather than leave it to seek by guess:
 
 ```bash
-cargo build --release --manifest-path src-tauri/Cargo.toml -p ribbon-ebook
+cargo build --release --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
 ```
 
-The server finds it in the repository's `target/` folder, or wherever
-`RIBBON_EBOOK_TOOL` says. Without it, everything else works and asking for a
-read-along says the server can't.
+The server finds them in the repository's `target/` folder, or wherever
+`RIBBON_EBOOK_TOOL` and `RIBBON_FRAMES_TOOL` say. Without them, everything
+else works and asking for a read-along says the server can't.
 
 ## In Docker
 
 From the repository's root (the image holds the app's own logic the
-server runs, ffmpeg, and the EPUB parser for read-along):
+server runs, ffmpeg, and the EPUB parser and MP3 frame index for read-along):
 
 ```bash
 docker build -f server/Dockerfile -t ribbon-server .
@@ -114,6 +116,7 @@ From the environment:
 | `RIBBON_URL` | `http://localhost:7766` | The address people use to reach it. Invite links are made from it. |
 | `RIBBON_SECRET` | made on the first start | Signs sessions. Kept in the data folder unless given here. |
 | `RIBBON_EBOOK_TOOL` | `target/release/ribbon-ebook`, else `target/debug/` | The EPUB parser, for read-along. |
+| `RIBBON_FRAMES_TOOL` | `target/release/ribbon-frames`, else `target/debug/` | The MP3 frame index, so a streamed MP3 starts at the exact moment. |
 
 ## Reaching it from elsewhere
 

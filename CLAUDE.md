@@ -57,6 +57,7 @@ Tailwind 4). Start with these, in this order:
 | `src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
 | `src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, whisper.cpp), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
 | `src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
+| `src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `server/` | The server (server/README.md, docs/SERVER.md). |
 | `tv/` | Ribbon on the Apple TV, in Swift: read-along from the server (tv/README.md). |
 | `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
@@ -98,7 +99,9 @@ benchmark in `src-tauri`).
   from one; anything waiting on a frame needs a timeout.
 - **`tauri dev` adds about 3 s** to startup; measure startup on a `tauri build`.
 - **The webview guesses MP3 seeks** (VBR without a Xing header lands minutes
-  off): `frames.rs` indexes frames and serves MP3s from the exact one.
+  off), and so does Apple's player on the TV: `frames.rs` indexes frames and
+  serves MP3s from the exact one, and the server does the same for the TV
+  (`?ms=`).
 - **Muting the player in a test:** route the engine's gain node to a
   `MediaStreamDestination`; disconnecting it freezes playback.
 - **Stacked PRs:** merge without deleting branches until the last is in, or
