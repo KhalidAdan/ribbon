@@ -17,6 +17,7 @@ import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
 import { guardWrites } from "./read-only";
 import type { PairingFix } from "../core/reading/align";
+import { heardFromRows, pairingFromRows, transcriptFromRows } from "../core/reading/narration";
 
 /** A position log kept somewhere other than the folder's `.ribbon/positions/`: a Ribbon server's (server/server-log.ts). */
 export interface RemoteLog {
@@ -558,20 +559,11 @@ export class LibraryService {
    * once, for every device.
    */
   async readHeard(bookId: string): Promise<{ heard: Map<number, string>; anchors: Map<number, number> }> {
-    const heard = new Map<number, string>();
-    const anchors = new Map<number, number>();
     try {
-      const { rows } = await bytesToRows(await this.host.readFile(this.dir("heard", `${bookId}.csv`)));
-      for (const r of rows) {
-        if (!r.audio_ms) continue;
-        const ms = int(r.audio_ms);
-        heard.set(ms, r.words ?? "");
-        if (r.chars) anchors.set(ms, int(r.chars));
-      }
+      return heardFromRows((await bytesToRows(await this.host.readFile(this.dir("heard", `${bookId}.csv`)))).rows);
     } catch {
-      /* nothing heard yet */
+      return { heard: new Map(), anchors: new Map() }; // nothing heard yet
     }
-    return { heard, anchors };
   }
 
   /**
@@ -597,19 +589,11 @@ export class LibraryService {
    * stretch is heard once for every device.
    */
   async readAligned(bookId: string): Promise<{ spans: Map<number, number>; said: { startMs: number; endMs: number; words: string; chars: number | null }[] }> {
-    const spans = new Map<number, number>();
-    const said: { startMs: number; endMs: number; words: string; chars: number | null }[] = [];
     try {
-      const { rows } = await bytesToRows(await this.host.readFile(this.dir("aligned", `${bookId}.csv`)));
-      for (const r of rows) {
-        if (!r.start_ms || !r.end_ms) continue;
-        if (!r.words) spans.set(int(r.start_ms), int(r.end_ms));
-        else said.push({ startMs: int(r.start_ms), endMs: int(r.end_ms), words: r.words, chars: r.chars ? int(r.chars) : null });
-      }
+      return transcriptFromRows((await bytesToRows(await this.host.readFile(this.dir("aligned", `${bookId}.csv`)))).rows);
     } catch {
-      /* nothing transcribed yet */
+      return { spans: new Map(), said: [] }; // nothing transcribed yet
     }
-    return { spans, said };
   }
 
   /** Kept beside the book, merged with what is there already, as writeHeard is. */
@@ -637,8 +621,7 @@ export class LibraryService {
    */
   async readPairing(bookId: string): Promise<PairingFix[]> {
     try {
-      const { rows } = await bytesToRows(await this.host.readFile(this.dir("pairing", `${bookId}.csv`)));
-      return rows.filter((r) => r.text).map((r) => ({ text: r.text!, audioMs: r.audio_ms ? int(r.audio_ms) : null }));
+      return pairingFromRows((await bytesToRows(await this.host.readFile(this.dir("pairing", `${bookId}.csv`)))).rows);
     } catch {
       return [];
     }

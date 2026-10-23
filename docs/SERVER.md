@@ -66,7 +66,7 @@ flowchart LR
   end
   Desktop["Ribbon on the desktop"] -- HTTPS --> API
   Phone["Ribbon on the iPhone"] -- HTTPS --> API
-  TV["Ribbon on the Apple TV<br/>(native, later)"] -- HTTPS --> API
+  TV["Ribbon on the Apple TV<br/>(native, tv/)"] -- HTTPS --> API
   Browser["The admin, in a browser"] --> Admin
   API --> Core & Files & DB
   Jobs --> Core & Tools & Files & DB
@@ -86,7 +86,8 @@ Most of what the server needs exists, because Ribbon was layered for it
   command line (`npm run ribbon -- scan`) run the scanner on it today.
 - **The Rust side** does the per-file work (tags, MP3 frame indexes, EPUB
   models, whisper). The server calls it as a command-line tool built from
-  the same crate, the way the dev harness already runs `ebook_json`.
+  the same crate, the way the dev harness already runs `ebook_json`. Built
+  for EPUBs: `ribbon-ebook` (src-tauri/ebook), for read-along on the TV.
 - **The position log** ([POSITION-FORMAT.md](POSITION-FORMAT.md)) was made
   for devices that are often offline: each device appends to its own log,
   and merging needs no referee. The server keeps one set of logs per person
@@ -241,9 +242,18 @@ car or on a plane.
 
 **The Apple TV streams.** tvOS gives an app almost no lasting storage, only
 caches the system may clear at any time, so a TV can't keep a book. It
-streams the audio from the server, which therefore also serves audio with
-Range requests and starts an MP3 at the exact frame (`frames.rs` in the app
-today), and it keeps covers in its cache.
+streams the audio from the server, with Range requests, and keeps covers in
+its cache. Apple's player can't send a sign-in header, so it sends the
+session's cookie. Starting an MP3 at the exact frame (`frames.rs` in the app)
+is still to come: Apple's player seeks a VBR MP3 with no seek table by guess.
+
+Built (tv/README.md): the TV can neither parse an EPUB nor pair it with the
+narration, so the server does both, once, with the apps' own code (the
+`ribbon-ebook` command and `src/core/reading/`), and hands it the book's
+paragraphs with when each sentence is read. It keeps no position log either:
+it asks the server where the person is in a book, as a sentence, and tells it
+where it is as it plays; the server writes that into the TV's log as any app
+would.
 
 ## 9. From added to ready
 
@@ -294,6 +304,9 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
 | `GET /api/places/export` | Your whole log as a file in the position-log format. |
+| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`src/core/reading/readalong.ts`), for the TV. Revalidated by ETag. |
+| `GET /api/books/:id/place` | Where you are in the book: the newest of your listening and reading places, as a sentence of the read-along and a moment. Never cached. |
+| `POST /api/books/:id/place` | This device is at this moment: written into its log with the book's claims, for a device that keeps no log. |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added or deleted. |
 
 The admin pages have their own: invites, people, devices, adding a folder,
@@ -317,7 +330,7 @@ and the jobs that follow.
 - **Your place needs no new machinery.** `PositionKeeper` already keeps every
   place on the device first and sends it on when it can; for a server,
   "beside the books" becomes the server's log.
-- **The Apple TV** gets a native client on the same API, after milestone 1.
+- **The Apple TV** has a native client on the same API (tv/), which streams and reads along.
 - **The admin pages** are web pages the server serves, in Ribbon's own design.
 
 Folders stay for people without a server; nothing about them changes.

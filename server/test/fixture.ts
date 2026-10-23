@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildServer, type RibbonServer } from "../src/app.ts";
+import type { ServerConfig } from "../src/config.ts";
 
 /** A few seconds of tone as an MP3, tagged, with a picture inside when asked. */
-export function mp3(file: string, tags: { title: string; album: string; artist: string }, picture?: string): void {
+export function mp3(file: string, tags: { title: string; album: string; artist: string }, picture?: string, seconds = 3): void {
   mkdirSync(path.dirname(file), { recursive: true });
-  const args = ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3"];
+  const args = ["-v", "error", "-y", "-f", "lavfi", "-i", `sine=frequency=440:duration=${seconds}`];
   if (picture) args.push("-f", "lavfi", "-i", `color=c=${picture}:s=300x450:d=1`, "-map", "0:a", "-map", "1:v", "-c:v", "mjpeg", "-disposition:v", "attached_pic", "-frames:v", "1");
   args.push("-c:a", "libmp3lame", "-b:a", "64k", "-id3v2_version", "3", "-metadata", `title=${tags.title}`, "-metadata", `album=${tags.album}`, "-metadata", `artist=${tags.artist}`, file);
   execFileSync("ffmpeg", args);
@@ -28,9 +30,34 @@ export function makeLibraries(dir: string): { shelf: string; copies: string } {
   return { shelf, copies };
 }
 
+/**
+ * An EPUB 3 of one chapter, made with `zip`: a heading, then a paragraph
+ * of each sentence given in turn, joined by spaces.
+ */
+export function epub(file: string, heading: string, sentences: readonly string[]): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "ribbon-epub-"));
+  const write = (name: string, text: string) => {
+    mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+    writeFileSync(path.join(dir, name), text);
+  };
+  write("mimetype", "application/epub+zip");
+  write("META-INF/container.xml", `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
+  write(
+    "OEBPS/content.opf",
+    `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:5b0c0d5e-1c6a-4f39-9d0b-2a7f1c9e8a11</dc:identifier><dc:title>${heading}</dc:title><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/></spine></package>`,
+  );
+  write("OEBPS/nav.xhtml", `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="one.xhtml">${heading}</a></li></ol></nav></body></html>`);
+  write("OEBPS/one.xhtml", `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><h1>${heading}</h1><p>${sentences.join(" ")}</p></body></html>`);
+  mkdirSync(path.dirname(file), { recursive: true });
+  // The mimetype first and stored, as EPUB asks; the rest compressed.
+  execFileSync("zip", ["-X0q", file, "mimetype"], { cwd: dir });
+  execFileSync("zip", ["-X9rq", file, "META-INF", "OEBPS"], { cwd: dir });
+  rmSync(dir, { recursive: true, force: true });
+}
+
 /** A fresh server with its data in `dir/data`, and the admin's token from the first invite. */
-export async function serverWithAdmin(dir: string): Promise<{ server: RibbonServer; admin: string }> {
-  const server = await buildServer({ dataDir: path.join(dir, "data"), host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!" });
+export async function serverWithAdmin(dir: string, config: Partial<ServerConfig> = {}): Promise<{ server: RibbonServer; admin: string }> {
+  const server = await buildServer({ dataDir: path.join(dir, "data"), host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!", ...config });
   const code = server.invites.firstAdmin().code;
   const joined = await server.app.inject({ method: "POST", url: `/api/invites/${code}/accept`, payload: { name: "admin", password: "a long password" } });
   return { server, admin: (joined.json() as { token: string }).token };

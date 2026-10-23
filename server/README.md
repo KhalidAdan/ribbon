@@ -25,6 +25,10 @@ Built so far:
   server's books join the shelf, and each one downloads before it plays.
   Each person's place follows them between their devices, as soon as it
   moves.
+- **Read-along for the Apple TV** (tv/README.md): each book's text with when
+  each sentence is read (`GET /api/books/:id/readalong`), made once with the
+  same code as the apps', and the person's place in it as a sentence
+  (`GET` and `POST /api/books/:id/place`).
 
 ## Running it
 
@@ -46,10 +50,21 @@ someone does, every start prints it again.
 No one can sign in yet. Open http://localhost:7766/invite/… to make the admin account.
 ```
 
+Read-along needs the server to read EPUBs as the apps do, with Ribbon's own
+parser, `ribbon-ebook` (src-tauri/ebook), built with Rust:
+
+```bash
+cargo build --release --manifest-path src-tauri/Cargo.toml -p ribbon-ebook
+```
+
+The server finds it in the repository's `target/` folder, or wherever
+`RIBBON_EBOOK_TOOL` says. Without it, everything else works and asking for a
+read-along says the server can't.
+
 ## In Docker
 
 From the repository's root (the image holds the app's own logic the
-server runs, and ffmpeg):
+server runs, ffmpeg, and the EPUB parser for read-along):
 
 ```bash
 docker build -f server/Dockerfile -t ribbon-server .
@@ -98,6 +113,7 @@ From the environment:
 | `RIBBON_PORT` | `7766` | |
 | `RIBBON_URL` | `http://localhost:7766` | The address people use to reach it. Invite links are made from it. |
 | `RIBBON_SECRET` | made on the first start | Signs sessions. Kept in the data folder unless given here. |
+| `RIBBON_EBOOK_TOOL` | `target/release/ribbon-ebook`, else `target/debug/` | The EPUB parser, for read-along. |
 
 ## Reaching it from elsewhere
 

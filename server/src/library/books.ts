@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import type { ScannedBook } from "../../../src/core/scan/scan.ts";
 import type { LoudnessMeasurement, SilenceRange } from "../../../src/core/types.ts";
 import type { Cover } from "./covers.ts";
@@ -124,21 +124,13 @@ export class BookIndex {
 
   /** Every book, oldest added first, as the library answer gives it. */
   list(): ListedBook[] {
-    return this.db.prepare("SELECT * FROM book ORDER BY added_at, id").all().map((row) => ({
-      id: String(row.id),
-      title: String(row.title),
-      author: String(row.author),
-      narrator: String(row.narrator),
-      series: String(row.series),
-      seriesIndex: row.series_index === null ? null : Number(row.series_index),
-      durationMs: Number(row.duration_ms),
-      sizeBytes: Number(row.size_bytes),
-      audio: row.has_audio === 1,
-      ebook: row.has_ebook === 1,
-      ebookBytes: row.ebook_bytes === null ? null : Number(row.ebook_bytes),
-      cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
-      addedAt: new Date(Number(row.added_at)).toISOString(),
-    }));
+    return this.db.prepare("SELECT * FROM book ORDER BY added_at, id").all().map(listed);
+  }
+
+  /** One book as the library answer gives it, or null when it isn't here. */
+  get(id: string): ListedBook | null {
+    const row = this.db.prepare("SELECT * FROM book WHERE id = ?").get(id);
+    return row ? listed(row) : null;
   }
 
   /** Whether a book is on the server. */
@@ -151,6 +143,25 @@ export class BookIndex {
     const row = this.db.prepare("SELECT id FROM book WHERE cover_hash = ?").get(hash);
     return row ? String(row.id) : null;
   }
+}
+
+/** A row of the book table as the library answer gives it. */
+function listed(row: Record<string, SQLOutputValue>): ListedBook {
+  return {
+    id: String(row.id),
+    title: String(row.title),
+    author: String(row.author),
+    narrator: String(row.narrator),
+    series: String(row.series),
+    seriesIndex: row.series_index === null ? null : Number(row.series_index),
+    durationMs: Number(row.duration_ms),
+    sizeBytes: Number(row.size_bytes),
+    audio: row.has_audio === 1,
+    ebook: row.has_ebook === 1,
+    ebookBytes: row.ebook_bytes === null ? null : Number(row.ebook_bytes),
+    cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
+    addedAt: new Date(Number(row.added_at)).toISOString(),
+  };
 }
 
 /**

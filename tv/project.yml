@@ -1,0 +1,41 @@
+# Ribbon on the Apple TV: an Xcode project made from this file with
+# XcodeGen (`xcodegen generate` in tv/). The project itself is not kept in
+# the repository: it is made again from here, and the signer's Apple team
+# never goes into it (tv/README.md).
+name: RibbonTV
+options:
+  bundleIdPrefix: app.ribbon
+  deploymentTarget:
+    tvOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.15.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Ribbon:
+    type: application
+    platform: tvOS
+    sources:
+      - path: Ribbon
+        excludes: [Info.plist]
+      # The reader's own face (src/reader/faces.ts) and the app's, the same files
+      # the web reader loads, from the repository's npm packages.
+      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2
+        buildPhase: resources
+      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-normal.woff2
+        buildPhase: resources
+      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-italic.woff2
+        buildPhase: resources
+      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-italic.woff2
+        buildPhase: resources
+      - path: ../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: Ribbon
+        PRODUCT_BUNDLE_IDENTIFIER: app.ribbon.tv
+        INFOPLIST_FILE: Ribbon/Info.plist
+        TARGETED_DEVICE_FAMILY: "3"
+        CODE_SIGN_STYLE: Automatic

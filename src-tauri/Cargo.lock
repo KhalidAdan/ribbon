@@ -3101,14 +3101,13 @@ name = "ribbon"
 version = "0.16.0"
 dependencies = [
  "fs4",
- "image",
- "imagesize",
  "libc",
  "lofty",
  "log",
  "quick-xml 0.39.4",
  "rayon",
  "reqwest",
+ "ribbon-ebook",
  "serde",
  "serde_json",
  "tauri",
@@ -3120,6 +3119,19 @@ dependencies = [
  "tauri-plugin-os",
  "tauri-plugin-shell",
  "whisper-rs",
+ "zip",
+]
+
+[[package]]
+name = "ribbon-ebook"
+version = "0.15.0"
+dependencies = [
+ "image",
+ "imagesize",
+ "quick-xml 0.39.4",
+ "rayon",
+ "serde",
+ "serde_json",
  "zip",
 ]
 

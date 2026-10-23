@@ -37,12 +37,12 @@ import type { Why } from "../core/poslog";
 import { BookText, type TextPlace } from "../core/reading/booktext";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
-import { alignBook, byOverlay, followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
+import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
+import { anchorsOf, pairBook, transcriptAnchors } from "../core/reading/narration";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
 import * as perf from "./perf";
 import { matchTranscript, type Said } from "../core/reading/transcript";
-import { generatedTitles } from "../core/chapternames";
 import { locate as locate_ } from "../core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "../core/reading/anchors";
 
@@ -1852,7 +1852,7 @@ export class AppController {
           anchors: heard.anchors,
           spans: aligned.spans,
           said: aligned.said,
-          aligned: new Map(aligned.said.filter((s) => s.chars !== null).map((s) => [s.startMs, s.chars!])),
+          aligned: transcriptAnchors(aligned.said),
         }));
     // A failure is reported where the records are awaited, not as unhandled meanwhile.
     records.catch(() => undefined);
@@ -2036,13 +2036,12 @@ export class AppController {
   private msPerClip: number | null = null;
 
   private anchorList(rd = this.rd): Anchor[] {
-    return [...rd.anchors, ...rd.aligned].map(([ms, chars]) => ({ ms, chars }));
+    return anchorsOf(rd.anchors, rd.aligned);
   }
 
   /** The open book's text paired with its audio: by its Media Overlay when it has one for this recording, else by chapters, with every checkpoint heard. */
   private pairUp(text: BookText, book: ScannedBook, rd = this.rd): Alignment {
-    const a = alignBook(text, book.chapters, book.book.durationMs, { generated: generatedTitles(book.chapters), fixes: rd.fixes, heard: rd.heard, anchors: this.anchorList(rd) });
-    return rd.overlay ? byOverlay(text, a, rd.overlay, book.book.durationMs) : a;
+    return pairBook(text, book.chapters, book.book.durationMs, { fixes: rd.fixes, heard: rd.heard, anchors: this.anchorList(rd), overlay: rd.overlay });
   }
 
   /** The open book paired again with everything heard and fixed so far. */

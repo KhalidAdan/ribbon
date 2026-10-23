@@ -71,10 +71,10 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
 /**
  * Send JSON with an ETag made from it, or a bare 304 when the device already
  * has exactly this (If-None-Match). Made here rather than by a plugin so the
- * ETag is always of the JSON itself, whatever compression does after.
+ * ETag is always of the JSON itself, whatever compression does after. A
+ * body already made is sent as it is.
  */
-function sendRevalidated(request: FastifyRequest, reply: FastifyReply, data: unknown): FastifyReply {
-  const body = JSON.stringify(data);
+export function sendRevalidated(request: FastifyRequest, reply: FastifyReply, data: unknown, body = JSON.stringify(data)): FastifyReply {
   const etag = `W/"${createHash("sha1").update(body).digest("base64url")}"`;
   reply.header("etag", etag).header("cache-control", ASK_FIRST);
   const asked = request.headers["if-none-match"];
@@ -83,7 +83,7 @@ function sendRevalidated(request: FastifyRequest, reply: FastifyReply, data: unk
 }
 
 /** A book's full record from its folder, or null when there's no such book. */
-async function storedBook(deps: { books: BookIndex; dataDir: string }, id: string): Promise<StoredBook | null> {
+export async function storedBook(deps: { books: BookIndex; dataDir: string }, id: string): Promise<StoredBook | null> {
   if (!deps.books.has(id)) return null;
   return JSON.parse(await readFile(path.join(bookDir(deps.dataDir, id), "book.json"), "utf8")) as StoredBook;
 }

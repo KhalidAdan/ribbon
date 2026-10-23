@@ -15,6 +15,8 @@ export interface ServerConfig {
   secret: string;
   /** Where Ribbon's apps sign in from, besides the server's own address. The desktop and phone apps' own origins unless given. */
   appOrigins?: string[];
+  /** The `ribbon-ebook` command, which parses EPUBs as the apps do (src-tauri/ebook), or null when there's none: no read-along. */
+  ebookTool?: string | null;
 }
 
 /** The origins Ribbon's apps run at: Tauri's on each system, and the browser harness in development. */
@@ -32,7 +34,19 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     url: (env.RIBBON_URL ?? `http://localhost:${port}`).replace(/\/+$/, ""),
     secret: env.RIBBON_SECRET ?? keptSecret(dataDir),
     appOrigins: env.RIBBON_APP_ORIGINS ? env.RIBBON_APP_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : APP_ORIGINS,
+    ebookTool: env.RIBBON_EBOOK_TOOL ?? builtEbookTool(),
   };
+}
+
+/**
+ * The `ribbon-ebook` command as cargo builds it in this repository
+ * (`cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook`), a
+ * release build before a debug one, or null when it isn't built.
+ */
+export function builtEbookTool(): string | null {
+  const target = path.resolve(import.meta.dirname, "..", "..", "target");
+  const exe = process.platform === "win32" ? "ribbon-ebook.exe" : "ribbon-ebook";
+  return ["release", "debug"].map((profile) => path.join(target, profile, exe)).find((p) => existsSync(p)) ?? null;
 }
 
 /** A secret made on the first run and read back on every run after, readable only by the server's own user. */

@@ -244,7 +244,7 @@ side:
   use, Readium Locators (`locator`, `fromLocator`) and links by id
   (`fromHref`, `idAt`). It works out where every block begins up front,
   so finding a place is a lookup.
-- **`ChapterSource`** (`src-tauri/src/ebook/source.rs`): a chapter's
+- **`ChapterSource`** (`src-tauri/ebook/src/source.rs`): a chapter's
   XHTML and where in it each character of the model was read from, so a
   stretch of text can be marked in the book's own file (`bytes`, `wrap`).
   The read-along export wraps every sentence with it.

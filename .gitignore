@@ -11,3 +11,7 @@ test/fixtures/generated/
 shots/
 # The end-to-end suite's test library and runs (tools/e2e)
 .e2e/
+
+# The Apple TV app: its Xcode project is made from tv/project.yml (tv/README.md)
+tv/RibbonTV.xcodeproj/
+tv/build/

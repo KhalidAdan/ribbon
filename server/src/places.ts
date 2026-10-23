@@ -67,6 +67,11 @@ export class Places {
     return { accepted, skipped, added };
   }
 
+  /** The last sequence number the server has from a device: what its next record must go past. 0 for a device it hasn't heard from. */
+  lastSeq(personId: string, deviceId: string): number {
+    return Number(this.db.prepare("SELECT max(seq) AS seq FROM place WHERE person_id = ? AND device_id = ?").get(personId, deviceId)?.seq ?? 0);
+  }
+
   /** Every record newer than `after`, from every one of the person's devices, and the cursor to ask with next. */
   since(personId: string, after: string | undefined): NewPlaces {
     const from = /^\d+$/.test(after ?? "") ? Number(after) : 0;

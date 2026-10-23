@@ -39,7 +39,9 @@ Tailwind 4). Start with these, in this order:
   owner's machines or network in it.
 - **No DRM**, no AAX, no stores, no servers (docs/NORTHSTAR.md).
 - **Never Electron.** The UI is the web in a Tauri shell; native work goes in
-  Rust or a Tauri plugin. The ui.sh skills (Tailwind Labs) are for UI work.
+  Rust or a Tauri plugin. The one exception is the Apple TV, which has no web
+  view: a small SwiftUI app in `tv/`, agreed with the owner, that only draws
+  and plays what the server prepares. The ui.sh skills (Tailwind Labs) are for UI work.
 - **Culvert** (the owner's npm packages, `@culvert/stream`, `@culvert/csv`)
   is the plumbing for scans and records: Source, Transform, Sink and `pipe()`,
   not ad-hoc streams.
@@ -53,7 +55,10 @@ Tailwind 4). Start with these, in this order:
 | `src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
 | `src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
 | `src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
-| `src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`), speech (`speech.rs`, whisper.cpp), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
+| `src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, whisper.cpp), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
+| `src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
+| `server/` | The server (server/README.md, docs/SERVER.md). |
+| `tv/` | Ribbon on the Apple TV, in Swift: read-along from the server (tv/README.md). |
 | `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
 
 ## Commands
@@ -67,6 +72,7 @@ npm run e2e -- --build                  # the end-to-end checks (Windows; tools/
 npm run e2e -- speed --slow 6           # the speed report, as a slow machine
 npm run tauri build                     # the installers
 npm run ribbon -- scan <folder>         # the scan, from the command line
+cd tv && xcodegen generate              # the Apple TV app's Xcode project (tv/README.md)
 ```
 
 `npm run tauri`, `tauri:dev` and `test:rust` go through
