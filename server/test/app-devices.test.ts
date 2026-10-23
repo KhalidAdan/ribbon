@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -162,4 +162,99 @@ describe("adding a folder through a server", () => {
     await admin.c.pickLibrary();
     expect(admin.c.getState().error).toBe("The server can't see not on the server. It reads a folder at the path it has on this machine, so the folder has to be at that same path on the server's computer too.");
   });
+});
+
+/**
+ * Deleting a book from a server, as its admin: it goes from the server and
+ * from each device that downloaded it, except one that has it open, until
+ * it's closed there. A book merely missing from the server's list stays.
+ */
+describe("deleting a book from a server", () => {
+  let dir: string;
+  let server: RibbonServer;
+  let url = "";
+  let memberPassword = "";
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "ribbon-app-delete-"));
+    const made = await serverWithAdmin(dir);
+    server = made.server;
+    const { code } = (await server.app.inject({ method: "POST", url: "/api/invites", headers: { authorization: `Bearer ${made.admin}` } })).json() as { code: string };
+    memberPassword = "a brother's password";
+    await server.app.inject({ method: "POST", url: `/api/invites/${code}/accept`, payload: { name: "brother", password: memberPassword } });
+    await importAs(server, made.admin, makeLibraries(dir).shelf);
+    await server.app.listen({ host: "127.0.0.1", port: 0 });
+    url = `http://127.0.0.1:${(server.app.server.address() as AddressInfo).port}`;
+  }, 60_000);
+  afterAll(async () => {
+    vi.restoreAllMocks();
+    await server.app.close();
+    server.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const until = async (ok: () => boolean, ms = 15_000) => {
+    for (let i = 0; i < ms / 25 && !ok(); i++) await new Promise((r) => setTimeout(r, 25));
+  };
+
+  async function aDevice(name: string, password: string): Promise<AppController> {
+    const home = mkdtempSync(path.join(dir, "home-"));
+    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: memorySettings(), home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    const c = new AppController(platform);
+    await c.boot();
+    await c.connectServer(url, name, password);
+    await until(() => c.getState().books.length === 2);
+    return c;
+  }
+
+  const titled = (c: AppController, title: string) => c.getState().books.find((b) => b.book.title === title);
+
+  /** Download a book here, as opening it does; the folder it went into. */
+  async function download(c: AppController, title: string): Promise<string> {
+    await c.openBook(titled(c, title)!);
+    await until(() => titled(c, title)?.remote === undefined);
+    const book = titled(c, title)!;
+    expect(book.remote).toBeUndefined();
+    return path.join(c.getState().sources[0]!.root, book.book.path.split("/")[0]!);
+  }
+
+  it("goes from the server and each device, waits while it's open, and leaves a book merely missing", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const admin = await aDevice("admin", "a long password");
+    const phone = await aDevice("admin", "a long password");
+    const brother = await aDevice("brother", memberPassword);
+    await until(() => admin.canDeleteFromServer(titled(admin, "Red Book")!.book.id));
+    expect(admin.canDeleteFromServer(titled(admin, "Red Book")!.book.id)).toBe(true);
+    expect(brother.canDeleteFromServer(titled(brother, "Red Book")!.book.id)).toBe(false);
+
+    const onPhone = await download(phone, "Red Book");
+    const onBrother = await download(brother, "Red Book");
+    const longOnPhone = await download(phone, "Long Book");
+    // The brother is reading it right now.
+    brother.openReader(titled(brother, "Red Book")!.book.id);
+
+    await admin.deleteFromServer(titled(admin, "Red Book")!.book.id);
+    expect(titled(admin, "Red Book")).toBeUndefined();
+
+    // The phone hears, and takes its copy off.
+    await until(() => !titled(phone, "Red Book"));
+    expect(titled(phone, "Red Book")).toBeUndefined();
+    expect(existsSync(onPhone)).toBe(false);
+
+    // The brother's stays while it's open, and goes once he's back at the library.
+    await until(() => !titled(brother, "Red Book"), 3_000);
+    expect(titled(brother, "Red Book")).toBeTruthy();
+    expect(existsSync(onBrother)).toBe(true);
+    brother.showLibrary();
+    await until(() => !titled(brother, "Red Book"));
+    expect(existsSync(onBrother)).toBe(false);
+
+    // A server that lost a book from its list, without deleting it, takes nothing off a device.
+    server.db.prepare("DELETE FROM book WHERE title = ?").run("Long Book");
+    server.events.toEveryone({ type: "books", data: {} });
+    await until(() => titled(phone, "Long Book")?.remote !== undefined, 3_000);
+    expect(titled(phone, "Long Book")?.remote).toBeUndefined();
+    expect(existsSync(longOnPhone)).toBe(true);
+  }, 60_000);
 });

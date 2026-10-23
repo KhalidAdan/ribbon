@@ -53,12 +53,21 @@ export class ServerClient {
     return new ServerClient(url, token);
   }
 
-  /** The library, or `"unchanged"` when the server says the copy this device has (its ETag) is still right. */
-  async books(etag: string | null): Promise<{ books: ServerBook[]; etag: string | null } | "unchanged"> {
+  /**
+   * The library and the ids of the books deleted from it, or `"unchanged"`
+   * when the server says the copy this device has (its ETag) is still right.
+   * A server from before books could be deleted lists none.
+   */
+  async books(etag: string | null): Promise<{ books: ServerBook[]; deleted: string[]; etag: string | null } | "unchanged"> {
     const r = await this.get("/api/books", etag ? { "if-none-match": etag } : {});
     if (r.status === 304) return "unchanged";
-    const { books } = (await r.json()) as { books: ServerBook[] };
-    return { books, etag: r.headers.get("etag") };
+    const { books, deleted } = (await r.json()) as { books: ServerBook[]; deleted?: string[] };
+    return { books, deleted: deleted ?? [], etag: r.headers.get("etag") };
+  }
+
+  /** As the admin: delete a book from the server, for everyone. */
+  async deleteBook(serverId: string): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}`, { method: "DELETE" });
   }
 
   async book(serverId: string): Promise<ServerBookDetail> {

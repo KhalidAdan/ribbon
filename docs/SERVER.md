@@ -286,14 +286,15 @@ JSON over HTTP. A sketch, to be settled in code review:
 | --- | --- |
 | `/api/auth/*` | Better Auth's own routes: sign up with an invite code, sign in with a name and password, sign out, sessions. |
 | `POST /api/invites` | (Admin) Makes an invite: a one-time code and its link. |
-| `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, size, whether there's audio and an EPUB, each cover's hash, aspect ratio and colour. No places or progress in it, so its ETag holds for days. Chapters come with a book's details. |
+| `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, size, whether there's audio and an EPUB, each cover's hash, aspect ratio and colour, and the ids of books the admin deleted. No places or progress in it, so its ETag holds for days. Chapters come with a book's details. |
 | `GET /api/books/:id` | One book: its files, chapters, parts and records. |
+| `DELETE /api/books/:id` | (Admin) Deletes a book: its files go from the server, and each device that downloaded it takes it off when it next hears from the server (the deleted ids in `GET /api/books`, never a book merely missing from the list). Everyone's places in it are kept, so a book added again carries on where each person was; the folder it was added from is never touched. Adding it again brings it back. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
 | `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads (and, later, the TV's streaming). |
 | `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
 | `GET /api/places/export` | Your whole log as a file in the position-log format. |
-| `GET /api/events` | Server-sent events: your place moved on another device, a book was added. |
+| `GET /api/events` | Server-sent events: your place moved on another device, a book was added or deleted. |
 
 The admin pages have their own: invites, people, devices, adding a folder,
 and the jobs that follow.

@@ -4,12 +4,13 @@ import { nodeHost } from "../../../src/host/node.ts";
 import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
-import type { BookIndex } from "./books.ts";
+import { removeBookDir, type BookIndex } from "./books.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 
 /**
- * The admin's side of the library: adding a folder of books, and following
- * the job that does it. The listing the apps read comes in its own routes.
+ * The admin's side of the library: adding a folder of books, following the
+ * job that does it, and deleting a book. The listing the apps read comes in
+ * its own routes.
  */
 export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; events: Events; dataDir: string }): void {
   const host = nodeHost();
@@ -38,6 +39,19 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       me.id,
     );
     return reply.code(202).send({ job });
+  });
+
+  // Deleting a book: its files go from here, and from every device that downloaded it as each hears (the library answer lists it as deleted). Everyone's places in it stay theirs.
+  app.delete<{ Params: { id: string } }>("/api/books/:id", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can delete books." });
+    const id = request.params.id;
+    if (!deps.books.remove(id, me.id, Date.now())) return reply.code(404).send({ error: "No such book on this server." });
+    // Off the list first, so nobody starts a download of it; then its files.
+    await removeBookDir(deps.dataDir, id).catch((e: unknown) => request.log.warn({ err: e }, `could not remove the files of deleted book ${id}`));
+    deps.events.toEveryone({ type: "books", data: { deleted: id } });
+    return reply.code(204).send();
   });
 
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {

@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS book_claim (
   book_id TEXT NOT NULL REFERENCES book (id) ON DELETE CASCADE
 );
 
+-- Books the admin deleted, so each device that downloaded one takes it off too.
+-- Devices go by this list, never by a book missing from the library: a server
+-- that lost its list mustn't empty every device. Adding the book again takes
+-- it off here.
+CREATE TABLE IF NOT EXISTS deleted_book (
+  id TEXT PRIMARY KEY,
+  deleted_at INTEGER NOT NULL,
+  deleted_by TEXT
+);
+
 -- Work the server does in the background: adding a folder, and later transcribing.
 -- Each person's places: every record their devices appended to the position
 -- log (docs/POSITION-FORMAT.md), one row each, in the order the server took
