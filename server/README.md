@@ -12,9 +12,10 @@ Built so far:
   makes its covers. The folder is only ever read.
 - **The library**, for the apps: the list, each book, covers and files, with
   HTTP caching (ETags, immutable covers, resumable downloads).
-- **Places**, each person's position log by device, read by cursor, with
-  events when a place moves or the library changes.
-
+- **Places**, each person's position log, in the database: read by cursor,
+  with events when a place moves or the library changes, and handed back
+  whole as a file in the position-log format (`GET /api/places/export`).
+  A server that kept places as files before takes them in when it starts.
 - **The apps connect.** In Ribbon, Settings → Connect to a server: the
   server's books join the shelf, and each one downloads before it plays.
   Each person's place follows them between their devices, as soon as it

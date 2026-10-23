@@ -35,7 +35,7 @@ finished result.
 | Use Audiobookshelf as the server, or build Ribbon's own? | **Ribbon's own server**, a Node package anyone can run on a machine of their own. |
 | Read the books where they are, or copy them in? | **Copy them onto the server** when a folder is added. |
 | A book that's already on the server? | **Never added again.** |
-| Files or a database? | **Files for the books and each person's place, and a small SQLite database** for what is metadata. |
+| Files or a database? | **Files for the books; SQLite for everything else**, each person's places included (they come back as a file in the position-log format whenever asked). Decided again on 2026-10-22, after keeping places as files on the server and copying them onto every device proved the fiddly part. |
 | How do people sign in? | **Usernames and passwords, with [Better Auth](https://better-auth.com).** |
 | Who brings people in? | **The admin invites them.** |
 | Hosting, privacy, HTTPS? | **The host's business.** The server doesn't depend on Tailscale or any network; the owner runs his behind Tailscale so it isn't on the open internet. |
@@ -45,7 +45,7 @@ finished result.
 | Which clients first? | **The desktop app (Windows and Mac) and the iPhone.** |
 | What works first? | **Everyone listens with their own place** (section 12). |
 | The web framework | **Fastify.** |
-| NORTHSTAR | **"Not someone else's service", "Your place is still a file", "Folders still work"**, now in [NORTHSTAR.md](NORTHSTAR.md) in place of "Not a server" and "Nothing to sign in to". |
+| NORTHSTAR | **"Not someone else's service", "Your place is yours", "Folders still work"**, now in [NORTHSTAR.md](NORTHSTAR.md) in place of "Not a server" and "Nothing to sign in to". |
 | Above all | **Fast, with no pop-in or layout shift** (section 7), and HTTP caching used wherever it helps. |
 
 The owner's first server is his old T2 MacBook. Nothing in the design
@@ -101,16 +101,19 @@ runs in the Rust tools as a job, never while someone waits on a request.
 
 ## 5. What the server keeps
 
-**Files** for what is content or yours: the books themselves, and each
-person's place, in the same formats as `.ribbon/`, readable and easy to take
-away. **SQLite** for what is metadata: who can sign in, which devices,
-what books exist and how to find them fast, the jobs.
+**Files** for the books themselves. **SQLite** for the rest: who can sign
+in, which devices, what books exist and how to find them fast, the jobs, and
+each person's places. A person's places are the position log
+([POSITION-FORMAT.md](POSITION-FORMAT.md)), one row per record a device
+appended, kept once however often a retry sends it, and `GET
+/api/places/export` hands the whole log back as a file in that format:
+readable, and easy to take away.
 
 ```text
 <server data>/                      wherever the host puts it
   ribbon.db                         SQLite: Better Auth's people and sessions,
                                     invites, the book index, cover sizes and
-                                    colours, jobs
+                                    colours, jobs, each person's places
   books/<book-id>/
     audio files                     copied in, never changed
     book.epub                       copied in, if the book has one
@@ -118,7 +121,6 @@ what books exist and how to find them fast, the jobs.
     records/                        chapters, corrections, pairing, frames,
                                     heard, aligned: what .ribbon/ holds today
   people/<id>/
-    places/<device>.ndjson          the position log, one file per device
     settings.json                   speed per book, reading settings
   logs/server.log
 ```
@@ -288,8 +290,9 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id` | One book: its files, chapters, parts and records. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
 | `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads (and, later, the TV's streaming). |
-| `GET /api/places?after=` | Your position records from every device, newer than the last one this device has: an empty list when there's nothing new. Never cached; the cursor does that job. |
-| `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. |
+| `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
+| `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
+| `GET /api/places/export` | Your whole log as a file in the position-log format. |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added. |
 
 The admin pages have their own: invites, people, devices, adding a folder,
@@ -301,13 +304,18 @@ and the jobs that follow.
   sibling, "Connect to a server": its address, your name and password. Someone
   new first opens their invite link, a page the server serves, to pick a name
   and a password.
-- In the app, a `ServerLibrary` gives the controller what `LibraryService`
-  gives it for a folder (books, records, places) through the API instead of
-  files, and keeps downloaded books in the app's own folder.
+- **The server's list and places come through its API.** The shelf is `GET
+  /api/books`, kept on the device as last seen so a launch draws it at once.
+  A server's source keeps no copy of anyone's log as files:
+  `LibraryService` keeps its position log in a `ServerLog`
+  (`src/app/server/server-log.ts`), which sends what this device adds,
+  takes everyone's by cursor, and keeps one small file of the log as last
+  read and what's still to send. Offline, places wait on the device and go
+  when it's back. Downloaded books are files in Ribbon's own folder, the one
+  thing a device must keep to play them.
 - **Your place needs no new machinery.** `PositionKeeper` already keeps every
   place on the device first and sends it on when it can; for a server,
-  "beside the books" becomes `POST /api/places`. Offline, places wait on the
-  device and go when it's back.
+  "beside the books" becomes the server's log.
 - **The Apple TV** gets a native client on the same API, after milestone 1.
 - **The admin pages** are web pages the server serves, in Ribbon's own design.
 
