@@ -46,6 +46,33 @@ someone does, every start prints it again.
 No one can sign in yet. Open http://localhost:7766/invite/… to make the admin account.
 ```
 
+## In Docker
+
+From the repository's root (the image holds the app's own logic the
+server runs, and ffmpeg):
+
+```bash
+docker build -f server/Dockerfile -t ribbon-server .
+docker run -d --name ribbon-server --restart unless-stopped --network host \
+  --user "$(id -u):$(id -g)" -e RIBBON_URL=https://your-server.example \
+  -v ~/ribbon-data:/data ribbon-server
+```
+
+`--network host` keeps it on this machine's loopback, where a proxy such as
+Tailscale Serve reaches it as from this machine. Keep the data folder on a
+disk with ordinary file locking (not one mounted through FUSE, such as NTFS
+on Linux): SQLite needs it. The books can live elsewhere, mounted over
+`/data/books`. Mount a folder of books to add read-only, and add it by its
+path inside the container.
+
+To update, pull, build again, and replace the container (`docker rm -f
+ribbon-server`, then the same `docker run`): everything it keeps is in the
+data folder. To move a server to another machine, copy its data folder:
+the database as `sqlite3 ribbon.db ".backup copy.db"` takes it (a plain copy
+of a running one may be torn), then `secret`, `people/` and `books/`. The
+same secret keeps everyone signed in; a new address means the apps connect
+again.
+
 ## Settings
 
 From the environment:
