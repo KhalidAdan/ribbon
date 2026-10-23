@@ -12,7 +12,9 @@ import { invitePage } from "./invite-page.ts";
 import { Invites, type Role } from "./invites.ts";
 import { Events } from "./events.ts";
 import { Jobs } from "./jobs.ts";
+import { nodeHost } from "../../src/host/node.ts";
 import { BookIndex } from "./library/books.ts";
+import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 import { Places } from "./places.ts";
@@ -44,6 +46,9 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const books = new BookIndex(db);
   const places = new Places(db);
   const imported = await places.importFiles(config.dataDir);
+  // Books added before the server measured them are measured once, in the background.
+  const unprepared = await booksToPrepare(config.dataDir, books);
+  if (unprepared.length > 0) jobs.start<PrepareProgress>("prepare", { books: unprepared.length, done: 0, current: null }, (report) => prepareBooks(nodeHost(), config.dataDir, unprepared, report), null);
   const events = new Events();
 
   // A proxy on this machine (Caddy, Tailscale Serve) says whether the request came in over HTTPS; anyone else's word for it isn't taken.

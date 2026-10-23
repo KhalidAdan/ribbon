@@ -59,8 +59,8 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
   app.get<{ Params: { id: string; "*": string } }>("/api/books/:id/files/*", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     const file = request.params["*"];
-    // Only the book's own files: its EPUB and the audio its record lists. Nothing else under its folder, and nothing outside it.
-    const known = stored && (file === stored.book.ebook || stored.files.some((f) => f.path === file));
+    // Only the book's own files: its EPUB, the audio its record lists, and the records carried in with it. Nothing else under its folder, and nothing outside it.
+    const known = stored && (file === stored.book.ebook || stored.files.some((f) => f.path === file) || (stored.records ?? []).some((kind) => file === `records/${kind}.csv`));
     if (!known) return reply.code(404).send({ error: "No such file in this book." });
     return reply.header("cache-control", ASK_FIRST).sendFile(path.posix.join(request.params.id, file), { cacheControl: false, acceptRanges: true, etag: true, lastModified: true });
   });

@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import type { ScannedBook } from "../../../src/core/scan/scan.ts";
+import type { LoudnessMeasurement, SilenceRange } from "../../../src/core/types.ts";
 import type { Cover } from "./covers.ts";
 
 /**
@@ -18,6 +19,16 @@ export interface StoredBook extends ScannedBook {
   cover: Cover | null;
   /** The EPUB's size, when there is one: with the audio's, what a download needs room for. */
   ebookBytes?: number;
+  /** Its loudness and silences, measured once here, so no device has to (prepare.ts). */
+  analysis?: StoredAnalysis;
+  /** The records carried in from its folder, by kind, in `records/<kind>.csv` (records.ts). */
+  records?: string[];
+}
+
+/** A book's loudness, all its files together, and the silences in each file, by the file's place in the book. */
+export interface StoredAnalysis {
+  loudness: LoudnessMeasurement | null;
+  silence: { file: number; ranges: SilenceRange[] }[];
 }
 
 /** The ids that name a book besides its files: its ISBN and ASIN, as the position log writes them (docs/POSITION-FORMAT.md, section 4). */

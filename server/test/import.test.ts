@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import type { RibbonServer } from "../src/app.ts";
 import { openDatabase } from "../src/db.ts";
 import { BookIndex, type StoredBook } from "../src/library/books.ts";
 import { importFolder } from "../src/library/importer.ts";
+import { booksToPrepare, prepareBooks } from "../src/library/prepare.ts";
 import { nodeHost } from "../../src/host/node.ts";
 import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 
@@ -61,6 +62,25 @@ describe("adding a folder", () => {
     expect(g! + b!).toBeLessThan(80);
     expect(readdirSync(path.join(dir, "data", "books", red.book.id, "covers")).sort()).toEqual([`${red.cover!.hash}-200.jpg`, `${red.cover!.hash}-400.jpg`, `${red.cover!.hash}-800.jpg`]);
     expect(long.cover).toBeNull();
+
+    // Measured once, here, from the copies: a tone has a loudness and no silences.
+    for (const b of [red, long]) {
+      expect(b.analysis?.loudness?.integratedLufs).toEqual(expect.any(Number));
+      expect(b.analysis?.silence).toEqual([]);
+    }
+  });
+
+  it("measures, once, a book added before the server measured books", async () => {
+    const dataDir = path.join(dir, "data");
+    const id = readdirSync(path.join(dataDir, "books"))[0]!;
+    const file = path.join(dataDir, "books", id, "book.json");
+    const { analysis: _was, ...older } = JSON.parse(readFileSync(file, "utf8")) as StoredBook;
+    writeFileSync(file, JSON.stringify(older));
+    expect(await booksToPrepare(dataDir, server.books)).toEqual([id]);
+    const done = await prepareBooks(nodeHost(), dataDir, [id], () => undefined);
+    expect(done).toMatchObject({ books: 1, done: 1, current: null });
+    expect((JSON.parse(readFileSync(file, "utf8")) as StoredBook).analysis?.loudness).not.toBeNull();
+    expect(await booksToPrepare(dataDir, server.books)).toEqual([]);
   });
 
   it("never adds the same book twice", async () => {

@@ -12,6 +12,7 @@ import { Scrubber } from "./Scrubber";
 import { SpeedControl } from "./SpeedControl";
 import { SleepControl } from "./SleepControl";
 import { ChapterList } from "./ChapterList";
+import { LoudnessScanNote, scanning } from "./LoudnessScan";
 import { BookmarkList } from "./BookmarkList";
 import { ResumeOffer } from "./ResumeOffer";
 import { Transport } from "./PlayerBar";
@@ -26,6 +27,7 @@ export function PlayerPane() {
   const state = useAppState();
   const c = useController();
   const cur = state.current;
+  const scanJob = cur ? state.jobs[cur.book.book.id] : undefined;
   const drawer = state.playerDrawer;
   const setDrawer = (d: typeof drawer) => c.setPlayerDrawer(d);
   const [adding, setAdding] = useState(false);
@@ -92,6 +94,7 @@ export function PlayerPane() {
           </div>
 
           {state.resumeOffer && <ResumeOffer />}
+          {scanning(scanJob) && <LoudnessScanNote job={scanJob} />}
 
           <div className="flex flex-col gap-5">
             <div>

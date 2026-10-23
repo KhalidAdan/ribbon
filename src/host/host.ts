@@ -167,7 +167,7 @@ export interface Host {
    * Everything said in stretches of audio, `seconds` from each clip's start,
    * phrase by phrase with times in ms of its file (#57). Optional, as above.
    */
-  speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<{ startMs: number; endMs: number; words: string }[][]>;
+  speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null, gentle?: boolean): Promise<{ startMs: number; endMs: number; words: string }[][]>;
   /** Index a book's MP3s ahead of their first seek, in the background. Optional. */
   audioPrepare?(paths: string[]): Promise<void>;
   /** Make a read-along EPUB from a plan (core/reading/export.ts); resolves to its path. Optional. */

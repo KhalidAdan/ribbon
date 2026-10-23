@@ -118,6 +118,15 @@ describe("loudness job", () => {
 });
 
 describe("silence job", () => {
+  it("says how far it has got, by the silences it passes, and ends at the end", async () => {
+    const seen: number[] = [];
+    await analyzeBook(lib, find("gaps"), undefined, (fraction) => seen.push(fraction));
+    // Each gap's start and end, then the end of the file.
+    expect(seen.length).toBeGreaterThan(3);
+    expect(seen.every((f, i) => i === 0 || f >= seen[i - 1]!)).toBe(true);
+    expect(seen.at(-1)).toBe(1);
+  });
+
   it("finds the three gaps in the gaps fixture", async () => {
     const b = find("gaps");
     const out = await analyzeBook(lib, b);

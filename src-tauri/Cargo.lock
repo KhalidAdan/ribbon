@@ -3103,6 +3103,7 @@ dependencies = [
  "fs4",
  "image",
  "imagesize",
+ "libc",
  "lofty",
  "log",
  "quick-xml 0.39.4",

@@ -8,6 +8,7 @@ import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, 
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
+import type { ServerBookDetail } from "../core/server-books";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -241,6 +242,12 @@ export interface AppState {
   readingSettings: ReadingSettings;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
   speech: { model: string | null; downloading: { done: number; total: number } | null };
+  /** Say, once, that a speech model makes read-along follow the sentence: shown the first time a book with both editions opens on a computer without one. */
+  speechNudge: boolean;
+  /** When a book's narration isn't transcribed yet: hold playback until it is ("wait"), or play now and transcribe gently behind it ("play"). */
+  readAlongMode: "wait" | "play";
+  /** A book whose playback waits for its read-along: how many minutes of narration are transcribed, of how many, and about how long is left. */
+  readAlongWait: { bookId: string; done: number; total: number; leftMs: number | null } | null;
   /** Speed measurements are summarised in the log (app/perf.ts). */
   perfLog: boolean;
 }
@@ -495,6 +502,9 @@ export class AppController {
       reading: null,
       readingSettings: parseReading(undefined),
       speech: { model: null, downloading: null },
+      speechNudge: false,
+      readAlongMode: "wait",
+      readAlongWait: null,
       perfLog: false,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
@@ -634,6 +644,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
+      this.set({ readAlongMode: this.appSettings.readAlongMode === "play" ? "play" : "wait" });
       this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
       perf.setLogging(this.appSettings.perfLog === true);
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
@@ -1397,9 +1408,12 @@ export class AppController {
     const id = book.book.id;
     this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, spaceShort: null });
     try {
-      await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
+      const analysis = await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
       await this.rescanSource(o, true);
-      return o.books.find((b) => b.book.path === serverId || b.book.path.startsWith(`${serverId}/`)) ?? null;
+      const here = o.books.find((b) => b.book.path === serverId || b.book.path.startsWith(`${serverId}/`)) ?? null;
+      // The server measured it once: its loudness and silences go beside it here, so it's never measured on a device.
+      if (here && analysis) await this.keepMeasurements(o, here.book.id, analysis);
+      return here;
     } catch (e) {
       if (e instanceof NotEnoughSpace) this.set({ spaceShort: { bookId: id, title: book.book.title, neededBytes: e.neededBytes, freeBytes: e.freeBytes } });
       else this.set({ error: `Couldn't download ${book.book.title}: ${describe(e)}` });
@@ -1427,7 +1441,8 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (!book || !o?.server || book.remote) return;
     if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
-    await o.server.remove(book.book.path.split("/")[0]!);
+    await o.server.remove(book.book.path.split("/")[0]!, book.book.id);
+    this.serverRecordsTaken.delete(book.book.id);
     await this.rescanSource(o, true);
   }
 
@@ -1522,6 +1537,36 @@ export class AppController {
   /** The source a book came from, for the page. */
   sourceOf(book: ScannedBook): Source | null {
     return this.state.sources.find((s) => s.id === book.source) ?? null;
+  }
+
+  /** Downloaded server books whose records have been checked against the server since launch. */
+  private serverRecordsTaken = new Set<string>();
+
+  /**
+   * Before a downloaded server book plays or opens, the first time this
+   * launch: whatever the server has for it that isn't here yet (its
+   * loudness and silences, what was heard of it and how that lines up)
+   * comes down, so nothing the server has is worked out again here. A book
+   * downloaded before the server kept these gets them now.
+   */
+  private async takeServerRecords(book: ScannedBook): Promise<void> {
+    const o = this.openedOf(book);
+    const serverId = book.book.path.split("/")[0];
+    if (!o?.server || book.remote || !serverId || this.serverRecordsTaken.has(book.book.id)) return;
+    this.serverRecordsTaken.add(book.book.id);
+    const detail = await o.server.client.book(serverId).catch(() => null);
+    if (!detail) return;
+    await o.server.keepRecords(detail, book.book.id).catch((e: unknown) => log.warn("could not take a book's records from the server:", describe(e)));
+    const [loudness, silence] = await Promise.all([o.lib.readLoudness(book.book.id).catch(() => null), o.lib.readSilence(book.book.id).catch(() => null)]);
+    if (detail.analysis && (!loudness || !silence)) await this.keepMeasurements(o, book.book.id, detail.analysis);
+  }
+
+  /** The server's measurements of a book, kept beside it here as if measured here. */
+  private async keepMeasurements(o: Opened, bookId: string, analysis: NonNullable<ServerBookDetail["analysis"]>): Promise<{ gainDb: number | null; silence: Map<number, SilenceRange[]> }> {
+    const gainDb = analysis.loudness ? await o.lib.writeLoudness(bookId, analysis.loudness) : null;
+    const silence = new Map(analysis.silence.map((s) => [s.file, s.ranges]));
+    await o.lib.writeSilence(bookId, silence);
+    return { gainDb, silence };
   }
 
   private onJob(s: JobStatus, result: { gainDb: number | null; silence: Map<number, SilenceRange[]> } | null): void {
@@ -1622,6 +1667,8 @@ export class AppController {
         log.warn(`could not read ${what} for`, book.book.title, describe(e));
         return fallback;
       });
+    await this.takeServerRecords(book);
+    if (seq !== this.openSeq) return;
     const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
       quiet("settings", lib.readSettings(id), defaultSettings(id)),
       quiet("bookmarks", this.loadBookmarks(id), [] as Bookmark[]),
@@ -1703,12 +1750,15 @@ export class AppController {
     const book = this.state.books.find((b) => b.book.id === bookId);
     const o = book && this.openedOf(book);
     if (!book || !o) return;
+    this.maybeNudgeSpeech(bookId);
     // A server's book is downloaded before it opens, as before it plays.
     if (book.remote) {
       const here = await this.downloadRemote(book);
       if (here) await this.openReading(here.book.id);
       return;
     }
+    // What the server has heard of it comes first, so it isn't heard again here.
+    await this.takeServerRecords(book);
     if (this.state.reading) await this.closeReading();
     perf.begin("open the reader");
     this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
@@ -1983,7 +2033,11 @@ export class AppController {
     const host = o.lib.host;
     const batch = stretches.slice(0, SPANS_PER_CALL);
     const clips = batch.map((x) => ({ path: o.lib.absPath(book.files[x.file]!.path), startMs: x.offset }));
-    const said = await host.speechTranscribe!.call(host, model, clips, SPAN_MS / 1000, language);
+    // While a book plays, gently: one stretch at a time, fewer threads, behind the audio. Otherwise as fast as it goes.
+    const gentle = this.state.player.playing;
+    const t0 = performance.now();
+    const said = await host.speechTranscribe!.call(host, model, clips, SPAN_MS / 1000, language, gentle);
+    if (!gentle) this.msPerSpan = (performance.now() - t0) / batch.length;
     const a = this.state.reading?.alignment;
     if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
     const index = this.readingIndex.index;
@@ -2025,6 +2079,58 @@ export class AppController {
    * Kept beside the book after every few, so each place is heard once.
    */
   private hearAgain = false;
+
+  /** How long a minute of narration takes to transcribe here at full speed, as last timed: for how long the wait has left. */
+  private msPerSpan: number | null = null;
+  /** Books the listener chose to play before their read-along was ready ("Play anyway"), this launch. */
+  private readAlongPlayAnyway = new Set<string>();
+  /** Playback was paused to wait for read-along, and starts again when it's ready. */
+  private pausedForReadAlong = false;
+
+  /**
+   * While a book's narration is still being transcribed and the listener
+   * chose to wait for read-along (Settings): say how far it has got, and
+   * hold playback. Cleared when it's done, or when it stops.
+   */
+  private waitForReadAlong(bookId: string, done: number, total: number): void {
+    if (this.state.readAlongMode !== "wait" || this.readAlongPlayAnyway.has(bookId) || done >= total) return this.readAlongReady(bookId);
+    const leftMs = this.msPerSpan === null ? null : (total - done) * this.msPerSpan;
+    this.set({ readAlongWait: { bookId, done, total, leftMs } });
+    if (this.state.current?.book.book.id === bookId && this.state.player.playing) {
+      log.info("pausing until read-along is ready:", done, "of", total, "minutes transcribed");
+      this.pausedForReadAlong = true;
+      this.pause();
+    }
+  }
+
+  /** The wait is over: read-along is ready (`resume`: playback held for it starts again), or it stopped part way. */
+  private readAlongReady(bookId: string, resume = true): void {
+    if (this.state.readAlongWait?.bookId !== bookId) return;
+    this.set({ readAlongWait: null });
+    if (resume && this.pausedForReadAlong && this.state.current?.book.book.id === bookId) {
+      this.pausedForReadAlong = false;
+      void this.play();
+    }
+    this.pausedForReadAlong = false;
+  }
+
+  /** Play a book whose read-along isn't ready yet, rather than wait: it's transcribed gently behind the audio. */
+  playAnyway(): void {
+    const w = this.state.readAlongWait;
+    if (!w) return;
+    this.readAlongPlayAnyway.add(w.bookId);
+    this.pausedForReadAlong = false;
+    this.set({ readAlongWait: null });
+    void this.play();
+  }
+
+  /** Settings: wait for read-along before playing, or play now and let it catch up. */
+  setReadAlongMode(mode: "wait" | "play"): void {
+    this.appSettings = { ...this.appSettings, readAlongMode: mode };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    this.set({ readAlongMode: mode });
+    if (mode === "play" && this.state.readAlongWait) this.readAlongReady(this.state.readAlongWait.bookId);
+  }
 
   private async hearPlaces(): Promise<void> {
     const ctx = this.readingCtx;
@@ -2127,6 +2233,7 @@ export class AppController {
       if (!still()) return ready();
     }
     if (near().length === 0) ready();
+    if (stretches().length > 0) this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
     if (doubts().length === 0 && checkpoints().length === 0 && stretches().length === 0) return;
     this.hearing = true;
     const started = performance.now();
@@ -2145,6 +2252,7 @@ export class AppController {
           if (!still()) break;
           this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
           if (near().length === 0) ready();
+          this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
           continue;
         }
         ready();
@@ -2158,6 +2266,7 @@ export class AppController {
             await this.keepAligned(rd, bookId, o.lib);
             if (!still()) break;
             this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
+            this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
             continue;
           }
         }
@@ -2193,6 +2302,8 @@ export class AppController {
     } finally {
       this.hearing = false;
       ready();
+      // Stopped: nothing to wait for any more. Playback held for it starts again only when it's all transcribed.
+      this.readAlongReady(bookId, stretches().length === 0);
       if (this.hearAgain) {
         this.hearAgain = false;
         if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
@@ -2438,6 +2549,32 @@ export class AppController {
   /** Show a book's page, with its series along the side when it has one. */
   openReader(bookId: string): void {
     this.set({ pane: "reader", readerBookId: bookId, playerExpanded: false });
+    this.maybeNudgeSpeech(bookId);
+  }
+
+  /**
+   * The first time a book with both its text and its audio opens on a
+   * computer with no speech model, say once what one does. Phones don't
+   * transcribe, and a device that has a model, or was told, isn't told again.
+   */
+  private maybeNudgeSpeech(bookId: string): void {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    if (!book?.book.ebook || readerOnly(book.book)) return;
+    if (this.platform.phone || !this.platform.host.downloadSpeechModel || this.state.speech.model || this.state.speech.downloading) return;
+    if (this.appSettings.speechNudged === true) return;
+    this.appSettings = { ...this.appSettings, speechNudged: true };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    this.set({ speechNudge: true });
+  }
+
+  /** The nudge's Download: the same download Settings starts. */
+  downloadSpeechModelFromNudge(): Promise<void> {
+    this.set({ speechNudge: false });
+    return this.downloadSpeechModel();
+  }
+
+  dismissSpeechNudge(): void {
+    this.set({ speechNudge: false });
   }
 
   private async probeChapters(book: ScannedBook): Promise<void> {
@@ -2470,6 +2607,8 @@ export class AppController {
     const engine = this.engine;
     const cur = this.state.current;
     if (!engine || !cur) return;
+    // Held while its read-along is made, as the listener chose (Settings); the reader says so, with Play anyway.
+    if (this.state.readAlongWait?.bookId === cur.book.book.id) return;
     engine.setStopAt(null);
     if (this.state.previewing !== null) this.set({ previewing: null });
     // Read on since this book last played, outside the reader: carry on from the page.

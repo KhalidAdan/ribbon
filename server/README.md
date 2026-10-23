@@ -8,8 +8,13 @@ Built so far:
 - **Accounts.** People sign in with a name and a password (Better Auth), and
   the admin invites them.
 - **Adding a folder.** The admin points the server at a folder on its
-  machine; it copies in each book it doesn't have yet, reads its chapters and
-  makes its covers. The folder is only ever read.
+  machine (in Ribbon, Settings → Add a folder, as the admin); it copies in
+  each book it doesn't have yet, reads its chapters, makes its covers, and
+  measures its loudness and silences once. What Ribbon already worked out
+  beside a book in the folder's `.ribbon/` (chapters, corrections, what was
+  heard of the narration and how it lines up with the text) comes in with
+  it, and adding the folder again fills in what a book already here is
+  missing. The folder is only ever read.
 - **The library**, for the apps: the list, each book, covers and files, with
   HTTP caching (ETags, immutable covers, resumable downloads).
 - **Places**, each person's position log, in the database: read by cursor,
