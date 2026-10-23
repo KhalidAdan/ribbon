@@ -1,6 +1,6 @@
 import { blockText, type EbookBlock } from "../ebook";
 import { precise, textToMs, type Alignment } from "./align";
-import type { BookText, TextPlace } from "./booktext";
+import type { BookText, TextPlace, TextRange } from "./booktext";
 
 /**
  * A book's text with when each of its sentences is read: all a device
@@ -118,6 +118,33 @@ export function sentenceAt(text: BookText, place: TextPlace): number {
     count += sentences.length;
   }
   return Math.max(0, count - 1);
+}
+
+/**
+ * Where sentences of the read-along are in the text: from the start of the
+ * first to the end of the last, counted as `sentenceAt` counts them. What
+ * a device that marks whole sentences rather than selecting words
+ * bookmarks (the Apple TV). Null when either is past the end.
+ */
+export function sentencesRange(text: BookText, first: number, last: number): TextRange | null {
+  let from: TextPlace | null = null;
+  let count = 0;
+  for (const { section, block } of shownBlocks(text)) {
+    for (const s of text.sentences(section, block)) {
+      if (count === first) from = { section, block, offset: s.start };
+      if (count === last) return from && { from, to: { section, block, offset: s.end } };
+      count++;
+    }
+  }
+  return null;
+}
+
+/** The sentences words in the text are in, first and last: how a highlight is shown on a device that marks whole sentences. */
+export function sentencesIn(text: BookText, range: TextRange): { first: number; last: number } {
+  const first = sentenceAt(text, range.from);
+  // The end is just past the last letter, which may be the start of the next sentence.
+  const last = sentenceAt(text, { ...range.to, offset: Math.max(0, range.to.offset - 1) });
+  return { first, last: Math.max(first, last) };
 }
 
 /** A sentence by its count across the whole read-along, or null past the end. */

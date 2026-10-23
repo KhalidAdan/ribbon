@@ -119,6 +119,40 @@ describe("read-along from the server", () => {
     expect((await post(`/api/books/${book.id}/place`, { device: { id: "my-tv" }, ms: 1000, why: "pause" })).statusCode).toBe(400);
     expect((await post(`/api/books/0123456789abcdef/place`, { device: tv, ms: 1000, why: "pause" })).statusCode).toBe(404);
   });
+
+  it("bookmarks whole sentences as the desktop bookmarks words selected in its reader, and takes them back", async () => {
+    const del = (url: string, payload: object) => server.app.inject({ method: "DELETE", url, payload, headers: { authorization: `Bearer ${token}` } });
+    expect((await get(`/api/books/${book.id}/bookmarks`)).json()).toEqual({ bookmarks: [] });
+    const made = await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 2, last: 3 });
+    expect(made.statusCode).toBe(200);
+    const { bookmark } = made.json() as { bookmark: { id: string } };
+    const quote = "A second one follows it. The third ends the chapter.";
+    expect(bookmark).toMatchObject({ ms: 4000, note: "", quote, first: 2, last: 3 });
+
+    // In the TV's log as the desktop's reader writes one (docs/POSITION-FORMAT.md, section 3.4), so every app shows it.
+    type Mark = { k: string; dev: string; id: string; motivation: string; target: { ms: number; text: { quote: string } }; book: { ids: string[] } };
+    const mark = ((await get("/api/places")).json() as { records: Mark[] }).records.find((r) => r.k === "mark");
+    expect(mark).toMatchObject({ dev: tv.id, id: bookmark.id, motivation: "bookmarking", target: { ms: 4000, text: { quote } } });
+    expect(mark!.book.ids).toContain(`urn:ribbon:${localIdOf(book)}`);
+
+    // The same sentences bookmarked on another device are the same bookmark.
+    const again = (await post(`/api/books/${book.id}/bookmarks`, { device: phone, first: 2, last: 3 })).json() as { bookmark: { id: string } };
+    expect(again.bookmark.id).toBe(bookmark.id);
+    expect((await get(`/api/books/${book.id}/bookmarks`)).json()).toMatchObject({ bookmarks: [{ id: bookmark.id, first: 2, last: 3, quote }] });
+
+    const url = `/api/books/${book.id}/bookmarks/${encodeURIComponent(bookmark.id)}`;
+    expect((await del(url, { device: tv })).json()).toEqual({ deleted: bookmark.id });
+    expect((await get(`/api/books/${book.id}/bookmarks`)).json()).toEqual({ bookmarks: [] });
+    expect((await del(url, { device: tv })).statusCode).toBe(404);
+  });
+
+  it("refuses a bookmark it can't make", async () => {
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 2 })).statusCode).toBe(400);
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 9 })).statusCode).toBe(400);
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: { id: "my-tv" }, first: 1, last: 1 })).statusCode).toBe(400);
+    expect((await post(`/api/books/0123456789abcdef/bookmarks`, { device: tv, first: 1, last: 1 })).statusCode).toBe(404);
+    expect((await server.app.inject({ method: "GET", url: `/api/books/${book.id}/bookmarks` })).statusCode).toBe(401);
+  });
 });
 
 describe("read-along on a server without its commands", () => {

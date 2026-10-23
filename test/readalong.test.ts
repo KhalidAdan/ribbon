@@ -3,7 +3,7 @@ import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
 import { BookText } from "../src/core/reading/booktext";
 import { heardFromRows, pairBook, pairingFromRows, transcriptFromRows } from "../src/core/reading/narration";
 import { overlayAnchors } from "../src/core/reading/overlay";
-import { READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt } from "../src/core/reading/readalong";
+import { READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "../src/core/reading/readalong";
 
 /**
  * A chapter: its heading, a paragraph of three sentences, a picture, a
@@ -87,6 +87,21 @@ describe("a read-along", () => {
     // In the picture, which isn't shown: the sentence after it.
     expect(sentenceAt(text, { section: 0, block: 2, offset: 0 })).toBe(4);
     expect(sentenceAt(text, { section: 1, block: 0, offset: 3 })).toBe(4);
+  });
+
+  it("finds whole sentences in the text, and the sentences words are in", () => {
+    const { text } = paired(true);
+    const two = sentencesRange(text, 1, 2)!;
+    expect(text.text(two)).toBe("First sentence here. Second one follows.");
+    expect(sentencesIn(text, two)).toEqual({ first: 1, last: 2 });
+    // Across the break between scenes, which has no sentences.
+    const across = sentencesRange(text, 3, 4)!;
+    expect(text.text(across)).toBe("Third ends it.\n\nAfter the break.");
+    expect(sentencesIn(text, across)).toEqual({ first: 3, last: 4 });
+    // One sentence, and words inside one.
+    expect(sentencesIn(text, sentencesRange(text, 2, 2)!)).toEqual({ first: 2, last: 2 });
+    expect(sentencesIn(text, { from: { section: 0, block: 1, offset: 3 }, to: { section: 0, block: 1, offset: 9 } })).toEqual({ first: 1, last: 1 });
+    expect(sentencesRange(text, 4, 5)).toBeNull();
   });
 
   it("finds the sentence being read at a moment of the recording", () => {

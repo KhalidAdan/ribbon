@@ -15,6 +15,8 @@ import UIKit
 final class Listening {
     let book: ServerBook
     let detail: ServerBookDetail
+    /// Its bookmarks, which the reader and the player share.
+    let bookmarks: Bookmarks
 
     /// The moment of the recording, a few times a second while it plays.
     private(set) var positionMs: Int
@@ -52,6 +54,7 @@ final class Listening {
         self.book = book
         self.detail = detail
         self.server = server
+        bookmarks = Bookmarks(server: server, bookId: book.id)
         positionMs = startMs
         speed = UserDefaults.standard.object(forKey: Self.speedKey(server.account, book)) as? Double ?? 1
         var fileStart = 0

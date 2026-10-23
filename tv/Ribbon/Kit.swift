@@ -109,9 +109,10 @@ extension Row where Aside == EmptyView {
     }
 }
 
-/// The app's buttons (docs/DESIGN.md, section 7): the one primary action in
-/// inverted ink, the rest raised with a hairline ring. With the focus, a
-/// button lifts, and a secondary one lights as a primary.
+/// The app's buttons (docs/DESIGN.md, section 7), as a TV shows them: only
+/// the button with the focus is lit in inverted ink, and lifts, so it's never
+/// in doubt which that is. Without the focus a button is raised with a
+/// hairline ring, the primary one a shade lighter.
 struct RibbonButtonStyle: ButtonStyle {
     enum Kind {
         case primary, secondary
@@ -127,16 +128,17 @@ struct RibbonButtonStyle: ButtonStyle {
         let configuration: Configuration
         let kind: Kind
         @Environment(\.isFocused) private var focused
+        @Environment(\.isEnabled) private var enabled
 
         var body: some View {
-            let lit = kind == .primary || focused
             configuration.label
                 .font(.ui(26, weight: 500))
-                .foregroundStyle(lit ? Color.canvas : Color.ink)
+                .opacity(enabled ? 1 : 0.45)
+                .foregroundStyle(focused ? Color.canvas : Color.ink)
                 .padding(.horizontal, 28)
                 .padding(.vertical, 14)
-                .background(RoundedRectangle(cornerRadius: 12).fill(lit ? Color.ink : Color.raised))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(lit ? Color.clear : Color.line))
+                .background(RoundedRectangle(cornerRadius: 12).fill(focused ? Color.ink : kind == .primary ? Color.lineStrong : Color.raised))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? Color.clear : Color.line))
                 .scaleEffect(configuration.isPressed ? 1.02 : focused ? 1.08 : 1)
                 .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 18, y: 12)
                 .animation(.easeOut(duration: 0.15), value: focused)
@@ -144,31 +146,41 @@ struct RibbonButtonStyle: ButtonStyle {
     }
 }
 
-/// A card or a row that's one button, as the shelf's are: with the focus it lifts and its ground lightens.
+/// A card or a row that's one button, as the shelf's are: with the focus it lifts and lightens. A row in a
+/// group grows only a little, so it stays inside the group.
 struct LiftStyle: ButtonStyle {
     var radius: CGFloat = 16
+    var grows: CGFloat = 1.04
+
+    /// For a row in a list or a group.
+    static func row(radius: CGFloat = 10) -> LiftStyle {
+        LiftStyle(radius: radius, grows: 1.015)
+    }
 
     func makeBody(configuration: Configuration) -> some View {
-        Lift(configuration: configuration, radius: radius)
+        Lift(configuration: configuration, radius: radius, grows: grows)
     }
 
     private struct Lift: View {
         let configuration: Configuration
         let radius: CGFloat
+        let grows: CGFloat
         @Environment(\.isFocused) private var focused
 
         var body: some View {
             configuration.label
-                .background(RoundedRectangle(cornerRadius: radius).fill(focused ? Color.white.opacity(0.12) : Color.clear))
-                .overlay(RoundedRectangle(cornerRadius: radius).stroke(focused ? Color.lineStrong : Color.clear))
-                .scaleEffect(configuration.isPressed ? 1.01 : focused ? 1.04 : 1)
+                // Over what it shows, not under it: a row has a ground of its own.
+                .overlay(RoundedRectangle(cornerRadius: radius).fill(focused ? Color.white.opacity(0.1) : Color.clear).allowsHitTesting(false))
+                .overlay(RoundedRectangle(cornerRadius: radius).stroke(focused ? Color.white.opacity(0.3) : Color.clear))
+                .scaleEffect(configuration.isPressed ? 1.005 : focused ? grows : 1)
                 .shadow(color: .black.opacity(focused ? 0.45 : 0), radius: 20, y: 14)
                 .animation(.easeOut(duration: 0.15), value: focused)
         }
     }
 }
 
-/// A round button with a glyph, as the shelf's play buttons are: raised, and lit in inverted ink with the focus.
+/// A round button with a glyph, as the shelf's play buttons are: raised, the primary one a shade lighter,
+/// and lit in inverted ink only with the focus.
 struct RoundButtonStyle: ButtonStyle {
     var size: CGFloat = 64
     var primary = false
@@ -184,13 +196,12 @@ struct RoundButtonStyle: ButtonStyle {
         @Environment(\.isFocused) private var focused
 
         var body: some View {
-            let lit = primary || focused
             configuration.label
                 .font(.system(size: size * 0.36, weight: .semibold))
-                .foregroundStyle(lit ? Color.canvas : Color.ink)
+                .foregroundStyle(focused ? Color.canvas : Color.ink)
                 .frame(width: size, height: size)
-                .background(Circle().fill(lit ? Color.ink : Color.raised))
-                .overlay(Circle().stroke(lit ? Color.clear : Color.line))
+                .background(Circle().fill(focused ? Color.ink : primary ? Color.lineStrong : Color.raised))
+                .overlay(Circle().stroke(focused ? Color.clear : Color.line))
                 .scaleEffect(configuration.isPressed ? 1.04 : focused ? 1.14 : 1)
                 .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 16, y: 10)
                 .animation(.easeOut(duration: 0.15), value: focused)

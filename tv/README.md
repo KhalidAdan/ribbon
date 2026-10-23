@@ -35,13 +35,19 @@ files at any time, so the audio streams and the place lives on the server.
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
   amber, and the column glides when it leaves the middle of the screen.
-- **The Siri Remote**: up and down step a sentence, left and right a
-  paragraph, a swipe on the touch surface glides through several. Play or
-  Select reads from the sentence you're on; on the sentence being read, it
-  pauses and goes on. Away from the narrator, Listen from here and Return to
-  narrator sit either side of your sentence; left and right light them. Menu
-  brings you back to the narrator when you've wandered off, and out of the
-  book when you haven't.
+- **The Siri Remote**: up and down step a sentence, a swipe on the touch
+  surface glides through several. Left listens from the sentence you're on,
+  and right returns to the narrator; away from the narrator, Listen from here
+  and Return to narrator say so either side of your sentence. Play or Select
+  reads from the sentence you're on; on the sentence being read, it pauses
+  and goes on. Menu brings you back to the narrator when you've wandered off,
+  and out of the book when you haven't.
+- **Bookmarks**: hold Select on a sentence, take in more with up and down, and
+  Select keeps it. It's the bookmark the desktop makes of words selected in
+  its reader (docs/POSITION-FORMAT.md, section 3.4), so it's on every device,
+  in the audiobook's bookmarks too. Bookmarked words are underlined in amber,
+  as on the desktop; holding Select on them offers to delete the bookmark.
+  The player lists the book's bookmarks, and listens from the one chosen.
 - **Your place** goes to the server as you listen, the way the phone's and
   the desktop's do, and the book opens at the newest of your places on any
   device, listening or reading.
@@ -70,6 +76,7 @@ sentence and a moment, so the TV keeps no position log of its own.
 | `Library/Library.swift` | A person's books and how far through each, grouped as the desktop's shelf. |
 | `Library/LibraryView.swift`, `Library/BookView.swift` | The library, and a book's page with its series. |
 | `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place. |
+| `Listening/Bookmarks.swift` | A book's bookmarks from every device: made of whole sentences here, words or moments elsewhere. |
 | `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |
 | `Listening/PlayerView.swift` | The full player, and the chapter list. |
 | `Reading/ReadAlong.swift` | The read-along as the server sends it, and its sentences in order. |
@@ -107,7 +114,9 @@ SIMCTL_CHILD_RIBBON_SERVER=http://localhost:7766 SIMCTL_CHILD_RIBBON_NAME=<name>
 ```
 
 A debug build fills the sign-in in from `RIBBON_SERVER`, `RIBBON_NAME` and
-`RIBBON_PASSWORD`: the simulator's on-screen keyboard is slow. The simulator
+`RIBBON_PASSWORD`: the simulator's on-screen keyboard is slow. A keyboard
+can't hold Select or press Menu, so in a debug build the reader takes Page
+Down as Select held and Delete as Menu. The simulator
 reaches a server on this Mac at `localhost`. The arrow keys are the remote's
 edges and Return is Select; Menu and Play/Pause are on the Simulator's own
 Apple TV Remote.
@@ -129,7 +138,7 @@ TestFlight.
 
 ## Not yet
 
-Pages, text sizes, loudness, bookmarks, and books without a narration.
+Pages, text sizes, loudness, notes on bookmarks, and books without a narration.
 
 MP3s are never sought in by Apple's player, which goes by the average bitrate
 and lands minutes off in a long VBR book: the TV asks the server for the file
