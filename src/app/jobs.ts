@@ -1,25 +1,7 @@
-import { pipe, from, tap, collect } from "@culvert/stream";
 import type { ScannedBook } from "../core/scan/scan";
 import type { SilenceRange } from "../core/types";
-import { combineLoudness, ebur128Fold, type FileLoudness } from "../core/loudness";
-import { silenceRanges, MIN_GAP_MS, NOISE_DB } from "../core/silence";
-import { lines } from "../core/lines";
+import { analyzeFiles } from "../core/analysis";
 import type { LibraryService } from "./library";
-
-/** One ffmpeg pass that measures loudness and finds silences together. */
-export function analyzeArgs(inputPath: string, noiseDb = NOISE_DB, minGapMs = MIN_GAP_MS): string[] {
-  return [
-    "-hide_banner",
-    "-nostats",
-    "-i",
-    inputPath,
-    "-filter_complex",
-    `[0:a]silencedetect=noise=${noiseDb}dB:d=${(minGapMs / 1000).toFixed(2)},ebur128=peak=true`,
-    "-f",
-    "null",
-    "-",
-  ];
-}
 
 export interface Analysis {
   gainDb: number | null;
@@ -27,35 +9,20 @@ export interface Analysis {
 }
 
 /**
- * Decode a whole book once, recording loudness and silence. This is the
- * expensive job, so it runs only for books the listener opens. Each
- * file is one pipeline over ffmpeg's stderr, live where the host can
- * stream it: the loudness fold observes every line, the silence
- * transform turns the detector's lines into ranges.
+ * Decode a whole book once, recording loudness and silence beside it
+ * (core/analysis.ts). This is the expensive job, so it runs only for books
+ * the listener opens, and never for a server's, which comes with it done.
  */
 export async function analyzeBook(lib: LibraryService, book: ScannedBook, signal?: AbortSignal): Promise<Analysis | null> {
-  const parts: FileLoudness[] = [];
-  const silence = new Map<number, SilenceRange[]>();
-  for (const [i, f] of book.files.entries()) {
-    if (signal?.aborted) return null;
-    const args = analyzeArgs(lib.absPath(f.path));
-    const output = lib.host.stream ? lib.host.stream("ffmpeg", args, signal) : from(lines((await lib.host.run("ffmpeg", args, signal)).stderr));
-    const loudness = ebur128Fold();
-    const ranges = await pipe(
-      output,
-      tap((line) => loudness.feed(line)),
-      silenceRanges(f.durationMs),
-      collect(),
-    );
-    const m = loudness.result();
-    if (m) parts.push({ ...m, durationMs: f.durationMs });
-    if (ranges.length > 0) silence.set(i, ranges);
-  }
-  if (signal?.aborted) return null;
-  const combined = combineLoudness(parts);
-  const gainDb = combined ? await lib.writeLoudness(book.book.id, combined) : null;
-  await lib.writeSilence(book.book.id, silence);
-  return { gainDb, silence };
+  const done = await analyzeFiles(
+    lib.host,
+    book.files.map((f) => ({ absPath: lib.absPath(f.path), durationMs: f.durationMs })),
+    signal,
+  );
+  if (!done) return null;
+  const gainDb = done.loudness ? await lib.writeLoudness(book.book.id, done.loudness) : null;
+  await lib.writeSilence(book.book.id, done.silence);
+  return { gainDb, silence: done.silence };
 }
 
 export interface JobStatus {

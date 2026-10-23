@@ -20,7 +20,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await fs.rm(root, { recursive: true, force: true });
+  // The apps may still be writing their records as the test ends.
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 });
 
 /** The app on a computer (or a phone) whose host can download the speech model. */
