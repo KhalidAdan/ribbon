@@ -17,8 +17,10 @@ import { BookIndex } from "./library/books.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
+import { ReadAlongs } from "./library/readalong.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
+import { readAlongRoutes } from "./readalong-routes.ts";
 
 export interface RibbonServer {
   app: FastifyInstance;
@@ -126,6 +128,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   libraryRoutes(app, { auth, jobs, books, events, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, dataDir: config.dataDir });
   placesRoutes(app, { auth, places, events });
+  readAlongRoutes(app, { auth, books, places, events, readAlongs: new ReadAlongs(config.dataDir, config.ebookTool ?? null), dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }
