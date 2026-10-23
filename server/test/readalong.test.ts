@@ -89,6 +89,15 @@ describe("read-along from the server", () => {
     expect(next[1]!.seq).toBeGreaterThan(next[0]!.seq);
   });
 
+  it("says how far the person is through each book, for a library that keeps no log", async () => {
+    const { books } = (await get("/api/progress")).json() as { books: Record<string, { ms: number; started: boolean; finished: boolean }> };
+    expect(books[book.id]).toMatchObject({ ms: 5000, started: true, finished: false });
+    // Within the last stretch of a book, it's finished.
+    await post(`/api/books/${book.id}/place`, { device: tv, ms: 11_500, why: "end" });
+    expect(((await get("/api/progress")).json() as { books: Record<string, { finished: boolean }> }).books[book.id]!.finished).toBe(true);
+    await post(`/api/books/${book.id}/place`, { device: tv, ms: 5000, why: "seek" });
+  });
+
   it("opens where a phone was last reading, at the sentence it was on", async () => {
     const reading = {
       v: 1,

@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "../../src/core/position.ts";
-import { claimsFor, mergePlaces, mergeTextPlaces, nextSeq, parseLog, type Why } from "../../src/core/poslog.ts";
+import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, type ReadRecord, type Why } from "../../src/core/poslog.ts";
+import { standingOf } from "../../src/core/progress.ts";
+import { readsOf } from "../../src/core/stats.ts";
 import { nthSentence, sentenceAt, sentenceReadAt } from "../../src/core/reading/readalong.ts";
 import { localIdOf } from "../../src/core/server-books.ts";
 import { signedIn, type Auth } from "./auth.ts";
@@ -40,6 +42,11 @@ export interface BookPlace {
  *   recording. Written into the device's position log as any app writes it
  *   (docs/POSITION-FORMAT.md), with the claims the apps give the book, so
  *   the other devices find it and the device needs no log of its own.
+ * - `GET /api/progress`: how far the person is through each book, for a
+ *   library that keeps no log either: where they are, when, and whether
+ *   it's finished, as the apps' shelves work it out (src/core/progress.ts).
+ *   Never cached, and never in the library answer, which stays the same
+ *   while people listen.
  */
 export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; frames: Mp3Frames; dataDir: string }): void {
   /** The book and its read-along, or the answer that says why there's none. */
@@ -61,6 +68,25 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     }
     return null;
   };
+
+  app.get("/api/progress", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    const records = parseLog(deps.places.export(me.id)).records;
+    const places = mergePlaces(records);
+    const reads = mergeById<ReadRecord>(records, "read");
+    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean }> = {};
+    for (const listed of deps.books.list()) {
+      const id = localIdOf(listed);
+      const place = places.get(id);
+      const theirs = readsOf(reads, id);
+      if (!place && theirs.length === 0) continue;
+      const ms = place?.ms ?? 0;
+      books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs) };
+    }
+    return { books };
+  });
 
   app.get<{ Params: { id: string } }>("/api/books/:id/readalong", async (request, reply) => {
     if (!(await signedIn(deps.auth, request))) return reply.code(401).send({ error: "Sign in first." });
