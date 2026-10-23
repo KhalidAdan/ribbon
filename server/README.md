@@ -61,6 +61,47 @@ The server finds it in the repository's `target/` folder, or wherever
 `RIBBON_EBOOK_TOOL` says. Without it, everything else works and asking for a
 read-along says the server can't.
 
+## In Docker
+
+From the repository's root (the image holds the app's own logic the
+server runs, ffmpeg, and the EPUB parser for read-along):
+
+```bash
+docker build -f server/Dockerfile -t ribbon-server .
+docker run -d --name ribbon-server --restart unless-stopped --network host \
+  --user "$(id -u):$(id -g)" -e RIBBON_URL=https://your-server.example \
+  -v ~/ribbon-data:/data ribbon-server
+```
+
+`--network host` keeps it on this machine's loopback, where a proxy such as
+Tailscale Serve reaches it as from this machine. Keep the data folder on a
+disk with ordinary file locking (not one mounted through FUSE, such as NTFS
+on Linux): SQLite needs it. The books can live elsewhere, mounted over
+`/data/books`.
+
+Adding a folder from the app sends the server the folder's path, and the
+server reads it there itself. When the books are on a network share the
+apps mount, mount the share on the server's machine as well and give it to
+the container read-only at the path the apps see it at, so the same path
+works on both. For a share a Mac has at `/Volumes/media`, mounted on the
+server's machine at `/mnt/media`:
+
+```bash
+--mount type=bind,source=/mnt/media,target=/Volumes/media,readonly,bind-propagation=rslave
+```
+
+`rslave` lets the container see the share even when it's mounted after the
+container starts. A Windows path (`\\server\share`, `M:\`) can't be given
+the same way yet, so add folders from a Mac, or on the server's own machine.
+
+To update, pull, build again, and replace the container (`docker rm -f
+ribbon-server`, then the same `docker run`): everything it keeps is in the
+data folder. To move a server to another machine, copy its data folder:
+the database as `sqlite3 ribbon.db ".backup copy.db"` takes it (a plain copy
+of a running one may be torn), then `secret`, `people/` and `books/`. The
+same secret keeps everyone signed in; a new address means the apps connect
+again.
+
 ## Settings
 
 From the environment:
