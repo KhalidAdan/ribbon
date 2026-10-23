@@ -6,6 +6,7 @@ import type { Host } from "../../../src/host/host.ts";
 import { ensureChapters, scanLibrary, type ScannedBook } from "../../../src/core/scan/scan.ts";
 import { BookIndex, bookDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
+import { analyzeStored } from "./prepare.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
 import { neverWrites } from "./never-writes.ts";
 
@@ -121,6 +122,9 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
       cover,
       ...(ebookBytes !== undefined ? { ebookBytes } : {}),
     };
+    // Measured once, from the copy here: every device gets the loudness and silences with the book.
+    const analysis = files.length > 0 ? await analyzeStored(ctx.host, building, stored) : null;
+    if (analysis) stored.analysis = analysis;
     await writeFile(path.join(building, "book.json"), JSON.stringify(stored, null, 2));
     await rename(building, final);
     ctx.index.add(id, fingerprint, stored, claims, ctx.addedBy, (ctx.now ?? Date.now)());

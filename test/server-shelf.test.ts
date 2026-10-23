@@ -7,6 +7,7 @@ import path from "node:path";
 import { promises as fsp } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppController, serverUrl, type Platform } from "../src/app/controller";
+import { LibraryService } from "../src/app/library";
 import { memorySettings, memorySources } from "../src/app/platform";
 import { ServerClient, ServerError, takeEvents } from "../src/app/server/client";
 import { NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
@@ -45,6 +46,8 @@ describe("a server's shelf on this device", () => {
         { path: "audio/02.mp3", sizeBytes: sizes[1]! },
       ],
       cover,
+      // Measured once on the server: a device keeps this rather than measuring the book itself.
+      analysis: { loudness: { integratedLufs: -20, truePeakDbtp: -3 }, silence: [{ file: 0, ranges: [{ startMs: 1_000, endMs: 2_000 }] }] },
     };
 
     server = createServer((req, res) => {
@@ -178,6 +181,10 @@ describe("a server's shelf on this device", () => {
     expect(remote.book.title).toBe("The Blue Book");
     await first.downloadBook(remote.book.id);
     expect(first.getState().books.find((b) => b.book.id === remote.book.id)?.remote).toBeUndefined();
+    // What the server measured is kept beside the book, so this device never measures it.
+    const kept = new LibraryService(nodeHost(), first.getState().sources[0]!.root);
+    expect(await kept.readLoudness(remote.book.id)).toMatchObject({ measurement: { integratedLufs: -20, truePeakDbtp: -3 } });
+    expect((await kept.readSilence(remote.book.id))?.get(0)).toEqual([{ startMs: 1_000, endMs: 2_000 }]);
 
     // An iPhone's app folder moves when the app is updated: the server's folder moves with it.
     const moved = `${home}-moved`;

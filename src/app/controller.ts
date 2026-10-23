@@ -8,6 +8,7 @@ import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, 
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
+import type { ServerBookDetail } from "../core/server-books";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -1400,9 +1401,12 @@ export class AppController {
     const id = book.book.id;
     this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, spaceShort: null });
     try {
-      await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
+      const analysis = await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
       await this.rescanSource(o, true);
-      return o.books.find((b) => b.book.path === serverId || b.book.path.startsWith(`${serverId}/`)) ?? null;
+      const here = o.books.find((b) => b.book.path === serverId || b.book.path.startsWith(`${serverId}/`)) ?? null;
+      // The server measured it once: its loudness and silences go beside it here, so it's never measured on a device.
+      if (here && analysis) await this.keepMeasurements(o, here.book.id, analysis);
+      return here;
     } catch (e) {
       if (e instanceof NotEnoughSpace) this.set({ spaceShort: { bookId: id, title: book.book.title, neededBytes: e.neededBytes, freeBytes: e.freeBytes } });
       else this.set({ error: `Couldn't download ${book.book.title}: ${describe(e)}` });
@@ -1527,6 +1531,27 @@ export class AppController {
     return this.state.sources.find((s) => s.id === book.source) ?? null;
   }
 
+  /**
+   * A downloaded server book's loudness and silences, as the server
+   * measured them, for one downloaded before this device kept them. Null
+   * when it isn't a server's book, or the server hasn't measured it yet.
+   */
+  private async measuredOnServer(book: ScannedBook): Promise<{ gainDb: number | null; silence: Map<number, SilenceRange[]> } | null> {
+    const o = this.openedOf(book);
+    const serverId = book.book.path.split("/")[0];
+    if (!o?.server || !serverId) return null;
+    const detail = await o.server.client.book(serverId).catch(() => null);
+    return detail?.analysis ? this.keepMeasurements(o, book.book.id, detail.analysis) : null;
+  }
+
+  /** The server's measurements of a book, kept beside it here as if measured here. */
+  private async keepMeasurements(o: Opened, bookId: string, analysis: NonNullable<ServerBookDetail["analysis"]>): Promise<{ gainDb: number | null; silence: Map<number, SilenceRange[]> }> {
+    const gainDb = analysis.loudness ? await o.lib.writeLoudness(bookId, analysis.loudness) : null;
+    const silence = new Map(analysis.silence.map((s) => [s.file, s.ranges]));
+    await o.lib.writeSilence(bookId, silence);
+    return { gainDb, silence };
+  }
+
   private onJob(s: JobStatus, result: { gainDb: number | null; silence: Map<number, SilenceRange[]> } | null): void {
     this.set({ jobs: { ...this.state.jobs, [s.bookId]: s } });
     const cur = this.state.current;
@@ -1648,7 +1673,12 @@ export class AppController {
     this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
     if (ahead !== null) void this.persistPosition("seek");
     this.refreshMediaMetadata();
-    if (!loudness || !silence) this.jobs.enqueue(book, true);
+    if (!loudness || !silence) {
+      // A server's book comes measured: asked for before it's measured here.
+      const measured = await this.measuredOnServer(book);
+      if (measured) this.onJob({ bookId: id, state: "done" }, measured);
+      else this.jobs.enqueue(book, true);
+    }
     void this.probeChapters(book).then(() => this.maybeNameChapters(book.book.id));
     this.prepareAudio(lib, book);
     if (opts.autoplay) await this.play();

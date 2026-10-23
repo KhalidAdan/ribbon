@@ -1,6 +1,6 @@
 import type { Host } from "../../host/host";
 import type { ScannedBook } from "../../core/scan/scan";
-import { localIdOf, opfFor, remoteBook, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook } from "../../core/server-books";
+import { localIdOf, opfFor, remoteBook, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail } from "../../core/server-books";
 import type { ServerClient } from "./client";
 
 /** A book's id on a server, which names its folder here (server/src/library/importer.ts). */
@@ -107,9 +107,10 @@ export class ServerShelf {
    * Download a book into its folder here, named by its server id: its audio,
    * its EPUB, a `metadata.opf` so the scanner names it as the server does, and
    * its cover. The space is checked first; a book that won't fit throws
-   * NotEnoughSpace before anything is downloaded.
+   * NotEnoughSpace before anything is downloaded. Returns what the server
+   * measured of it, for the book's records here.
    */
-  async download(book: ScannedBook, onProgress: (done: number, total: number) => void): Promise<void> {
+  async download(book: ScannedBook, onProgress: (done: number, total: number) => void): Promise<ServerBookDetail["analysis"]> {
     const serverId = book.remote?.serverId;
     if (!serverId || !this.host.serverDownload) throw new Error("This device can't keep a server's books.");
     const detail = await this.client.book(serverId);
@@ -131,6 +132,7 @@ export class ServerShelf {
     await this.host.writeFile(this.host.join(folder, "metadata.opf"), new TextEncoder().encode(opfFor(detail.book)));
     if (detail.cover) await this.host.writeFile(this.host.join(folder, "cover.jpg"), await this.client.cover(detail.cover.hash, 800));
     onProgress(total, total);
+    return detail.analysis;
   }
 
   /** Take a downloaded book off this device. The server keeps it, and the person's place in it. */
