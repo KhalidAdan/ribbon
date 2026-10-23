@@ -316,6 +316,12 @@ interface Opened {
   serverAdmin: boolean;
   /** A refresh of the server's list waiting to run: books arriving one at a time are fetched a few at once. */
   serverRefreshSoon: ReturnType<typeof setTimeout> | null;
+  /**
+   * Folders being added to this server, each with its job as last seen. Kept
+   * apart from `scanning`: a scan of the downloads underneath never takes
+   * over the import's progress, and covers don't hide while it runs.
+   */
+  serverImports: Map<number, { name: string; job: ServerJob | null }>;
 }
 
 /**
@@ -568,12 +574,14 @@ export class AppController {
 
   /** The scan status across every source, for the header. */
   private publishScanning(extra: Partial<AppState> = {}): void {
-    const live = this.openedInOrder().filter((o) => o.scanning);
+    // A server's imports, while there are any, are what its status says.
+    const statusOf = (o: Opened) => this.importStatus(o) ?? o.scanning;
+    const live = this.openedInOrder().filter((o) => statusOf(o));
     let scanning: ScanStatus | null = null;
     if (live.length > 0) {
       scanning = { walked: 0, done: 0, background: true };
       for (const o of live) {
-        const s = o.scanning!;
+        const s = statusOf(o)!;
         scanning.walked += s.walked;
         scanning.done += s.done;
         if (s.found !== undefined) scanning.found = (scanning.found ?? 0) + s.found;
@@ -585,7 +593,7 @@ export class AppController {
     const sourceStatus: Record<string, SourceStatus> = {};
     for (const s of this.state.sources) {
       const o = this.opened.get(s.id);
-      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o?.scanning ?? null };
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o ? statusOf(o) : null };
     }
     this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
   }
@@ -769,6 +777,7 @@ export class AppController {
       serverPlaces: null,
       serverAdmin: false,
       serverRefreshSoon: null,
+      serverImports: new Map(),
     };
     this.opened.set(source.id, o);
     if (source.server) await this.linkServer(o, this.serverTokens()[serverKey(source.server)] ?? null);
@@ -1276,11 +1285,11 @@ export class AppController {
     this.appSettings = { ...this.appSettings, lastServerFolder: folder };
     void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
     const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    const entry: { name: string; job: ServerJob | null } = { name, job: null };
+    const key = this.nextImport++;
+    o.serverImports.set(key, entry);
     const show = (job: ServerJob | null) => {
-      const p = job?.progress;
-      const done = p ? p.added + p.skipped + p.failed : 0;
-      const stage = !p || p.found === 0 ? `Looking through ${name}…` : p.current ? `Adding ${p.current}, ${Math.min(done + 1, p.found)} of ${p.found}…` : `Adding ${done} of ${p.found}…`;
-      o.scanning = { walked: p?.found ?? 0, done, background: this.state.books.length > 0, stage, copying: true };
+      entry.job = job;
       this.publishScanning();
     };
     show(null);
@@ -1303,10 +1312,8 @@ export class AppController {
       if (alive()) this.set({ error: `Couldn't add ${name} to the server: ${describe(e)}` });
       return;
     } finally {
-      if (alive()) {
-        o.scanning = null;
-        this.publishScanning();
-      }
+      o.serverImports.delete(key);
+      if (alive()) this.publishScanning();
     }
     await this.refreshServer(o);
     const p = job.progress;
@@ -1318,6 +1325,32 @@ export class AppController {
       const why = p.notes.filter((n) => !n.endsWith("already on the server."));
       this.set({ error: `${p.added} ${p.added === 1 ? "book" : "books"} from ${name} added. ${p.failed} couldn't be: ${why.slice(0, 3).join(" ")}${why.length > 3 ? ` And ${why.length - 3} more.` : ""}` });
     }
+  }
+
+  /** Each import's own number, to keep it by. */
+  private nextImport = 0;
+
+  /**
+   * One status for all of a server's imports, which its server runs one at a
+   * time: the folder being added, and how many wait behind it. Null when
+   * nothing is being added.
+   */
+  private importStatus(o: Opened): ScanStatus | null {
+    const all = [...o.serverImports.values()];
+    if (all.length === 0) return null;
+    const now = all.find((i) => i.job?.state === "running") ?? all[0]!;
+    const p = now.job?.progress;
+    const done = p ? p.added + p.skipped + p.failed : 0;
+    const waiting = all.length - 1;
+    const doing =
+      now.job?.state === "waiting" ? `Waiting to add ${now.name}…` : !p || p.found === 0 ? `Looking through ${now.name}…` : p.current ? `Adding ${p.current}, ${Math.min(done + 1, p.found)} of ${p.found}…` : `Adding ${done} of ${p.found}…`;
+    return {
+      walked: p?.found ?? 0,
+      done,
+      background: this.state.books.length > 0,
+      stage: waiting > 0 ? `${doing} Then ${waiting} more ${waiting === 1 ? "folder" : "folders"}.` : doing,
+      copying: true,
+    };
   }
 
   /** Stop carrying a server source's places: before it's linked again, or goes. */

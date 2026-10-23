@@ -74,11 +74,12 @@ describe("adding a folder through a server", () => {
   let server: RibbonServer;
   let url = "";
   let shelf = "";
+  let copies = "";
   let memberPassword = "";
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-app-add-"));
-    ({ shelf } = makeLibraries(dir));
+    ({ shelf, copies } = makeLibraries(dir));
     const made = await serverWithAdmin(dir);
     server = made.server;
     const { code } = (await server.app.inject({ method: "POST", url: "/api/invites", headers: { authorization: `Bearer ${made.admin}` } })).json() as { code: string };
@@ -136,6 +137,23 @@ describe("adding a folder through a server", () => {
     expect(titles(admin.c)).toEqual(["Long Book", "Red Book"]);
     await until(() => titles(brother.c).length === 2);
     expect(titles(brother.c)).toEqual(["Long Book", "Red Book"]);
+  });
+
+  it("shows two folders added at once as one line that never takes turns", async () => {
+    const admin = await signedIn("admin", "a long password", shelf);
+    await until(() => admin.c.getState().canAddFolders);
+    admin.pickFolder.mockResolvedValueOnce(copies);
+    const stages: string[] = [];
+    const watching = setInterval(() => {
+      const stage = admin.c.getState().scanning?.stage;
+      if (stage && stages.at(-1) !== stage) stages.push(stage);
+    }, 5);
+    await Promise.all([admin.c.pickLibrary(), admin.c.pickLibrary()]);
+    clearInterval(watching);
+    expect(stages[0]).toBe("Looking through copies… Then 1 more folder.");
+    // Each line shows once: nothing goes back to a line it showed before.
+    expect(new Set(stages).size).toBe(stages.length);
+    expect(admin.c.getState().scanning).toBeNull();
   });
 
   it("says so when the server can't see the folder", async () => {
