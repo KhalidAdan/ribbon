@@ -241,6 +241,8 @@ export interface AppState {
   readingSettings: ReadingSettings;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
   speech: { model: string | null; downloading: { done: number; total: number } | null };
+  /** Say, once, that a speech model makes read-along follow the sentence: shown the first time a book with both editions opens on a computer without one. */
+  speechNudge: boolean;
   /** Speed measurements are summarised in the log (app/perf.ts). */
   perfLog: boolean;
 }
@@ -495,6 +497,7 @@ export class AppController {
       reading: null,
       readingSettings: parseReading(undefined),
       speech: { model: null, downloading: null },
+      speechNudge: false,
       perfLog: false,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
@@ -1703,6 +1706,7 @@ export class AppController {
     const book = this.state.books.find((b) => b.book.id === bookId);
     const o = book && this.openedOf(book);
     if (!book || !o) return;
+    this.maybeNudgeSpeech(bookId);
     // A server's book is downloaded before it opens, as before it plays.
     if (book.remote) {
       const here = await this.downloadRemote(book);
@@ -2438,6 +2442,32 @@ export class AppController {
   /** Show a book's page, with its series along the side when it has one. */
   openReader(bookId: string): void {
     this.set({ pane: "reader", readerBookId: bookId, playerExpanded: false });
+    this.maybeNudgeSpeech(bookId);
+  }
+
+  /**
+   * The first time a book with both its text and its audio opens on a
+   * computer with no speech model, say once what one does. Phones don't
+   * transcribe, and a device that has a model, or was told, isn't told again.
+   */
+  private maybeNudgeSpeech(bookId: string): void {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    if (!book?.book.ebook || readerOnly(book.book)) return;
+    if (this.platform.phone || !this.platform.host.downloadSpeechModel || this.state.speech.model || this.state.speech.downloading) return;
+    if (this.appSettings.speechNudged === true) return;
+    this.appSettings = { ...this.appSettings, speechNudged: true };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    this.set({ speechNudge: true });
+  }
+
+  /** The nudge's Download: the same download Settings starts. */
+  downloadSpeechModelFromNudge(): Promise<void> {
+    this.set({ speechNudge: false });
+    return this.downloadSpeechModel();
+  }
+
+  dismissSpeechNudge(): void {
+    this.set({ speechNudge: false });
   }
 
   private async probeChapters(book: ScannedBook): Promise<void> {

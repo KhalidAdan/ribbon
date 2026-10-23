@@ -19,6 +19,7 @@ import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
 import { SpaceShort } from "./Servers";
+import { SpeechNudge } from "./SpeechNudge";
 import { StatsPane } from "./StatsPane";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
@@ -130,6 +131,7 @@ function Ready() {
         <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
           <PlayerPane />
         </PlayerSheet>
+        <SpeechNudge />
       </>
     );
   }
@@ -164,6 +166,7 @@ function Ready() {
         <PlayerPane />
       </PlayerSheet>
 
+      <SpeechNudge />
       {state.error && (
         <div role="alert" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg items-start gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong">
           <p className="min-w-0 flex-1 py-0.5 text-base/6 text-pretty text-ink sm:text-sm/5">{state.error}</p>
