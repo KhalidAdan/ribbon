@@ -1,0 +1,9 @@
+# Only what the server's image is built from (server/Dockerfile).
+*
+!package.json
+!package-lock.json
+!src
+!server
+server/node_modules
+server/ribbon-data
+server/test
