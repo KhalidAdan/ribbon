@@ -66,6 +66,28 @@ struct BookPlace: Decodable {
     let from: String
 }
 
+/// A bookmark, as the server shows one to a device that only draws and plays
+/// (server/src/readalong-routes.ts, `ShownBookmark`): the same bookmarks the
+/// desktop and the phone keep, by time or by words.
+struct ServerBookmark: Decodable, Identifiable, Hashable {
+    let id: String
+    /// The moment it marks; nil for words in a book with no audio.
+    let ms: Int?
+    let note: String
+    let created: String
+    /// The words, for a bookmark made of words in the text.
+    let quote: String?
+    /// The sentences the words are in, counted across the read-along.
+    let first: Int?
+    let last: Int?
+
+    /// The sentences it underlines, when it's made of words.
+    var sentences: ClosedRange<Int>? {
+        guard let first, let last else { return nil }
+        return first...max(first, last)
+    }
+}
+
 /// Why the TV says where it is, as the position log names it.
 enum Why: String {
     case pause, seek, periodic, end, close
@@ -137,13 +159,26 @@ struct RibbonServer {
 
     /// Say where this TV is in a book: the server keeps it in the TV's position log, for every other device.
     func tell(_ ms: Int, why: Why, in id: String) async throws {
-        var request = authorized("api/books/\(id)/place")
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "content-type")
-        let device = ["id": ThisDevice.id, "name": ThisDevice.name, "app": ThisDevice.app]
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["device": device, "ms": ms, "why": why.rawValue])
-        let (data, response) = try await Self.reach(request)
-        guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server didn't keep the place.", status: response.statusCode) }
+        struct Answer: Decodable { let added: Int }
+        _ = try await send("POST", "api/books/\(id)/place", ["ms": ms, "why": why.rawValue], answer: Answer.self)
+    }
+
+    /// The person's bookmarks in a book, from every device.
+    func bookmarks(in id: String) async throws -> [ServerBookmark] {
+        struct Answer: Decodable { let bookmarks: [ServerBookmark] }
+        return try await get(Answer.self, "api/books/\(id)/bookmarks").bookmarks
+    }
+
+    /// Bookmark whole sentences, the first to the last, as the desktop bookmarks words selected in its reader.
+    func bookmark(sentences first: Int, to last: Int, in id: String) async throws -> ServerBookmark {
+        struct Answer: Decodable { let bookmark: ServerBookmark }
+        return try await send("POST", "api/books/\(id)/bookmarks", ["first": first, "last": last], answer: Answer.self).bookmark
+    }
+
+    /// Take a bookmark back, on every device.
+    func deleteBookmark(_ mark: String, in id: String) async throws {
+        struct Answer: Decodable { let deleted: String }
+        _ = try await send("DELETE", "api/books/\(id)/bookmarks/\(mark)", [:], answer: Answer.self)
     }
 
     /// A cover at one of the widths the server makes (200, 400 or 800).
@@ -162,6 +197,19 @@ struct RibbonServer {
         let (data, response) = try await Self.reach(authorized(path))
         if response.statusCode == 401 { throw ServerError(message: "This TV's sign-in has run out. Sign in again.", status: 401) }
         guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't answer (\(response.statusCode)).", status: response.statusCode) }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// Send something this TV did, signed by who it is, as the position log needs (docs/POSITION-FORMAT.md).
+    private func send<T: Decodable>(_ method: String, _ path: String, _ body: [String: Any], answer: T.Type) async throws -> T {
+        var request = authorized(path)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        let device = ["id": ThisDevice.id, "name": ThisDevice.name, "app": ThisDevice.app]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body.merging(["device": device]) { mine, _ in mine })
+        let (data, response) = try await Self.reach(request)
+        if response.statusCode == 401 { throw ServerError(message: "This TV's sign-in has run out. Sign in again.", status: 401) }
+        guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't do that (\(response.statusCode)).", status: response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)
     }
 

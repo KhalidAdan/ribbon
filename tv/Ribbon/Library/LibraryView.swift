@@ -131,8 +131,10 @@ private struct ContinueCard: View {
                 Image(systemName: model.listening?.book.id == book.id && model.listening?.playing == true ? "pause.fill" : "play.fill")
             }
             .buttonStyle(RoundButtonStyle())
-            .padding(.trailing, 20)
+            .padding(.trailing, 10)
         }
+        // Room inside the card for what has the focus to lift into.
+        .padding(10)
         .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
         .task { detail = await model.library?.detail(of: book) }
@@ -189,9 +191,10 @@ private struct SeriesCard: View {
             if !allDone {
                 Button { Task { await model.playOrPause(next) } } label: { Image(systemName: model.listening?.book.id == next.id && model.listening?.playing == true ? "pause.fill" : "play.fill") }
                     .buttonStyle(RoundButtonStyle())
-                    .padding(.trailing, 20)
+                    .padding(.trailing, 10)
             }
         }
+        .padding(10)
         .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
     }

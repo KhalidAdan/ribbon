@@ -20,80 +20,82 @@ struct BookView: View {
         let library = model.library
         let progress = library?.progress(of: book)
         let series = library?.series(of: book)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 80) {
-                HStack(alignment: .top, spacing: 72) {
-                    CoverView(book: book, size: 440)
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let series, let index = series.books.firstIndex(where: { $0.id == book.id }) {
-                            Text("\(series.name) · Book \(Self.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
-                        }
-                        Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6)
-                        Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12)
+        ZStack(alignment: .top) {
+            // The ground and the wash reach every edge of the screen, under the safe area, or the system's own backdrop shows at the sides.
+            Color.canvas.ignoresSafeArea()
+            RadialGradient(colors: [tone.opacity(0.16), .clear], center: UnitPoint(x: 0.2, y: 0), startRadius: 0, endRadius: 640)
+                // An ellipse twice as wide as it is tall, as the desktop's wash is, that has faded out before its frame ends.
+                .scaleEffect(x: 2, y: 1, anchor: UnitPoint(x: 0.2, y: 0))
+                .frame(height: 720)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 80) {
+                    HStack(alignment: .top, spacing: 72) {
+                        CoverView(book: book, size: 440)
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let series, let index = series.books.firstIndex(where: { $0.id == book.id }) {
+                                Text("\(series.name) · Book \(Self.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
+                            }
+                            Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6)
+                            Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12)
 
-                        Text(sentence(progress))
-                            .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
-                            .frame(maxWidth: 900, alignment: .leading)
-                            .padding(.leading, 18)
-                            .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
+                            Text(sentence(progress))
+                                .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
+                                .frame(maxWidth: 900, alignment: .leading)
+                                .padding(.leading, 18)
+                                .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
+                                .padding(.top, 36)
+                            if progress?.started == true && progress?.finished != true {
+                                ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480).padding(.top, 22)
+                            }
+
+                            HStack(spacing: 24) {
+                                Button { Task { await model.listen(to: book) } } label: {
+                                    Label(listenLabel(progress), systemImage: "play.fill")
+                                }
+                                .buttonStyle(RibbonButtonStyle(kind: .primary))
+                                .focused($focused, equals: .listen)
+                                if book.ebook {
+                                    Button { Task { await model.readAlong(book) } } label: {
+                                        Label(model.opening == book.id ? "Opening…" : "Read along", systemImage: "book.fill")
+                                    }
+                                    .buttonStyle(RibbonButtonStyle())
+                                    .focused($focused, equals: .readAlong)
+                                }
+                            }
                             .padding(.top, 36)
-                        if progress?.started == true && progress?.finished != true {
-                            ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480).padding(.top, 22)
-                        }
-
-                        HStack(spacing: 24) {
-                            Button { Task { await model.listen(to: book) } } label: {
-                                Label(listenLabel(progress), systemImage: "play.fill")
+                            if let problem = model.problem {
+                                Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 16)
                             }
-                            .buttonStyle(RibbonButtonStyle(kind: .primary))
-                            .focused($focused, equals: .listen)
-                            if book.ebook {
-                                Button { Task { await model.readAlong(book) } } label: {
-                                    Label(model.opening == book.id ? "Opening…" : "Read along", systemImage: "book.fill")
+
+                            Facts(items: facts)
+                                .padding(.top, 48)
+
+                            if let description = detail?.book.description, !description.isEmpty {
+                                // Focusable, so the remote reaches it and can open the rest.
+                                Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text(description).font(.ui(24)).foregroundStyle(Color.ink2).lineSpacing(8).lineLimit(moreAbout ? nil : 5).multilineTextAlignment(.leading)
+                                        Text(moreAbout ? "Less" : "More").font(.ui(22, weight: 500)).foregroundStyle(Color.ink3)
+                                    }
+                                    .frame(maxWidth: 1000, alignment: .leading)
+                                    .padding(18)
                                 }
-                                .buttonStyle(RibbonButtonStyle())
-                                .focused($focused, equals: .readAlong)
+                                .buttonStyle(LiftStyle.row(radius: 14))
+                                .padding(.horizontal, -18)
+                                .padding(.top, 30)
                             }
-                        }
-                        .padding(.top, 36)
-                        if let problem = model.problem {
-                            Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 16)
-                        }
-
-                        Facts(items: facts)
-                            .padding(.top, 48)
-
-                        if let description = detail?.book.description, !description.isEmpty {
-                            // Focusable, so the remote reaches it and can open the rest.
-                            Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(description).font(.ui(24)).foregroundStyle(Color.ink2).lineSpacing(8).lineLimit(moreAbout ? nil : 5).multilineTextAlignment(.leading)
-                                    Text(moreAbout ? "Less" : "More").font(.ui(22, weight: 500)).foregroundStyle(Color.ink3)
-                                }
-                                .frame(maxWidth: 1000, alignment: .leading)
-                                .padding(18)
-                            }
-                            .buttonStyle(LiftStyle(radius: 14))
-                            .padding(.horizontal, -18)
-                            .padding(.top, 30)
                         }
                     }
-                }
 
-                if let series {
-                    SeriesList(series: series, current: book)
+                    if let series {
+                        SeriesList(series: series, current: book)
+                    }
                 }
+                .padding(.horizontal, 96)
+                .padding(.vertical, 72)
             }
-            .padding(.horizontal, 96)
-            .padding(.vertical, 72)
-        }
-        .background(alignment: .top) {
-            ZStack(alignment: .top) {
-                Color.canvas
-                RadialGradient(colors: [tone.opacity(0.16), .clear], center: UnitPoint(x: 0.2, y: 0), startRadius: 0, endRadius: 1100)
-                    .frame(height: 760)
-            }
-            .ignoresSafeArea()
         }
         .defaultFocus($focused, .listen)
         .task(id: book.id) {
@@ -202,7 +204,7 @@ private struct SeriesList: View {
                             if now { Capsule().fill(Color.place).frame(width: 4).padding(.vertical, 14) }
                         }
                     }
-                    .buttonStyle(LiftStyle(radius: 12))
+                    .buttonStyle(LiftStyle.row(radius: 12))
                 }
             }
         }

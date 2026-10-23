@@ -255,7 +255,9 @@ narration, so the server does both, once, with the apps' own code (the
 paragraphs with when each sentence is read. It keeps no position log either:
 it asks the server where the person is in a book, as a sentence, and tells it
 where it is as it plays; the server writes that into the TV's log as any app
-would.
+would. Its bookmarks are whole sentences, which the server writes as the
+desktop writes words selected in its reader (POSITION-FORMAT.md, section 3.4),
+so they're one bookmark with the desktop's, on every device.
 
 ## 9. From added to ready
 
@@ -309,6 +311,10 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`src/core/reading/readalong.ts`), for the TV. Revalidated by ETag. |
 | `GET /api/books/:id/place` | Where you are in the book: the newest of your listening and reading places, as a sentence of the read-along and a moment. Never cached. |
 | `POST /api/books/:id/place` | This device is at this moment: written into its log with the book's claims, for a device that keeps no log. |
+| `GET /api/progress` | How far you are through each book you've started, for a library that keeps no log (the TV): where, when, started and finished, as the apps work it out. Never cached. |
+| `GET /api/books/:id/bookmarks` | Your bookmarks in the book, from every device; words are named by the sentences of the read-along they're in. Never cached. |
+| `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader, in this device's log. |
+| `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added or deleted. |
 
 The admin pages have their own: invites, people, devices, adding a folder,

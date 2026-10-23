@@ -8,6 +8,7 @@ import SwiftUI
 struct PlayerView: View {
     @Environment(AppModel.self) private var model
     @State private var chapters = false
+    @State private var bookmarks = false
     @FocusState private var playFocused: Bool
 
     var body: some View {
@@ -22,7 +23,7 @@ struct PlayerView: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 40) {
                                 ListeningGroup(listening: listening)
-                                ThisBookGroup(listening: listening, chapters: $chapters)
+                                ThisBookGroup(listening: listening, chapters: $chapters, bookmarks: $bookmarks)
                             }
                             .padding(24)
                         }
@@ -34,6 +35,9 @@ struct PlayerView: View {
                 .padding(.vertical, 56)
                 .defaultFocus($playFocused, true)
                 .sheet(isPresented: $chapters) { ChapterSheet(listening: listening) { chapters = false } }
+                .sheet(isPresented: $bookmarks) { BookmarkSheet(listening: listening) { bookmarks = false } }
+                // Bookmarks made on other devices since.
+                .task(id: listening.book.id) { await listening.bookmarks.load() }
             } else {
                 Text("Choose a book from your library to start listening.").font(.ui(28)).foregroundStyle(Color.ink2)
             }
@@ -198,6 +202,7 @@ private struct ThisBookGroup: View {
     @Environment(AppModel.self) private var model
     let listening: Listening
     @Binding var chapters: Bool
+    @Binding var bookmarks: Bool
     @State private var moreAbout = false
 
     var body: some View {
@@ -206,12 +211,16 @@ private struct ThisBookGroup: View {
             Button { chapters = true } label: {
                 Row(title: "Chapters") { Text(count > 1 ? "\(listening.chapterIndex + 1) of \(count)" : String(count)) }
             }
-            .buttonStyle(LiftStyle(radius: 10))
+            .buttonStyle(LiftStyle.row())
+            Button { bookmarks = true } label: {
+                Row(title: "Bookmarks", description: listening.bookmarks.all.isEmpty ? "Hold Select on the words in Read along to keep them." : nil) { Text(String(listening.bookmarks.all.count)) }
+            }
+            .buttonStyle(LiftStyle.row())
             if listening.book.ebook {
                 Button { Task { await model.readAlong(listening.book) } } label: {
                     Row(title: model.opening == listening.book.id ? "Opening…" : "Read along", description: "The text, with the sentence being read marked.") { Image(systemName: "book") }
                 }
-                .buttonStyle(LiftStyle(radius: 10))
+                .buttonStyle(LiftStyle.row())
             }
             if let about = listening.detail.book.description, !about.isEmpty {
                 Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
@@ -225,7 +234,7 @@ private struct ThisBookGroup: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 10).fill(Color.raised))
                 }
-                .buttonStyle(LiftStyle(radius: 10))
+                .buttonStyle(LiftStyle.row())
             }
         }
     }
@@ -262,7 +271,7 @@ private struct ChapterSheet: View {
                                 if now { Capsule().fill(Color.place).frame(width: 4).padding(.vertical, 14) }
                             }
                         }
-                        .buttonStyle(LiftStyle(radius: 12))
+                        .buttonStyle(LiftStyle.row(radius: 12))
                         .focused($focused, equals: index)
                     }
                 }
@@ -274,6 +283,68 @@ private struct ChapterSheet: View {
         .frame(width: 1100)
         .background(Color.surface.ignoresSafeArea())
         .defaultFocus($focused, listening.chapterIndex)
+    }
+}
+
+/// The book's bookmarks from every device, in the order of the book, as the desktop lists them
+/// (src/ui/BookmarkList.tsx): the words, or the note, with the chapter and the time. Choosing one
+/// listens from it; holding Select on one offers to delete it.
+private struct BookmarkSheet: View {
+    let listening: Listening
+    let onDone: () -> Void
+
+    var body: some View {
+        let all = listening.bookmarks.all
+        VStack(alignment: .leading, spacing: 28) {
+            SectionHeader(title: "Bookmarks", description: all.isEmpty ? "None yet. In Read along, hold Select on a sentence to keep it." : "\(all.count) in \(listening.book.title), on every device.")
+            ScrollView {
+                VStack(spacing: 4) {
+                    ForEach(all) { bookmark in
+                        Button {
+                            if let ms = bookmark.ms { listening.play(from: ms) }
+                            onDone()
+                        } label: {
+                            HStack(alignment: .top, spacing: 20) {
+                                Image(systemName: "bookmark.fill").font(.system(size: 20)).foregroundStyle(Color.place).padding(.top, 4)
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(words(of: bookmark)).font(.ui(24)).foregroundStyle(Color.ink).lineLimit(3).multilineTextAlignment(.leading)
+                                    Text(whereIs(bookmark)).font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit().lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.vertical, 16)
+                            .padding(.horizontal, 20)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(LiftStyle.row(radius: 12))
+                        .contextMenu {
+                            Button("Delete bookmark", role: .destructive) {
+                                Task { try? await listening.bookmarks.remove(bookmark) }
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+            }
+            .padding(-24)
+        }
+        .padding(64)
+        .frame(width: 1100)
+        .background(Color.surface.ignoresSafeArea())
+    }
+
+    /// The words it marks, or its note, or that it's a moment.
+    private func words(of bookmark: ServerBookmark) -> String {
+        if let quote = bookmark.quote { return "\u{201C}\(quote.replacingOccurrences(of: "\n\n", with: " "))\u{201D}" }
+        if !bookmark.note.isEmpty { return bookmark.note }
+        return "Bookmark at \(Format.duration(bookmark.ms ?? 0))"
+    }
+
+    /// "Chapter II The Council with the Munchkins · 11:03", as the desktop's list says it.
+    private func whereIs(_ bookmark: ServerBookmark) -> String {
+        guard let ms = bookmark.ms else { return "In the text" }
+        let chapter = listening.chapters.last { $0.startMs <= ms }?.title
+        return [chapter, Format.duration(ms)].compactMap { $0 }.joined(separator: " · ")
     }
 }
 

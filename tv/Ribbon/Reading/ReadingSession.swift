@@ -8,6 +8,10 @@ import UIKit
 /// moves away; moving back to the narrator follows it again (docs/READING.md,
 /// section 6, "Read-along"). Leaving the book leaves the narration playing,
 /// as closing the desktop's reader does.
+///
+/// Bookmarks are whole sentences: holding Select starts one at the remote's
+/// sentence, up and down take in more, and Select keeps it. Held on words
+/// already bookmarked, Select offers to delete the bookmark instead.
 @MainActor
 @Observable
 final class ReadingSession {
@@ -22,8 +26,16 @@ final class ReadingSession {
     /// The remote's sentence goes where the narrator goes.
     private(set) var following = true
 
+    /// Bookmarking: the sentence the remote was on when Select was held. The bookmark runs from it to the remote's sentence.
+    private(set) var marking: Int?
+    /// The bookmark Select was held on, waiting to be deleted or kept.
+    private(set) var deleting: ServerBookmark?
+    /// What just happened to a bookmark, shown for a moment.
+    private(set) var notice: String?
+
     /// Called when the sentences marked on the page change, so the column can draw them and bring them into view.
     @ObservationIgnored var onMarks: (() -> Void)?
+    @ObservationIgnored private var noticeShown: Task<Void, Never>?
 
     /// Read from here once the narration starts: the sentence asked for, after its lead-in.
     @ObservationIgnored private var listenedFrom: Int?
@@ -42,20 +54,21 @@ final class ReadingSession {
         narrator = start
         listening.onTime = { [weak self] ms in self?.heard(ms) }
         listening.onStop = { [weak self] in self?.onMarks?() }
+        // Bookmarks made on other devices since the book was last open.
+        Task { [weak self] in
+            await listening.bookmarks.load()
+            self?.onMarks?()
+        }
     }
 
     var book: ServerBook { listening.book }
+    var bookmarks: Bookmarks { listening.bookmarks }
 
     // The remote --------------------------------------------------------
 
     /// Up and down: a sentence at a time.
     func step(by n: Int) {
         moveCursor(to: cursor + n)
-    }
-
-    /// Left and right, while the remote follows the narrator: a paragraph at a time.
-    func stepParagraph(by n: Int) {
-        moveCursor(to: sentences.paragraph(from: cursor, by: n))
     }
 
     /// Play and pause, or Select: on the narrator's sentence, pause or go on; on any other, read from it.
@@ -86,11 +99,81 @@ final class ReadingSession {
         moveCursor(to: narrator)
     }
 
-    /// Menu: back to the narrator when the remote has wandered off, else out of the book. True when it stays in the book.
+    /// Menu: a bookmark being made or deleted is left alone; else back to the narrator when the remote has wandered off,
+    /// else out of the book. True when it stays in the book.
     func back() -> Bool {
+        if marking != nil || deleting != nil {
+            marking = nil
+            deleting = nil
+            onMarks?()
+            return true
+        }
         guard !following else { return false }
         returnToNarrator()
         return true
+    }
+
+    // Bookmarks ----------------------------------------------------------
+
+    /// Select held: start a bookmark at the remote's sentence, or, on words already bookmarked, offer to delete them.
+    func holdSelect() {
+        guard marking == nil, deleting == nil else { return }
+        if let found = bookmarks.containing(cursor) {
+            deleting = found
+        } else {
+            marking = cursor
+            // The remote's sentence stays where it is while the bookmark takes in more, wherever the narrator goes.
+            following = false
+        }
+        onMarks?()
+    }
+
+    /// The sentences being bookmarked, in the order of the book.
+    var markingRange: ClosedRange<Int>? {
+        marking.map { min($0, cursor)...max($0, cursor) }
+    }
+
+    /// Select, while bookmarking: keep it, on every device.
+    func keepBookmark() {
+        guard let sentences = markingRange else { return }
+        marking = nil
+        onMarks?()
+        Task {
+            do {
+                _ = try await bookmarks.add(sentences: sentences)
+                show(sentences.count == 1 ? "Bookmarked" : "Bookmarked \(sentences.count) sentences")
+            } catch {
+                show(error.localizedDescription)
+            }
+            onMarks?()
+        }
+    }
+
+    /// Select, on a bookmark held: delete it, on every device.
+    func deleteBookmark() {
+        guard let bookmark = deleting else { return }
+        deleting = nil
+        onMarks?()
+        Task {
+            do {
+                try await bookmarks.remove(bookmark)
+                show("Bookmark deleted")
+            } catch {
+                show(error.localizedDescription)
+            }
+            onMarks?()
+        }
+    }
+
+    /// A line about a bookmark, for a few seconds.
+    private func show(_ words: String) {
+        notice = words
+        noticeShown?.cancel()
+        noticeShown = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
     }
 
     /// Out of the book: the reader lets go of the narration, which plays on.
@@ -114,10 +197,15 @@ final class ReadingSession {
 
     private func moveCursor(to index: Int) {
         let target = min(max(0, index), sentences.count - 1)
+        // Moving on from a bookmark offered for deleting keeps it.
+        if deleting != nil {
+            deleting = nil
+            onMarks?()
+        }
         guard target != cursor || !following else { return }
         cursor = target
-        // Back on the narrator's sentence, the remote follows it again.
-        following = cursor == narrator
+        // Back on the narrator's sentence, the remote follows it again; never while a bookmark takes in more.
+        following = cursor == narrator && marking == nil
         onMarks?()
     }
 

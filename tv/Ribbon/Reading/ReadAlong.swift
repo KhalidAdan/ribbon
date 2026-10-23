@@ -63,7 +63,7 @@ struct Sentences {
     }
 
     let all: [Sentence]
-    /// The first sentence of each block, for stepping a paragraph at a time; nil for a block with none.
+    /// The first sentence of each block; nil for a block with none.
     let firstOfBlock: [Int?]
 
     init(_ readAlong: ReadAlong) {
@@ -97,18 +97,15 @@ struct Sentences {
         return found
     }
 
-    /// The first sentence of the paragraph `by` paragraphs from the one this sentence is in.
-    func paragraph(from index: Int, by step: Int) -> Int {
-        let blocks = firstOfBlock.indices
-        var block = all[index].block
-        // Back from the middle of a paragraph is to its own start.
-        if step < 0, let start = firstOfBlock[block], start < index { return start }
-        var left = abs(step)
-        while left > 0 {
-            block += step > 0 ? 1 : -1
-            guard blocks.contains(block) else { return step > 0 ? all.count - 1 : 0 }
-            if firstOfBlock[block] != nil { left -= 1 }
-        }
-        return firstOfBlock[block]!
+    /// The words of some sentences that are in one block, from the first of them there to the last:
+    /// one stretch to wash or underline. Nil when none of them is in it.
+    func span(of sentences: ClosedRange<Int>, in block: Int) -> NSRange? {
+        guard firstOfBlock.indices.contains(block), let start = firstOfBlock[block] else { return nil }
+        var end = start
+        while end < all.count && all[end].block == block { end += 1 }
+        let from = max(sentences.lowerBound, start)
+        let to = min(sentences.upperBound, end - 1)
+        guard from <= to else { return nil }
+        return NSRange(location: all[from].range.location, length: NSMaxRange(all[to].range) - all[from].range.location)
     }
 }
