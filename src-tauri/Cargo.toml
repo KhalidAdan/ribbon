@@ -1,6 +1,6 @@
 [package]
 name = "ribbon"
-version = "0.14.2"
+version = "0.15.0"
 description = "The listener for books you own."
 authors = ["Khalid Adan"]
 license = "MIT"
