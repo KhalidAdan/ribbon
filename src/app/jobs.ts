@@ -13,11 +13,12 @@ export interface Analysis {
  * (core/analysis.ts). This is the expensive job, so it runs only for books
  * the listener opens, and never for a server's, which comes with it done.
  */
-export async function analyzeBook(lib: LibraryService, book: ScannedBook, signal?: AbortSignal): Promise<Analysis | null> {
+export async function analyzeBook(lib: LibraryService, book: ScannedBook, signal?: AbortSignal, onProgress?: (fraction: number) => void): Promise<Analysis | null> {
   const done = await analyzeFiles(
     lib.host,
     book.files.map((f) => ({ absPath: lib.absPath(f.path), durationMs: f.durationMs })),
     signal,
+    onProgress,
   );
   if (!done) return null;
   const gainDb = done.loudness ? await lib.writeLoudness(book.book.id, done.loudness) : null;
@@ -28,6 +29,8 @@ export async function analyzeBook(lib: LibraryService, book: ScannedBook, signal
 export interface JobStatus {
   bookId: string;
   state: "queued" | "running" | "done" | "failed";
+  /** How far a running scan has got, 0 to 1. */
+  progress?: number;
 }
 
 /**
@@ -85,7 +88,15 @@ export class JobQueue {
     this.emit({ bookId: next.book.id, state: "running" }, null);
     try {
       const lib = this.libFor(next);
-      const result = lib ? await analyzeBook(lib, next, abort.signal) : null;
+      // Said a percent at a time: the player shows it, and needn't redraw for less.
+      let said = 0;
+      const progress = (fraction: number) => {
+        const percent = Math.floor(fraction * 100);
+        if (percent <= said) return;
+        said = percent;
+        this.emit({ bookId: next.book.id, state: "running", progress: fraction }, null);
+      };
+      const result = lib ? await analyzeBook(lib, next, abort.signal, progress) : null;
       this.emit({ bookId: next.book.id, state: result ? "done" : "failed" }, result);
     } catch {
       this.emit({ bookId: next.book.id, state: "failed" }, null);
