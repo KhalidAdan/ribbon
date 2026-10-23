@@ -6,7 +6,8 @@ import type { Host } from "../../../src/host/host.ts";
 import { ensureChapters, scanLibrary, type ScannedBook } from "../../../src/core/scan/scan.ts";
 import { BookIndex, bookDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
-import { analyzeStored } from "./prepare.ts";
+import { analyzeStored, readStored, writeStored } from "./prepare.ts";
+import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
 import { neverWrites } from "./never-writes.ts";
 
@@ -84,7 +85,10 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
       ? await audioFingerprint(scanned.files.map((f) => ({ absPath: abs(f.path), sizeBytes: f.sizeBytes })))
       : await fileFingerprint(abs(scanned.book.ebook!));
   const existing = ctx.index.find(fingerprint, claims);
-  if (existing) return { added: false, id: existing };
+  if (existing) {
+    await fillRecords(ctx, root, scanned, existing);
+    return { added: false, id: existing };
+  }
 
   // Checked before anything is copied: a book that won't fit is left out, said why, and the import goes on to smaller ones.
   const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0);
@@ -122,8 +126,14 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
       cover,
       ...(ebookBytes !== undefined ? { ebookBytes } : {}),
     };
-    // Measured once, from the copy here: every device gets the loudness and silences with the book.
-    const analysis = files.length > 0 ? await analyzeStored(ctx.host, building, stored) : null;
+    // What Ribbon already worked out about the book comes in with it, so no device works it out again.
+    const found = await findRecords(root, scanned);
+    if (found) {
+      const records = await carryRecords(found, building, []);
+      if (records.length > 0) stored.records = records;
+    }
+    // Its loudness and silences: as measured before, or measured once here, from the copy.
+    const analysis = (found && (await carriedAnalysis(found))) ?? (files.length > 0 ? await analyzeStored(ctx.host, building, stored) : null);
     if (analysis) stored.analysis = analysis;
     await writeFile(path.join(building, "book.json"), JSON.stringify(stored, null, 2));
     await rename(building, final);
@@ -133,6 +143,21 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     await rm(building, { recursive: true, force: true });
     throw e;
   }
+}
+
+/**
+ * A book that's on the server already: whatever records its folder has
+ * that the server hasn't yet are carried in, so adding a folder again fills
+ * in what an earlier add, or an earlier server, left behind.
+ */
+async function fillRecords(ctx: ImportContext, root: string, scanned: ScannedBook, id: string): Promise<void> {
+  const found = await findRecords(root, scanned);
+  const stored = found && (await readStored(ctx.dataDir, id));
+  if (!found || !stored) return;
+  const records = await carryRecords(found, bookDir(ctx.dataDir, id), stored.records ?? []);
+  const analysis = stored.analysis ?? (await carriedAnalysis(found)) ?? undefined;
+  if (records.length === (stored.records ?? []).length && analysis === stored.analysis) return;
+  await writeStored(ctx.dataDir, id, { ...stored, ...(records.length > 0 ? { records } : {}), ...(analysis ? { analysis } : {}) });
 }
 
 /** Copy a file into the server, a clone where the disk can make one, and check it all arrived. */

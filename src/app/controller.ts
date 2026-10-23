@@ -1434,7 +1434,8 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (!book || !o?.server || book.remote) return;
     if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
-    await o.server.remove(book.book.path.split("/")[0]!);
+    await o.server.remove(book.book.path.split("/")[0]!, book.book.id);
+    this.serverRecordsTaken.delete(book.book.id);
     await this.rescanSource(o, true);
   }
 
@@ -1531,17 +1532,26 @@ export class AppController {
     return this.state.sources.find((s) => s.id === book.source) ?? null;
   }
 
+  /** Downloaded server books whose records have been checked against the server since launch. */
+  private serverRecordsTaken = new Set<string>();
+
   /**
-   * A downloaded server book's loudness and silences, as the server
-   * measured them, for one downloaded before this device kept them. Null
-   * when it isn't a server's book, or the server hasn't measured it yet.
+   * Before a downloaded server book plays or opens, the first time this
+   * launch: whatever the server has for it that isn't here yet (its
+   * loudness and silences, what was heard of it and how that lines up)
+   * comes down, so nothing the server has is worked out again here. A book
+   * downloaded before the server kept these gets them now.
    */
-  private async measuredOnServer(book: ScannedBook): Promise<{ gainDb: number | null; silence: Map<number, SilenceRange[]> } | null> {
+  private async takeServerRecords(book: ScannedBook): Promise<void> {
     const o = this.openedOf(book);
     const serverId = book.book.path.split("/")[0];
-    if (!o?.server || !serverId) return null;
+    if (!o?.server || book.remote || !serverId || this.serverRecordsTaken.has(book.book.id)) return;
+    this.serverRecordsTaken.add(book.book.id);
     const detail = await o.server.client.book(serverId).catch(() => null);
-    return detail?.analysis ? this.keepMeasurements(o, book.book.id, detail.analysis) : null;
+    if (!detail) return;
+    await o.server.keepRecords(detail, book.book.id).catch((e: unknown) => log.warn("could not take a book's records from the server:", describe(e)));
+    const [loudness, silence] = await Promise.all([o.lib.readLoudness(book.book.id).catch(() => null), o.lib.readSilence(book.book.id).catch(() => null)]);
+    if (detail.analysis && (!loudness || !silence)) await this.keepMeasurements(o, book.book.id, detail.analysis);
   }
 
   /** The server's measurements of a book, kept beside it here as if measured here. */
@@ -1650,6 +1660,8 @@ export class AppController {
         log.warn(`could not read ${what} for`, book.book.title, describe(e));
         return fallback;
       });
+    await this.takeServerRecords(book);
+    if (seq !== this.openSeq) return;
     const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
       quiet("settings", lib.readSettings(id), defaultSettings(id)),
       quiet("bookmarks", this.loadBookmarks(id), [] as Bookmark[]),
@@ -1673,12 +1685,7 @@ export class AppController {
     this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
     if (ahead !== null) void this.persistPosition("seek");
     this.refreshMediaMetadata();
-    if (!loudness || !silence) {
-      // A server's book comes measured: asked for before it's measured here.
-      const measured = await this.measuredOnServer(book);
-      if (measured) this.onJob({ bookId: id, state: "done" }, measured);
-      else this.jobs.enqueue(book, true);
-    }
+    if (!loudness || !silence) this.jobs.enqueue(book, true);
     void this.probeChapters(book).then(() => this.maybeNameChapters(book.book.id));
     this.prepareAudio(lib, book);
     if (opts.autoplay) await this.play();
@@ -1743,6 +1750,8 @@ export class AppController {
       if (here) await this.openReading(here.book.id);
       return;
     }
+    // What the server has heard of it comes first, so it isn't heard again here.
+    await this.takeServerRecords(book);
     if (this.state.reading) await this.closeReading();
     perf.begin("open the reader");
     this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });

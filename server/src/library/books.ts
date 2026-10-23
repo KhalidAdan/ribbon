@@ -21,6 +21,8 @@ export interface StoredBook extends ScannedBook {
   ebookBytes?: number;
   /** Its loudness and silences, measured once here, so no device has to (prepare.ts). */
   analysis?: StoredAnalysis;
+  /** The records carried in from its folder, by kind, in `records/<kind>.csv` (records.ts). */
+  records?: string[];
 }
 
 /** A book's loudness, all its files together, and the silences in each file, by the file's place in the book. */

@@ -30,6 +30,8 @@ export interface ServerBookDetail {
   files: { path: string; sizeBytes: number }[];
   cover: { hash: string; aspect: number; colour: string } | null;
   ebookBytes?: number;
+  /** The records that came in with it from its folder, by kind (`chapters`, `heard`, `aligned`, …): served as `records/<kind>.csv`. */
+  records?: string[];
   /** Its loudness and silences, measured once on the server: a device that downloads it never measures it itself. */
   analysis?: { loudness: LoudnessMeasurement | null; silence: { file: number; ranges: SilenceRange[] }[] };
 }

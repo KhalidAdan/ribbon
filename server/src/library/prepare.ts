@@ -58,14 +58,14 @@ export async function prepareBooks(host: Host, dataDir: string, ids: readonly st
   return progress;
 }
 
-async function readStored(dataDir: string, id: string): Promise<StoredBook | null> {
+export async function readStored(dataDir: string, id: string): Promise<StoredBook | null> {
   return readFile(path.join(bookDir(dataDir, id), "book.json"), "utf8")
     .then((t) => JSON.parse(t) as StoredBook)
     .catch(() => null);
 }
 
 /** Written beside and moved into place, so a book's record is never half written. */
-async function writeStored(dataDir: string, id: string, stored: StoredBook): Promise<void> {
+export async function writeStored(dataDir: string, id: string, stored: StoredBook): Promise<void> {
   const file = path.join(bookDir(dataDir, id), "book.json");
   await writeFile(`${file}.tmp`, JSON.stringify(stored, null, 2));
   await rename(`${file}.tmp`, file);

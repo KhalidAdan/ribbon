@@ -48,6 +48,8 @@ describe("a server's shelf on this device", () => {
       cover,
       // Measured once on the server: a device keeps this rather than measuring the book itself.
       analysis: { loudness: { integratedLufs: -20, truePeakDbtp: -3 }, silence: [{ file: 0, ranges: [{ startMs: 1_000, endMs: 2_000 }] }] },
+      // What was heard of it, carried in from its folder: a device keeps it rather than listening again.
+      records: ["heard"],
     };
 
     server = createServer((req, res) => {
@@ -74,6 +76,10 @@ describe("a server's shelf on this device", () => {
       }
       if (at === `/api/books/${SERVER_ID}`) {
         res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(detail));
+        return;
+      }
+      if (at === `/api/books/${SERVER_ID}/files/records/heard.csv`) {
+        res.writeHead(200).end("audio_ms,words,chars\n0,In the beginning,\n");
         return;
       }
       const file = at.match(new RegExp(`^/api/books/${SERVER_ID}/files/audio/(0[12]\\.mp3)$`))?.[1];
@@ -185,6 +191,7 @@ describe("a server's shelf on this device", () => {
     const kept = new LibraryService(nodeHost(), first.getState().sources[0]!.root);
     expect(await kept.readLoudness(remote.book.id)).toMatchObject({ measurement: { integratedLufs: -20, truePeakDbtp: -3 } });
     expect((await kept.readSilence(remote.book.id))?.get(0)).toEqual([{ startMs: 1_000, endMs: 2_000 }]);
+    expect((await kept.readHeard(remote.book.id)).heard).toEqual(new Map([[0, "In the beginning"]]));
 
     // An iPhone's app folder moves when the app is updated: the server's folder moves with it.
     const moved = `${home}-moved`;
@@ -195,6 +202,13 @@ describe("a server's shelf on this device", () => {
     expect(next.getState().sources.map((s) => s.server)).toEqual([{ url, person: "Ann" }]);
     expect(next.getState().sources[0]!.root.startsWith(moved)).toBe(true);
     expect(next.getState().books.map((b) => [b.book.id, !!b.remote])).toEqual([[remote.book.id, false]]);
+
+    // Taken off this device: the book goes back to the server, and what was kept beside it goes too.
+    await next.removeDownload(remote.book.id);
+    expect(next.getState().books.map((b) => [b.book.id, !!b.remote])).toEqual([[remote.book.id, true]]);
+    const left = new LibraryService(nodeHost(), next.getState().sources[0]!.root);
+    expect((await left.readHeard(remote.book.id)).heard.size).toBe(0);
+    expect(await left.readLoudness(remote.book.id)).toBeNull();
 
     // Disconnecting takes the downloads and the sign-in.
     await next.removeSource(next.getState().sources[0]!.id);

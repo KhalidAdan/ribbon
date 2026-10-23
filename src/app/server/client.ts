@@ -70,6 +70,11 @@ export class ServerClient {
     return `${this.url}/api/books/${encodeURIComponent(serverId)}/files/${path.split("/").map(encodeURIComponent).join("/")}`;
   }
 
+  /** A small file of a book, read whole: one of its records. */
+  async file(serverId: string, path: string): Promise<Uint8Array> {
+    return new Uint8Array(await (await this.get(this.fileUrl(serverId, path).slice(this.url.length))).arrayBuffer());
+  }
+
   /** A cover's bytes at one of the widths the server makes (200, 400 or 800). */
   async cover(hash: string, width: number): Promise<Uint8Array> {
     return new Uint8Array(await (await this.get(`/covers/${hash}-${width}.jpg`)).arrayBuffer());

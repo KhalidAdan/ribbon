@@ -1,7 +1,11 @@
 import type { Host } from "../../host/host";
 import type { ScannedBook } from "../../core/scan/scan";
 import { localIdOf, opfFor, remoteBook, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail } from "../../core/server-books";
+import { RIBBON_DIR } from "../../core/scan/walk";
 import type { ServerClient } from "./client";
+
+/** The records kept beside a downloaded book here: what it brought from the server, and what was worked out here. */
+const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudness", "silence", "settings"];
 
 /** A book's id on a server, which names its folder here (server/src/library/importer.ts). */
 const SERVER_ID = /^[0-9a-f]{16}$/;
@@ -131,14 +135,33 @@ export class ServerShelf {
     }
     await this.host.writeFile(this.host.join(folder, "metadata.opf"), new TextEncoder().encode(opfFor(detail.book)));
     if (detail.cover) await this.host.writeFile(this.host.join(folder, "cover.jpg"), await this.client.cover(detail.cover.hash, 800));
+    // Before the book is first scanned here, so its chapters and read-along come as the server has them.
+    await this.keepRecords(detail, book.book.id);
     onProgress(total, total);
     return detail.analysis;
   }
 
-  /** Take a downloaded book off this device. The server keeps it, and the person's place in it. */
-  async remove(serverId: string): Promise<void> {
+  /**
+   * The records the server carried in with a book (its chapters, what was
+   * heard of the narration and how it lines up with the text, …), kept
+   * beside it here under its id on this device, where Ribbon looks for
+   * them. Only the ones not here yet are fetched.
+   */
+  async keepRecords(detail: ServerBookDetail, localId: string): Promise<void> {
+    for (const kind of detail.records ?? []) {
+      const file = this.at(RIBBON_DIR, kind, `${localId}.csv`);
+      if (await this.host.exists(file)) continue;
+      const bytes = await this.client.file(detail.book.id, `records/${kind}.csv`);
+      await this.host.mkdir(this.at(RIBBON_DIR, kind));
+      await this.host.writeFile(file, bytes);
+    }
+  }
+
+  /** Take a downloaded book off this device, with the records kept beside it. The server keeps it, and the person's place in it. */
+  async remove(serverId: string, localId: string): Promise<void> {
     if (!SERVER_ID.test(serverId)) throw new Error("Not a server's book.");
     await this.host.remove(this.at(serverId));
+    for (const kind of KEPT) await this.host.remove(this.at(RIBBON_DIR, kind, `${localId}.csv`)).catch(() => undefined);
   }
 
   /** Take every downloaded book off this device, as on disconnecting. The records stay, so connecting again finds each place. */
