@@ -1115,6 +1115,8 @@ export class AppController {
     if (!home) throw new Error("This version of Ribbon can't keep a server's books.");
     const client = await ServerClient.signIn(server.url, server.person, password);
     const root = this.serverRoot(home, server);
+    // The app's files reach only the folders it has been allowed (allow_library): this one is Ribbon's own, made here.
+    await this.platform.allowFolder(root);
     await this.platform.host.mkdir(root);
     await this.keepServerToken(server, client.token);
     const open = this.opened.get(sourceId(root));
@@ -1138,7 +1140,13 @@ export class AppController {
     if (!home) return entries;
     const placed = entries.map((e) => (e.server ? { ...e, root: this.serverRoot(home, e.server) } : e));
     // Made again if it's gone: the server still has the books, and the place in each.
-    for (const e of placed) if (e.server) await this.platform.host.mkdir(e.root).catch((err: unknown) => log.warn("could not make a server's folder:", describe(err)));
+    for (const e of placed) {
+      if (!e.server) continue;
+      await this.platform
+        .allowFolder(e.root)
+        .then(() => this.platform.host.mkdir(e.root))
+        .catch((err: unknown) => log.warn("could not make a server's folder:", describe(err)));
+    }
     return placed;
   }
 
@@ -1162,6 +1170,8 @@ export class AppController {
       this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
       return;
     }
+    // Its list and covers are read and written here before the shelf's own access to the folder lands.
+    await this.platform.allowFolder(o.source.root).catch((e: unknown) => log.warn("could not open a server's folder:", describe(e)));
     const client = new ServerClient(o.source.server.url, token);
     o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
