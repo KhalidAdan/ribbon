@@ -128,10 +128,12 @@ struct RibbonButtonStyle: ButtonStyle {
         let configuration: Configuration
         let kind: Kind
         @Environment(\.isFocused) private var focused
+        @Environment(\.isEnabled) private var enabled
 
         var body: some View {
             configuration.label
                 .font(.ui(26, weight: 500))
+                .opacity(enabled ? 1 : 0.45)
                 .foregroundStyle(focused ? Color.canvas : Color.ink)
                 .padding(.horizontal, 28)
                 .padding(.vertical, 14)

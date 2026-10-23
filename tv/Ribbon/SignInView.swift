@@ -40,6 +40,7 @@ struct SignInView: View {
                     .focused($field, equals: .password)
                     .onSubmit { afterKeyboard = .signIn }
                 Button(working ? "Signing in…" : "Sign in") { signIn() }
+                    .buttonStyle(RibbonButtonStyle(kind: .primary))
                     .disabled(working || address.isEmpty || name.isEmpty || password.isEmpty)
                     .focused($field, equals: .signIn)
                     .padding(.top, 12)
