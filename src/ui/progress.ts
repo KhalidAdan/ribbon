@@ -6,9 +6,8 @@ import type { ReadRecord } from "../core/poslog";
 import { readsOf } from "../core/stats";
 import { readerOnly } from "../core/ebook";
 import { formatLeft } from "../core/speed";
+import { standingOf } from "../core/progress";
 
-/** A book is finished when its saved position is within this of the end. */
-export const FINISHED_WITHIN_MS = 60_000;
 /** A book that is only its EPUB is finished once its reading place is this far through. */
 export const READ_TO_END = 0.99;
 
@@ -62,12 +61,7 @@ export function progressOf(book: ScannedBook, state: ProgressState, reading?: (b
   }
   const active = state.current?.book.book.id === book.book.id;
   const posMs = active ? state.player.positionMs : (state.positions[book.book.id]?.offsetMs ?? 0);
-  const duration = book.book.durationMs;
-  const within = Math.min(FINISHED_WITHIN_MS, duration * 0.1);
-  const byPosition = posMs > 0 && duration > 0 && posMs >= duration - within;
-  const finished = last ? !!last.finished : byPosition;
-  const started = posMs > 0 || reads.length > 0;
-  return { posMs, started, finished, fraction: duration > 0 ? Math.min(1, posMs / duration) : 0 };
+  return { posMs, ...standingOf(posMs, book.book.durationMs, reads) };
 }
 
 /** What a book comes to before it is started: how long it is, or that it is an EPUB to read. */

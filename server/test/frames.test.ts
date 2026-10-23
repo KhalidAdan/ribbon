@@ -48,6 +48,10 @@ describe("an MP3 from a moment", () => {
 
   const get = (url: string, headers: Record<string, string> = {}) => server.app.inject({ method: "GET", url, headers: { authorization: `Bearer ${token}`, ...headers } });
 
+  it("indexes a book's MP3s as it's added, so no first play waits on reading a whole file", async () => {
+    expect(readFileSync(path.join(dir, "data", "books", id, "frames", "0.bin")).subarray(0, 8).toString()).toBe("RBFI0002");
+  });
+
   it("starts at the frame where the moment falls, the rest of the file as it is", async () => {
     const r = await get(`/api/books/${id}/files/${file}?ms=12500`);
     expect(r.statusCode).toBe(200);
@@ -61,8 +65,6 @@ describe("an MP3 from a moment", () => {
     const startsAt = Number(r.headers["x-ribbon-starts-at-ms"]);
     expect(12_500 - startsAt).toBeGreaterThanOrEqual(0);
     expect(12_500 - startsAt).toBeLessThan(27);
-    // Kept beside the book, so the file is read whole once.
-    expect(readFileSync(path.join(dir, "data", "books", id, "frames", "0.bin")).subarray(0, 8).toString()).toBe("RBFI0002");
   });
 
   it("answers ranges within what it sends, as a player asks for them", async () => {

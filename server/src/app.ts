@@ -126,8 +126,10 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
     }
   });
 
-  libraryRoutes(app, { auth, jobs, books, events, dataDir: config.dataDir });
   const frames = new Mp3Frames(config.dataDir, config.framesTool ?? null);
+  // MP3s added before the server indexed them are indexed once, in the background.
+  if (frames.available) jobs.start("frames", { indexed: 0 }, async () => ({ indexed: await frames.indexMissing(books) }), null);
+  libraryRoutes(app, { auth, jobs, books, events, frames, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, events, readAlongs: new ReadAlongs(config.dataDir, config.ebookTool ?? null), frames, dataDir: config.dataDir });

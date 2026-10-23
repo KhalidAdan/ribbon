@@ -30,6 +30,20 @@ final class BookPlayer {
     private(set) var playing = false
     private(set) var loaded = false
 
+    /// How fast the narrator reads, with the voice's pitch kept.
+    var speed: Double = 1 {
+        didSet {
+            player.defaultRate = Float(speed)
+            if playing { player.rate = Float(speed) }
+        }
+    }
+
+    /// How loud, 0 to 1: the sleep timer fades it out.
+    var volume: Float {
+        get { player.volume }
+        set { player.volume = newValue }
+    }
+
     private let files: [File]
     private let cookie: HTTPCookie?
     private let player = AVQueuePlayer()
@@ -79,15 +93,16 @@ final class BookPlayer {
     func resume() {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
         try? AVAudioSession.sharedInstance().setActive(true)
+        player.defaultRate = Float(speed)
         player.play()
         playing = true
-        nowPlaying()
+        updateNowPlaying()
     }
 
     func pause() {
         player.pause()
         playing = false
-        nowPlaying()
+        updateNowPlaying()
         onTime?(positionMs)
     }
 
@@ -103,9 +118,10 @@ final class BookPlayer {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
-    /// What the TV's Now Playing shows: the book, and where it is.
+    /// What the TV's Now Playing shows: the book, the chapter, and where it is.
     var nowPlayingTitle = ""
     var nowPlayingAuthor = ""
+    var nowPlayingChapter = ""
 
     /// The queue made again: this file, from a moment of it, then the next.
     private func requeue(from file: Int, at offset: Int) {
@@ -127,6 +143,8 @@ final class BookPlayer {
         // Apple's player can't send a sign-in header, but it sends the session's cookie.
         let options: [String: Any] = cookie.map { [AVURLAssetHTTPCookiesKey: [$0]] } ?? [:]
         let item = AVPlayerItem(asset: AVURLAsset(url: url, options: options))
+        // A voice sped up or slowed down, without the chipmunk.
+        item.audioTimePitchAlgorithm = .timeDomain
         fileOf[ObjectIdentifier(item)] = file
         if isMP3(file) { beginsAt[ObjectIdentifier(item)] = offset }
         player.insert(item, after: nil)
@@ -149,14 +167,16 @@ final class BookPlayer {
         }
     }
 
-    private func nowPlaying() {
+    /// Tell the TV's Now Playing where the book is.
+    func updateNowPlaying() {
         let total = files.last.map { $0.startMs + $0.durationMs } ?? 0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = [
             MPMediaItemPropertyTitle: nowPlayingTitle,
             MPMediaItemPropertyArtist: nowPlayingAuthor,
+            MPMediaItemPropertyAlbumTitle: nowPlayingChapter,
             MPMediaItemPropertyPlaybackDuration: Double(total) / 1000,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: Double(positionMs) / 1000,
-            MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: playing ? speed : 0.0,
         ]
     }
 }

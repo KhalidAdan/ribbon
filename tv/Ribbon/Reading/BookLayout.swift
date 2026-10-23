@@ -88,6 +88,12 @@ final class BookLayout: @unchecked Sendable {
         return low..<end
     }
 
+    /// The box around a sentence's first line on the column: what the side buttons sit beside.
+    func firstLine(of sentence: Sentences.Sentence) -> CGRect? {
+        let paragraph = paragraphs[sentence.block]
+        return paragraph.lineBoxes(sentence.range).first?.offsetBy(dx: 0, dy: paragraph.top)
+    }
+
     /// Where a sentence is on the column: the box around all its lines.
     func frame(of sentence: Sentences.Sentence) -> CGRect {
         let paragraph = paragraphs[sentence.block]

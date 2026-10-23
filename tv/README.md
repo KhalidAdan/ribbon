@@ -16,21 +16,32 @@ files at any time, so the audio streams and the place lives on the server.
   The sign-in is kept in the Keychain.
 - **Who's reading?** Several people can use one TV, as with Jellyfin: each
   signs in once, and with more than one the TV asks who's reading, starting
-  on whoever read last. Each person's shelf and place are their own, from
+  on whoever read last. Each person's library and places are their own, from
   their own sign-in. Someone else signs another person in (the server's
   address is filled in); holding Select on a person takes them off this TV,
   and their places stay on the server.
-- **The shelf**: the server's books that have both a text and a narration.
-  Switch reader, below the books, goes back to Who's reading; so does Menu,
-  when there's more than one person.
+- **The library**, as the desktop's: Continue (the books you're in the
+  middle of, most recent first), each series as a card with where you are in
+  it, then every other book. A card opens the book's page; its play button
+  listens straight away. While a book plays, its title at the top opens the
+  player. Switch reader, below the books, goes back to Who's reading; so
+  does Menu, when there's more than one person.
+- **A book's page**: where you are as a sentence, Continue listening and Read
+  along, the facts, the description, and the rest of its series.
+- **The player**: the chapter and how far into it, the transport (chapters,
+  thirty seconds back and on), speed, the sleep timer, and the chapter list.
+  The player and the reader share one narration: leaving either leaves the
+  book playing.
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
   amber, and the column glides when it leaves the middle of the screen.
 - **The Siri Remote**: up and down step a sentence, left and right a
   paragraph, a swipe on the touch surface glides through several. Play or
   Select reads from the sentence you're on; on the sentence being read, it
-  pauses and goes on. Menu brings you back to the narrator when you've
-  wandered off, and out of the book when you haven't.
+  pauses and goes on. Away from the narrator, Listen from here and Return to
+  narrator sit either side of your sentence; left and right light them. Menu
+  brings you back to the narrator when you've wandered off, and out of the
+  book when you haven't.
 - **Your place** goes to the server as you listen, the way the phone's and
   the desktop's do, and the book opens at the newest of your places on any
   device, listening or reading.
@@ -52,16 +63,20 @@ sentence and a moment, so the TV keeps no position log of its own.
 
 | File | What |
 | --- | --- |
-| `RibbonApp.swift` | `AppModel`: signed in or not, the book open. |
+| `RibbonApp.swift` | `AppModel`: who's reading, the screens open over the library, the narration. |
 | `Server/RibbonServer.swift` | The API, as the TV uses it. |
 | `Server/Account.swift` | Everyone signed in here, in the Keychain, and this TV's device id. |
-| `PeopleView.swift`, `ShelfView.swift`, `SignInView.swift` | The screens before a book: who's reading, their books, signing in. |
+| `PeopleView.swift`, `SignInView.swift` | Who's reading, and signing in. |
+| `Library/Library.swift` | A person's books and how far through each, grouped as the desktop's shelf. |
+| `Library/LibraryView.swift`, `Library/BookView.swift` | The library, and a book's page with its series. |
+| `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place. |
+| `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |
+| `Listening/PlayerView.swift` | The full player, and the chapter list. |
 | `Reading/ReadAlong.swift` | The read-along as the server sends it, and its sentences in order. |
 | `Reading/ReadingSession.swift` | A book open: the remote's sentence, the narrator's, playing, the place. |
-| `Reading/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |
 | `Reading/BookLayout.swift` | The text set in type by TextKit, once, so every sentence's place is known. |
 | `Reading/ReaderViewController.swift` | The column on screen, and the remote. |
-| `Look.swift` | Colours and faces (docs/DESIGN.md). |
+| `Look.swift`, `Kit.swift`, `Format.swift` | Colours and faces (docs/DESIGN.md), the shapes screens are built from, and times written as the desktop writes them. |
 | `Assets.xcassets` | The icon in layers, as tvOS tilts it, and the Top Shelf pictures: made from the app's own icon by `make-icons.sh`. |
 
 ## Building it
@@ -114,8 +129,7 @@ TestFlight.
 
 ## Not yet
 
-Pages, text sizes, speed, the sleep timer, loudness, bookmarks, books
-without a narration, and the app icon.
+Pages, text sizes, loudness, bookmarks, and books without a narration.
 
 MP3s are never sought in by Apple's player, which goes by the average bitrate
 and lands minutes off in a long VBR book: the TV asks the server for the file

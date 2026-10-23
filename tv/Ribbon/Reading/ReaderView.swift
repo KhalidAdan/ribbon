@@ -20,7 +20,7 @@ struct ReaderView: View {
                     Spacer()
                     Text(status).font(.ui(24)).foregroundStyle(Color.ink3).monospacedDigit()
                 }
-                ProgressHairline(fraction: Double(session.positionMs) / Double(max(1, session.durationMs)))
+                ProgressHairline(fraction: Double(session.listening.positionMs) / Double(max(1, session.listening.durationMs)))
             }
             // At the screen's edges, in the room the column's fade leaves them.
             .padding(.horizontal, 120)
@@ -30,11 +30,11 @@ struct ReaderView: View {
         }
     }
 
-    /// "2h 41m left", or "Paused · 2h 41m left".
+    /// "2h 41m left", or "Paused · 2h 41m left", at the narrator's speed.
     private var status: String {
-        let left = max(0, session.durationMs - session.positionMs) / 60_000
-        let time = left >= 60 ? "\(left / 60)h \(left % 60)m left" : "\(left)m left"
-        return session.playing ? time : "Paused · \(time)"
+        let listening = session.listening
+        let time = "\(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left"
+        return listening.playing ? time : "Paused · \(time)"
     }
 }
 

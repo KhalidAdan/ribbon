@@ -1,11 +1,16 @@
 import UIKit
 
 /// The book as one long column, read with the Siri Remote: up and down step
-/// a sentence, left and right a paragraph, a swipe on the touch surface
-/// glides through several, and Play or Select reads from the sentence the
-/// remote is on (ReadingSession). The column moves only when the sentence
-/// leaves the middle of the screen, and then glides, so the words stay still
-/// while they're read.
+/// a sentence, a swipe on the touch surface glides through several, and Play
+/// or Select reads from the sentence the remote is on (ReadingSession). The
+/// column moves only when the sentence leaves the middle of the screen, and
+/// then glides, so the words stay still while they're read.
+///
+/// Away from the narrator, the sentence the remote is on has two buttons in
+/// the margins beside its first line, which the text being justified leaves
+/// clear: Listen from here on the left, Return to narrator on the right.
+/// Left and right go to them, and back to the text; Select presses the one
+/// that's lit. Following the narrator, left and right step a paragraph.
 ///
 /// Only the paragraphs near the screen are drawn; the rest are measured
 /// (BookLayout) and wait.
@@ -22,6 +27,17 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     private var lastCursor: Int?
     /// While the column glides, what it glides over stays drawn.
     private var gliding = false
+
+    /// The buttons beside the remote's sentence, and which of them the remote is on, if either.
+    private let listenHere = SideButton(title: "Listen from here")
+    private let toNarrator = SideButton(title: "Return to narrator")
+    private var side: Side? {
+        didSet { showSideButtons() }
+    }
+
+    private enum Side {
+        case listen, narrator
+    }
 
     /// Holding up or down keeps stepping, after a moment.
     private var repeater: Timer?
@@ -50,6 +66,11 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         column.clipsToBounds = false
         column.contentInsetAdjustmentBehavior = .never
         view.addSubview(column)
+        // In the column, so they move with the words.
+        for button in [listenHere, toNarrator] {
+            button.alpha = 0
+            column.addSubview(button)
+        }
 
         // The words fade in and out at the top and bottom, under the title and the time left.
         let fade = CAGradientLayer()
@@ -90,10 +111,22 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         switch press.type {
         case .upArrow: hold { $0.session.step(by: -1) }
         case .downArrow: hold { $0.session.step(by: 1) }
-        case .leftArrow: session.stepParagraph(by: -1)
-        case .rightArrow: session.stepParagraph(by: 1)
-        case .select, .playPause: session.playPause()
-        case .menu: if !session.back() { onClose() }
+        case .leftArrow:
+            if session.following { session.stepParagraph(by: -1) } else { side = side == .narrator ? nil : .listen }
+        case .rightArrow:
+            if session.following { session.stepParagraph(by: 1) } else { side = side == .listen ? nil : .narrator }
+        case .select, .playPause:
+            switch side {
+            case .listen: session.listenFromHere()
+            case .narrator: session.returnToNarrator()
+            case nil: session.playPause()
+            }
+        case .menu:
+            if side != nil {
+                side = nil
+            } else if !session.back() {
+                onClose()
+            }
         default: super.pressesBegan(presses, with: event)
         }
     }
@@ -180,6 +213,27 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
             bringIntoView(session.cursor, gently: lastCursor != nil)
             lastCursor = session.cursor
         }
+        if session.following { side = nil } else { showSideButtons() }
+    }
+
+    /// The side buttons beside the first line of the remote's sentence when it's away from the narrator; hidden when it isn't.
+    private func showSideButtons() {
+        let away = !session.following
+        if away, let line = layout.firstLine(of: session.sentences[session.cursor]) {
+            let gap: CGFloat = 40
+            for button in [listenHere, toNarrator] { button.sizeToFit() }
+            let place = {
+                self.listenHere.center = CGPoint(x: -gap - self.listenHere.bounds.width / 2, y: line.midY)
+                self.toNarrator.center = CGPoint(x: BookLayout.Measure.width + gap + self.toNarrator.bounds.width / 2, y: line.midY)
+            }
+            // They glide with the sentence once they're showing; they appear where it is.
+            if listenHere.alpha > 0 { UIView.animate(withDuration: 0.2, animations: place) } else { place() }
+        }
+        listenHere.isLit = side == .listen
+        toNarrator.isLit = side == .narrator
+        UIView.animate(withDuration: 0.15) {
+            for button in [self.listenHere, self.toNarrator] { button.alpha = away ? 1 : 0 }
+        }
     }
 
     /// The sentences washed now: the narrator's in amber when it's placed to the sentence, and the remote's lifted when it's elsewhere.
@@ -221,6 +275,54 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
             column.contentOffset.y = target
             tile(around: visible(at: target))
         }
+    }
+}
+
+/// A button beside the remote's sentence, lit when the remote is on it: the
+/// app's secondary button (docs/DESIGN.md, section 7) at the TV's size, and lit
+/// as its primary, the way tvOS lifts what has the focus. The reader keeps
+/// the focus itself and lights these, so up and down still move through the text.
+private final class SideButton: UIView {
+    private let label = UILabel()
+    private let padding = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+
+    var isLit = false {
+        didSet {
+            guard isLit != oldValue else { return }
+            UIView.animate(withDuration: 0.15) { self.paint() }
+        }
+    }
+
+    init(title: String) {
+        super.init(frame: .zero)
+        label.text = title
+        label.font = Faces.ui(size: 24, weight: 500)
+        addSubview(label)
+        layer.cornerRadius = 12
+        layer.borderWidth = 1
+        paint()
+    }
+
+    required init?(coder: NSCoder) { fatalError("made in code") }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let text = label.intrinsicContentSize
+        return CGSize(width: text.width + padding.left + padding.right, height: text.height + padding.top + padding.bottom)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        label.frame = bounds.inset(by: padding)
+    }
+
+    private func paint() {
+        backgroundColor = isLit ? Look.ink : Look.raised
+        label.textColor = isLit ? Look.canvas : Look.ink2
+        layer.borderColor = (isLit ? Look.ink : UIColor(white: 1, alpha: 0.08)).cgColor
+        transform = isLit ? CGAffineTransform(scaleX: 1.08, y: 1.08) : .identity
+        layer.shadowOpacity = isLit ? 0.5 : 0
+        layer.shadowRadius = 16
+        layer.shadowOffset = CGSize(width: 0, height: 10)
     }
 }
 

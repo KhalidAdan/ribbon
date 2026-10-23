@@ -14,20 +14,46 @@ struct ServerBook: Decodable, Identifiable, Hashable {
     let title: String
     let author: String
     let narrator: String
+    let series: String
+    let seriesIndex: Double?
     let durationMs: Int
     let audio: Bool
     let ebook: Bool
     let cover: Cover?
 }
 
-/// A book in full: its audio files in order, each as long as the server measured.
+/// A book in full: its audio files in order, each as long as the server measured, its chapters, and what it says about itself.
 struct ServerBookDetail: Decodable {
     struct File: Decodable {
         let path: String
         let durationMs: Int
     }
 
+    /// A chapter, on the book's timeline.
+    struct Chapter: Decodable, Hashable {
+        let startMs: Int
+        let endMs: Int
+        let title: String
+    }
+
+    struct About: Decodable {
+        let description: String?
+        let year: Int?
+        let publisher: String?
+    }
+
     let files: [File]
+    let chapters: [Chapter]
+    let book: About
+}
+
+/// How far someone is through a book (server/src/readalong-routes.ts, `GET /api/progress`).
+struct BookProgress: Decodable {
+    let ms: Int
+    /// When, as the position log writes it: ISO 8601, so it sorts as written.
+    let at: String
+    let started: Bool
+    let finished: Bool
 }
 
 /// Where the person is in a book (server/src/readalong-routes.ts, `BookPlace`).
@@ -84,10 +110,16 @@ struct RibbonServer {
         return Account(url: url, name: name, token: token, cookieName: cookie.name, cookieValue: cookie.value)
     }
 
-    /// The books with both a text and a narration: the ones there are to read along with.
+    /// The books with a narration: the ones there are to listen to, and, with their text, to read along with.
     func books() async throws -> [ServerBook] {
         struct Answer: Decodable { let books: [ServerBook] }
-        return try await get(Answer.self, "api/books").books.filter { $0.audio && $0.ebook }
+        return try await get(Answer.self, "api/books").books.filter(\.audio)
+    }
+
+    /// How far this person is through each book they've started, by book id.
+    func progress() async throws -> [String: BookProgress] {
+        struct Answer: Decodable { let books: [String: BookProgress] }
+        return try await get(Answer.self, "api/progress").books
     }
 
     func book(_ id: String) async throws -> ServerBookDetail {

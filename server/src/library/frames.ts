@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { bookDir, type StoredBook } from "./books.ts";
+import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
+import { readStored } from "./prepare.ts";
 
 const run = promisify(execFile);
 
@@ -32,6 +34,26 @@ export class Mp3Frames {
   /** Whether this server can find frames at all; without it, MP3s are sent whole and players seek as they can. */
   get available(): boolean {
     return this.tool !== null;
+  }
+
+  /**
+   * Index every MP3 of every book that hasn't been yet, one at a time: a
+   * 10-hour file takes seconds to read whole, and its first play from a
+   * moment shouldn't wait on it. How many files it indexed.
+   */
+  async indexMissing(books: BookIndex): Promise<number> {
+    if (!this.tool) return 0;
+    let indexed = 0;
+    for (const { id } of books.list()) {
+      const stored = await readStored(this.dataDir, id);
+      for (const file of stored?.files ?? []) {
+        const kept = path.join(bookDir(this.dataDir, id), "frames", `${stored!.files.indexOf(file)}.bin`);
+        if (!/\.mp3$/i.test(file.path) || (await stat(kept).catch(() => null))) continue;
+        await this.start(id, stored!, file.path, 0).catch(() => undefined);
+        indexed++;
+      }
+    }
+    return indexed;
   }
 
   /** Where the moment `ms` of one of a book's audio files starts in it. */

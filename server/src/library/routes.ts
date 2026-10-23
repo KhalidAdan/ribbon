@@ -5,6 +5,7 @@ import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
 import { removeBookDir, type BookIndex } from "./books.ts";
+import type { Mp3Frames } from "./frames.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 
 /**
@@ -12,7 +13,7 @@ import { importFolder, type ImportProgress } from "./importer.ts";
  * job that does it, and deleting a book. The listing the apps read comes in
  * its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; events: Events; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; events: Events; frames: Mp3Frames; dataDir: string }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -28,13 +29,16 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       async (report) => {
         // Every device showing the library hears of each book as it's added, so shelves fill as the import goes.
         let added = 0;
-        return importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id }, folder, (progress) => {
+        const done = await importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id }, folder, (progress) => {
           report(progress);
           if (progress.added > added) {
             added = progress.added;
             deps.events.toEveryone({ type: "books", data: { added } });
           }
         });
+        // The new books' MP3s are indexed now, so the TV's first play from a moment doesn't wait on reading a whole file.
+        await deps.frames.indexMissing(deps.books);
+        return done;
       },
       me.id,
     );
