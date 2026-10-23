@@ -1286,7 +1286,9 @@ export class AppController {
   /**
    * Add a folder as a server's admin: the server copies its books in, and
    * they join the shelf as they arrive, with the same progress a folder's
-   * scan shows. The folder is a path on the server's own machine, and the
+   * scan shows. The server reads the folder itself, at the path it has on
+   * this machine, so the folder has to be at that path on the server's
+   * machine too (a network share mounted there at the same place, say). The
    * server only ever reads it.
    */
   private async addFolderToServer(o: Opened, folder: string): Promise<void> {
@@ -1331,7 +1333,7 @@ export class AppController {
     log.info(`added ${name} to the server: ${p.added} added, ${p.skipped} already there, ${p.failed} not added`);
     if (job.state === "failed") {
       const there = /There's no folder at/.test(job.error ?? "");
-      this.set({ error: there ? `The server can't see ${name}: it adds folders from its own computer. Pick one there.` : `Couldn't add ${name} to the server: ${job.error ?? "it stopped"}` });
+      this.set({ error: there ? `The server can't see ${name}. It reads a folder at the path it has on ${this.here}, so the folder has to be at that same path on the server's computer too.` : `Couldn't add ${name} to the server: ${job.error ?? "it stopped"}` });
     } else if (p.failed > 0) {
       const why = p.notes.filter((n) => !n.endsWith("already on the server."));
       this.set({ error: `${p.added} ${p.added === 1 ? "book" : "books"} from ${name} added. ${p.failed} couldn't be: ${why.slice(0, 3).join(" ")}${why.length > 3 ? ` And ${why.length - 3} more.` : ""}` });
