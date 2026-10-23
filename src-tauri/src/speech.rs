@@ -77,11 +77,12 @@ impl Listener {
         Ok(Self { ctx, path: model.to_path_buf() })
     }
 
-    fn params<'a>(language: Option<&'a str>) -> FullParams<'a, 'a> {
+    fn params<'a>(language: Option<&'a str>, gentle: bool) -> FullParams<'a, 'a> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_language(language);
-        // Half the machine at most, six threads: this runs while someone reads.
-        params.set_n_threads(std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 6)) as i32);
+        // Half the machine at most, six threads: this runs while someone reads. Gently, two: while a book plays.
+        let threads = if gentle { 2 } else { std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 6)) };
+        params.set_n_threads(threads as i32);
         params.set_no_context(true);
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -93,7 +94,7 @@ impl Listener {
     /// The words in a clip, as one line. `language` is a two-letter code, or None to let whisper guess.
     pub fn words(&self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
         let mut state = self.ctx.create_state().map_err(|e| e.to_string())?;
-        let mut params = Self::params(language);
+        let mut params = Self::params(language, false);
         // whisper encodes a 30-second window (1,500 frames) whatever the clip; a short clip needs only its own
         // frames, 50 a second, plus a little room. Several times faster for a few seconds of speech.
         let frames = (samples.len() as f32 / RATE as f32 * 50.0).ceil() as i32 + 64;
@@ -105,9 +106,9 @@ impl Listener {
 
     /// Everything said in a stretch of audio, phrase by phrase, each with when it starts and ends
     /// in milliseconds from the stretch's start (#57).
-    pub fn said(&self, samples: &[f32], language: Option<&str>) -> Result<Vec<Said>, String> {
+    pub fn said(&self, samples: &[f32], language: Option<&str>, gentle: bool) -> Result<Vec<Said>, String> {
         let mut state = self.ctx.create_state().map_err(|e| e.to_string())?;
-        let params = Self::params(language);
+        let params = Self::params(language, gentle);
         state.full(params, samples).map_err(|e| format!("could not transcribe: {e}"))?;
         Ok(state
             .as_iter()
@@ -203,8 +204,10 @@ pub fn opening_words(model: &Path, clips: &[Clip], seconds: f32, language: Optio
 }
 
 /// Transcribe each clip, `seconds` long, phrase by phrase, with times in milliseconds of its file.
-pub fn transcribe(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>) -> Result<Vec<Vec<Said>>, String> {
-    let heard = hear_clips(model, clips, seconds, transcribe_ways(), |l, s| l.said(s, language))?;
+/// `gentle`: one clip at a time on two threads, while a book plays, so playback comes first.
+pub fn transcribe(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>, gentle: bool) -> Result<Vec<Vec<Said>>, String> {
+    let ways = if gentle { 1 } else { transcribe_ways() };
+    let heard = hear_clips(model, clips, seconds, ways, |l, s| l.said(s, language, gentle))?;
     Ok(clips
         .iter()
         .zip(heard)
@@ -212,11 +215,39 @@ pub fn transcribe(model: &Path, clips: &[Clip], seconds: f32, language: Option<&
         .collect())
 }
 
-/// Transcribe stretches of a book's audio, phrase by phrase (#57). Runs off the main thread.
+/// Transcribe stretches of a book's audio, phrase by phrase (#57). Runs off the main thread; gently
+/// (`gentle`) on a thread of its own at a lower priority, which the threads it starts share, so the
+/// audio a book is playing is never kept waiting.
 #[tauri::command]
-pub async fn speech_transcribe(model: String, clips: Vec<Clip>, seconds: f32, language: Option<String>) -> Result<Vec<Vec<Said>>, String> {
-    tauri::async_runtime::spawn_blocking(move || transcribe(Path::new(&model), &clips, seconds, language.as_deref())).await.map_err(|e| e.to_string())?
+pub async fn speech_transcribe(model: String, clips: Vec<Clip>, seconds: f32, language: Option<String>, gentle: Option<bool>) -> Result<Vec<Vec<Said>>, String> {
+    let gentle = gentle.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || {
+        if !gentle {
+            return transcribe(Path::new(&model), &clips, seconds, language.as_deref(), false);
+        }
+        std::thread::spawn(move || {
+            lower_priority();
+            transcribe(Path::new(&model), &clips, seconds, language.as_deref(), true)
+        })
+        .join()
+        .unwrap_or_else(|_| Err("transcribing panicked".into()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
+
+/// This thread, and the ones it starts, behind the audio: Apple's "utility" class.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn lower_priority() {
+    // SAFETY: changes only the calling thread's scheduling class.
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
+    }
+}
+
+/// Elsewhere fewer threads do the work, which is what playback needs.
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn lower_priority() {}
 
 /// Hear the opening seconds of each clip with the model at `model`. Runs off the main thread.
 #[tauri::command]

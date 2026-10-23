@@ -26,6 +26,7 @@ import { msToText, precise, type Alignment } from "../core/reading/align";
 import type { Sentence } from "../core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
 import * as perf from "../app/perf";
+import { ReadAlongWaitCard } from "../ui/ReadAlongWait";
 
 /** A sentence marked in the text: the one a tap would listen from, or the one being read aloud. */
 interface Mark extends Sentence {
@@ -43,12 +44,14 @@ const NOT_YET: SectionLayout = { blocks: [], pages: [], flow: { section: -1, ite
  */
 export function ReadingView() {
   // Not the player's place, which moves five times a second: the parts that follow it (the mark, the listening bar) select it themselves.
-  const { r, book, loadedHere, anyLoaded, settings } = useAppState((s) => ({
+  const { r, book, loadedHere, anyLoaded, settings, wait } = useAppState((s) => ({
     r: s.reading,
     book: s.reading ? s.books.find((b) => b.book.id === s.reading!.bookId) : undefined,
     loadedHere: !!s.reading && s.current?.book.book.id === s.reading.bookId,
     anyLoaded: !!s.current,
     settings: s.readingSettings,
+    // This book's playback waiting for its read-along (Settings).
+    wait: s.readAlongWait && s.reading && s.readAlongWait.bookId === s.reading.bookId ? s.readAlongWait : null,
   }));
   const c = useController();
   // A phone: the header and the bars below give way to the dock (Dock.tsx).
@@ -121,6 +124,11 @@ export function ReadingView() {
         </Middle>
       )}
       {r.status === "ready" && r.preparing && <Preparing listening={r.listening} onReadNow={() => c.readNow()} />}
+      {wait && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-10 flex justify-center px-4">
+          <ReadAlongWaitCard wait={wait} onPlayAnyway={() => c.playAnyway()} />
+        </div>
+      )}
       {(r.status === "failed" || (r.status === "ready" && r.preparing)) && idleDock}
       {r.status === "ready" && !r.preparing && text && ebook && place && (
         <Text
