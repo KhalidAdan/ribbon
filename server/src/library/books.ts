@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import type { ScannedBook } from "../../../src/core/scan/scan.ts";
@@ -12,6 +14,23 @@ import type { Cover } from "./covers.ts";
  */
 export function bookDir(dataDir: string, id: string): string {
   return path.join(dataDir, "books", id);
+}
+
+/**
+ * Take a deleted book's folder away. It's moved aside first, in one step,
+ * so a book is never half there, and a folder that won't empty never stands
+ * in the way of the same book being added again.
+ */
+export async function removeBookDir(dataDir: string, id: string): Promise<void> {
+  const dir = bookDir(dataDir, id);
+  const aside = `${dir}.deleting-${randomBytes(4).toString("hex")}`;
+  try {
+    await rename(dir, aside);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw e;
+  }
+  await rm(aside, { recursive: true, force: true });
 }
 
 /** A book as the server keeps it in `book.json`: the scanner's record, with paths inside the book's own folder. */
@@ -68,6 +87,35 @@ export class BookIndex {
       )
       .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy);
     for (const claim of claims) this.db.prepare("INSERT OR IGNORE INTO book_claim (claim, book_id) VALUES (?, ?)").run(claim, id);
+    // Deleted once and added again: devices keep it now.
+    this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
+  }
+
+  /**
+   * Take a book off the server's list, with the ids that also named it, and
+   * note that it was deleted, so devices that downloaded it take it off too.
+   * Nobody's places are touched. False when there was no such book.
+   */
+  remove(id: string, deletedBy: string | null, at: number): boolean {
+    this.db.exec("BEGIN");
+    try {
+      // Its claims go with it (ON DELETE CASCADE).
+      const gone = Number(this.db.prepare("DELETE FROM book WHERE id = ?").run(id).changes) > 0;
+      if (gone) this.db.prepare("INSERT INTO deleted_book (id, deleted_at, deleted_by) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET deleted_at = excluded.deleted_at, deleted_by = excluded.deleted_by").run(id, at, deletedBy);
+      this.db.exec("COMMIT");
+      return gone;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  /** The ids of the books deleted from the server, oldest first: what a device that downloaded one goes by. */
+  deleted(): string[] {
+    return this.db
+      .prepare("SELECT id FROM deleted_book ORDER BY deleted_at, id")
+      .all()
+      .map((row) => String(row.id));
   }
 
   count(): number {

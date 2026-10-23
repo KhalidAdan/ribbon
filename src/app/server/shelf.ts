@@ -10,6 +10,11 @@ const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudnes
 /** A book's id on a server, which names its folder here (server/src/library/importer.ts). */
 const SERVER_ID = /^[0-9a-f]{16}$/;
 
+/** A server's book's id there: a download's folder here is named by it. */
+export function serverIdOf(book: ScannedBook): string {
+  return book.remote?.serverId ?? book.book.path.split("/")[0]!;
+}
+
 /** Room left over after a download, so a phone isn't filled to the last byte. */
 export const SPACE_MARGIN_BYTES = 200 * 1024 * 1024;
 
@@ -34,6 +39,8 @@ export class NotEnoughSpace extends Error {
  */
 export class ServerShelf {
   private listed: ServerBook[] = [];
+  /** The books the server's admin deleted, by server id. Only these are ever taken off this device unasked: never a book merely missing from the list. */
+  private deleted = new Set<string>();
   private etag: string | null = null;
   /** The pictures kept here, by hash: a book's cover shows once it's on disk, never as a broken image. */
   private covers = new Set<string>();
@@ -48,10 +55,11 @@ export class ServerShelf {
   async loadCached(): Promise<void> {
     const cached = await this.host
       .readFile(this.at(".ribbon", "server-books.json"))
-      .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; books: ServerBook[] })
+      .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; books: ServerBook[]; deleted?: string[] })
       .catch(() => null);
     if (cached) {
       this.listed = cached.books;
+      this.deleted = new Set(cached.deleted ?? []);
       this.etag = cached.etag;
     }
   }
@@ -61,10 +69,16 @@ export class ServerShelf {
     const answer = await this.client.books(this.etag);
     if (answer === "unchanged") return false;
     this.listed = answer.books;
+    this.deleted = new Set(answer.deleted);
     this.etag = answer.etag;
     await this.host.mkdir(this.at(".ribbon"));
-    await this.host.writeFile(this.at(".ribbon", "server-books.json"), new TextEncoder().encode(JSON.stringify({ etag: this.etag, books: this.listed })));
+    await this.host.writeFile(this.at(".ribbon", "server-books.json"), new TextEncoder().encode(JSON.stringify({ etag: this.etag, books: this.listed, deleted: answer.deleted })));
     return true;
+  }
+
+  /** Whether the server says its admin deleted this book: the one reason a download here is taken off unasked. */
+  wasDeleted(serverId: string): boolean {
+    return this.deleted.has(serverId);
   }
 
   /** The server's books that aren't on this device yet, given the ones that are. */

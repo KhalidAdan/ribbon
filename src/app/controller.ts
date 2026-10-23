@@ -6,7 +6,7 @@ import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeCh
 import type { BookAbout } from "../core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "../core/sources";
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
-import { NotEnoughSpace, ServerShelf } from "./server/shelf";
+import { NotEnoughSpace, ServerShelf, serverIdOf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
 import type { ServerBookDetail } from "../core/server-books";
 import { AboutLookup, type LookupStatus } from "./about";
@@ -1094,6 +1094,8 @@ export class AppController {
     } finally {
       o.scanInFlight = false;
     }
+    // A book a server's admin deleted waits for a scan to finish before it's taken off.
+    if (o.server && alive()) void this.dropDeleted(o);
   }
 
   /** Covers ffmpeg still has to cut, after the library is visible. */
@@ -1396,6 +1398,8 @@ export class AppController {
     // The covers kept here show even when the server is out of reach.
     const found = await shelf.fetchCovers().catch(() => 0);
     if (found > 0 && alive()) this.publishBooks({ coverVersion: this.state.coverVersion + 1 });
+    // Out of reach or not, what it last said was deleted goes.
+    if (alive()) await this.dropDeleted(o);
   }
 
   /**
@@ -1443,9 +1447,72 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (!book || !o?.server || book.remote) return;
     if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
-    await o.server.remove(book.book.path.split("/")[0]!, book.book.id);
+    await o.server.remove(serverIdOf(book), book.book.id);
     this.serverRecordsTaken.delete(book.book.id);
     await this.rescanSource(o, true);
+  }
+
+  /** Whether this person is the admin of the server a book is on: only they can delete it from there. */
+  canDeleteFromServer(bookId: string): boolean {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    return !!o?.server && o.serverAdmin;
+  }
+
+  /**
+   * As a server's admin, delete a book from the server. Its files go from
+   * the server, and from every device that downloaded it as each next hears
+   * from the server (dropDeleted), this one at once. Everyone's places in it
+   * are kept, so if it's added again each person carries on where they
+   * were; the folder it was added from is never touched.
+   */
+  async deleteFromServer(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o?.server || !o.serverAdmin) return;
+    try {
+      await o.server.client.deleteBook(serverIdOf(book));
+    } catch (e) {
+      this.set({ error: `Couldn't delete ${book.book.title} from the server: ${describe(e)}` });
+      return;
+    }
+    log.info("deleted from the server:", book.book.title);
+    // Asked for here, so nothing waits for it to be closed.
+    if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
+    if (this.state.pane === "reader" && this.state.readerBookId === bookId) this.showLibrary();
+    await this.refreshServer(o);
+  }
+
+  /**
+   * Take off this device the downloads of books the server's admin deleted.
+   * Only the books the server says were deleted go, never one merely missing
+   * from its list: a server that lost its list mustn't empty every device.
+   * A book in use here, open in the player or the reader, stays until it
+   * isn't: the next book opened, the library shown, or the next launch.
+   */
+  private async dropDeleted(o: Opened): Promise<void> {
+    const shelf = o.server;
+    if (!shelf || o.scanInFlight) return;
+    const inUse = new Set([this.state.current?.book.book.id, this.state.pane === "reader" ? this.state.readerBookId : null]);
+    const gone = o.books.filter((b) => !b.remote && shelf.wasDeleted(serverIdOf(b)) && !inUse.has(b.book.id));
+    let removed = 0;
+    for (const b of gone) {
+      try {
+        await shelf.remove(serverIdOf(b), b.book.id);
+        log.info("deleted from the server, so taken off here:", b.book.title);
+        this.serverRecordsTaken.delete(b.book.id);
+        removed++;
+      } catch (e) {
+        log.warn("could not remove a book deleted from the server:", b.book.title, describe(e));
+      }
+    }
+    // Only when something went: a book that couldn't be removed is tried again after the next scan, not straight away.
+    if (removed > 0 && this.opened.get(o.source.id) === o && o.server === shelf) await this.rescanSource(o, true);
+  }
+
+  /** dropDeleted for every server, once a book that was in use may not be any more. */
+  private dropDeletedEverywhere(): void {
+    for (const o of this.opened.values()) if (o.server) void this.dropDeleted(o);
   }
 
   /** The person chose not to make room: the book stays on the server. */
@@ -1683,6 +1750,8 @@ export class AppController {
     if (seq !== this.openSeq) return;
     const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
+    // The book left behind may be one a server's admin deleted meanwhile.
+    this.dropDeletedEverywhere();
     // Read further than listened: start where the reading stopped.
     const ahead = this.readAhead(id, position ? Date.parse(position.updatedAt) : null);
     if (ahead !== null) log.info(`starting ${book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
@@ -3073,6 +3142,7 @@ export class AppController {
 
   showLibrary(): void {
     this.set({ pane: "library", playerExpanded: false });
+    this.dropDeletedEverywhere();
   }
 
   /** Open the full player over the shelf, optionally straight onto one of its drawers. */

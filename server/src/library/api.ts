@@ -20,7 +20,9 @@ const ASK_FIRST = "private, no-cache";
  * The library as the apps read it (docs/SERVER.md, sections 7 and 10),
  * for anyone signed in:
  *
- * - `GET /api/books`: every book, with each cover's shape and colour.
+ * - `GET /api/books`: every book, with each cover's shape and colour, and
+ *   the ids of the books deleted, which a device that downloaded one takes
+ *   off (the admin deletes one in routes.ts).
  * - `GET /api/books/:id`: one book in full: its files, chapters and parts.
  * - `GET /covers/:hash-:width.jpg`: a cover, at an address that never changes.
  * - `GET /api/books/:id/files/*`: a file of the book, for downloads.
@@ -41,7 +43,7 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     if (!(await signedIn(deps.auth, request))) await reply.code(401).send({ error: "Sign in first." });
   };
 
-  app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { books: deps.books.list() }));
+  app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { books: deps.books.list(), deleted: deps.books.deleted() }));
 
   app.get<{ Params: { id: string } }>("/api/books/:id", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);

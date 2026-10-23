@@ -48,8 +48,13 @@ export async function prepareBooks(host: Host, dataDir: string, ids: readonly st
     if (stored && !stored.analysis) {
       progress.current = stored.book.title;
       report(progress);
-      const analysis = await analyzeStored(host, bookDir(dataDir, id), stored);
-      if (analysis) await writeStored(dataDir, id, { ...stored, analysis });
+      try {
+        const analysis = await analyzeStored(host, bookDir(dataDir, id), stored);
+        if (analysis) await writeStored(dataDir, id, { ...stored, analysis });
+      } catch (e) {
+        // Deleted while it was measured: nothing to keep, and the rest go on.
+        if (await readStored(dataDir, id)) throw e;
+      }
     }
     progress.done++;
     report(progress);
