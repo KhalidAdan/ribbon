@@ -3,7 +3,7 @@ import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
 import { BookText } from "../src/core/reading/booktext";
 import { heardFromRows, pairBook, pairingFromRows, transcriptFromRows } from "../src/core/reading/narration";
 import { overlayAnchors } from "../src/core/reading/overlay";
-import { READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "../src/core/reading/readalong";
+import { checkReadAlong, READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "../src/core/reading/readalong";
 
 /**
  * A chapter: its heading, a paragraph of three sentences, a picture, a
@@ -110,6 +110,33 @@ describe("a read-along", () => {
     expect(sentenceReadAt(readAlong, 5_500)).toBe(2);
     expect(sentenceReadAt(readAlong, 7_000)).toBe(3);
     expect(sentenceReadAt(readAlong, 19_000)).toBe(4);
+  });
+
+  it("says how closely it follows the narration: all of it to the sentence by an overlay, none of it by chapters alone", () => {
+    // The overlay's four passages are moments the narration is known at; the two between others are checked.
+    expect(paired(true).readAlong.check).toMatchObject({ placed: 1, heldOut: { moments: 2 } });
+    // Nothing heard inside the one chapter, so nothing to check the chapter's proportion against.
+    expect(paired(false).readAlong.check).toEqual({ placed: 0, heldOut: null });
+  });
+
+  it("checks each moment heard by leaving it out and placing it from the moments either side", () => {
+    const pair = { text: { start: 0, end: 600 }, audio: { startMs: 0, endMs: 60_000 }, textLabel: "", audioTitle: "", confidence: 1, fixed: false };
+    // Heard at 10, 21, 30, 42 and 50 s. The three between others, placed from those either side, would be 1 s, 1.5 s
+    // and 2 s from when they were said.
+    const points: [number, number][] = [
+      [0, 0],
+      [10_000, 100],
+      [21_000, 200],
+      [30_000, 300],
+      [42_000, 400],
+      [50_000, 500],
+      [60_000, 600],
+    ];
+    const alignment = { how: "chapter" as const, pairs: [{ ...pair, points }], text: [], audio: [] };
+    const sentence = (ms: number, endMs: number, exact: boolean) => ({ start: 0, end: 1, ms, endMs, exact });
+    // Three sentences read, one of them placed to the sentence; one the narration skips doesn't count.
+    const blocks = [{ k: "p" as const, sentences: [sentence(0, 3000, true), sentence(3000, 6000, false), sentence(6000, 6000, false), sentence(6000, 9000, false)] }];
+    expect(checkReadAlong(alignment, blocks)).toEqual({ placed: 1 / 3, heldOut: { moments: 3, medianMs: 1500, worstMs: 2000 } });
   });
 });
 

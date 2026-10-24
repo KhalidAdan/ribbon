@@ -315,7 +315,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
 | `GET /api/places/export` | Your whole log as a file in the position-log format. |
-| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`src/core/reading/readalong.ts`), for the TV. Revalidated by ETag. |
+| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`src/core/reading/readalong.ts`), for the TV, with how closely it follows the narration (`check`, also logged as it's made). Revalidated by ETag. |
 | `GET /api/books/:id/place` | Where you are in the book: the newest of your listening and reading places, as a sentence of the read-along and a moment. Never cached. |
 | `POST /api/books/:id/place` | This device is at this moment: written into its log with the book's claims, for a device that keeps no log. |
 | `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search: the words as a line first, then all of them in any order, then any of them, each ranked by SQLite (bm25). |

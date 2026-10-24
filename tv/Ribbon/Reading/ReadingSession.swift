@@ -17,6 +17,10 @@ import UIKit
 /// Bookmarks are whole sentences: holding Select starts one at the remote's
 /// sentence, up and down take in more, and Select keeps it. Held on words
 /// already bookmarked, Select offers to delete the bookmark instead.
+///
+/// Once the narration has played a few seconds with the remote following it,
+/// the words not being read step back (the river); the remote moving away, or
+/// the narration pausing, brings them back at once.
 @MainActor
 @Observable
 final class ReadingSession {
@@ -39,6 +43,8 @@ final class ReadingSession {
     private(set) var notice: String?
     /// The remote's sentence is where the person dozed off, offered to go back to.
     private(set) var atDozed = false
+    /// How closely the read-along follows the voice, said for a few seconds as the book opens when it's by chapter.
+    private(set) var caveat: (title: String, hint: String)?
 
     /// Called when the sentences marked on the page change, so the column can draw them and bring them into view.
     @ObservationIgnored var onMarks: (() -> Void)?
@@ -48,11 +54,17 @@ final class ReadingSession {
     @ObservationIgnored private var listenedFrom: Int?
     /// The last Left: when, and the sentence it listened from.
     @ObservationIgnored private var lastLeft: (at: Date, sentence: Int)?
+    /// How long the narration has played with the remote following it, since it started or the remote came back.
+    @ObservationIgnored private var followedMs = 0
+    /// The last moment heard, and when.
+    @ObservationIgnored private var lastHeard: (at: Date, ms: Int)?
 
     /// Listening from a sentence starts this long before it, so its first word isn't clipped (src/core/reading/align.ts, `LEAD_IN_MS`).
     static let leadInMs = 250
     /// Left again within this long goes back another sentence.
     private static let againWithin: TimeInterval = 0.6
+    /// The river comes in once the narration has played this long with the remote following it.
+    static let riverAfterMs = 5_000
 
     /// Opened at the narrator's sentence when the book is playing, else at the place the server gave.
     init(listening: Listening, readAlong: ReadAlong, place: BookPlace?) {
@@ -68,6 +80,13 @@ final class ReadingSession {
         listening.onTime = { [weak self] ms in self?.heard(ms) }
         listening.onStop = { [weak self] in self?.stopped() }
         if !listening.playing { offerDozed() }
+        caveat = readAlong.check?.caveat
+        if caveat != nil {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                self?.caveat = nil
+            }
+        }
         // Bookmarks made on other devices since the book was last open.
         Task { [weak self] in
             await listening.bookmarks.load()
@@ -92,6 +111,7 @@ final class ReadingSession {
             listenFromHere()
         } else if listening.playing {
             listening.pause()
+            calm()
         } else {
             resumePlace()
         }
@@ -166,6 +186,7 @@ final class ReadingSession {
 
     /// The narration stopped on its own; for someone who dozed off, the remote goes to where they were last awake.
     private func stopped() {
+        calm()
         offerDozed()
         onMarks?()
     }
@@ -178,6 +199,7 @@ final class ReadingSession {
         guard sentence < narrator else { return }
         cursor = sentence
         following = false
+        calm()
         atDozed = true
     }
 
@@ -192,6 +214,7 @@ final class ReadingSession {
             marking = cursor
             // The remote's sentence stays where it is while the bookmark takes in more, wherever the narrator goes.
             following = false
+            calm()
         }
         onMarks?()
     }
@@ -261,6 +284,10 @@ final class ReadingSession {
     /// Whether the narrator's sentence is placed to the sentence, so it's marked as read.
     var narratorExact: Bool { sentences[narrator].exact }
 
+    /// The river: every word but the ones being read stepped back, once the narration has played a few seconds with
+    /// the remote following it.
+    var river: Bool { listening.playing && following && followedMs >= Self.riverAfterMs }
+
     // Inside -------------------------------------------------------------
 
     private func moveCursor(to index: Int) {
@@ -275,16 +302,40 @@ final class ReadingSession {
         cursor = target
         // Back on the narrator's sentence, the remote follows it again; never while a bookmark takes in more.
         following = cursor == narrator && marking == nil
+        if !following { calm() }
         onMarks?()
     }
 
     /// The narration reached a moment: the sentence it's in is the narrator's, and the remote's while it follows.
     private func heard(_ ms: Int) {
+        let before = river
+        flow(ms)
         let now = sentences.read(at: followed(ms))
-        guard now != narrator else { return }
+        guard now != narrator || river != before else { return }
         narrator = now
         if following { cursor = now }
         onMarks?()
+    }
+
+    /// The narration playing on while the remote follows it, toward the river: from the moment heard just before, but
+    /// not across a jump (a sentence listened from), and from nothing again after a pause.
+    private func flow(_ ms: Int) {
+        guard listening.playing && following else { return calm() }
+        let at = Date()
+        defer { lastHeard = (at, ms) }
+        // The player says where it is five times a second while it plays.
+        guard let last = lastHeard, at.timeIntervalSince(last.at) < 1 else {
+            followedMs = 0
+            return
+        }
+        let played = ms - last.ms
+        if played > 0 && played < 1_000 { followedMs += played }
+    }
+
+    /// Every word back at full ink, and the few seconds before the river comes in again start over.
+    private func calm() {
+        followedMs = 0
+        lastHeard = nil
     }
 
     /// The moment the text follows: the player's, except in the lead-in before a sentence listened from,

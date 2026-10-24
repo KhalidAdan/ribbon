@@ -7,7 +7,7 @@ import type { Ebook } from "../../../src/core/ebook.ts";
 import { BookText } from "../../../src/core/reading/booktext.ts";
 import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows } from "../../../src/core/reading/narration.ts";
 import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
-import { readAlongOf, type ReadAlong } from "../../../src/core/reading/readalong.ts";
+import { readAlongOf, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
 import { applyCorrections, buildChapters, rowsToCorrections } from "../../../src/core/scan/chapters.ts";
 import { bookDir, type StoredBook } from "./books.ts";
 import type { SearchIndex } from "./search.ts";
@@ -47,7 +47,8 @@ export class ReadAlongError extends Error {
  * carries changes: a transcript coming in, a pairing fixed by hand. The
  * parsed text is kept in the book's folder (`ebook/`), so a book is parsed
  * once; the read-alongs of the books being read are kept in memory. A
- * read-along made from something new is searched from then on (SearchIndex).
+ * read-along made from something new is searched from then on (SearchIndex),
+ * and how closely it follows the narration is said in the log (`checked`).
  */
 export class ReadAlongs {
   private readonly made = new Map<string, { stamp: string; made: MadeReadAlong }>();
@@ -56,6 +57,7 @@ export class ReadAlongs {
     private readonly dataDir: string,
     private readonly tool: string | null,
     private readonly search: SearchIndex | null = null,
+    private readonly log: { info(message: string): void } | null = null,
   ) {}
 
   /** Whether this server can make read-alongs at all. */
@@ -72,6 +74,7 @@ export class ReadAlongs {
     const kept = this.made.get(id);
     this.made.delete(id);
     const made = kept?.stamp === stamp ? kept.made : await this.make(dir, stored);
+    if (made !== kept?.made) this.log?.info(`read-along for "${stored.book.title}": ${checked(made.readAlong.check)}`);
     if (this.search && !this.search.isCurrent(id, stamp)) this.search.index(id, stamp, made.readAlong);
     // Most recently asked for last, so the first is the one to let go.
     this.made.set(id, { stamp, made });
@@ -116,4 +119,14 @@ export class ReadAlongs {
     const stamps = await Promise.all([...files, this.tool!].map((f) => stat(f).then((s) => `${s.size}:${s.mtimeMs}`, () => "-")));
     return stamps.join("|");
   }
+}
+
+/** How closely a read-along follows its narration, in words: "0% of the sentences read placed to the sentence, the rest by chapter; …". */
+export function checked(check: ReadAlongCheck): string {
+  const percent = Math.round(check.placed * 100);
+  const placed = `${percent}% of the sentences read placed to the sentence${percent < 100 ? ", the rest by chapter" : ""}`;
+  const heard = check.heldOut;
+  if (!heard) return `${placed}; nothing heard inside chapters to check it against`;
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  return `${placed}; ${heard.moments} moments heard, each left out in turn: ${s(heard.medianMs)} off at the median, ${s(heard.worstMs)} at worst`;
 }
