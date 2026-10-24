@@ -35,19 +35,29 @@ export function makeLibraries(dir: string): { shelf: string; copies: string } {
  * of each sentence given in turn, joined by spaces.
  */
 export function epub(file: string, heading: string, sentences: readonly string[]): void {
+  epubOf(file, { title: heading, chapters: [{ heading, sentences }] });
+}
+
+/**
+ * An EPUB 3, made with `zip`: each chapter a heading and a paragraph of its
+ * sentences, and in its contents by its heading; the package's description
+ * as given, already escaped for XML.
+ */
+export function epubOf(file: string, book: { title: string; description?: string; chapters: readonly { heading: string; sentences: readonly string[] }[] }): void {
   const dir = mkdtempSync(path.join(tmpdir(), "ribbon-epub-"));
   const write = (name: string, text: string) => {
     mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
     writeFileSync(path.join(dir, name), text);
   };
+  const chapters = book.chapters.map((c, i) => ({ ...c, id: `c${i + 1}`, href: `chapter-${i + 1}.xhtml` }));
   write("mimetype", "application/epub+zip");
   write("META-INF/container.xml", `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
   write(
     "OEBPS/content.opf",
-    `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:5b0c0d5e-1c6a-4f39-9d0b-2a7f1c9e8a11</dc:identifier><dc:title>${heading}</dc:title><dc:language>en</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="one"/></spine></package>`,
+    `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:5b0c0d5e-1c6a-4f39-9d0b-2a7f1c9e8a11</dc:identifier><dc:title>${book.title}</dc:title><dc:language>en</dc:language>${book.description ? `<dc:description>${book.description}</dc:description>` : ""}</metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${chapters.map((c) => `<item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join("")}</manifest><spine>${chapters.map((c) => `<itemref idref="${c.id}"/>`).join("")}</spine></package>`,
   );
-  write("OEBPS/nav.xhtml", `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="one.xhtml">${heading}</a></li></ol></nav></body></html>`);
-  write("OEBPS/one.xhtml", `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><h1>${heading}</h1><p>${sentences.join(" ")}</p></body></html>`);
+  write("OEBPS/nav.xhtml", `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol>${chapters.map((c) => `<li><a href="${c.href}">${c.heading}</a></li>`).join("")}</ol></nav></body></html>`);
+  for (const c of chapters) write(`OEBPS/${c.href}`, `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><h1>${c.heading}</h1><p>${c.sentences.join(" ")}</p></body></html>`);
   mkdirSync(path.dirname(file), { recursive: true });
   // The mimetype first and stored, as EPUB asks; the rest compressed.
   execFileSync("zip", ["-X0q", file, "mimetype"], { cwd: dir });

@@ -1,15 +1,18 @@
 import type { Chapter } from "./types";
 import type { Correction } from "./scan/chapters";
 import { fit, titlesOnly, type LookedUp, type Region } from "./audnexus";
+import { chapterKey, type Alignment, type Pair } from "./reading/align";
+import type { BookText } from "./reading/booktext";
 import { fold } from "./search";
 
 /**
  * Real chapter names for books whose files only number their chapters.
  * Many files carry generated markers ("Chapter 1" to "Chapter 37") while
  * the book opens with credits and an epigraph, so the narrator's Chapter
- * 2 is the file's fourth marker. Audible's chapter data (through
- * Audnexus) has the names the publisher gave them. Pure: the app does
- * the asking.
+ * 2 is the file's fourth marker. The names come from the book's own text,
+ * when it has an EPUB (`namesFromContents`), or from Audible's chapter
+ * data (through Audnexus), which has the names the publisher gave them.
+ * Pure: the app and the server do the asking.
  */
 
 /** "Chapter 3", "Track 03", "Part 3", "03", "3." and the like, with its number. */
@@ -119,4 +122,116 @@ export function planNames(lookup: LookedUp, chapters: readonly Chapter[], bookMs
   const corrections = titlesOnly(lookup, chapters.length).filter((c) => c.op === "rename" && c.title !== chapters[c.index]?.title);
   if (corrections.length === 0) return { apply: false, reason: "the names already match" };
   return { apply: true, corrections };
+}
+
+// Names from the book's own text ------------------------------------------
+
+/** A chapter given a name: its place in the list of chapters, and the name. */
+export interface ChapterName {
+  index: number;
+  title: string;
+}
+
+/** A contents entry that sets off a part of the book rather than a chapter: "Part Two", "BOOK III". */
+const PART = /^\s*(part|book)\b/i;
+
+/** A contents entry as a name shows it: on one line. */
+const tidy = (label: string) => label.replace(/\s+/g, " ").trim();
+
+/**
+ * Whether a contents entry numbers a chapter, alone or before its title:
+ * "Three", "Chapter 3", "XII", "Twenty-one: The Long Walk", "1. Arrival",
+ * "9:ii" (a part's ninth, its second chapter). A part is not a chapter.
+ */
+export function numbersChapter(label: string): boolean {
+  if (PART.test(label)) return false;
+  const lead = label.split(/[:.]|\s[–—-]\s/)[0]!.trim();
+  return lead !== "" && /^\d+$/.test(chapterKey(lead));
+}
+
+/** A name that is a number and nothing else: "One", "ii", "Chapter 3". */
+const onlyNumber = (title: string) => numbersChapter(title) && /^\d+$/.test(chapterKey(title));
+
+/**
+ * The heading each numbered chapter of a book's contents comes under: the
+ * nearest entry before it that isn't a numbered chapter ("Part Two",
+ * "INTERLUDE"), by where the chapter is (`href#block`, as the pairing names
+ * it). A part's heading often shares its place with the part's first
+ * chapter, and the pairing keeps only the chapter there, so the headings
+ * are read from the contents themselves.
+ */
+export function headingsOf(text: BookText): Map<string, string> {
+  const ebook = text.ebook;
+  const out = new Map<string, string>();
+  let heading = "";
+  for (const t of ebook.toc) {
+    const section = ebook.sections[t.section];
+    if (!section?.linear) continue;
+    if (!numbersChapter(t.label)) heading = tidy(t.label);
+    else if (heading) out.set(`${section.href}#${t.block}`, heading);
+  }
+  return out;
+}
+
+/**
+ * Names for an audiobook's chapters from its text's contents, by the
+ * pairing of the two (reading/align.ts): each audio chapter is named after
+ * the contents entries it reads, "Three", or "Part Two, One" when a part
+ * opens with its first chapter.
+ *
+ * A name is given only where the pairing is sure of it:
+ * - across the run of the book's numbered chapters, from the first to the
+ *   last, where the chapters' lengths pair them: the pairing read-along
+ *   already moves between the text and the audio by;
+ * - before and after that run, where the credits meet the front and back
+ *   matter and lengths can't tell an epigraph from a first chapter, only
+ *   where the narration says so: a pair set by hand, an opening heard as
+ *   its text's, or the transcript found in its text.
+ *
+ * An audio chapter the pairing passed over, alone between two named ones,
+ * takes the entries it passed over between them (a part's heading, read on
+ * its own). In a book that numbers its chapters again under each heading,
+ * a name that is only a number gets its heading (`headingsOf`): "One (Part
+ * Two)". Written "Part Two: One", it would read to the pairing as chapter
+ * three.
+ */
+export function namesFromContents(a: Alignment, headings: ReadonlyMap<string, string> = new Map()): ChapterName[] {
+  if (a.how !== "chapter") return [];
+  const narrated = (p: Pair) => p.fixed || !!p.heard || p.points.length > 2;
+  const numbered = a.pairs.map((_, k) => a.text.some((t) => t.pair === k && numbersChapter(t.label)));
+  const first = numbered.indexOf(true);
+  const last = numbered.lastIndexOf(true);
+  const sure = (k: number) => k >= 0 && ((first >= 0 && k >= first && k <= last) || narrated(a.pairs[k]!));
+  const textOf = (k: number) => a.text.flatMap((t, i) => (t.pair === k ? [i] : []));
+  const label = (from: number, to: number) =>
+    a.text
+      .slice(from, to)
+      .map((t) => tidy(t.label))
+      .join(", ");
+
+  // Each with the first contents entry it reads, for the heading it's under.
+  const names: (ChapterName & { entry: number; continued: boolean })[] = [];
+  a.audio.forEach((u, j) => {
+    if (u.pair >= 0) {
+      if (!sure(u.pair)) return;
+      const entries = textOf(u.pair);
+      names.push({ index: j, title: label(entries[0]!, entries.at(-1)! + 1), entry: entries[0]!, continued: a.audio[j - 1]?.pair === u.pair });
+      return;
+    }
+    const before = a.audio[j - 1]?.pair ?? -1;
+    const after = a.audio[j + 1]?.pair ?? -1;
+    if (!sure(before) || !sure(after)) return;
+    // Pairs run in order, so the entries between two are the ones passed over.
+    const from = textOf(before).at(-1)! + 1;
+    const to = textOf(after)[0]!;
+    if (to > from) names.push({ index: j, title: label(from, to), entry: from, continued: false });
+  });
+
+  const numbers = names.filter((n) => !n.continued && onlyNumber(n.title)).map((n) => n.title);
+  const again = new Set(numbers).size < numbers.length;
+  return names.map(({ index, title, entry, continued }) => {
+    const under = again && onlyNumber(title) ? headings.get(a.text[entry]!.ref) : undefined;
+    const named = under ? `${title} (${under})` : title;
+    return { index, title: continued ? `${named} (continued)` : named };
+  });
 }

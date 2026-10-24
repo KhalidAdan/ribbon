@@ -15,6 +15,7 @@ import { Jobs } from "./jobs.ts";
 import { nodeHost } from "../../src/host/node.ts";
 import { BookIndex } from "./library/books.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
+import { booksToHydrate, hydrateBooks, type HydrateProgress } from "./library/hydrate.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 import { ReadAlongs } from "./library/readalong.ts";
@@ -136,6 +137,9 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   if (frames.available) jobs.start("frames", { indexed: 0 }, async () => ({ indexed: await frames.indexMissing(books) }), null);
   const search = new SearchIndex(db);
   const readAlongs = new ReadAlongs(config.dataDir, config.ebookTool ?? null, search, app.log);
+  // Books added before the server filled in what they came without get it from their EPUBs, in the background, before
+  // their sentences are indexed with the chapters named.
+  if (readAlongs.available) jobs.start<HydrateProgress>("hydrate", { books: 0, done: 0, described: 0, named: 0, current: null }, async (report) => hydrateBooks(readAlongs, config.dataDir, await booksToHydrate(config.dataDir, books), report), null);
   // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, dataDir: config.dataDir });

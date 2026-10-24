@@ -295,6 +295,19 @@ offered, and the book says what it's waiting for.
   fetches only the new records (the transcript, the pairing), which are
   small.
 - **Order of work:** books someone has opened go first, then the newest.
+- **What a book came without is filled in** from its own files, as a job
+  after it's added, and when the server starts for books added before
+  (`server/src/library/hydrate.ts`). Its description is its EPUB's
+  (`dc:description`), when it has none. Chapters its files only number
+  ("Chapter 1" to "Chapter 37", the credits counted among them) are named
+  from the EPUB's contents by the pairing (READING.md, section 6), and
+  named again when what they came from changes: a transcript coming in
+  confirms more of them. Nothing is looked up anywhere else, and nothing set
+  by hand is replaced: a description is filled in only where there's none,
+  and a book with a chapter named by hand keeps all its names. `book.json`
+  says what was filled in (`filled`). A device that downloads the book gets
+  the names after the hand corrections, as the one corrections record it
+  keeps beside the book; the TV gets the chapters named.
 - **A book whose text and audio don't pair** (a different edition, a missing
   chapter) is flagged on the admin pages for a person to fix. It's never
   offered as read-along on a guess.

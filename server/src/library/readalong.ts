@@ -1,15 +1,14 @@
 import { execFile } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { bytesToRows, type Row } from "../../../src/core/csv.ts";
 import type { Ebook } from "../../../src/core/ebook.ts";
 import { BookText } from "../../../src/core/reading/booktext.ts";
-import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows } from "../../../src/core/reading/narration.ts";
+import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows, type Narration } from "../../../src/core/reading/narration.ts";
 import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
 import { readAlongOf, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
-import { applyCorrections, buildChapters, rowsToCorrections } from "../../../src/core/scan/chapters.ts";
 import { bookDir, type StoredBook } from "./books.ts";
+import { chaptersWith, correctionsOf, recordRows } from "./chapters.ts";
 import type { SearchIndex } from "./search.ts";
 
 const run = promisify(execFile);
@@ -83,28 +82,24 @@ export class ReadAlongs {
   }
 
   private async make(dir: string, stored: StoredBook): Promise<MadeReadAlong> {
-    const text = new BookText(await this.parse(path.join(dir, stored.book.ebook!), path.join(dir, "ebook")));
-    const rows = async (kind: string): Promise<Row[]> => (stored.records?.includes(kind) ? (await bytesToRows(await readFile(path.join(dir, "records", `${kind}.csv`)))).rows : []);
-    const [pairing, heard, aligned, corrections] = await Promise.all([rows("pairing"), rows("heard"), rows("aligned"), rows("corrections")]);
-    const durationMs = stored.book.durationMs;
-    // The chapters as a device that downloaded the book has them: the files' own, with the hand corrections carried in.
-    const fixes = rowsToCorrections(corrections);
-    const chapters = fixes.length > 0 ? applyCorrections(buildChapters(stored.files), fixes, durationMs, stored.files).chapters : stored.chapters;
-    const said = heardFromRows(heard);
-    const alignment = pairBook(text, chapters, durationMs, {
-      fixes: pairingFromRows(pairing),
-      heard: said.heard,
-      anchors: anchorsOf(said.anchors, transcriptAnchors(transcriptFromRows(aligned).said)),
-      overlay: overlayAnchors(text, { files: stored.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs }),
-    });
+    const text = new BookText(await this.parse(dir, stored));
+    // The chapters as a device that downloaded the book has them (chapters.ts).
+    const chapters = chaptersWith(stored, await correctionsOf(dir, stored));
+    const alignment = pairBook(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
     const readAlong = readAlongOf(text, alignment);
     return { readAlong, text, json: JSON.stringify(readAlong) };
   }
 
-  /** The book's text, parsed by `ribbon-ebook` and kept in `cache`. */
-  private async parse(epub: string, cache: string): Promise<Ebook> {
+  /** A book's EPUB as `ribbon-ebook` reads it: its text and what its package says. */
+  async ebook(id: string, stored: StoredBook): Promise<Ebook> {
+    if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (server/README.md).", 503);
+    return this.parse(bookDir(this.dataDir, id), stored);
+  }
+
+  /** The book's EPUB, parsed by `ribbon-ebook` and kept in its folder (`ebook/`), so it's parsed once. */
+  private async parse(dir: string, stored: StoredBook): Promise<Ebook> {
     try {
-      const { stdout } = await run(this.tool!, [epub, cache], { maxBuffer: 256 * 1024 * 1024 });
+      const { stdout } = await run(this.tool!, [path.join(dir, stored.book.ebook!), path.join(dir, "ebook")], { maxBuffer: 256 * 1024 * 1024 });
       return JSON.parse(stdout) as Ebook;
     } catch (e) {
       const said = (e as { stderr?: string }).stderr?.trim();
@@ -119,6 +114,18 @@ export class ReadAlongs {
     const stamps = await Promise.all([...files, this.tool!].map((f) => stat(f).then((s) => `${s.size}:${s.mtimeMs}`, () => "-")));
     return stamps.join("|");
   }
+}
+
+/** What the book's records say about its narration (src/core/reading/narration.ts): pairings set by hand, what was heard of it, its transcript, and its own Media Overlay. */
+export async function narrationOf(dir: string, stored: StoredBook, text: BookText): Promise<Narration> {
+  const [pairing, heard, aligned] = await Promise.all([recordRows(dir, stored, "pairing"), recordRows(dir, stored, "heard"), recordRows(dir, stored, "aligned")]);
+  const said = heardFromRows(heard);
+  return {
+    fixes: pairingFromRows(pairing),
+    heard: said.heard,
+    anchors: anchorsOf(said.anchors, transcriptAnchors(transcriptFromRows(aligned).said)),
+    overlay: overlayAnchors(text, { files: stored.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: stored.book.durationMs }),
+  };
 }
 
 /** How closely a read-along follows its narration, in words: "0% of the sentences read placed to the sentence, the rest by chapter; …". */

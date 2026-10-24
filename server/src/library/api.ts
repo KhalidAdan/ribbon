@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
+import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
 import type { Mp3Frames } from "./frames.ts";
 import type { LibrarySeries } from "./series.ts";
@@ -25,7 +26,8 @@ const ASK_FIRST = "private, no-cache";
  * - `GET /api/books`: every book, with each cover's shape and colour, and
  *   the ids of the books deleted, which a device that downloaded one takes
  *   off (the admin deletes one in routes.ts).
- * - `GET /api/books/:id`: one book in full: its files, chapters and parts.
+ * - `GET /api/books/:id`: one book in full: its files, chapters and parts,
+ *   the chapters as corrected (chapters.ts).
  * - `GET /api/series`: the library's series, each with its books in order
  *   (series.ts; the admin changes them in routes.ts).
  * - `GET /covers/:hash-:width.jpg`: a cover, at an address that never changes.
@@ -56,7 +58,7 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
   app.get<{ Params: { id: string } }>("/api/books/:id", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     if (!stored) return reply.code(404).send({ error: "No such book on this server." });
-    return sendRevalidated(request, reply, stored);
+    return sendRevalidated(request, reply, await servedBook(bookDir(deps.dataDir, request.params.id), stored));
   });
 
   app.get<{ Params: { name: string } }>("/covers/:name", { onRequest: mustSignIn }, async (request, reply) => {
@@ -70,8 +72,11 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     const stored = await storedBook(deps, request.params.id);
     const file = request.params["*"];
     // Only the book's own files: its EPUB, the audio its record lists, and the records carried in with it. Nothing else under its folder, and nothing outside it.
-    const known = stored && (file === stored.book.ebook || stored.files.some((f) => f.path === file) || (stored.records ?? []).some((kind) => file === `records/${kind}.csv`));
+    const known = stored && (file === stored.book.ebook || stored.files.some((f) => f.path === file) || servedRecords(stored).some((kind) => file === `records/${kind}.csv`));
     if (!known) return reply.code(404).send({ error: "No such file in this book." });
+    // The corrections with the chapter names the server filled in after them, made as they're asked for.
+    const corrections = file === "records/corrections.csv" ? await servedCorrections(bookDir(deps.dataDir, request.params.id), stored) : null;
+    if (corrections) return sendRevalidated(request, reply, null, new TextDecoder().decode(corrections), "text/csv; charset=utf-8");
     const where = path.posix.join(request.params.id, file);
     const ms = Number(request.query.ms);
     if (request.query.ms !== undefined && /\.mp3$/i.test(file) && deps.frames.available && Number.isFinite(ms) && ms > 0) {
@@ -89,14 +94,14 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
  * Send JSON with an ETag made from it, or a bare 304 when the device already
  * has exactly this (If-None-Match). Made here rather than by a plugin so the
  * ETag is always of the JSON itself, whatever compression does after. A
- * body already made is sent as it is.
+ * body already made is sent as it is, as JSON unless it says otherwise.
  */
-export function sendRevalidated(request: FastifyRequest, reply: FastifyReply, data: unknown, body = JSON.stringify(data)): FastifyReply {
+export function sendRevalidated(request: FastifyRequest, reply: FastifyReply, data: unknown, body = JSON.stringify(data), type = "application/json; charset=utf-8"): FastifyReply {
   const etag = `W/"${createHash("sha1").update(body).digest("base64url")}"`;
   reply.header("etag", etag).header("cache-control", ASK_FIRST);
   const asked = request.headers["if-none-match"];
   if (asked && asked.split(",").some((tag) => tag.trim() === etag || tag.trim() === "*")) return reply.code(304).send();
-  return reply.type("application/json; charset=utf-8").send(body);
+  return reply.type(type).send(body);
 }
 
 /** A book's full record from its folder, or null when there's no such book. */
