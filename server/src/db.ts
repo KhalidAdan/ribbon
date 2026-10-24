@@ -4,10 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 
 /**
  * The server's database, `ribbon.db` in its data folder: Better Auth's
- * tables (people, sessions) and the server's own: what is metadata, each
- * person's places, and every book's sentences for search. The books
- * themselves are files (docs/SERVER.md, section 5). SQLite is the one built into Node, so there
- * is nothing native to compile on the machine that runs the server.
+ * tables (people, sessions) and the server's own: what is metadata, the
+ * library's series, each person's places, and every book's sentences for
+ * search. The books themselves are files (docs/SERVER.md, section 5).
+ * SQLite is the one built into Node, so there is nothing native to compile
+ * on the machine that runs the server.
  */
 export function openDatabase(dataDir: string): DatabaseSync {
   mkdirSync(dataDir, { recursive: true });
@@ -70,6 +71,47 @@ CREATE TABLE IF NOT EXISTS deleted_book (
   id TEXT PRIMARY KEY,
   deleted_at INTEGER NOT NULL,
   deleted_by TEXT
+);
+
+-- The library's series (src/library/series.ts): the same for every device and
+-- every person. The server finds them as books arrive; after that a series is
+-- what people make of it.
+CREATE TABLE IF NOT EXISTS series (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  changed_at INTEGER NOT NULL,
+  -- Who last changed it; null while it's as the server found it.
+  changed_by TEXT
+);
+
+-- A series' books, in order. A book is in one series at most.
+CREATE TABLE IF NOT EXISTS series_book (
+  series_id TEXT NOT NULL REFERENCES series (id) ON DELETE CASCADE,
+  book_id TEXT NOT NULL UNIQUE REFERENCES book (id) ON DELETE CASCADE,
+  -- Its place in the order: between two others is anything between their positions.
+  position REAL NOT NULL,
+  -- Its number in the series where one is known: 8 for "Book 8, Part 2", 2.5 between 2 and 3.
+  number REAL,
+  -- Its title as a list of the series shows it, without the series' name; null to show its own.
+  title TEXT,
+  -- 0 leaves it off the shelf: a novella nobody listens to.
+  shelved INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (series_id, book_id)
+);
+
+-- What people took apart, so finding series again never puts it back: series
+-- deleted, and books taken out of a series.
+CREATE TABLE IF NOT EXISTS series_dropped (
+  id TEXT PRIMARY KEY,
+  dropped_at INTEGER NOT NULL,
+  dropped_by TEXT
+);
+
+CREATE TABLE IF NOT EXISTS series_left (
+  series_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  PRIMARY KEY (series_id, book_id)
 );
 
 -- Work the server does in the background: adding a folder, and later transcribing.

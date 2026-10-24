@@ -94,7 +94,7 @@ private struct UpNext: View {
             HStack(spacing: 28) {
                 CoverView(book: book, size: 150)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Book \(BookView.number(of: book, at: index)) of \(series.books.count)").font(.ui(22)).foregroundStyle(Color.ink2)
+                    Text("Book \(series.number(of: book, at: index)) of \(series.books.count)").font(.ui(22)).foregroundStyle(Color.ink2)
                     Text(book.title).font(.book(40, weight: 500)).foregroundStyle(Color.ink).lineLimit(2)
                     Text("\(book.author.isEmpty ? "" : "\(book.author) · ")\(Format.left(book.durationMs))").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
                 }

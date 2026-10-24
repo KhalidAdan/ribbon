@@ -9,6 +9,7 @@ import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
 import type { Mp3Frames } from "./frames.ts";
+import type { LibrarySeries } from "./series.ts";
 
 /** A cover's file name: its picture's hash and one of the widths it's made at. */
 const COVER_NAME = new RegExp(`^([0-9a-f]{16})-(${COVER_WIDTHS.join("|")})\\.jpg$`);
@@ -27,18 +28,20 @@ const ASK_FIRST = "private, no-cache";
  *   off (the admin deletes one in routes.ts).
  * - `GET /api/books/:id`: one book in full: its files, chapters and parts,
  *   the chapters as corrected (chapters.ts).
+ * - `GET /api/series`: the library's series, each with its books in order
+ *   (series.ts; the admin changes them in routes.ts).
  * - `GET /covers/:hash-:width.jpg`: a cover, at an address that never changes.
  * - `GET /api/books/:id/files/*`: a file of the book, for downloads; an
  *   MP3 with `?ms=` is sent from the frame where that moment falls, for a
  *   player that streams (the TV), which then starts it at its own 0.
  *
- * The two JSON answers carry an ETag and are sent "no-cache": a device
+ * The JSON answers carry an ETag and are sent "no-cache": a device
  * keeps them and asks again with If-None-Match, and gets a bare 304 when
  * nothing changed. Places are never in them, so they stay the same while
  * people listen. Files carry an ETag and Last-Modified and answer Range
  * and If-Range, so a download that stopped carries on where it was.
  */
-export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; dataDir: string; frames: Mp3Frames }): Promise<void> {
+export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; series: LibrarySeries; dataDir: string; frames: Mp3Frames }): Promise<void> {
   // Sends files with Range, ETag and Last-Modified (the `send` module); no routes of its own.
   // Made now, not with the first book: the files plugin wants its folder to exist.
   mkdirSync(path.join(deps.dataDir, "books"), { recursive: true });
@@ -49,6 +52,8 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
   };
 
   app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { books: deps.books.list(), deleted: deps.books.deleted() }));
+
+  app.get("/api/series", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { series: deps.series.list() }));
 
   app.get<{ Params: { id: string } }>("/api/books/:id", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
