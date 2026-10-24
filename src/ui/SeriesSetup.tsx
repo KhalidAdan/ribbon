@@ -8,6 +8,7 @@ import { readerOnly } from "../core/ebook";
 import { useAppState, useController, useCovers } from "./store";
 import { Button, IconButton } from "./Button";
 import { Dialog } from "./Dialog";
+import { useKept } from "./modal";
 import { Checkbox, Menu, type MenuItem } from "./kit";
 import { Cover } from "./Cover";
 
@@ -19,9 +20,12 @@ import { Cover } from "./Cover";
  * and settings. Nothing touches the disk until Save.
  */
 export function SeriesSetup() {
-  const state = useAppState((s) => ({ seriesSetup: s.seriesSetup, series: s.series, books: s.books }));
+  const live = useAppState((s) => ({ seriesSetup: s.seriesSetup, series: s.series, books: s.books }));
   useCovers();
   const c = useController();
+  // On its way out it shows what it showed last, not what Save or Forget just changed.
+  const [kept, closed] = useKept(live.seriesSetup ? live : null);
+  const state = kept ?? live;
   const setup = state.seriesSetup;
   const existing = setup ? state.series[setup.key] : undefined;
   const [choices, setChoices] = useState<SeriesChoice[]>([]);
@@ -102,8 +106,9 @@ export function SeriesSetup() {
 
   return (
     <Dialog
-      open={!!setup}
+      open={live.seriesSetup !== null}
       onClose={() => c.closeSeriesSetup()}
+      onClosed={closed}
       labelId="series-setup-title"
       wide
       title={existing ? `Change ${existing.name || setup.name}` : `Set up ${setup.name}`}

@@ -6,10 +6,10 @@ import { useModal } from "./modal";
  * A centred dialog on a native <dialog>: a title and one line about it,
  * the body, and a footer with a hint on the left and the actions on the
  * right. Escape and the close event call onClose. It grows in from just
- * smaller, and leaves the same way (modal.ts).
+ * smaller, and leaves the same way (modal.ts); onClosed hears when it's gone.
  */
-export function Dialog({ open, onClose, title, description, children, hint, actions, labelId, wide = false }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode; hint?: ReactNode; actions: ReactNode; labelId: string; wide?: boolean }) {
-  const { ref, closing } = useModal(open);
+export function Dialog({ open, onClose, onClosed, title, description, children, hint, actions, labelId, wide = false }: { open: boolean; onClose: () => void; onClosed?: (() => void) | undefined; title: ReactNode; description?: ReactNode; children: ReactNode; hint?: ReactNode; actions: ReactNode; labelId: string; wide?: boolean }) {
+  const { ref, closing } = useModal(open, { onClosed });
   return (
     <dialog
       ref={ref}
