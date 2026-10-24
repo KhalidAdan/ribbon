@@ -65,8 +65,17 @@ describe("searching books' sentences", () => {
     // Counted as the read-along counts sentences: the first chapter's heading and two sentences, the second's heading, then this one.
     expect(best).toMatchObject({ book: "oz", sentence: 5, chapter: "The Magic Art of the Great Humbug", text: "I am going to Oz to get my brains at last.”" });
     expect(best!.ms).toBe(9000);
-    // Only the words that tell: "where", "the" and "his" are in too many sentences to light up.
     expect(best!.matches.map(([start, length]) => best!.text.slice(start, start + length))).toEqual(["get", "brains"]);
+  });
+
+  it("finds a line said word for word first, however common its words are", () => {
+    // "say" is in two dozen short sentences; alone it would rank the long one with the line last, past the limit.
+    const plenty = Array.from({ length: 24 }, (_, i) => [`I say it ${i}.`]);
+    search.index("heresy", "stamp-1", readAlongOf([{ title: "Echoes", paragraphs: [...plenty, ["Sanguinius stood before the gathered sons of his Legion and asked them, in a voice that carried to the last of the ranks, ‘What say you, warriors of the Ninth Legion?’"]] }]));
+    const [best] = search.search("What say you", { book: "heresy" });
+    expect(best!.text).toContain("‘What say you, warriors of the Ninth Legion?’");
+    expect(best!.matches.map(([start, length]) => best!.text.slice(start, start + length)).join("")).toBe("What say you");
+    search.remove("heresy");
   });
 
   it("marks the words that matched", () => {
@@ -82,7 +91,7 @@ describe("searching books' sentences", () => {
 
   it("reads anything said as words, never as search syntax", () => {
     expect(search.search("")).toEqual([]);
-    // Nothing but little words still searches them.
+    // The commonest words are words like any other.
     expect(search.search("to this")[0]).toMatchObject({ book: "oz", sentence: 1 });
     expect(search.search("“ ” ? !")).toEqual([]);
     expect(search.search('pins AND "needles NEAR(')[0]).toMatchObject({ book: "oz", sentence: 6 });
