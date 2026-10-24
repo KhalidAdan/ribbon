@@ -325,6 +325,22 @@ offered, and the book says what it's waiting for.
 - **A book whose text and audio don't pair** (a different edition, a missing
   chapter) is flagged on the admin pages for a person to fix. It's never
   offered as read-along on a guess.
+- **No book stays by chapter unnoticed** (built). A read-along places at
+  least 90% of its sentences to the sentence, or it goes by chapter and the
+  TV says so as it opens (`BY_SENTENCE`, src/core/reading/readalong.ts).
+  The server keeps where each book stands as it makes its read-along, and
+  lists every book for the admin, the ones that need a person first
+  (`GET /api/library/readalong`, `stateOf` in
+  server/src/library/readalong.ts):
+  - flagged: transcribed, and still by chapter;
+  - unpaired: its chapters didn't pair, so nothing heard can be placed;
+  - unreadable: its EPUB can't be read;
+  - waiting for a device's transcript, on a server that doesn't transcribe;
+  - transcribing;
+  - by sentence.
+
+  When the server has heard all it can of a book, it says in its log how
+  the book reads along, and warns about one still by chapter.
 
 ## 10. The API (first milestone)
 
@@ -350,6 +366,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search: the words as a line first, then all of them in any order, then any of them, each ranked by SQLite (bm25). |
 | `GET /api/progress` | How far you are through each book you've started, for a library that keeps no log (the TV): where, when, started and finished, as the apps work it out. Never cached. |
 | `GET /api/books/:id/bookmarks` | Your bookmarks in the book, from every device; words are named by the sentences of the read-along they're in. Never cached. |
+| `GET /api/library/readalong` | (Admin) How every book with text and narration reads along: by sentence or by chapter, how much of its narration is transcribed, and why one needs a person (section 9). |
 | `POST /api/books/:id/records/:kind` | What a device heard of the narration, `heard` or `aligned`, as the CSV it keeps beside the book: merged into the book's own, never replacing it. |
 | `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader, in this device's log. |
 | `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |

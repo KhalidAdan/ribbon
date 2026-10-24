@@ -26,6 +26,13 @@ export interface ReadAlong {
 }
 
 /**
+ * Placed to the sentence for this share of its sentences or more, a
+ * read-along goes by sentence; under it, it goes by chapter, and a device
+ * says so as it opens (the TV: tv/Ribbon/Reading/ReadAlong.swift).
+ */
+export const BY_SENTENCE = 0.9;
+
+/**
  * How closely a read-along follows its narration, measured as it's made,
  * so a device can say so rather than mark a guess as the sentence being
  * read (docs/SERVER.md, section 9: nothing is guessed silently).

@@ -9,7 +9,7 @@ import { narrationLanguage, placeStretch, STRETCH_MS, stretchesOf, type PlacedPh
 import type { Jobs } from "../jobs.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
 import { readStored } from "./prepare.ts";
-import type { MadeReadAlong, ReadAlongs } from "./readalong.ts";
+import { stateOf, type MadeReadAlong, type ReadAlongs, type Standing } from "./readalong.ts";
 import { keepHeard, recordRows } from "./records.ts";
 
 /** Minutes of narration heard to a call; then the next book is chosen again, so a book someone opens goes to the front. */
@@ -56,6 +56,9 @@ export class Transcriber {
   private readonly finished = new Set<string>();
   /** Stretches that couldn't be heard this run, by book and start: tried again on the next. */
   private readonly failed = new Set<string>();
+  /** Books heard in since the server started, and the books whose standing has been said in the log. */
+  private readonly heardIn = new Set<string>();
+  private readonly told = new Set<string>();
   private running = false;
   private again = false;
   private stopped = false;
@@ -135,6 +138,7 @@ export class Transcriber {
       // A book with no text to place the words in, or whose EPUB can't be read, or that reads along by its own Media Overlay, has nothing to hear.
       const made = stored?.book.ebook && stored.files.length > 0 ? await this.deps.readAlongs.of(id, stored).catch(() => null) : null;
       if (!stored || !made || made.alignment.how !== "chapter") {
+        if (stored && made) this.tell(id, stored.book.title, made.standing);
         this.finished.add(id);
         continue;
       }
@@ -142,6 +146,7 @@ export class Transcriber {
       const all = stretchesOf(stored.files);
       const todo = all.filter((x) => !spans.has(x.startMs) && !this.failed.has(`${id}@${x.startMs}`));
       if (todo.length === 0) {
+        this.tell(id, stored.book.title, made.standing);
         this.finished.add(id);
         continue;
       }
@@ -156,6 +161,22 @@ export class Transcriber {
     return null;
   }
 
+
+  /**
+   * Say once how a book there's nothing left to hear in reads along. One
+   * still by chapter needs a person (docs/SERVER.md, section 9): it's never
+   * left to be found on the TV.
+   */
+  private tell(id: string, title: string, standing: Standing): void {
+    if (this.told.has(id)) return;
+    const percent = Math.round(standing.check.placed * 100);
+    const state = stateOf(standing, true);
+    if (state === "flagged") this.deps.log?.warn(`"${title}" is transcribed and still reads along by chapter (${percent}% to the sentence): its EPUB and audiobook may be different editions, or its pairing needs fixing`);
+    else if (state === "unpaired") this.deps.log?.warn(`"${title}" reads along by chapter: its text and narration didn't pair, so nothing heard can be placed; its pairing needs fixing`);
+    else if (state === "sentence" && this.heardIn.has(id)) this.deps.log?.info(`"${title}" is transcribed, and reads along by sentence (${percent}%)`);
+    else return;
+    this.told.add(id);
+  }
 
   /** Hear a few of a book's stretches, place what was said in its text, and keep it. How many were heard. */
   private async hear(next: { id: string; stored: StoredBook; made: MadeReadAlong; todo: Stretch[] }): Promise<number> {
@@ -186,6 +207,7 @@ export class Transcriber {
       said.push(...placeStretch(this.index!.words, made.alignment, x, phrases).said);
     });
     if (spans.size > 0) await keepHeard(this.deps.dataDir, id, "aligned", transcriptRows({ spans, said }));
+    this.heardIn.add(id);
     return spans.size;
   }
 }
