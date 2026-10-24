@@ -4,7 +4,9 @@ import UIKit
 /// a sentence, a swipe on the touch surface glides through several, and Play
 /// or Select reads from the sentence the remote is on (ReadingSession). The
 /// column moves only when the sentence leaves the middle of the screen, and
-/// then glides, so the words stay still while they're read.
+/// then glides, so the words stay still while they're read. While the
+/// narration plays, every other word steps back, dimmed, and the sentence
+/// being read is left at full ink; paused, the whole page comes back.
 ///
 /// Left listens from the remote's sentence, and again a sentence further back
 /// each time it's pressed again at once; right returns to the narrator.
@@ -38,6 +40,8 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     private let toNarrator = SideLabel(title: "Return to narrator", arrow: "chevron.right", leading: false)
     /// The bookmarks drawn, to draw again when they change.
     private var drawnBookmarks: [String] = []
+    /// Whether the words not being read are drawn dimmed: while the narration plays.
+    private var dimmed = false
 
     /// Holding up or down keeps stepping, after a moment.
     private var repeater: Timer?
@@ -244,10 +248,13 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         if let range = session.markingRange {
             now.formUnion(session.sentences[range.lowerBound].block...session.sentences[range.upperBound].block)
         }
-        // Bookmarks made or deleted, here or on another device, are drawn again everywhere they show.
+        // Bookmarks made or deleted, here or on another device, are drawn again everywhere they show; so is every
+        // paragraph when the narration starts or stops, and the words not being read dim or come back.
         let bookmarks = session.bookmarks.all.map(\.id)
-        let again = bookmarks != drawnBookmarks ? Set(shown.keys) : []
+        let dim = session.listening.playing
+        let again = bookmarks != drawnBookmarks || dim != dimmed ? Set(shown.keys) : []
         drawnBookmarks = bookmarks
+        dimmed = dim
         for index in marked.union(now).union(again) {
             guard let view = shown[index] else { continue }
             UIView.transition(with: view, duration: 0.2, options: .transitionCrossDissolve) {
@@ -289,9 +296,20 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         return out
     }
 
-    /// A paragraph drawn with its washes and underlines.
+    /// A paragraph drawn with its washes and underlines, and, while the narration plays, its words dimmed but for the
+    /// ones that matter now.
     private func show(_ block: Int, in view: ParagraphView) {
-        view.show(layout.paragraphs[block], washes: washes(in: block), underlines: underlines(in: block))
+        view.show(layout.paragraphs[block], washes: washes(in: block), underlines: underlines(in: block), lit: dimmed ? lit(in: block) : nil)
+    }
+
+    /// The words left at full ink while the rest dim: the sentence being read, the remote's, and a bookmark being made.
+    private func lit(in block: Int) -> [NSRange] {
+        var out: [NSRange] = []
+        for index in Set([session.narrator, session.cursor]) where session.sentences[index].block == block {
+            out.append(session.sentences[index].range)
+        }
+        if let range = session.markingRange, let span = session.sentences.span(of: range, in: block) { out.append(span) }
+        return out
     }
 
     private func washes(in block: Int) -> [(NSRange, UIColor)] {
@@ -401,7 +419,8 @@ private final class RemoteView: UIView {
     override var canBecomeFocused: Bool { true }
 }
 
-/// One paragraph on the column: its washes, then its words over them, then the lines under bookmarked words.
+/// One paragraph on the column: its washes, then its words over them, dimmed but for some while the narration plays,
+/// then the lines under bookmarked words.
 private final class ParagraphView: UIView {
     /// Room around the paragraph for its washes, which reach a little past its words.
     static let bleed: CGFloat = 16
@@ -409,6 +428,8 @@ private final class ParagraphView: UIView {
     private var paragraph: BookLayout.Paragraph?
     private var washes: [(NSRange, UIColor)] = []
     private var underlines: [(NSRange, UIColor)] = []
+    /// While the words are dimmed, the ones drawn at full ink; nil when none are dimmed.
+    private var lit: [NSRange]?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -419,10 +440,11 @@ private final class ParagraphView: UIView {
 
     required init?(coder: NSCoder) { fatalError("made in code") }
 
-    func show(_ paragraph: BookLayout.Paragraph, washes: [(NSRange, UIColor)], underlines: [(NSRange, UIColor)]) {
+    func show(_ paragraph: BookLayout.Paragraph, washes: [(NSRange, UIColor)], underlines: [(NSRange, UIColor)], lit: [NSRange]?) {
         self.paragraph = paragraph
         self.washes = washes
         self.underlines = underlines
+        self.lit = lit
         setNeedsDisplay()
     }
 
@@ -435,7 +457,15 @@ private final class ParagraphView: UIView {
                 UIBezierPath(roundedRect: box.insetBy(dx: -8, dy: -2), cornerRadius: 6).fill()
             }
         }
-        paragraph.draw()
+        if let lit {
+            // Every word faint, then the ones that matter again at full ink, over themselves.
+            context.setAlpha(Look.dimmedWords)
+            paragraph.draw()
+            context.setAlpha(1)
+            for range in lit { paragraph.draw(range) }
+        } else {
+            paragraph.draw()
+        }
         for (range, colour) in underlines {
             colour.setFill()
             for box in paragraph.lineBoxes(range) {
