@@ -6,7 +6,8 @@ import UIKit
 /// column moves only when the sentence leaves the middle of the screen, and
 /// then glides, so the words stay still while they're read.
 ///
-/// Left listens from the remote's sentence and right returns to the narrator.
+/// Left listens from the remote's sentence, and again a sentence further back
+/// each time it's pressed again at once; right returns to the narrator.
 /// Away from the narrator, the remote's sentence says so in the margins beside
 /// its first line, which the text being justified leaves clear: Listen from
 /// here on the left, Return to narrator on the right.
@@ -121,7 +122,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         case .upArrow: hold { $0.session.step(by: -1) }
         case .downArrow: hold { $0.session.step(by: 1) }
         case .leftArrow:
-            if !bookmarking { session.listenFromHere() }
+            if !bookmarking { session.left() }
         case .rightArrow:
             if !bookmarking { session.returnToNarrator() }
         case .select:

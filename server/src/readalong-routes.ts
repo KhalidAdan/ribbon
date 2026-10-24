@@ -1,9 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "../../src/core/position.ts";
 import { bookmarksOf, highlightId, highlightsOf, markFields } from "../../src/core/bookmarks.ts";
-import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, type DeviceInfo, type ReadRecord, type Why } from "../../src/core/poslog.ts";
+import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "../../src/core/poslog.ts";
 import { standingOf } from "../../src/core/progress.ts";
-import { readsOf } from "../../src/core/stats.ts";
+import { bookIdOf, listenThrough, readsOf } from "../../src/core/stats.ts";
 import type { BookText } from "../../src/core/reading/booktext.ts";
 import { highlightOf, placeAfter, trimRange } from "../../src/core/reading/highlights.ts";
 import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "../../src/core/reading/readalong.ts";
@@ -19,6 +20,9 @@ import { PlacesError, type Places } from "./places.ts";
 
 /** Why a device that only draws and plays says it's at a moment: what any app writes, but `remote` and `import`, which it never does. */
 const WHYS: readonly Why[] = ["open", "pause", "seek", "periodic", "end", "close"];
+
+/** A stretch of listening shorter than this is no session, as the desktop keeps them (src/app/controller.ts, `endListening`). */
+const SESSION_MIN_MS = 30_000;
 
 /** Where a person is in a book, as a device that only draws and plays is told it. */
 export interface BookPlace {
@@ -50,6 +54,18 @@ export interface BookPlace {
  *   the person's bookmarks in the book, from every device; bookmarking whole
  *   sentences, as the desktop bookmarks words selected in its reader (the same
  *   `mark`, so it's one of the audiobook's bookmarks too); and taking one back.
+ * - `GET /api/bookmarks`: the person's bookmarks in every book, newest
+ *   first, with each book's title: for the TV's screen of passages that
+ *   drift by while it's paused.
+ * - `POST /api/books/:id/listened`: a stretch of listening, as the desktop
+ *   keeps one: it opens a listen-through when none is open (a new one after
+ *   a finished one only when the person chose to listen again), and is kept
+ *   as a session unless the person turned sessions off on that device
+ *   (docs/POSITION-FORMAT.md, sections 3.2 and 3.3).
+ * - `POST /api/books/:id/finished`: the book played to its end. The
+ *   listen-through closes, as the desktop closes one, and the answer says
+ *   how it went: when it started and finished, and the time spent in it on
+ *   every device (src/core/stats.ts, `listenThrough`).
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
  *   it's finished, as the apps' shelves work it out (src/core/progress.ts).
@@ -148,7 +164,7 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     reply.header("cache-control", "no-store");
     // Words are shown as the sentences they're in when the book has a read-along; a book without one still has its bookmarks by time.
     const text = listed.ebook ? ((await deps.readAlongs.of(listed.id, stored).catch(() => null))?.text ?? null) : null;
-    const bookmarks = bookmarksIn(me.id, listed, stored).map((b) => shownBookmark(b, text));
+    const bookmarks = bookmarksIn(parseLog(deps.places.export(me.id)).records, listed, stored).map((b) => shownBookmark(b, text));
     bookmarks.sort((a, b) => (a.first ?? Infinity) - (b.first ?? Infinity) || (a.ms ?? 0) - (b.ms ?? 0));
     return { bookmarks };
   });
@@ -184,15 +200,82 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const listed = deps.books.get(request.params.id);
     const stored = listed && (await storedBook(deps, request.params.id));
     if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
-    if (!bookmarksIn(me.id, listed, stored).some((b) => b.id === request.params.mark)) return reply.code(404).send({ error: "No such bookmark in this book." });
+    if (!bookmarksIn(parseLog(deps.places.export(me.id)).records, listed, stored).some((b) => b.id === request.params.mark)) return reply.code(404).send({ error: "No such bookmark in this book." });
     // Taken back as every app takes a bookmark back: a `del` of its id (section 3.5).
     const added = write(reply, me.id, who, listed, stored, { k: "del", of: request.params.mark });
     return added === null ? reply : { deleted: request.params.mark };
   });
 
+  app.get("/api/bookmarks", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    const records = parseLog(deps.places.export(me.id)).records;
+    // Only the books a bookmark names are looked at closely: most books in a library have none.
+    const named = new Set(mergeById<MarkRecord>(records, "mark").flatMap((m) => m.book.ids));
+    const bookmarks: (ShownBookmark & { book: { id: string; title: string; author: string } })[] = [];
+    for (const listed of deps.books.list()) {
+      if (!named.has(ribbonClaim(localIdOf(listed)))) continue;
+      const stored = await storedBook(deps, listed.id);
+      if (!stored) continue;
+      // Without the sentences: a read-along is made for a book only when it's opened.
+      for (const b of bookmarksIn(records, listed, stored)) bookmarks.push({ ...shownBookmark(b, null), book: { id: listed.id, title: listed.title, author: listed.author } });
+    }
+    bookmarks.sort((a, b) => b.created.localeCompare(a.created));
+    return { bookmarks };
+  });
+
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; start?: unknown; end?: unknown; fromMs?: unknown; toMs?: unknown; speed?: unknown; again?: unknown; keep?: unknown } }>("/api/books/:id/listened", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const { device, start, end, fromMs, toMs, speed, again, keep } = request.body ?? {};
+    const who = deviceOf(device);
+    const began = typeof start === "string" ? Date.parse(start) : NaN;
+    const ended = typeof end === "string" ? Date.parse(end) : NaN;
+    if (!who || !(ended >= began) || !isMoment(fromMs) || !isMoment(toMs) || (speed !== undefined && !(typeof speed === "number" && speed > 0))) {
+      return reply.code(400).send({ error: "Send the device ({ id, name }), when the stretch started and ended (start, end) and the moments it ran between (fromMs, toMs)." });
+    }
+    const listed = deps.books.get(request.params.id);
+    const stored = listed && (await storedBook(deps, request.params.id));
+    if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+    const id = localIdOf(listed);
+    const last = readsOf(mergeById<ReadRecord>(parseLog(deps.places.export(me.id)).records, "read"), id).at(-1);
+    const fields: Record<string, unknown>[] = [];
+    // A listen-through opens as the desktop opens one when playing starts (`beginListening`): when none is open, and
+    // after a finished one only when the person chose to start again.
+    if (!last || (last.finished && again === true)) fields.push({ k: "read", id: `urn:uuid:${randomUUID()}`, started: nowIso(began) });
+    if (keep !== false && ended - began >= SESSION_MIN_MS) {
+      const durationMs = stored.book.durationMs;
+      fields.push({ k: "session", start: nowIso(began), end: nowIso(ended), from_ms: Math.round(Math.min(fromMs as number, durationMs)), to_ms: Math.round(Math.min(toMs as number, durationMs)), listened_ms: ended - began, ...(typeof speed === "number" ? { speed } : {}) });
+    }
+    const added = write(reply, me.id, who, listed, stored, ...fields);
+    return added === null ? reply : { added };
+  });
+
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody } }>("/api/books/:id/finished", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const who = deviceOf(request.body?.device);
+    if (!who) return reply.code(400).send({ error: "Send the device ({ id, name })." });
+    const listed = deps.books.get(request.params.id);
+    const stored = listed && (await storedBook(deps, request.params.id));
+    if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+    const id = localIdOf(listed);
+    const records = parseLog(deps.places.export(me.id)).records;
+    const last = readsOf(mergeById<ReadRecord>(records, "read"), id).at(-1);
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    // Finished already, on another device: it stays as it was.
+    if (last?.finished) return { read: listenThrough(last, sessions, id) };
+    // The listen-through open closes, as the desktop's `markFinished` closes it. A book listened to before anything opened
+    // one started with the first place kept in it.
+    const now = nowIso(Date.now());
+    const read = { k: "read" as const, id: last?.id ?? `urn:uuid:${randomUUID()}`, started: last?.started ?? firstHeard(records, id) ?? now, finished: now };
+    const added = write(reply, me.id, who, listed, stored, read);
+    return added === null ? reply : { read: listenThrough(read, sessions, id) };
+  });
+
   /** A person's bookmarks in a book, by time and by words, from every device's log, merged as the apps merge them. */
-  function bookmarksIn(personId: string, listed: ListedBook, stored: StoredBook): (Bookmark | Highlight)[] {
-    const records = parseLog(deps.places.export(personId)).records;
+  function bookmarksIn(records: readonly LogRecord[], listed: ListedBook, stored: StoredBook): (Bookmark | Highlight)[] {
     const id = localIdOf(listed);
     const book = { id, claims: claimsFor({ id, isbn: stored.book.isbn, asin: stored.book.asin }) };
     const byId = new Map<string, Bookmark | Highlight>();
@@ -202,22 +285,18 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
   }
 
   /**
-   * Add a record to the device's own position log, with the claims the apps
+   * Add records to the device's own position log, with the claims the apps
    * give the book, and tell the person's other devices. How many records were
-   * new, or null when the answer has already said why it couldn't be kept.
+   * new, or null when the answer has already said why they couldn't be kept.
    */
-  function write(reply: FastifyReply, personId: string, device: DeviceInfo, listed: ListedBook, stored: StoredBook, fields: Record<string, unknown>): number | null {
+  function write(reply: FastifyReply, personId: string, device: DeviceInfo, listed: ListedBook, stored: StoredBook, ...fields: Record<string, unknown>[]): number | null {
+    if (fields.length === 0) return 0;
     const now = Date.now();
-    const record = {
-      v: 1,
-      dev: device.id,
-      seq: nextSeq(deps.places.lastSeq(personId, device.id), now),
-      t: nowIso(now),
-      book: { ids: claimsFor({ id: localIdOf(listed), isbn: stored.book.isbn, asin: stored.book.asin }), dur_ms: stored.book.durationMs },
-      ...fields,
-    };
+    let seq = deps.places.lastSeq(personId, device.id);
+    const book = { ids: claimsFor({ id: localIdOf(listed), isbn: stored.book.isbn, asin: stored.book.asin }), dur_ms: stored.book.durationMs };
+    const records = fields.map((f) => ({ v: 1, dev: device.id, seq: (seq = nextSeq(seq, now)), t: nowIso(now), book, ...f }));
     try {
-      const done = deps.places.append(personId, device, [record]);
+      const done = deps.places.append(personId, device, records);
       if (done.added > 0) deps.events.toPerson(personId, { type: "places", data: { device: device.id } });
       return done.added;
     } catch (e) {
@@ -262,4 +341,25 @@ function shownBookmark(b: Bookmark | Highlight, text: BookText | null): ShownBoo
     sentences = sentencesIn(text, { from, to: placeAfter(text, from, b.text.quote) ?? text.fromLocator(b.text.end) });
   }
   return { id: b.id, ms: b.offsetMs, note: b.note, created: b.createdAt, ...(b.text ? { quote: b.text.quote } : {}), ...(sentences ?? {}) };
+}
+
+/** A moment of a recording, as a device sends one. */
+function isMoment(ms: unknown): boolean {
+  return typeof ms === "number" && Number.isFinite(ms) && ms >= 0;
+}
+
+/**
+ * When a book was first listened to since it was last finished: the first
+ * place or session kept in it after that. For a listen-through no app opened,
+ * as a TV from before it opened them leaves.
+ */
+function firstHeard(records: readonly LogRecord[], bookId: string): string | null {
+  const after = readsOf(mergeById<ReadRecord>(records, "read"), bookId).findLast((r) => r.finished)?.finished;
+  let first: string | null = null;
+  for (const r of records) {
+    if ((r.k !== "pos" && r.k !== "session") || bookIdOf(r) !== bookId) continue;
+    const t = r.k === "session" ? r.start : r.t;
+    if ((!after || t > after) && (!first || t < first)) first = t;
+  }
+  return first;
 }

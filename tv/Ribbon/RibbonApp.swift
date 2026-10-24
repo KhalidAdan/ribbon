@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct RibbonApp: App {
     @State private var model = AppModel()
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
@@ -22,19 +23,29 @@ struct RibbonApp: App {
                     PeopleView()
                 }
             }
+            // Every press and touch, seen first: who's awake, and what wakes the passages.
+            .background(WatchTheRemote())
             .environment(model)
             .preferredColorScheme(.dark)
+            .onChange(of: phase, initial: true) { _, phase in
+                model.inFront = phase == .active
+                // Coming back to the app took a press, which the home screen had.
+                if phase == .active { Remote.used() }
+            }
         }
     }
 }
 
 /// The library, and the screens it leads to, one over the other: Menu goes
-/// back a screen, and the focus comes back to what opened it.
+/// back a screen, and the focus comes back to what opened it. Over them
+/// all, what the narration brings up on its own: a chapter's card, Still
+/// listening?, the end of the book, and the passages while it's paused.
 private struct Screens: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
+        let listening = model.listening
         NavigationStack(path: $model.path) {
             LibraryView()
                 .toolbar(.hidden, for: .navigationBar)
@@ -51,6 +62,27 @@ private struct Screens: View {
                     }
                     .toolbar(.hidden, for: .navigationBar)
                 }
+        }
+        .overlay(alignment: .bottom) {
+            if let listening, listening.dozing.asked != nil {
+                StillListening().padding(.bottom, 72).transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .overlay {
+            if let listening, let index = listening.card {
+                ChapterCard(listening: listening, index: index).transition(.wipe)
+            }
+        }
+        .overlay {
+            if let passages = model.passages {
+                PassagesView(passages: passages).transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.5), value: listening?.card)
+        .animation(.easeOut(duration: 0.4), value: listening?.dozing.asked)
+        .animation(.easeInOut(duration: 1.2), value: model.passages == nil)
+        .fullScreenCover(isPresented: Binding(get: { model.finished != nil }, set: { if !$0 { model.closeFinished() } })) {
+            if let finished = model.finished { FinishedView(listening: finished) }
         }
     }
 }
@@ -100,9 +132,25 @@ final class AppModel {
     private(set) var problem: String?
     /// Who read last on this TV, where Who's reading starts.
     private(set) var lastPerson = UserDefaults.standard.string(forKey: "ribbon.lastPerson")
+    /// A book that has just played to its end, while its card shows.
+    private(set) var finished: Listening?
+    /// The person's bookmarked passages, drifting by while a book is paused; nil when they aren't.
+    private(set) var passages: [Passage]?
+    /// Whether the app is in front, rather than behind the home screen or the screen saver.
+    var inFront = true
+    /// Whether this person keeps their stretches of listening as sessions, on this TV (docs/POSITION-FORMAT.md, section 3.3).
+    private(set) var keepsSessions = true
+
+    /// Paused this long in the player or the reader with nothing pressed, the passages drift by.
+    private static let stillFor = Waits.of(5 * 60, quick: 15)
+    /// After drifting by this long, they let the TV's own screen saver and sleep have it.
+    private static let passagesFor: TimeInterval = 60 * 60
+    @ObservationIgnored private var passagesSince: Date?
+    @ObservationIgnored private var passagesKnown: (at: Date, passages: [Passage])?
 
     init() {
         if people.count == 1 { choose(people[0]) }
+        Task { [weak self] in await self?.watchStillness() }
     }
 
     /// The server's name, as people know it.
@@ -127,6 +175,16 @@ final class AppModel {
         problem = nil
         lastPerson = account.id
         UserDefaults.standard.set(account.id, forKey: "ribbon.lastPerson")
+        keepsSessions = UserDefaults.standard.object(forKey: Self.sessionsKey(account)) as? Bool ?? true
+        passagesKnown = nil
+    }
+
+    /// Keep this person's stretches of listening as sessions, or stop: the end of a book can then say how long it took.
+    func keepSessions(_ on: Bool) {
+        guard let server else { return }
+        keepsSessions = on
+        listening?.keepsSessions = on
+        UserDefaults.standard.set(on, forKey: Self.sessionsKey(server.account))
     }
 
     /// Back to Who's reading. The narration is the person's, so it stops, and their place is kept.
@@ -135,6 +193,8 @@ final class AppModel {
         reading = nil
         listening?.stop()
         listening = nil
+        finished = nil
+        passagesKnown = nil
         path = []
         server = nil
         library = nil
@@ -197,8 +257,9 @@ final class AppModel {
         defer { opening = nil }
         do {
             let listening = try await listening(for: book)
-            // A book finished and left at its end is listened to again from the start.
+            // A book finished and left at its end is listened to again from the start: a new listen-through.
             if library?.progress(of: book)?.finished == true && listening.durationMs - listening.positionMs < FinishedWithin.ms {
+                listening.startingAgain = true
                 listening.play(from: 0)
             } else if !listening.playing {
                 listening.resume()
@@ -235,7 +296,7 @@ final class AppModel {
             let asked = ContinuousClock.now
             async let readAlong = server.readAlong(book.id)
             let place = try await server.place(in: book.id)
-            let listening = try await listening(for: book, at: place?.ms)
+            let listening = try await listening(for: book, at: place?.ms, placedAt: Moment.read(place?.at))
             let text = try await readAlong
             let typeset = ContinuousClock.now
             let layout = await Task.detached(priority: .userInitiated) { BookLayout(text) }.value
@@ -254,11 +315,80 @@ final class AppModel {
         if path.last == .reader { path.removeLast() }
     }
 
+    // The end of a book --------------------------------------------------------
+
+    /// Away from the end of a book's card, back to where it ended.
+    func closeFinished() {
+        finished = nil
+    }
+
+    /// The next book in the series to hear: the first after this one not finished yet.
+    func upNext(after book: ServerBook) -> ServerBook? {
+        guard let library, let series = library.series(of: book), let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
+        return series.books[(index + 1)...].first { library.progress(of: $0)?.finished != true }
+    }
+
+    /// Up next, chosen from the end of a book: its player, over its page where the book before's page was.
+    func listenToNext(_ book: ServerBook) async {
+        finished = nil
+        if reading != nil {
+            reading?.session.close()
+            reading = nil
+        }
+        path.removeAll { $0 == .reader || $0 == .player }
+        if case .book = path.last { path[path.count - 1] = .book(book) }
+        await listen(to: book)
+    }
+
+    // While a book is paused -----------------------------------------------------
+
+    /// Whether a chapter's card can show: the player or the reader is in front.
+    private var bookOnScreen: Bool {
+        inFront && (path.last == .player || path.last == .reader)
+    }
+
+    /// The passages drift by once a book has been paused for five minutes in the player or the reader with nothing
+    /// pressed, unless it stopped on its own for someone asleep; any press brings back the screen. Until then the
+    /// TV's own screen saver is held off, for a person with passages to show.
+    private func watchStillness() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(5))
+            let still = listening.map { !$0.playing && !$0.stoppedOnItsOwn } == true && bookOnScreen && finished == nil
+            guard still else {
+                if passages != nil { passages = nil }
+                passagesSince = nil
+                Remote.stopWaiting("passages")
+                KeepAwake.set("passages", false)
+                continue
+            }
+            let known = await knownPassages()
+            let quiet = Date().timeIntervalSince(max(listening?.pausedAt ?? .distantPast, Remote.lastInput))
+            if passages == nil && quiet >= Self.stillFor && !known.isEmpty {
+                passages = known.shuffled()
+                passagesSince = Date()
+                Remote.wait("passages") { [weak self] in self?.passages = nil }
+            } else if passages == nil && quiet < Self.stillFor {
+                passagesSince = nil
+            }
+            // Held off while it waits for them, and while they drift by, for an hour at most.
+            KeepAwake.set("passages", !known.isEmpty && Date().timeIntervalSince(passagesSince ?? Date()) < Self.passagesFor)
+        }
+    }
+
+    /// The person's passages, from the server once every ten minutes at most: the words of their bookmarks.
+    private func knownPassages() async -> [Passage] {
+        if let passagesKnown, Date().timeIntervalSince(passagesKnown.at) < 600 { return passagesKnown.passages }
+        guard let server else { return [] }
+        let found = ((try? await server.passages()) ?? []).filter { $0.quote?.isEmpty == false }
+        passagesKnown = (Date(), found)
+        return found
+    }
+
     // Inside -----------------------------------------------------------------
 
     /// The narration of a book: the one playing, when it's this book, else a new one from the person's place,
-    /// or from the moment given. Starting another book stops the one before; its place is kept.
-    private func listening(for book: ServerBook, at ms: Int? = nil) async throws -> Listening {
+    /// or from the moment given, kept when given. Starting another book stops the one before; its place is kept.
+    private func listening(for book: ServerBook, at ms: Int? = nil, placedAt: Date? = nil) async throws -> Listening {
         if let listening, listening.book.id == book.id { return listening }
         guard let server, let library else { throw ServerError(message: "Choose who's reading first.") }
         listening?.stop()
@@ -267,9 +397,22 @@ final class AppModel {
         await library.refreshProgress()
         let progress = library.progress(of: book)
         let start = ms ?? (progress?.finished == true ? 0 : progress?.ms ?? 0)
-        let made = Listening(book: book, detail: detail, startMs: start, server: server)
+        let made = Listening(book: book, detail: detail, startMs: start, placedAt: placedAt ?? Moment.read(progress?.at), server: server)
+        made.keepsSessions = keepsSessions
+        made.showsCards = { [weak self] in self?.bookOnScreen ?? false }
+        made.inFront = { [weak self] in self?.inFront ?? true }
+        made.onFinish = { [weak self, weak made] in
+            guard let self, let made else { return }
+            self.passages = nil
+            self.finished = made
+            Task { await self.library?.refreshProgress() }
+        }
         listening = made
         return made
+    }
+
+    private static func sessionsKey(_ account: Account) -> String {
+        "ribbon.sessions.\(account.id)"
     }
 }
 

@@ -48,6 +48,31 @@ export function finishedByRead(reads: readonly ReadRecord[], bookId: string): bo
   return !!last?.finished;
 }
 
+/** How one listen-through of a book went, as the end of the book tells it. */
+export interface ListenThrough {
+  started: string;
+  /** Null while it's still going. */
+  finished: string | null;
+  /** Wall-clock time spent listening in it, on every device, at whatever speed (`listened_ms`). */
+  listenedMs: number;
+}
+
+/**
+ * A listen-through, and the time spent in it: the book's sessions that ran
+ * while it was open. A session that began a moment before the listen-through
+ * did still counts, since an app opens the listen-through as playing starts.
+ */
+export function listenThrough(read: Pick<ReadRecord, "started" | "finished">, sessions: readonly SessionRecord[], bookId: string): ListenThrough {
+  const from = Date.parse(read.started);
+  const to = read.finished ? Date.parse(read.finished) : Infinity;
+  let listenedMs = 0;
+  for (const s of sessions) {
+    if (bookIdOf(s) !== bookId) continue;
+    if (Date.parse(s.end) > from && Date.parse(s.start) <= to) listenedMs += Math.max(0, s.listened_ms);
+  }
+  return { started: read.started, finished: read.finished ?? null, listenedMs };
+}
+
 /** The local day a moment falls on, as a number of days since the epoch. */
 export function dayOf(ms: number, tzOffsetMin: number): number {
   return Math.floor((ms - tzOffsetMin * 60_000) / DAY);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookIdOf, dayOf, finishedByRead, formatSpan, heatmap, openRead, readsOf, timeBy, totals } from "../src/core/stats";
+import { bookIdOf, dayOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, timeBy, totals } from "../src/core/stats";
 import { ribbonClaim, type ReadRecord, type SessionRecord } from "../src/core/poslog";
 
 const NOW = Date.parse("2026-10-18T20:00:00.000Z"); // a Sunday
@@ -23,6 +23,25 @@ describe("reads", () => {
     expect(finishedByRead(reads, "dune")).toBe(false);
     expect(finishedByRead(reads, "ego")).toBe(true);
     expect(openRead(reads, "ego")).toBeNull();
+  });
+});
+
+describe("a listen-through", () => {
+  it("is the time spent in the book's sessions while it was open, on every device", () => {
+    const r = read("dune", "r2", "2026-10-01T12:00:00.000Z", "2026-10-18T09:00:00.000Z");
+    const sessions = [
+      // Begun a moment before the listen-through was written, as an app opens it when playing starts.
+      session("dune", "2026-10-01T11:59:59.999Z", 3 * H),
+      session("dune", "2026-10-17T21:00:00.000Z", 2 * H),
+      session("dune", "2026-10-18T08:00:00.000Z", 1 * H),
+      // Another book, an earlier listen-through, and after this one was finished.
+      session("ego", "2026-10-10T12:00:00.000Z", 1 * H),
+      session("dune", "2026-09-01T12:00:00.000Z", 5 * H),
+      session("dune", "2026-10-18T10:00:00.000Z", 1 * H),
+    ];
+    expect(listenThrough(r, sessions, "dune")).toEqual({ started: r.started, finished: r.finished, listenedMs: 6 * H });
+    // Still going: everything since it started.
+    expect(listenThrough(read("dune", "r3", "2026-10-01T12:00:00.000Z"), sessions, "dune")).toEqual({ started: "2026-10-01T12:00:00.000Z", finished: null, listenedMs: 7 * H });
   });
 });
 

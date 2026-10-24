@@ -28,7 +28,10 @@ Built so far:
 - **Read-along for the Apple TV** (tv/README.md): each book's text with when
   each sentence is read (`GET /api/books/:id/readalong`), made once with the
   same code as the apps', and the person's place in it as a sentence
-  (`GET` and `POST /api/books/:id/place`).
+  (`GET` and `POST /api/books/:id/place`); their bookmarks, in a book and in
+  every book; and their listening, kept as the desktop keeps it, so the end
+  of a book can say how long it took (`POST /api/books/:id/listened` and
+  `…/finished`).
 
 ## Running it
 
