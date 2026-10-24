@@ -12,7 +12,7 @@ import { memorySettings, memorySources } from "../src/app/platform";
 import { ServerClient, ServerError, takeEvents } from "../src/app/server/client";
 import { NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
 import { scanLibrary } from "../src/core/scan/scan";
-import { localIdOf, type ServerBook, type ServerBookDetail } from "../src/core/server-books";
+import { localIdOf, type ServerBook, type ServerBookDetail, type ServerSeries } from "../src/core/server-books";
 import { nodeHost } from "../src/host/node";
 
 const SERVER_ID = "a1b2c3d4e5f60718";
@@ -20,9 +20,9 @@ const TOKEN = "the-token";
 const COVER = "c0ffee00c0ffee00";
 
 /**
- * A stand-in for a Ribbon server: the four answers the app's shelf asks
- * for (server/src/library/api.ts), from files made here, signed in with
- * one token.
+ * A stand-in for a Ribbon server: the answers the app's shelf asks for
+ * (server/src/library/api.ts), from files made here, signed in with one
+ * token, and its series, which the admin changes (routes.ts).
  */
 describe("a server's shelf on this device", () => {
   let fixtures: string;
@@ -31,6 +31,10 @@ describe("a server's shelf on this device", () => {
   let listed: ServerBook;
   let detail: ServerBookDetail;
   const asked: string[] = [];
+  /** The server's series; null makes it a server from before it kept series. */
+  let series: ServerSeries[] | null = null;
+  /** What was asked of its series: method, address and body. */
+  const changes: { method: string; at: string; body: unknown }[] = [];
 
   beforeAll(async () => {
     fixtures = mkdtempSync(path.join(tmpdir(), "ribbon-shelf-fixtures-"));
@@ -67,6 +71,33 @@ describe("a server's shelf on this device", () => {
       }
       if (req.headers.authorization !== `Bearer ${TOKEN}`) {
         res.writeHead(401).end();
+        return;
+      }
+      if (at.startsWith("/api/series")) {
+        if (!series) {
+          res.writeHead(404).end();
+          return;
+        }
+        if (req.method === "GET") {
+          const etag = `W/"${JSON.stringify(series).length}"`;
+          if (req.headers["if-none-match"] === etag) res.writeHead(304).end();
+          else res.writeHead(200, { "content-type": "application/json", etag }).end(JSON.stringify({ series }));
+          return;
+        }
+        let body = "";
+        req.on("data", (c: Buffer) => (body += c.toString()));
+        req.on("end", () => {
+          const asked = body ? (JSON.parse(body) as { name: string; books: { id: string; number?: number; shelved: boolean }[] }) : null;
+          changes.push({ method: req.method!, at, body: asked });
+          const id = decodeURIComponent(at.split("/")[3] ?? "");
+          if (req.method === "DELETE") series = series!.filter((s) => s.id !== id);
+          else {
+            const had = series!.find((s) => s.id === id);
+            const books = asked!.books.map((b) => ({ id: b.id, number: b.number ?? had?.books.find((x) => x.id === b.id)?.number ?? null, title: had?.books.find((x) => x.id === b.id)?.title ?? null, shelved: b.shelved }));
+            series = [...series!.filter((s) => s.id !== id), { id: id || asked!.name.toLowerCase().replace(/\W+/g, "-"), name: asked!.name, books }];
+          }
+          res.writeHead(req.method === "DELETE" ? 204 : 200, { "content-type": "application/json" }).end(req.method === "DELETE" ? undefined : "{}");
+        });
         return;
       }
       if (at === "/api/books") {
@@ -247,6 +278,61 @@ describe("a server's shelf on this device", () => {
     expect((await settings.read()).serverTokens).toEqual({});
     vi.restoreAllMocks();
     rmSync(moved, { recursive: true, force: true });
+  });
+
+  it("takes the server's series, its books by their ids here, and finds none itself from a server that keeps none", async () => {
+    const root = folder();
+    const shelf = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    await shelf.refresh();
+    series = null;
+    expect(await shelf.refreshSeries()).toBe(false);
+    expect(shelf.keepsSeries).toBe(false);
+
+    series = [{ id: "blue-books", name: "The Blue Books", books: [{ id: SERVER_ID, number: 1, title: "Blue", shelved: true }] }];
+    expect(await shelf.refreshSeries()).toBe(true);
+    expect(await shelf.refreshSeries()).toBe(false);
+    expect(shelf.seriesOnShelf()).toEqual({
+      groups: [{ key: "blue-books", name: "The Blue Books", bookIds: [localIdOf(listed)], numbers: { [localIdOf(listed)]: 1 }, titles: { [localIdOf(listed)]: "Blue" } }],
+      records: [{ key: "blue-books", name: "The Blue Books", decidedAt: "", choices: [{ bookId: localIdOf(listed), included: true, order: 1 }] }],
+    });
+    // Next launch: the series kept in the folder show before the server answers.
+    const again = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    await again.loadCached();
+    expect(again.keepsSeries).toBe(true);
+    expect(again.hasSeries("blue-books")).toBe(true);
+    series = null;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("shows the server's series on the shelf, and keeps a change to one on the server, for every device", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    series = [{ id: "blue-books", name: "The Blue Books", books: [{ id: SERVER_ID, number: 1, title: "Blue", shelved: true }] }];
+    changes.length = 0;
+    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: memorySettings(), home: { path: async () => folder(), reveal: async () => undefined, reset: async () => false } };
+    const until = async (ok: () => boolean) => {
+      for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 25));
+    };
+    const app = new AppController(platform);
+    await app.boot();
+    await app.connectServer(url, "Ann", "the-password");
+    await until(() => app.detectedSeries().length > 0);
+    const local = localIdOf(listed);
+    expect(app.detectedSeries()).toEqual([{ key: "blue-books", name: "The Blue Books", bookIds: [local], numbers: { [local]: 1 }, titles: { [local]: "Blue" } }]);
+
+    // Renamed here: the server keeps it, by the book's id there, and the shelf shows what the server says.
+    app.openSeriesSetup("blue-books");
+    await app.saveSeries([{ bookId: local, included: true, order: 1 }], { name: "Blue, all of it" });
+    expect(changes).toEqual([{ method: "PUT", at: "/api/series/blue-books", body: { name: "Blue, all of it", books: [{ id: SERVER_ID, shelved: true }] } }]);
+    expect(app.detectedSeries().map((g) => [g.name, g.titles])).toEqual([["Blue, all of it", { [local]: "Blue" }]]);
+
+    // Deleted here: deleted on the server.
+    await app.deleteSeries("blue-books");
+    expect(changes.at(-1)).toMatchObject({ method: "DELETE", at: "/api/series/blue-books" });
+    expect(app.detectedSeries()).toEqual([]);
+    await app.removeSource(app.getState().sources[0]!.id);
+    series = null;
+    vi.restoreAllMocks();
   });
 
   it("asks to sign in again when the server no longer takes the sign-in", async () => {

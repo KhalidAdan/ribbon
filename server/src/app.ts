@@ -20,6 +20,7 @@ import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 import { ReadAlongs } from "./library/readalong.ts";
 import { SearchIndex } from "./library/search.ts";
+import { LibrarySeries } from "./library/series.ts";
 import { Mp3Frames } from "./library/frames.ts";
 import { Transcriber } from "./library/transcribe.ts";
 import { Places } from "./places.ts";
@@ -50,6 +51,9 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const invites = new Invites(db);
   const jobs = new Jobs(db);
   const books = new BookIndex(db);
+  // Books added before the server kept series join theirs now; after that, as each folder is added.
+  const series = new LibrarySeries(db);
+  series.find(books.list(), Date.now());
   const places = new Places(db);
   const imported = await places.importFiles(config.dataDir);
   // Books added before the server measured them are measured once, in the background.
@@ -143,8 +147,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const transcriber = new Transcriber({ dataDir: config.dataDir, books, readAlongs, speech: config.speech ?? null, log: app.log });
   transcriber.start(jobs);
   app.addHook("onClose", async () => transcriber.stop());
-  libraryRoutes(app, { auth, jobs, books, events, frames, readAlongs, search, transcriber, dataDir: config.dataDir });
-  await libraryApi(app, { auth, books, dataDir: config.dataDir, frames });
+  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, transcriber, dataDir: config.dataDir });
+  await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, transcriber, dataDir: config.dataDir });
 

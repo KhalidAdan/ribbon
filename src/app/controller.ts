@@ -973,8 +973,9 @@ export class AppController {
     if (!field || field === "cover") void this.mirrorCoversFor(o);
   }
 
-  /** Records read beside one source's books, merged into the shelf. */
-  private absorb(o: Opened, problems: Problem[], series: Map<string, SeriesRecord>, about: Map<string, BookAbout>): void {
+  /** Records read beside one source's books, merged into the shelf. A server that keeps series has its own (takeServerSeries). */
+  private absorb(o: Opened, problems: Problem[], read: Map<string, SeriesRecord>, about: Map<string, BookAbout>): void {
+    const series = o.server?.keepsSeries ? new Map<string, SeriesRecord>() : read;
     for (const k of series.keys()) o.seriesKeys.add(k);
     this.set({
       problems: [...this.state.problems.filter((p) => p.source !== o.source.id), ...problems.map((p) => ({ ...p, source: o.source.id }))],
@@ -1205,6 +1206,7 @@ export class AppController {
     o.serverPlaces = { log: placesLog, soon: null, events: new AbortController() };
     o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
+    this.takeServerSeries(o);
     void this.refreshServer(o);
     void client
       .me()
@@ -1260,6 +1262,7 @@ export class AppController {
         .events((type, data) => {
           if (type === "places" && (data as { device?: string } | null)?.device !== me) void this.syncPlaces(o);
           if (type === "books") this.refreshServerSoon(o);
+          if (type === "series") void this.refreshServerSeries(o);
         }, signal)
         .catch((e: unknown) => {
           if (!signal.aborted && attempt === 0) log.info("the server's events stopped:", describe(e));
@@ -1393,7 +1396,11 @@ export class AppController {
     if (!shelf) return;
     const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
     try {
-      if ((await shelf.refresh()) && alive()) this.publishBooks();
+      const books = await shelf.refresh();
+      const series = await shelf.refreshSeries();
+      if (books && alive()) this.publishBooks();
+      // A series' books are named by their ids here, which come with the list.
+      if ((books || series) && alive()) this.takeServerSeries(o);
     } catch (e) {
       log.warn("could not ask the server for its books:", o.source.name, describe(e));
       if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
@@ -3349,15 +3356,20 @@ export class AppController {
    * source by source, plus what the records beside the books say. Books
    * numbered straight under a source's folder make a series named after
    * that folder. A series named the same in two sources is one series.
-   * A record can add books to a series, or be a series on its own.
+   * A record can add books to a series, or be a series on its own. A
+   * Ribbon server keeps its library's series itself: those are taken as
+   * it has them, never found here.
    */
   detectedSeries(): SeriesGroup[] {
     const byKey = new Map<string, SeriesGroup>();
     for (const o of this.openedInOrder()) {
-      for (const g of detectSeries(
-        o.books.map((b) => b.book),
-        o.source.name,
-      )) {
+      const found = o.server?.keepsSeries
+        ? o.server.seriesOnShelf().groups
+        : detectSeries(
+            o.books.map((b) => b.book),
+            o.source.name,
+          );
+      for (const g of found) {
         const have = byKey.get(g.key);
         if (have) {
           have.bookIds.push(...g.bookIds.filter((id) => !have.bookIds.includes(id)));
@@ -3406,27 +3418,83 @@ export class AppController {
     for (const o of this.openedInOrder()) {
       o.seriesKeys.delete(key);
       try {
-        await o.lib.deleteSeries(key);
+        if (o.server?.hasSeries(key)) {
+          await o.server.client.deleteSeries(key);
+          await this.refreshServerSeries(o);
+        } else await o.lib.deleteSeries(key);
       } catch (e) {
+        this.serverSeriesRefused(o, gone.name, e);
         log.warn("could not delete series:", o.source.name, describe(e));
       }
     }
   }
 
-  /** Write a record beside the books in every source that holds one of its members. */
+  /** Write a record beside the books in every source that holds one of its members; a server that keeps series keeps it, for every device. */
   private async writeSeriesRecord(record: SeriesRecord): Promise<void> {
     const members = new Set(record.choices.map((c) => c.bookId));
     // A record whose members were all taken out still has to reach where it lived.
-    for (const o of this.openedInOrder()) if (o.seriesKeys.has(record.key)) for (const b of o.books.slice(0, 1)) members.add(b.book.id);
-    const holders = this.openedInOrder().filter((o) => o.books.some((b) => members.has(b.book.id)));
+    for (const o of this.openedInOrder()) if (o.seriesKeys.has(record.key)) for (const b of this.booksOf(o).slice(0, 1)) members.add(b.book.id);
+    const holders = this.openedInOrder().filter((o) => this.booksOf(o).some((b) => members.has(b.book.id)));
     for (const o of holders) {
       o.seriesKeys.add(record.key);
       try {
-        await o.lib.writeSeries(record);
+        if (o.server?.keepsSeries) await this.writeServerSeries(o, record);
+        else await o.lib.writeSeries(record);
       } catch (e) {
+        this.serverSeriesRefused(o, record.name, e);
         log.warn("could not save series:", o.source.name, describe(e));
       }
     }
+  }
+
+  /** A series saved on a server, for every device: its books by their ids there, with a number only where a person set one. */
+  private async writeServerSeries(o: Opened, record: SeriesRecord): Promise<void> {
+    const shelf = o.server!;
+    const ids = new Map(this.booksOf(o).map((b) => [b.book.id, serverIdOf(b)]));
+    const books = normalizeChoices(record.choices.filter((c) => !c.removed)).flatMap((c) => {
+      const id = ids.get(c.bookId);
+      return id ? [{ id, shelved: c.included, ...(c.number !== undefined ? { number: c.number } : {}) }] : [];
+    });
+    if (shelf.hasSeries(record.key)) await shelf.client.saveSeries(record.key, record.name, books);
+    else await shelf.client.createSeries(record.name, books);
+    await this.refreshServerSeries(o);
+  }
+
+  /** A server said no to a change of series (only its admin changes them): say so, and show its series as they are. */
+  private serverSeriesRefused(o: Opened, name: string, e: unknown): void {
+    if (!o.server?.keepsSeries || !(e instanceof ServerError)) return;
+    this.set({ error: `Couldn't change ${name} on the server: ${e.message}` });
+    this.takeServerSeries(o);
+  }
+
+  /** Ask a server for its series again, and show them. */
+  private async refreshServerSeries(o: Opened): Promise<void> {
+    const shelf = o.server;
+    if (!shelf) return;
+    try {
+      if ((await shelf.refreshSeries()) && this.opened.get(o.source.id) === o) this.takeServerSeries(o);
+    } catch (e) {
+      log.warn("could not ask the server for its series:", o.source.name, describe(e));
+    }
+  }
+
+  /** A server's series, as the shelf's records: they stand for this source's, in place of any kept beside its books. */
+  private takeServerSeries(o: Opened): void {
+    if (!o.server?.keepsSeries) return;
+    const { records } = o.server.seriesOnShelf();
+    const series = { ...this.state.series };
+    for (const key of o.seriesKeys) delete series[key];
+    o.seriesKeys.clear();
+    for (const r of records) {
+      o.seriesKeys.add(r.key);
+      series[r.key] = r;
+    }
+    this.set({ series });
+  }
+
+  /** A source's books: for a server's, the ones not on this device yet too. */
+  private booksOf(o: Opened): ScannedBook[] {
+    return [...o.books, ...(o.server?.remote(o.books) ?? [])];
   }
 
   /** After a scan: open the setup for the first series with no record, once per session. */

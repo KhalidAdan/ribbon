@@ -35,7 +35,7 @@ struct BookView: View {
                         CoverView(book: book, size: 440)
                         VStack(alignment: .leading, spacing: 0) {
                             if let series, let index = series.books.firstIndex(where: { $0.id == book.id }) {
-                                Text("\(series.name) · Book \(Self.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
+                                Text("\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
                             }
                             Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6)
                             Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12)
@@ -134,12 +134,6 @@ struct BookView: View {
         if book.ebook { facts.append(("Ebook", "EPUB")) }
         return facts
     }
-
-    /// A book's number in its series: its own when the files give one ("2", "2.5"), else its place in the list.
-    static func number(of book: ServerBook, at index: Int) -> String {
-        guard let n = book.seriesIndex else { return String(index + 1) }
-        return n == n.rounded() ? String(Int(n)) : String(n)
-    }
 }
 
 /// The facts under a hairline: four across, a small muted term over each value.
@@ -184,10 +178,10 @@ private struct SeriesList: View {
                     let progress = library?.progress(of: book)
                     Button { model.open(book) } label: {
                         HStack(spacing: 24) {
-                            Text(BookView.number(of: book, at: index)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44, alignment: .trailing)
+                            Text(series.number(of: book, at: index)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44, alignment: .trailing)
                             CoverView(book: book, size: 72)
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(book.title).font(.ui(26, weight: now ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(1)
+                                Text(series.title(of: book)).font(.ui(26, weight: now ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(1)
                                 Text(book.author).font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1)
                             }
                             Spacer(minLength: 24)

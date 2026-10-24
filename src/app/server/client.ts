@@ -1,5 +1,5 @@
 import type { DeviceInfo, LogRecord } from "../../core/poslog";
-import type { ServerBook, ServerBookDetail } from "../../core/server-books";
+import type { ServerBook, ServerBookDetail, ServerSeries } from "../../core/server-books";
 
 /** How a folder being added to a server is going (server/src/library/importer.ts, `ImportProgress`). */
 export interface ImportProgress {
@@ -10,6 +10,13 @@ export interface ImportProgress {
   failed: number;
   current: string | null;
   notes: string[];
+}
+
+/** A book of a series as a device sends it: by its server id, with its number when a person set one, and whether it's on the shelf. */
+export interface SeriesBookSent {
+  id: string;
+  number?: number;
+  shelved: boolean;
 }
 
 /** A job on the server: adding a folder, for now. */
@@ -63,6 +70,28 @@ export class ServerClient {
     if (r.status === 304) return "unchanged";
     const { books, deleted } = (await r.json()) as { books: ServerBook[]; deleted?: string[] };
     return { books, deleted: deleted ?? [], etag: r.headers.get("etag") };
+  }
+
+  /** The library's series, or `"unchanged"` when this device's copy (its ETag) is still right. A server from before it kept series answers 404. */
+  async series(etag: string | null): Promise<{ series: ServerSeries[]; etag: string | null } | "unchanged"> {
+    const r = await this.get("/api/series", etag ? { "if-none-match": etag } : {});
+    if (r.status === 304) return "unchanged";
+    return { series: ((await r.json()) as { series: ServerSeries[] }).series, etag: r.headers.get("etag") };
+  }
+
+  /** As the admin: make a series of these books, in this order, for everyone. */
+  async createSeries(name: string, books: readonly SeriesBookSent[]): Promise<void> {
+    await this.send("/api/series", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, books }) });
+  }
+
+  /** As the admin: a series' name and its books in order, for everyone. */
+  async saveSeries(id: string, name: string, books: readonly SeriesBookSent[]): Promise<void> {
+    await this.send(`/api/series/${encodeURIComponent(id)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, books }) });
+  }
+
+  /** As the admin: delete a series, for everyone. Its books stay. */
+  async deleteSeries(id: string): Promise<void> {
+    await this.send(`/api/series/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   /** As the admin: delete a book from the server, for everyone. */
