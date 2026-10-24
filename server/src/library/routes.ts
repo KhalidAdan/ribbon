@@ -13,6 +13,7 @@ import type { LibrarySeries, SeriesBookChange } from "./series.ts";
 import type { Transcriber } from "./transcribe.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
+import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } from "./describe.ts";
 
 /**
  * The admin's side of the library: adding a folder of books, following the
@@ -22,7 +23,7 @@ import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
  * (`GET /api/library/readalong`), so a book left by chapter is never found
  * only on the TV. The listing the apps read comes in its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; transcriber: Transcriber; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; transcriber: Transcriber; catalog: Catalog | null; dataDir: string }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -54,6 +55,9 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
         await deps.search.indexAll(deps.books, deps.readAlongs, deps.dataDir);
         // And their narration is transcribed, after any being heard already.
         deps.transcriber.start(deps.jobs);
+        // The ones still without a description get the catalog's, once this job is done (describe.ts).
+        const catalog = deps.catalog;
+        if (catalog) deps.jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, deps.dataDir, await booksToDescribe(deps.dataDir, deps.books), report), me.id);
         return done;
       },
       me.id,

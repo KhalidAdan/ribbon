@@ -44,6 +44,8 @@ export interface StoredBook extends ScannedBook {
   records?: string[];
   /** What the server filled in that the book came without (hydrate.ts). */
   filled?: FilledIn;
+  /** What Audible's catalog was asked about it (describe.ts): by its title, author and length, and the recording its description is from; null when the catalog had none. */
+  described?: { asked: string; asin: string | null };
 }
 
 /**

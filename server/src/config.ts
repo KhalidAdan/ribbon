@@ -23,6 +23,12 @@ export interface ServerConfig {
   framesTool?: string | null;
   /** How the narration is transcribed here (src-tauri/speech, library/transcribe.ts), or null when it isn't: devices send what they transcribe. */
   speech?: SpeechConfig | null;
+  /**
+   * Where descriptions come from for books with none of their own (library/describe.ts): Audible's catalog, in one of
+   * its stores, when RIBBON_DESCRIPTIONS is `audible` (RIBBON_AUDIBLE_STORE: `us` unless given, or `uk`, `ca`, `au`,
+   * `de`, …); null, the default, asks no one.
+   */
+  descriptions?: { store: string } | null;
 }
 
 /** The origins Ribbon's apps run at: Tauri's on each system, and the browser harness in development. */
@@ -43,6 +49,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ebookTool: env.RIBBON_EBOOK_TOOL ?? builtTool("ribbon-ebook"),
     framesTool: env.RIBBON_FRAMES_TOOL ?? builtTool("ribbon-frames"),
     speech: speechConfig(env),
+    descriptions: env.RIBBON_DESCRIPTIONS === "audible" ? { store: env.RIBBON_AUDIBLE_STORE || "us" } : null,
   };
 }
 
