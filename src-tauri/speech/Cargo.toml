@@ -1,0 +1,24 @@
+[package]
+name = "ribbon-speech"
+version = "0.17.0"
+description = "The narrator's words: a book's audio decoded by ffmpeg and heard by whisper.cpp, phrase by phrase, with when each is said."
+authors = ["Khalid Adan"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+publish = false
+
+[lib]
+name = "ribbon_speech"
+
+[features]
+# whisper.cpp on the GPU, which the app turns on for each system (src-tauri/Cargo.toml).
+# The server's command is built without either and hears on the CPU.
+metal = ["whisper-rs/metal"]
+vulkan = ["whisper-rs/vulkan"]
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"
+whisper-rs = "0.16"

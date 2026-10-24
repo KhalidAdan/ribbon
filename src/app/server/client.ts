@@ -104,6 +104,11 @@ export class ServerClient {
     return ((await (await this.get(`/api/jobs/${encodeURIComponent(id)}`)).json()) as { job: ServerJob }).job;
   }
 
+  /** What this device heard of a book's narration (`heard`, `aligned`), as the CSV kept beside it, for the server to merge with its own. */
+  async sendRecord(serverId: string, kind: "heard" | "aligned", csv: Uint8Array): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/records/${kind}`, { method: "POST", headers: { "content-type": "text/csv; charset=utf-8" }, body: new TextDecoder().decode(csv) });
+  }
+
   /** This person's position records from every device, newer than the cursor (none: from the start), the cursor to ask with next, and whether there's more past it. */
   async places(after: string | null): Promise<{ records: LogRecord[]; devices: DeviceInfo[]; cursor: string; more?: boolean }> {
     return (await (await this.get(`/api/places${after ? `?after=${encodeURIComponent(after)}` : ""}`)).json()) as { records: LogRecord[]; devices: DeviceInfo[]; cursor: string; more?: boolean };

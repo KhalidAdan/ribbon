@@ -21,6 +21,7 @@ import { libraryRoutes } from "./library/routes.ts";
 import { ReadAlongs } from "./library/readalong.ts";
 import { SearchIndex } from "./library/search.ts";
 import { Mp3Frames } from "./library/frames.ts";
+import { Transcriber } from "./library/transcribe.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
 import { readAlongRoutes } from "./readalong-routes.ts";
@@ -138,10 +139,14 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   if (readAlongs.available) jobs.start<HydrateProgress>("hydrate", { books: 0, done: 0, described: 0, named: 0, current: null }, async (report) => hydrateBooks(readAlongs, config.dataDir, await booksToHydrate(config.dataDir, books), report), null);
   // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
-  libraryRoutes(app, { auth, jobs, books, events, frames, readAlongs, search, dataDir: config.dataDir });
+  // The narration of books added before the server transcribed is heard in the background, in a lane of its own: it takes hours a book.
+  const transcriber = new Transcriber({ dataDir: config.dataDir, books, readAlongs, speech: config.speech ?? null, log: app.log });
+  transcriber.start(jobs);
+  app.addHook("onClose", async () => transcriber.stop());
+  libraryRoutes(app, { auth, jobs, books, events, frames, readAlongs, search, transcriber, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
-  readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, dataDir: config.dataDir });
+  readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, transcriber, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }

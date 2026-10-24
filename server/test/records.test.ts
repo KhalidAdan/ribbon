@@ -74,4 +74,13 @@ describe("a book's records, carried in", () => {
     expect(job.progress).toMatchObject({ added: 0, skipped: 2 });
     expect((JSON.parse(readFileSync(path.join(dir, "data", "books", later, "book.json"), "utf8")) as StoredBook).records).toEqual(["heard"]);
   });
+
+  it("merge, when the folder is added again, what was heard of a book there since with what the server has", async () => {
+    const aligned = path.join(dir, "data", "books", id, "records", "aligned.csv");
+    // The server heard a stretch the folder never did; a device then transcribed another beside the book.
+    writeFileSync(aligned, "start_ms,end_ms,words,chars\n0,3000,,\n6000,9000,,\n");
+    record(path.join(library, "Series"), "aligned", "Heard Book", "start_ms,end_ms,words,chars\n0,3000,,\n3000,6000,,\n3100,5800,In the beginning,0\n");
+    await importAs(server, admin, library);
+    expect(readFileSync(aligned, "utf8")).toBe("start_ms,end_ms,words,chars\n0,3000,,\n3000,6000,,\n3100,5800,In the beginning,0\n6000,9000,,\n");
+  });
 });

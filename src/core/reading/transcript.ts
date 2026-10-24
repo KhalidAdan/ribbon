@@ -1,3 +1,4 @@
+import { msToText, type Alignment } from "./align";
 import { alike, words } from "./openings";
 import type { Anchor, WordAt } from "./anchors";
 
@@ -14,6 +15,54 @@ export interface Said {
   startMs: number;
   endMs: number;
   words: string;
+}
+
+/** A phrase heard, with where it was found in the text (characters of the reading order), or null when it wasn't. */
+export type PlacedPhrase = Said & { chars: number | null };
+
+/** The narration is transcribed in stretches this long, by where they start in their file: the same minutes on every device and on the server. */
+export const STRETCH_MS = 60_000;
+/** How far either side of where the pairing puts a stretch its words are looked for, in characters: about a minute and a half of reading. */
+export const STRETCH_SLACK = 2_500;
+
+/** The language whisper is told a narration is in, as two letters: the EPUB's, else the audiobook's tags'; null to let it tell. */
+export function narrationLanguage(...said: (string | undefined)[]): string | null {
+  return (said.find((l) => l) ?? "").slice(0, 2).toLowerCase() || null;
+}
+
+/** A stretch of a book's narration: when it starts and ends in the book, its file, and where in that file it starts. */
+export interface Stretch {
+  startMs: number;
+  endMs: number;
+  file: number;
+  offset: number;
+}
+
+/** Every stretch of a book's narration, a minute each from the start of each file, in order. */
+export function stretchesOf(files: readonly { durationMs: number }[]): Stretch[] {
+  const out: Stretch[] = [];
+  let t = 0;
+  files.forEach((f, file) => {
+    for (let offset = 0; offset < f.durationMs - 1000; offset += STRETCH_MS) out.push({ startMs: t + offset, endMs: t + Math.min(f.durationMs, offset + STRETCH_MS), file, offset });
+    t += f.durationMs;
+  });
+  return out;
+}
+
+/**
+ * A transcribed stretch placed in the text: its phrases (in milliseconds
+ * of the book) matched word by word around where the pairing puts the
+ * stretch, each phrase found starting at its checkpoint, and the
+ * checkpoints. Where the apps and the server place what they hear.
+ */
+export function placeStretch(index: readonly WordAt[], alignment: Alignment, stretch: { startMs: number; endMs: number }, phrases: readonly Said[]): { said: PlacedPhrase[]; anchors: Anchor[] } {
+  if (phrases.length === 0) return { said: [], anchors: [] };
+  const m = matchTranscript(index, phrases, msToText(alignment, stretch.startMs) - STRETCH_SLACK, msToText(alignment, stretch.endMs) + STRETCH_SLACK);
+  const said = phrases.map((p) => {
+    const an = m.anchors.find((z) => z.ms >= p.startMs && z.ms < p.endMs);
+    return an ? { ...p, startMs: an.ms, chars: an.chars } : { ...p, chars: null };
+  });
+  return { said, anchors: m.anchors };
 }
 
 export interface TranscriptMatch {
