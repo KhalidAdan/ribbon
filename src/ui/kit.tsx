@@ -244,6 +244,16 @@ export function SegmentedProgress({ parts, className }: { parts: number[]; class
   );
 }
 
+/** A button's words, and the shorter ones a phone shows instead. */
+export function Short({ phone, children }: { phone: string; children: string }) {
+  return (
+    <>
+      <span className="sm:hidden">{phone}</span>
+      <span className="max-sm:hidden">{children}</span>
+    </>
+  );
+}
+
 /** A keyboard key, for hints. */
 export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="rounded-[4px] px-1 font-sans text-[0.6875rem]/4 text-ink-3 ring-1 ring-line-strong ring-inset">{children}</kbd>;
