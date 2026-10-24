@@ -26,12 +26,6 @@ const CLOSE = "\u0003";
 /** At most this many sentences come back. */
 const LIMIT = 20;
 
-/**
- * The little words of English, left out of a search that has others: they're
- * in almost every sentence, so they'd only light up everywhere and rank
- * nothing. A search of nothing but these still searches them.
- */
-const LITTLE_WORDS = new Set("a an and are as at be but by for from had has have he her him his i in is it its me my of on or our she so than that the their them then there they this to was we were what when where which who whom why will with would you your".split(" "));
 
 /**
  * Every book's sentences, searchable: how a device without a keyboard worth
@@ -100,20 +94,32 @@ export class SearchIndex {
 
   /**
    * The sentences that best match words as someone remembers them, or says
-   * them: any of the words, the rarest counting most, in one book or every
-   * one. Punctuation, the order of the words and the little words between
-   * them don't matter.
+   * them, in one book or every one, most likely first: the words as a line,
+   * in the order said; then all of them, in any order; then any of them.
+   * Each is SQLite's own ranking (bm25), which counts a word for less the
+   * more sentences have it, so "the" weighs little and "Sanguinius" a lot.
+   * Punctuation never matters, and nothing said is read as search syntax.
    */
   search(words: string, options: { book?: string; limit?: number } = {}): Found[] {
     const said = words.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-    const telling = said.filter((w) => !LITTLE_WORDS.has(w));
-    const terms = telling.length > 0 ? telling : said;
-    if (terms.length === 0) return [];
+    if (said.length === 0) return [];
+    const limit = options.limit ?? LIMIT;
     // Each word quoted, so nothing said is read as FTS5's own syntax (AND, NEAR, a stray quote).
-    const query = [...new Set(terms)].map((t) => `"${t}"`).join(" OR ");
+    const quoted = (ws: readonly string[]) => [...new Set(ws)].map((w) => `"${w}"`);
+    const queries = [`"${said.join(" ")}"`, quoted(said).join(" "), quoted(said).join(" OR ")];
+    const found = new Map<string, Found>();
+    for (const query of queries) {
+      for (const f of this.match(query, options.book, limit)) if (!found.has(`${f.book}/${f.sentence}`)) found.set(`${f.book}/${f.sentence}`, f);
+      if (found.size >= limit) break;
+    }
+    return [...found.values()].slice(0, limit);
+  }
+
+  /** The sentences an FTS5 query matches, best first, with the words that matched marked. */
+  private match(query: string, book: string | undefined, limit: number): Found[] {
     const sql = `SELECT book_id AS book, n AS sentence, ms, chapter, highlight(sentence_text, 0, char(2), char(3)) AS marked
-      FROM sentence_text WHERE sentence_text MATCH ?${options.book ? " AND book_id = ?" : ""} ORDER BY bm25(sentence_text) LIMIT ?`;
-    const rows = this.db.prepare(sql).all(...(options.book ? [query, options.book] : [query]), options.limit ?? LIMIT) as { book: string; sentence: number; ms: number; chapter: string | null; marked: string }[];
+      FROM sentence_text WHERE sentence_text MATCH ?${book ? " AND book_id = ?" : ""} ORDER BY bm25(sentence_text) LIMIT ?`;
+    const rows = this.db.prepare(sql).all(...(book ? [query, book] : [query]), limit) as { book: string; sentence: number; ms: number; chapter: string | null; marked: string }[];
     return rows.map(({ marked, ...row }) => ({ ...row, ...unmark(marked) }));
   }
 }

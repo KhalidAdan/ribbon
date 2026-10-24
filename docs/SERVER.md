@@ -318,7 +318,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`src/core/reading/readalong.ts`), for the TV. Revalidated by ETag. |
 | `GET /api/books/:id/place` | Where you are in the book: the newest of your listening and reading places, as a sentence of the read-along and a moment. Never cached. |
 | `POST /api/books/:id/place` | This device is at this moment: written into its log with the book's claims, for a device that keeps no log. |
-| `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search; little words like "the" only count when there's nothing else. |
+| `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search: the words as a line first, then all of them in any order, then any of them, each ranked by SQLite (bm25). |
 | `GET /api/progress` | How far you are through each book you've started, for a library that keeps no log (the TV): where, when, started and finished, as the apps work it out. Never cached. |
 | `GET /api/books/:id/bookmarks` | Your bookmarks in the book, from every device; words are named by the sentences of the read-along they're in. Never cached. |
 | `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader, in this device's log. |
