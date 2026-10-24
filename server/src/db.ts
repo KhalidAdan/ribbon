@@ -4,9 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 
 /**
  * The server's database, `ribbon.db` in its data folder: Better Auth's
- * tables (people, sessions) and the server's own. Only what is metadata
- * lives here; the books and each person's places are files
- * (docs/SERVER.md, section 5). SQLite is the one built into Node, so there
+ * tables (people, sessions) and the server's own: what is metadata, each
+ * person's places, and every book's sentences for search. The books
+ * themselves are files (docs/SERVER.md, section 5). SQLite is the one built into Node, so there
  * is nothing native to compile on the machine that runs the server.
  */
 export function openDatabase(dataDir: string): DatabaseSync {
@@ -95,6 +95,23 @@ CREATE TABLE IF NOT EXISTS place_device (
   name TEXT NOT NULL,
   app TEXT,
   PRIMARY KEY (person_id, device_id)
+);
+
+-- Every book's sentences, for search (src/library/search.ts): SQLite's full-text search, words stemmed.
+CREATE VIRTUAL TABLE IF NOT EXISTS sentence_text USING fts5(
+  text,
+  book_id UNINDEXED,
+  n UNINDEXED,
+  ms UNINDEXED,
+  chapter UNINDEXED,
+  tokenize = 'porter unicode61 remove_diacritics 2'
+);
+
+-- Which read-along each book's sentences were indexed from (its stamp), so a changed one is indexed again.
+CREATE TABLE IF NOT EXISTS sentence_index (
+  book_id TEXT PRIMARY KEY,
+  stamp TEXT NOT NULL,
+  sentences INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS job (

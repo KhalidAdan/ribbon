@@ -54,6 +54,7 @@ private struct Screens: View {
                         switch screen {
                         case .book(let book): BookView(book: book)
                         case .player: PlayerView()
+                        case .search: SearchView()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -99,6 +100,7 @@ final class AppModel {
     enum Screen: Hashable {
         case book(ServerBook)
         case player
+        case search
         case reader
     }
 
@@ -286,8 +288,14 @@ final class AppModel {
 
     // Reading along ----------------------------------------------------------
 
-    /// Read along with a book: its read-along and your place in it, from the server, and its text set in type.
-    func readAlong(_ book: ServerBook) async {
+    /// Find a line, by voice or by typing, in any book.
+    func showSearch() {
+        if path.last != .search { path.append(.search) }
+    }
+
+    /// Read along with a book: its read-along and your place in it, from the server, and its text set in type. Opened at a
+    /// sentence, as from a search, the remote is on that sentence and the narrator where it was.
+    func readAlong(_ book: ServerBook, at sentence: Int? = nil) async {
         guard let server, opening == nil else { return }
         opening = book.id
         problem = nil
@@ -301,7 +309,9 @@ final class AppModel {
             let typeset = ContinuousClock.now
             let layout = await Task.detached(priority: .userInitiated) { BookLayout(text) }.value
             log.info("opened \(book.title, privacy: .public): the server answered in \(typeset - asked, privacy: .public), \(layout.paragraphs.count) paragraphs set in \(ContinuousClock.now - typeset, privacy: .public)")
-            reading = Reading(session: ReadingSession(listening: listening, readAlong: text, place: place), layout: layout)
+            let session = ReadingSession(listening: listening, readAlong: text, place: place)
+            if let sentence { session.show(sentence) }
+            reading = Reading(session: session, layout: layout)
             path.append(.reader)
         } catch {
             problem = error.localizedDescription

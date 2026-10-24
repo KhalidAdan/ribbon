@@ -6,6 +6,8 @@ import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
 import { removeBookDir, type BookIndex } from "./books.ts";
 import type { Mp3Frames } from "./frames.ts";
+import type { ReadAlongs } from "./readalong.ts";
+import type { SearchIndex } from "./search.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 
 /**
@@ -13,7 +15,7 @@ import { importFolder, type ImportProgress } from "./importer.ts";
  * job that does it, and deleting a book. The listing the apps read comes in
  * its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; events: Events; frames: Mp3Frames; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; dataDir: string }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -36,8 +38,10 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
             deps.events.toEveryone({ type: "books", data: { added } });
           }
         });
-        // The new books' MP3s are indexed now, so the TV's first play from a moment doesn't wait on reading a whole file.
+        // The new books' MP3s are indexed now, so the TV's first play from a moment doesn't wait on reading a whole file;
+        // and their sentences, so they can be searched.
         await deps.frames.indexMissing(deps.books);
+        await deps.search.indexAll(deps.books, deps.readAlongs, deps.dataDir);
         return done;
       },
       me.id,
@@ -52,7 +56,8 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can delete books." });
     const id = request.params.id;
     if (!deps.books.remove(id, me.id, Date.now())) return reply.code(404).send({ error: "No such book on this server." });
-    // Off the list first, so nobody starts a download of it; then its files.
+    // Off the list first, so nobody starts a download of it; then out of search, and its files.
+    deps.search.remove(id);
     await removeBookDir(deps.dataDir, id).catch((e: unknown) => request.log.warn({ err: e }, `could not remove the files of deleted book ${id}`));
     deps.events.toEveryone({ type: "books", data: { deleted: id } });
     return reply.code(204).send();

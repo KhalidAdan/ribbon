@@ -16,6 +16,7 @@ import { sendRevalidated, storedBook } from "./library/api.ts";
 import type { BookIndex, ListedBook, StoredBook } from "./library/books.ts";
 import type { Mp3Frames } from "./library/frames.ts";
 import { ReadAlongError, type MadeReadAlong, type ReadAlongs } from "./library/readalong.ts";
+import type { SearchIndex } from "./library/search.ts";
 import { PlacesError, type Places } from "./places.ts";
 
 /** Why a device that only draws and plays says it's at a moment: what any app writes, but `remote` and `import`, which it never does. */
@@ -66,13 +67,16 @@ export interface BookPlace {
  *   listen-through closes, as the desktop closes one, and the answer says
  *   how it went: when it started and finished, and the time spent in it on
  *   every device (src/core/stats.ts, `listenThrough`).
+ * - `GET /api/search?q=&book=`: the sentences that best match words someone
+ *   remembers, or says, in one book or every one, each named by its book and
+ *   its sentence of the read-along, so a device can go straight to it.
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
  *   it's finished, as the apps' shelves work it out (src/core/progress.ts).
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */
-export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; frames: Mp3Frames; dataDir: string }): void {
+export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; dataDir: string }): void {
   /** The book and its read-along, or the answer that says why there's none. */
   const readAlongOf = async (id: string, reply: FastifyReply): Promise<{ listed: ListedBook; stored: StoredBook; made: MadeReadAlong } | null> => {
     const listed = deps.books.get(id);
@@ -110,6 +114,14 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
       books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs) };
     }
     return { books };
+  });
+
+  app.get<{ Querystring: { q?: string; book?: string } }>("/api/search", async (request, reply) => {
+    if (!(await signedIn(deps.auth, request))) return reply.code(401).send({ error: "Sign in first." });
+    const { q = "", book } = request.query;
+    if (book && !deps.books.has(book)) return reply.code(404).send({ error: "No such book on this server." });
+    reply.header("cache-control", "no-store");
+    return { results: deps.search.search(q, book ? { book } : {}) };
   });
 
   app.get<{ Params: { id: string } }>("/api/books/:id/readalong", async (request, reply) => {

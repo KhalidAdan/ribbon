@@ -97,6 +97,11 @@ private struct TopBar: View {
             Image(systemName: "chevron.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.ink3)
             Text(model.host).font(.ui(28)).foregroundStyle(Color.ink2)
             Spacer()
+            Button { model.showSearch() } label: {
+                Label("Search", systemImage: "magnifyingglass")
+            }
+            .buttonStyle(RibbonButtonStyle())
+            .padding(.trailing, 16)
             if let listening = model.listening {
                 Button { model.showPlayer() } label: {
                     HStack(spacing: 14) {
@@ -111,6 +116,9 @@ private struct TopBar: View {
             }
             Text(model.server?.account.name ?? "").font(.ui(26)).foregroundStyle(Color.ink3)
         }
+        // One place for the focus to go up to from anywhere below: its buttons sit at the far right, outside what's
+        // straight above the cards.
+        .focusSection()
     }
 }
 

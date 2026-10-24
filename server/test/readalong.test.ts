@@ -196,6 +196,15 @@ describe("read-along from the server", () => {
     expect((await post(`/api/books/${book.id}/finished`, {})).statusCode).toBe(400);
   });
 
+  it("finds a line remembered, by its words, as a sentence of the book's read-along", async () => {
+    // Indexed as the book was added.
+    const { results } = (await get(`/api/search?q=${encodeURIComponent("the second one that follows")}`)).json() as { results: { book: string; sentence: number; ms: number; chapter: string; text: string }[] };
+    expect(results[0]).toMatchObject({ book: book.id, sentence: 2, ms: 4000, chapter: "Chapter One", text: "A second one follows it." });
+    expect(((await get(`/api/search?q=third&book=${book.id}`)).json() as { results: { sentence: number }[] }).results.map((r) => r.sentence)).toEqual([3]);
+    expect((await get("/api/search?q=third&book=0123456789abcdef")).statusCode).toBe(404);
+    expect((await server.app.inject({ method: "GET", url: "/api/search?q=third" })).statusCode).toBe(401);
+  });
+
   it("refuses a bookmark it can't make", async () => {
     expect((await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 2 })).statusCode).toBe(400);
     expect((await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 9 })).statusCode).toBe(400);

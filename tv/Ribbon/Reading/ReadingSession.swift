@@ -131,6 +131,12 @@ final class ReadingSession {
         moveCursor(to: narrator)
     }
 
+    /// Go to a sentence found elsewhere, by a search: the remote is on it, away from the narrator, so left listens from it
+    /// and right goes back.
+    func show(_ sentence: Int) {
+        moveCursor(to: sentence)
+    }
+
     /// Menu: a bookmark being made or deleted is left alone; else back to the narrator when the remote has wandered off,
     /// else out of the book. True when it stays in the book.
     func back() -> Bool {
