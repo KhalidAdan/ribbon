@@ -4,6 +4,8 @@ import { closeReader, placeNow, reading, silence, type Ribbon } from "../app";
 interface Opened {
   /** ms from the open to the first frame with the book's text on screen, while it was still opening (the snapshot). */
   snapshot: number | null;
+  /** ms to the first frame with the book's text on screen at all: the snapshot's, or the page's. */
+  text: number | null;
   /** ms to the first frame the reader was ready. */
   ready: number;
   /** ms to the first frame it had its pairing. */
@@ -22,6 +24,7 @@ function open(r: Ribbon): Promise<Opened> {
         const c = window.__ribbon;
         const t0 = performance.now();
         let snapshot: number | null = null;
+        let text: number | null = null;
         let ready: number | null = null;
         let paired: number | null = null;
         const firstLines = new Set<string>();
@@ -34,13 +37,14 @@ function open(r: Ribbon): Promise<Opened> {
             const b = line.getBoundingClientRect();
             firstLines.add(`${line.textContent?.slice(0, 30)} @ ${Math.round(b.left)},${Math.round(b.top)}`);
             if (snapshot === null && s?.status === "opening") snapshot = t;
+            if (text === null) text = t;
           }
           if (ready === null && s?.status === "ready") ready = t;
           if (paired === null && s?.alignment) paired = t;
           if ((ready !== null && paired !== null && t - ready > 100) || t > 15_000) {
             const p = s?.place;
             const n = c.narratorInText();
-            done({ snapshot, ready: ready ?? -1, paired, firstLines: [...firstLines], place: p ? `${p.section}:${p.block}:${p.offset}` : "", narrator: n ? `${n.section}:${n.block}:${n.offset}` : null });
+            done({ snapshot, text, ready: ready ?? -1, paired, firstLines: [...firstLines], place: p ? `${p.section}:${p.block}:${p.offset}` : "", narrator: n ? `${n.section}:${n.block}:${n.offset}` : null });
           } else requestAnimationFrame(look);
         };
         requestAnimationFrame(look);
@@ -81,10 +85,12 @@ export const openCheck: Check = {
     await page.waitForTimeout(500);
     o = await open(r);
     t.expect(o.place === left, "opens at the page left", `${o.place}, left at ${left}`);
-    // At once: from its snapshot while the book opens, or the book itself within the first frames. A
-    // fast machine can be ready before any frame shows the opening (GitHub's runner: ready in 17 ms),
-    // and a frame is all this sees; at 6x the opening takes most of a second, so the snapshot still shows.
-    t.expect(o.snapshot !== null || o.ready <= 50, "draws the page left at once", `${o.snapshot === null ? "no frame while opening" : `snapshot at ${o.snapshot} ms`}, ready in ${o.ready} ms`);
+    // At once: from its snapshot while the book opens, or else the page itself in the frame the reader is ready,
+    // laid out from the snapshot rather than waited for. A fast machine can be ready before any frame shows the
+    // opening (GitHub's runner: ready in 17 ms), and a frame is all this sees; at 6x the opening takes most of a
+    // second, so the snapshot still shows. Without a snapshot, the page waits for the layout worker, frames later.
+    const drawn = o.snapshot !== null ? `snapshot at ${o.snapshot} ms` : o.text !== null ? `no frame while opening, page at ${o.text} ms` : "no page";
+    t.expect(o.text !== null && o.text <= o.ready, "draws the page left at once", `${drawn}, ready in ${o.ready} ms`);
     t.expect(o.firstLines.length === 1, "the real page replaces the snapshot in place", o.firstLines.join(" | "));
     t.expect(o.paired !== null && o.ready <= o.paired, "is ready no later than its pairing", `ready ${o.ready} ms, paired ${o.paired} ms`);
 
