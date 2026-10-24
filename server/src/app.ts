@@ -15,6 +15,7 @@ import { Jobs } from "./jobs.ts";
 import { nodeHost } from "../../src/host/node.ts";
 import { BookIndex } from "./library/books.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
+import { audibleCatalog, booksToDescribe, describeBooks, type DescribeProgress } from "./library/describe.ts";
 import { booksToHydrate, hydrateBooks, type HydrateProgress } from "./library/hydrate.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
@@ -141,13 +142,16 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // Books added before the server filled in what they came without get it from their EPUBs, in the background, before
   // their sentences are indexed with the chapters named.
   if (readAlongs.available) jobs.start<HydrateProgress>("hydrate", { books: 0, done: 0, described: 0, named: 0, current: null }, async (report) => hydrateBooks(readAlongs, config.dataDir, await booksToHydrate(config.dataDir, books), report), null);
+  // Then, when the admin has turned it on, the books still without a description get the catalog's (describe.ts).
+  const catalog = config.descriptions ? audibleCatalog(config.descriptions.store) : null;
+  if (catalog) jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, config.dataDir, await booksToDescribe(config.dataDir, books), report), null);
   // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   // The narration of books added before the server transcribed is heard in the background, in a lane of its own: it takes hours a book.
   const transcriber = new Transcriber({ dataDir: config.dataDir, books, readAlongs, speech: config.speech ?? null, log: app.log });
   transcriber.start(jobs);
   app.addHook("onClose", async () => transcriber.stop());
-  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, transcriber, dataDir: config.dataDir });
+  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, transcriber, catalog, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, transcriber, dataDir: config.dataDir });

@@ -158,6 +158,8 @@ From the environment:
 | `RIBBON_SPEECH_TOOL` | `target/release/ribbon-speech`, else `target/debug/` | Speech, to transcribe the narration. |
 | `RIBBON_SPEECH_MODEL` | none (the image's own, in Docker) | The whisper model. Empty, or not there: the server transcribes nothing, and keeps what devices send. |
 | `RIBBON_SPEECH_THREADS` | half the machine's cores | How many threads transcribing takes, always at the lowest priority. |
+| `RIBBON_DESCRIPTIONS` | none | `audible`: a book that came with no description, and has no EPUB with one, gets Audible's summary, after each folder is added and when the server starts. It asks Audible's catalog, sending only the book's title and author, and takes a recording only by one of its authors and as long as it (within 3%). A description already there is never replaced, and each book is asked about once. Unset, the server asks no one. |
+| `RIBBON_AUDIBLE_STORE` | `us` | Which Audible store to ask: `us`, `uk`, `ca`, `au`, `de`, `fr`, `it`, `es`, `in` or `jp`. |
 
 ## Reaching it from elsewhere
 
