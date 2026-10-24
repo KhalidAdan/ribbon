@@ -38,10 +38,12 @@ files at any time, so the audio streams and the place lives on the server.
 - **The Siri Remote**: up and down step a sentence, a swipe on the touch
   surface glides through several. Left listens from the sentence you're on,
   and right returns to the narrator; away from the narrator, Listen from here
-  and Return to narrator say so either side of your sentence. Play or Select
-  reads from the sentence you're on; on the sentence being read, it pauses
-  and goes on. Menu brings you back to the narrator when you've wandered off,
-  and out of the book when you haven't.
+  and Return to narrator say so either side of your sentence. "What did they
+  just say?": Left again at once (within about 0.6 s) goes back one more
+  sentence and reads from there, and again. Play or Select reads from the
+  sentence you're on; on the sentence being read, it pauses and goes on. Menu
+  brings you back to the narrator when you've wandered off, and out of the
+  book when you haven't.
 - **Bookmarks**: hold Select on a sentence, take in more with up and down, and
   Select keeps it. It's the bookmark the desktop makes of words selected in
   its reader (docs/POSITION-FORMAT.md, section 3.4), so it's on every device,
@@ -56,6 +58,44 @@ files at any time, so the audio streams and the place lives on the server.
 - **Your place** goes to the server as you listen, the way the phone's and
   the desktop's do, and the book opens at the newest of your places on any
   device, listening or reading.
+- **Resuming** goes back by as much as the time away asks, as the desktop's
+  does (src/core/resume.ts, mirrored in `Listening/Resume.swift`): two
+  seconds after a short pause, ten after a few minutes, thirty after a night,
+  a minute after a week, never into the chapter before, and to the start of a
+  sentence where the read-along places it. After a day away the player offers
+  to start the chapter over.
+- **Chapter cards**: crossing into a new chapter while the player or the
+  reader is on screen, the narration waits 2.6 seconds while the chapter's
+  number and title fill the screen in Newsreader, wiped in and out left to
+  right, as Kurosawa's intertitles are. Never on a chapter you skipped or
+  sought to, nor while a sleep timer is about to stop it, an end-of-chapter
+  timer is set, or Still listening? is asking. Play pauses it as ever.
+- **Dozing off**: after forty minutes of narration with nothing pressed or
+  touched and no sleep timer, a quiet Still listening? Any press answers it
+  and does nothing else. With no answer within a minute the narration stops
+  at the end of the sentence (it fades out, as the sleep timer does, in a
+  book without a read-along), and the TV keeps where you dozed off: the
+  moment of the narration at your last press or touch. Next time the player
+  offers Go back to where you dozed off, and the reader opens with your
+  sentence there, Left to listen from it and Right to go on from where it
+  stopped. That moment is kept on this TV for each person and book, as the
+  speed is: it's about this sofa, and the position log every app shares has
+  no record for it. The Siri Remote has no motion sensors, so presses and
+  touches are all there is to go by (`Remote.swift`), and only while Ribbon
+  is in front: behind the home screen, its presses go to other apps.
+- **The end of a book**: a quiet card with when it was started and
+  finished and the time spent listening on every device (the server's
+  sessions), then Up next in the series, for you to start when you choose:
+  there's no countdown.
+- **Your passages**: paused for five minutes in the player or the reader
+  with nothing pressed, your bookmarked passages from every book drift by,
+  set in Newsreader with the book's title. Any press brings back where you
+  were, and does nothing else. Not after the sleep timer, dozing off or the
+  book's end stopped it: you're asleep, and the TV goes to sleep as usual.
+  The TV's own screen saver waits while they show, for an hour at most.
+- **Listening sessions** are kept on the server as the desktop keeps them,
+  for the end of a book; Keep listening sessions, below the library, turns
+  that off for you on this TV (docs/POSITION-FORMAT.md, section 3.3).
 
 ## Where the read-along comes from
 
@@ -69,6 +109,11 @@ Play still reads from it.
 
 `GET` and `POST /api/books/:id/place` give and keep the person's place as a
 sentence and a moment, so the TV keeps no position log of its own.
+`POST /api/books/:id/listened` keeps a stretch of listening (opening a
+listen-through as it starts, a session as it ends) and `POST
+/api/books/:id/finished` closes the listen-through and says how it went.
+`GET /api/bookmarks` lists the person's bookmarks in every book, for the
+passages.
 
 ## The code
 
@@ -80,8 +125,12 @@ sentence and a moment, so the TV keeps no position log of its own.
 | `PeopleView.swift`, `SignInView.swift` | Who's reading, and signing in. |
 | `Library/Library.swift` | A person's books and how far through each, grouped as the desktop's shelf. |
 | `Library/LibraryView.swift`, `Library/BookView.swift` | The library, and a book's page with its series. |
+| `Remote.swift` | Every press and touch, seen first: when the person last did anything, and the one press that only wakes something. |
+| `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place, resuming, chapter cards, the end. |
+| `Listening/Resume.swift` | How far back resuming goes, as the desktop's `src/core/resume.ts`. |
+| `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
+| `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
 | `Library/SearchView.swift` | Find a line, by voice or typing, in every book. |
-| `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place. |
 | `Listening/Bookmarks.swift` | A book's bookmarks from every device: made of whole sentences here, words or moments elsewhere. |
 | `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |
 | `Listening/PlayerView.swift` | The full player, and the chapter list. |
@@ -120,7 +169,12 @@ SIMCTL_CHILD_RIBBON_SERVER=http://localhost:7766 SIMCTL_CHILD_RIBBON_NAME=<name>
 ```
 
 A debug build fills the sign-in in from `RIBBON_SERVER`, `RIBBON_NAME` and
-`RIBBON_PASSWORD`: the simulator's on-screen keyboard is slow. A keyboard
+`RIBBON_PASSWORD`: the simulator's on-screen keyboard is slow. With
+`RIBBON_QUICK_WAITS` set (`SIMCTL_CHILD_RIBBON_QUICK_WAITS=1`), it asks Still
+listening? after 20 seconds instead of forty minutes, stops 10 seconds later
+instead of a minute, and shows the passages after 15 seconds' pause instead
+of five minutes. A short silent book (ffmpeg's `anullsrc`) on the scratch
+server checks the player without the simulator playing a book aloud. A keyboard
 can't hold Select or press Menu, so in a debug build the reader takes Page
 Down as Select held and Delete as Menu. The simulator
 reaches a server on this Mac at `localhost`. The arrow keys are the remote's

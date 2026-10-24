@@ -34,6 +34,8 @@ struct PlayerView: View {
                 .padding(.horizontal, 96)
                 .padding(.vertical, 56)
                 .defaultFocus($playFocused, true)
+                // Come to from the end of the book before, the focus would stay where that card's button was.
+                .onAppear { playFocused = true }
                 .sheet(isPresented: $chapters) { ChapterSheet(listening: listening) { chapters = false } }
                 .sheet(isPresented: $bookmarks) { BookmarkSheet(listening: listening) { bookmarks = false } }
                 // Bookmarks made on other devices since.
@@ -126,8 +128,44 @@ private struct NowPlaying: View {
                     .buttonStyle(RoundButtonStyle(size: 72))
             }
             .padding(.top, 40)
-            Text(listening.playing ? " " : "Paused").font(.ui(22)).foregroundStyle(Color.ink3).padding(.top, 20)
+            if let ms = listening.dozedOffer {
+                Offer(words: "You dozed off around \(Format.duration(ms))\(chapterOf(ms).map { ", in chapter \($0 + 1)" } ?? "").", take: "Go back to where you dozed off", action: listening.goBackToDozed, dismiss: listening.dozing.forget)
+                    .padding(.top, 28)
+            } else if let offer = listening.resumeOffer {
+                Offer(words: "You were away for \(Format.away(offer.awayMs)). Start this chapter over?", take: "Start it over", action: listening.restartChapter, dismiss: listening.dismissResumeOffer)
+                    .padding(.top, 28)
+            } else {
+                Text(listening.playing ? " " : "Paused").font(.ui(22)).foregroundStyle(Color.ink3).padding(.top, 20)
+            }
         }
+    }
+
+    private func chapterOf(_ ms: Int) -> Int? {
+        listening.chapters.count > 1 ? listening.chapters.lastIndex { $0.startMs <= ms } : nil
+    }
+}
+
+/// Something offered on resuming, once, quietly, as the desktop's (src/ui/ResumeOffer.tsx): a line, the way to take
+/// it, and Keep going, which lets it go. Down from the transport reaches it.
+private struct Offer: View {
+    let words: String
+    let take: String
+    let action: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text(words).font(.ui(22)).foregroundStyle(Color.ink2).multilineTextAlignment(.center).monospacedDigit()
+            HStack(spacing: 14) {
+                Button(take, action: action).buttonStyle(SmallButtonStyle())
+                Button("Keep going", action: dismiss).buttonStyle(SmallButtonStyle())
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.line))
     }
 }
 

@@ -24,7 +24,7 @@ struct ReaderView: View {
                     }
                     .opacity(banner == nil ? 1 : 0)
                     if let banner {
-                        BannerView(title: banner.title, hint: banner.hint)
+                        BannerView(symbol: banner.symbol, title: banner.title, hint: banner.hint)
                             .frame(maxWidth: .infinity)
                             .offset(y: 12)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -41,15 +41,17 @@ struct ReaderView: View {
         }
     }
 
-    /// What's happening to a bookmark, and what the remote does about it.
-    private var banner: (title: String, hint: String?)? {
+    /// What's happening to a bookmark, and what the remote does about it; or that the remote is where the person dozed off.
+    private var banner: (symbol: String, title: String, hint: String?)? {
         if let range = session.markingRange {
-            return (range.count == 1 ? "Bookmarking this sentence" : "Bookmarking \(range.count) sentences", "Up and down take in more  ·  Select keeps it  ·  Menu cancels")
+            return ("bookmark.fill", range.count == 1 ? "Bookmarking this sentence" : "Bookmarking \(range.count) sentences", "Up and down take in more  ·  Select keeps it  ·  Menu cancels")
         }
         if session.deleting != nil {
-            return ("Delete this bookmark?", "Select deletes it  ·  Menu keeps it")
+            return ("bookmark.fill", "Delete this bookmark?", "Select deletes it  ·  Menu keeps it")
         }
-        return session.notice.map { ($0, nil) }
+        if let notice = session.notice { return ("bookmark.fill", notice, nil) }
+        if session.atDozed { return ("moon.fill", "Where you dozed off", "Left listens from here  ·  Right goes on from where it stopped") }
+        return nil
     }
 
     /// "2h 41m left", or "Paused · 2h 41m left", at the narrator's speed.
@@ -62,13 +64,14 @@ struct ReaderView: View {
 
 /// A line over the reader about a bookmark: what's happening, and what the remote does about it.
 private struct BannerView: View {
+    let symbol: String
     let title: String
     let hint: String?
 
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 12) {
-                Image(systemName: "bookmark.fill").font(.system(size: 22)).foregroundStyle(Color.place)
+                Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(Color.place)
                 Text(title).font(.ui(26, weight: 500)).foregroundStyle(Color.ink)
             }
             if let hint { Text(hint).font(.ui(22)).foregroundStyle(Color.ink2) }

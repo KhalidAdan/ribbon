@@ -28,6 +28,15 @@ enum Format {
         return "\(text)×"
     }
 
+    /// How long someone was away, as the desktop's resume offer says it (src/ui/ResumeOffer.tsx, `describeAway`):
+    /// "a day", "3 days", "2 weeks".
+    static func away(_ ms: Int) -> String {
+        let days = ms / 86_400_000
+        if days >= 14 { return "\(days / 7) weeks" }
+        if days >= 2 { return "\(days) days" }
+        return "a day"
+    }
+
     /// How long is left of a stretch at a speed: what the narrator will take.
     static func atSpeed(_ ms: Int, _ speed: Double) -> Int {
         Int((Double(max(0, ms)) / max(0.5, speed)).rounded())

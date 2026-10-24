@@ -64,6 +64,32 @@ struct BookPlace: Decodable {
     let ms: Int
     /// "listening" or "reading": what they last did, on any device.
     let from: String
+    /// When, as the position log writes it; nil from a server from before it said.
+    let at: String?
+}
+
+/// How one listen-through of a book went (src/core/stats.ts, `ListenThrough`): the end of the book tells it.
+struct ListenThrough: Decodable, Equatable {
+    let started: String
+    let finished: String?
+    /// Wall-clock time spent listening in it, on every device.
+    let listenedMs: Int
+}
+
+/// A bookmarked passage from any of the person's books (server/src/readalong-routes.ts, `GET /api/bookmarks`), for
+/// the screen they drift by on while a book is paused.
+struct Passage: Decodable, Identifiable {
+    struct Book: Decodable {
+        let id: String
+        let title: String
+        let author: String
+    }
+
+    let id: String
+    let note: String
+    /// The words, for a bookmark made of words in the text.
+    let quote: String?
+    let book: Book
 }
 
 /// A bookmark, as the server shows one to a device that only draws and plays
@@ -176,6 +202,26 @@ struct RibbonServer {
         _ = try await send("POST", "api/books/\(id)/place", ["ms": ms, "why": why.rawValue], answer: Answer.self)
     }
 
+    /// A stretch of listening that just ended: a session for the person's history unless they keep none (`keep`), and
+    /// the listen-through it's part of, opened by the first; a new one when the book was finished and is heard `again`.
+    func listened(from start: Date, to end: Date, fromMs: Int, toMs: Int, speed: Double, again: Bool, keep: Bool, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        let body: [String: Any] = ["start": Moment.write(start), "end": Moment.write(end), "fromMs": fromMs, "toMs": toMs, "speed": speed, "again": again, "keep": keep]
+        _ = try await send("POST", "api/books/\(id)/listened", body, answer: Answer.self)
+    }
+
+    /// The book played to its end: the listen-through closes, and the server says how it went.
+    func finished(_ id: String) async throws -> ListenThrough {
+        struct Answer: Decodable { let read: ListenThrough }
+        return try await send("POST", "api/books/\(id)/finished", [:], answer: Answer.self).read
+    }
+
+    /// Every passage the person has bookmarked, in every book, newest first.
+    func passages() async throws -> [Passage] {
+        struct Answer: Decodable { let bookmarks: [Passage] }
+        return try await get(Answer.self, "api/bookmarks").bookmarks
+    }
+
     /// The sentences that best match words someone remembers, or says: in every book, or in one.
     func search(_ words: String, in book: String? = nil) async throws -> [SearchResult] {
         struct Answer: Decodable { let results: [SearchResult] }
@@ -263,5 +309,25 @@ struct RibbonServer {
         if !text.contains("://") { text = "https://\(text)" }
         guard let url = URL(string: text), url.host() != nil else { return nil }
         return url
+    }
+}
+
+/// A moment as the position log writes one: ISO 8601 in UTC, to the millisecond.
+enum Moment {
+    private static let withFraction: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let plain = ISO8601DateFormatter()
+
+    static func write(_ date: Date) -> String {
+        withFraction.string(from: date)
+    }
+
+    static func read(_ text: String?) -> Date? {
+        guard let text else { return nil }
+        return withFraction.date(from: text) ?? plain.date(from: text)
     }
 }

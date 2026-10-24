@@ -61,8 +61,17 @@ struct LibraryView: View {
                 } else {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
                 }
-                Button("Switch reader") { model.switchReader() }
+                HStack(alignment: .center, spacing: 24) {
+                    Button("Switch reader") { model.switchReader() }
+                        .buttonStyle(RibbonButtonStyle())
+                    // As the desktop's Settings has it: a writer of sessions lets the listener turn them off (docs/POSITION-FORMAT.md, section 3.3).
+                    Button { model.keepSessions(!model.keepsSessions) } label: {
+                        Label("Keep listening sessions", systemImage: model.keepsSessions ? "checkmark.circle.fill" : "circle")
+                    }
                     .buttonStyle(RibbonButtonStyle())
+                    Text(model.keepsSessions ? "On this TV. The end of a book says how long it took." : "Off on this TV: the end of a book won't count the time here.")
+                        .font(.ui(22)).foregroundStyle(Color.ink3)
+                }
             }
             .padding(.horizontal, 96)
             .padding(.vertical, 56)

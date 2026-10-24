@@ -258,7 +258,13 @@ it asks the server where the person is in a book, as a sentence, and tells it
 where it is as it plays; the server writes that into the TV's log as any app
 would. Its bookmarks are whole sentences, which the server writes as the
 desktop writes words selected in its reader (POSITION-FORMAT.md, section 3.4),
-so they're one bookmark with the desktop's, on every device.
+so they're one bookmark with the desktop's, on every device. Its listening
+counts as the desktop's does: each stretch opens a listen-through as it
+starts and is kept as a session as it ends (unless the person turned
+sessions off on the TV), and a book played to its end closes its
+listen-through, which is how the TV's end of a book knows when it was
+started and how long it took on every device. Its screen of passages, while
+a book is paused, is every bookmark's words from every book.
 
 ## 9. From added to ready
 
@@ -317,6 +323,9 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id/bookmarks` | Your bookmarks in the book, from every device; words are named by the sentences of the read-along they're in. Never cached. |
 | `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader, in this device's log. |
 | `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |
+| `GET /api/bookmarks` | Your bookmarks in every book, newest first, each with its book's title and author: the TV's passages. Never cached. |
+| `POST /api/books/:id/listened` | A stretch of listening, for a device that keeps no log: a listen-through (`read`) opens with it when none is open (after a finished one, only when it says `again`), and it's a `session` when it's thirty seconds or more and the person keeps sessions (`keep`). |
+| `POST /api/books/:id/finished` | The book played to its end: the open listen-through closes, as the desktop's does, and the answer says when it started and finished and the time spent listening in it on every device (`src/core/stats.ts`, `listenThrough`). |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added or deleted. |
 
 The admin pages have their own: invites, people, devices, adding a folder,

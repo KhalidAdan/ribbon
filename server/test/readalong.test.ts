@@ -146,6 +146,56 @@ describe("read-along from the server", () => {
     expect((await del(url, { device: tv })).statusCode).toBe(404);
   });
 
+  it("lists the person's bookmarks in every book, newest first, with the book's title", async () => {
+    await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 1, last: 1 });
+    await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 3 });
+    const r = await get("/api/bookmarks");
+    expect(r.statusCode).toBe(200);
+    const { bookmarks } = r.json() as { bookmarks: { quote: string; book: { id: string; title: string; author: string } }[] };
+    expect(bookmarks.map((b) => b.quote)).toEqual(["The third ends the chapter.", "The first sentence is here."]);
+    expect(bookmarks[0]!.book).toEqual({ id: book.id, title: "Read Along", author: "An Author" });
+    expect((await server.app.inject({ method: "GET", url: "/api/bookmarks" })).statusCode).toBe(401);
+  });
+
+  it("keeps a stretch of listening as a session, and opens a listen-through with the first", async () => {
+    type Record_ = { k: string; dev: string; started?: string; finished?: string; listened_ms?: number; from_ms?: number; to_ms?: number; speed?: number };
+    const mine = async (k: string) => ((await get("/api/places")).json() as { records: Record_[] }).records.filter((r) => r.dev === tv.id && r.k === k);
+    const start = "2026-10-20T20:00:00.000Z";
+    const stretch = { device: tv, start, end: "2026-10-20T20:00:40.000Z", fromMs: 1000, toMs: 9000, speed: 1.25 };
+    expect((await post(`/api/books/${book.id}/listened`, stretch)).json()).toEqual({ added: 2 });
+    expect(await mine("read")).toMatchObject([{ started: start }]);
+    expect(await mine("session")).toMatchObject([{ listened_ms: 40_000, from_ms: 1000, to_ms: 9000, speed: 1.25 }]);
+
+    // The listen-through stays open; a stretch under thirty seconds, or one the person keeps no sessions of, adds nothing.
+    expect((await post(`/api/books/${book.id}/listened`, { ...stretch, start: "2026-10-20T20:01:00.000Z", end: "2026-10-20T20:01:10.000Z" })).json()).toEqual({ added: 0 });
+    expect((await post(`/api/books/${book.id}/listened`, { ...stretch, keep: false })).json()).toEqual({ added: 0 });
+    expect((await post(`/api/books/${book.id}/listened`, { ...stretch, start: "2026-10-21T21:00:00.000Z", end: "2026-10-21T21:02:00.000Z" })).json()).toEqual({ added: 1 });
+    expect(await mine("read")).toHaveLength(1);
+
+    expect((await post(`/api/books/${book.id}/listened`, { ...stretch, end: "2026-10-20T19:00:00.000Z" })).statusCode).toBe(400);
+    expect((await post(`/api/books/${book.id}/listened`, { ...stretch, fromMs: -1 })).statusCode).toBe(400);
+    expect((await post(`/api/books/0123456789abcdef/listened`, stretch)).statusCode).toBe(404);
+  });
+
+  it("closes the listen-through when the book is finished, and says how it went", async () => {
+    const r = await post(`/api/books/${book.id}/finished`, { device: tv });
+    expect(r.statusCode).toBe(200);
+    const { read } = r.json() as { read: { started: string; finished: string; listenedMs: number } };
+    expect(read).toMatchObject({ started: "2026-10-20T20:00:00.000Z", listenedMs: 40_000 + 120_000 });
+    expect(Date.parse(read.finished)).toBeGreaterThan(Date.parse(read.started));
+    const { books } = (await get("/api/progress")).json() as { books: Record<string, { finished: boolean }> };
+    expect(books[book.id]!.finished).toBe(true);
+
+    // Finished already: as it was.
+    expect((await post(`/api/books/${book.id}/finished`, { device: phone })).json()).toEqual({ read });
+    // Listening again opens a new listen-through only when the person chose to start again.
+    const again = { device: tv, start: "2026-10-22T20:00:00.000Z", end: "2026-10-22T20:01:00.000Z", fromMs: 0, toMs: 9000 };
+    expect((await post(`/api/books/${book.id}/listened`, again)).json()).toEqual({ added: 1 });
+    expect((await post(`/api/books/${book.id}/listened`, { ...again, again: true })).json()).toEqual({ added: 2 });
+    expect(((await get("/api/progress")).json() as { books: Record<string, { finished: boolean }> }).books[book.id]!.finished).toBe(false);
+    expect((await post(`/api/books/${book.id}/finished`, {})).statusCode).toBe(400);
+  });
+
   it("finds a line remembered, by its words, as a sentence of the book's read-along", async () => {
     // Indexed as the book was added.
     const { results } = (await get(`/api/search?q=${encodeURIComponent("the second one that follows")}`)).json() as { results: { book: string; sentence: number; ms: number; chapter: string; text: string }[] };
