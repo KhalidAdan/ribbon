@@ -272,15 +272,6 @@ final class AppModel {
         }
     }
 
-    /// A card's play button: pause the book playing, or listen to another.
-    func playOrPause(_ book: ServerBook) async {
-        if let listening, listening.book.id == book.id, listening.playing {
-            listening.pause()
-        } else {
-            await listen(to: book)
-        }
-    }
-
     /// The player, for the book playing.
     func showPlayer() {
         if listening != nil && path.last != .player { path.append(.player) }

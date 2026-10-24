@@ -41,7 +41,8 @@ struct ReaderView: View {
         }
     }
 
-    /// What's happening to a bookmark, and what the remote does about it; or that the remote is where the person dozed off.
+    /// What's happening to a bookmark, and what the remote does about it; or that the remote is where the person dozed
+    /// off; or, as the book opens, that its read-along is by chapter.
     private var banner: (symbol: String, title: String, hint: String?)? {
         if let range = session.markingRange {
             return ("bookmark.fill", range.count == 1 ? "Bookmarking this sentence" : "Bookmarking \(range.count) sentences", "Up and down take in more  ·  Select keeps it  ·  Menu cancels")
@@ -51,6 +52,7 @@ struct ReaderView: View {
         }
         if let notice = session.notice { return ("bookmark.fill", notice, nil) }
         if session.atDozed { return ("moon.fill", "Where you dozed off", "Left listens from here  ·  Right goes on from where it stopped") }
+        if let caveat = session.caveat { return ("waveform", caveat.title, caveat.hint) }
         return nil
     }
 
@@ -62,7 +64,7 @@ struct ReaderView: View {
     }
 }
 
-/// A line over the reader about a bookmark: what's happening, and what the remote does about it.
+/// A line over the reader: what's happening, and what the remote does about it.
 private struct BannerView: View {
     let symbol: String
     let title: String

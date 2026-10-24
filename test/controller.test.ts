@@ -190,7 +190,11 @@ describe("AppController series by hand", () => {
     // A second one of the same name gets its own key.
     await c.createSeries("My Picks", [a]);
     expect(Object.keys(c.getState().series).sort()).toEqual(["my-picks", "my-picks-2"]);
+    // Its page shows until the series is gone, then the library does.
+    c.openSeries("my-picks");
+    expect(c.getState()).toMatchObject({ pane: "series", seriesKey: "my-picks" });
     await c.deleteSeries("my-picks");
+    expect(c.getState().pane).toBe("library");
     await c.deleteSeries("my-picks-2");
     expect(c.getState().series).toEqual({});
     expect(c.detectedSeries().some((x) => x.key.startsWith("my-picks"))).toBe(false);

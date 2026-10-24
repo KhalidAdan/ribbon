@@ -21,6 +21,31 @@ export interface ReadAlong {
   contents: { title: string; block: number }[];
   /** The reading order's paragraphs, headings and breaks between scenes. Pictures are left out. */
   blocks: ReadAlongBlock[];
+  /** How closely it follows the narration (`checkReadAlong`). */
+  check: ReadAlongCheck;
+}
+
+/**
+ * How closely a read-along follows its narration, measured as it's made,
+ * so a device can say so rather than mark a guess as the sentence being
+ * read (docs/SERVER.md, section 9: nothing is guessed silently).
+ */
+export interface ReadAlongCheck {
+  /**
+   * Of the sentences the narrator reads, the share placed to the sentence:
+   * between moments heard close together, or by the book's Media Overlay.
+   * The rest are placed by how far through their chapter they are, which
+   * was measured at up to a minute from the voice (docs/READING.md,
+   * section 6, "Checkpoints inside chapters").
+   */
+  placed: number;
+  /**
+   * Each moment heard inside a chapter and found in the text, left out in
+   * turn and placed from the moments heard either side of it: how far from
+   * when its words were said that put them. Null when too little was heard
+   * inside chapters to measure.
+   */
+  heldOut: { moments: number; medianMs: number; worstMs: number } | null;
 }
 
 export interface ReadAlongBlock {
@@ -98,7 +123,29 @@ export function readAlongOf(text: BookText, alignment: Alignment): ReadAlong {
     const block = where.findIndex((w) => w.section > entry.section || (w.section === entry.section && w.block >= entry.block));
     if (block >= 0 && contents.at(-1)?.block !== block) contents.push({ title: entry.label, block });
   }
-  return { format: READ_ALONG_FORMAT, contents, blocks };
+  return { format: READ_ALONG_FORMAT, contents, blocks, check: checkReadAlong(alignment, blocks) };
+}
+
+/** A read-along's sentences checked against what was heard of its narration (`ReadAlongCheck`). */
+export function checkReadAlong(alignment: Alignment, blocks: readonly ReadAlongBlock[]): ReadAlongCheck {
+  const narrated = blocks.flatMap((b) => b.sentences ?? []).filter((s) => s.endMs > s.ms);
+  const placed = narrated.length === 0 ? 0 : narrated.filter((s) => s.exact).length / narrated.length;
+  const off: number[] = [];
+  for (const { points } of alignment.pairs) {
+    // A pair's first and last points are its chapter's ends; the ones between were heard. A chapter's start isn't
+    // heard, and the narration may open with something the text hasn't (a LibriVox recording's notice), so only
+    // moments with heard ones either side are checked.
+    for (let i = 2; i < points.length - 2; i++) {
+      const [beforeMs, beforeChars] = points[i - 1]!;
+      const [afterMs, afterChars] = points[i + 1]!;
+      const [ms, chars] = points[i]!;
+      const guess = beforeMs + ((chars - beforeChars) / Math.max(1, afterChars - beforeChars)) * (afterMs - beforeMs);
+      off.push(Math.abs(guess - ms));
+    }
+  }
+  off.sort((a, b) => a - b);
+  const heldOut = off.length === 0 ? null : { moments: off.length, medianMs: Math.round(off[off.length >> 1]!), worstMs: Math.round(off.at(-1)!) };
+  return { placed, heldOut };
 }
 
 /**

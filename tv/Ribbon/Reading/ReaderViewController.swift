@@ -4,9 +4,11 @@ import UIKit
 /// a sentence, a swipe on the touch surface glides through several, and Play
 /// or Select reads from the sentence the remote is on (ReadingSession). The
 /// column moves only when the sentence leaves the middle of the screen, and
-/// then glides, so the words stay still while they're read. While the
-/// narration plays, every other word steps back, dimmed, and the sentence
-/// being read is left at full ink; paused, the whole page comes back.
+/// then glides, so the words stay still while they're read. Once the
+/// narration has played a few seconds with the remote following it, every
+/// other word steps back, dimmed, and the sentence being read is left at full
+/// ink (the river); the remote moving away, or a pause, brings the whole page
+/// back at once, so the words moved to can be read.
 ///
 /// Left listens from the remote's sentence, and again a sentence further back
 /// each time it's pressed again at once; right returns to the narrator.
@@ -40,7 +42,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     private let toNarrator = SideLabel(title: "Return to narrator", arrow: "chevron.right", leading: false)
     /// The bookmarks drawn, to draw again when they change.
     private var drawnBookmarks: [String] = []
-    /// Whether the words not being read are drawn dimmed: while the narration plays.
+    /// Whether the words not being read are drawn dimmed: the river (ReadingSession).
     private var dimmed = false
 
     /// Holding up or down keeps stepping, after a moment.
@@ -249,15 +251,17 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
             now.formUnion(session.sentences[range.lowerBound].block...session.sentences[range.upperBound].block)
         }
         // Bookmarks made or deleted, here or on another device, are drawn again everywhere they show; so is every
-        // paragraph when the narration starts or stops, and the words not being read dim or come back.
+        // paragraph when the river comes or goes, and the words not being read dim or come back.
         let bookmarks = session.bookmarks.all.map(\.id)
-        let dim = session.listening.playing
+        let dim = session.river
         let again = bookmarks != drawnBookmarks || dim != dimmed ? Set(shown.keys) : []
+        // The river comes in slowly, so it doesn't pull at the eye, and goes at once, so the words moved to can be read.
+        let duration = dim == dimmed ? 0.2 : dim ? 0.6 : 0.1
         drawnBookmarks = bookmarks
         dimmed = dim
         for index in marked.union(now).union(again) {
             guard let view = shown[index] else { continue }
-            UIView.transition(with: view, duration: 0.2, options: .transitionCrossDissolve) {
+            UIView.transition(with: view, duration: duration, options: .transitionCrossDissolve) {
                 self.show(index, in: view)
             }
         }

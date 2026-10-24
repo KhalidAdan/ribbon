@@ -27,3 +27,14 @@ export function Cover({ url, title, className }: Props) {
     </div>
   );
 }
+
+/** A series' cover: the next book's, on a small stack of the others when there are any. */
+export function CoverStack({ url, title, count, className }: Props & { count: number }) {
+  return (
+    <div className={clsx("pointer-events-none relative shrink-0 self-start pr-2", className)}>
+      {count > 2 && <span className="absolute inset-y-[10%] right-0 left-2 rounded-[4px] bg-raised ring-1 ring-line" aria-hidden="true" />}
+      {count > 1 && <span className="absolute inset-y-[5%] right-1 left-1 rounded-[4px] bg-raised ring-1 ring-line" aria-hidden="true" />}
+      <Cover url={url} title={title} className="relative w-full" />
+    </div>
+  );
+}

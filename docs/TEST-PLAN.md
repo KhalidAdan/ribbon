@@ -87,6 +87,10 @@ They are deterministic and tiny. They are never committed.
 - Narrator from `composer`, else `narrator`, else empty.
 - Series from `series` or `mvnm`; series index from `series-part` or
   `mvin`; index parsed as a number and may be fractional (`2.5`).
+- With no tag and no numbered folder, a series named in titles the way
+  stores write it: "The Solar War: Siege of Terra: The Horus Heresy,
+  Book 1", or "Leviathan Wakes (The Expanse, Book 1)". Three titles must
+  share the name, in either order; "Book 8, Part 2" is book 8.
 - Year from the first four digits of `date`.
 - `(Unabridged)` suffix stripped from the title for display, preserved in
   `raw_title`.

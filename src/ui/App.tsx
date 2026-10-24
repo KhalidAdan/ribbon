@@ -12,6 +12,7 @@ import { ReaderPage } from "./ReaderPage";
 import { SettingsPane } from "./SettingsPane";
 import { SeriesSetup } from "./SeriesSetup";
 import { NewSeries } from "./NewSeries";
+import { SeriesPage } from "./SeriesPage";
 import { useKeys } from "./useKeys";
 import { ScanProgress } from "./ScanProgress";
 import { TopBar, Tabs, type Crumb } from "./Shell";
@@ -91,6 +92,7 @@ function Ready() {
     series: s.series,
     pane: s.pane,
     readerBookId: s.readerBookId,
+    seriesKey: s.seriesKey,
     problems: s.problems,
     playerExpanded: s.playerExpanded,
     error: s.error,
@@ -105,7 +107,7 @@ function Ready() {
   if (state.phase === "pick") return <PickLibrary />;
 
   const reader = state.pane === "reader" ? (state.books.find((b) => b.book.id === state.readerBookId) ?? null) : null;
-  const series = reader ? c.detectedSeries().find((g) => g.bookIds.includes(reader.book.id)) : undefined;
+  const series = reader ? c.detectedSeries().find((g) => g.bookIds.includes(reader.book.id)) : state.pane === "series" ? c.detectedSeries().find((g) => g.key === state.seriesKey) : undefined;
   const servers = state.sources.filter((s) => s.server).length;
   const counted = (n: number, one: string) => (n === 0 ? "" : `${n} ${one}${n === 1 ? "" : "s"}`);
   const folders = state.sources.length === 1 ? state.sources[0]!.name : [counted(state.sources.length - servers, "folder"), counted(servers, "server")].filter(Boolean).join(" and ");
@@ -115,8 +117,10 @@ function Ready() {
       : state.pane === "stats"
         ? [{ label: "Stats" }]
       : reader
-        ? [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name }] : []), { label: reader.book.title }]
-        : [{ label: folders }];
+        ? [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name, onClick: () => c.openSeries(series.key) }] : []), { label: series?.titles?.[reader.book.id] ?? reader.book.title }]
+        : state.pane === "series"
+          ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: series?.name ?? "Series" }]
+          : [{ label: folders }];
   const onQuery = (q: string) => {
     setQuery(q);
     if (q && state.pane !== "library") c.showLibrary();
@@ -157,6 +161,8 @@ function Ready() {
           <StatsPane />
         ) : state.pane === "reader" ? (
           <ReaderPage />
+        ) : state.pane === "series" ? (
+          <SeriesPage />
         ) : (
           <LibraryPane query={query} onQuery={onQuery} found={found} />
         )}

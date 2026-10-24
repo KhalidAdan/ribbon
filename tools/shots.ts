@@ -42,6 +42,7 @@ const SCENES: Scene[] = [
   { name: "library-playing", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: false })` },
   { name: "reader-series", setup: `const b = ${PICK_SERIES_BOOK}; await c.openBook(b, { expand: false }); c.openReader(b.book.id)` },
   { name: "reader-book", setup: `c.openReader((${PICK_LOOSE_BOOK}).book.id)` },
+  { name: "series-page", setup: `const g = [...c.detectedSeries()].sort((a, b) => b.bookIds.length - a.bookIds.length)[0]; if (g) c.openSeries(g.key)` },
   { name: "player", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: true })` },
   { name: "player-chapters", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: true }); c.setPlayerDrawer("chapters")` },
   { name: "player-bookmarks", setup: `await c.openBook(${PICK_SERIES_BOOK}, { expand: true }); await c.addBookmark("The Warmaster's first doubt"); c.setPlayerDrawer("bookmarks")` },

@@ -221,9 +221,11 @@ export interface AppState {
   coverVersion: number;
   error: string | null;
   /** What fills the window above the player bar. */
-  pane: "library" | "settings" | "reader" | "stats";
+  pane: "library" | "settings" | "reader" | "stats" | "series";
   /** The book the reader page shows. */
   readerBookId: string | null;
+  /** The series the series page shows, by key. */
+  seriesKey: string | null;
   /** The full player is open over everything. */
   playerExpanded: boolean;
   /** Which drawer the full player shows, if any. */
@@ -493,6 +495,7 @@ export class AppController {
       error: null,
       pane: "library",
       readerBookId: null,
+      seriesKey: null,
       playerExpanded: false,
       playerDrawer: null,
       editBook: null,
@@ -3341,11 +3344,19 @@ export class AppController {
         o.source.name,
       )) {
         const have = byKey.get(g.key);
-        if (have) have.bookIds.push(...g.bookIds.filter((id) => !have.bookIds.includes(id)));
-        else byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
+        if (have) {
+          have.bookIds.push(...g.bookIds.filter((id) => !have.bookIds.includes(id)));
+          if (g.numbers) have.numbers = { ...have.numbers, ...g.numbers };
+          if (g.titles) have.titles = { ...have.titles, ...g.titles };
+        } else byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
       }
     }
     return mergeSeries([...byKey.values()], Object.values(this.state.series), new Set(this.state.books.map((b) => b.book.id)));
+  }
+
+  /** Show a series' page: its books in order, and how far you are through it. */
+  openSeries(key: string): void {
+    this.set({ pane: "series", seriesKey: key, playerExpanded: false });
   }
 
   openNewSeries(): void {
@@ -3375,6 +3386,8 @@ export class AppController {
     log.info("delete series:", gone.name);
     this.seriesOffered.add(key);
     this.set({ series, seriesSetup: this.state.seriesSetup?.key === key ? null : this.state.seriesSetup });
+    // A series made by hand is gone with its record: its page has nothing left to show.
+    if (this.state.pane === "series" && this.state.seriesKey === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
     for (const o of this.openedInOrder()) {
       o.seriesKeys.delete(key);
       try {

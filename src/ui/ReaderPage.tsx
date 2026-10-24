@@ -1,7 +1,5 @@
-import { BookOpenIcon, BookmarkIcon, CheckIcon, PlayIcon } from "@heroicons/react/16/solid";
-import { clsx } from "clsx";
+import { BookOpenIcon, BookmarkIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { ScannedBook } from "../core/scan/scan";
 import { orderBySeries, hiddenBookIds, seriesNumber } from "../core/series";
 import { NEUTRAL_TONE, type Tone } from "../core/tint";
 import { formatLeft } from "../core/speed";
@@ -13,10 +11,11 @@ import { Cover } from "./Cover";
 import { Dialog } from "./Dialog";
 import { ReadHistory } from "./ReadHistory";
 import { tintFromImage } from "./tint";
-import { howFar, lengthOf, progressOf as progressIn, useShelfProgress } from "./progress";
+import { progressOf as progressIn, useShelfProgress } from "./progress";
 import { readerOnly } from "../core/ebook";
-import { Badge, Menu, ProgressLine, SectionHeader } from "./kit";
+import { Badge, Menu, ProgressLine, SectionHeader, Short } from "./kit";
 import { formatBytes } from "./Servers";
+import { SeriesBooks } from "./SeriesPage";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -80,6 +79,9 @@ export function ReaderPage() {
 
   const me = progressIn(book, shelf, reading);
   const index = orderedIds.indexOf(book.book.id);
+  const numbers = orderedIds.map((id, i) => seriesNumber(record, id, i + 1, series?.numbers));
+  // "Book 4 of 10" while the numbers are the positions; "Book 9" when the series has gaps or a book in parts.
+  const counted = numbers.every((n, i) => n === String(i + 1));
   const shelfIds = orderedIds.filter((id) => !hidden.has(id));
   const nextId = index >= 0 ? orderedIds.slice(index + 1).find((id) => !hidden.has(id)) : undefined;
   const next = nextId ? byId.get(nextId) : undefined;
@@ -152,10 +154,13 @@ export function ReaderPage() {
           <div className="min-w-0">
             {series && index >= 0 && (
               <p className="text-base/6 text-ink-2 sm:text-sm/5">
-                {series.name} · Book {seriesNumber(record, book.book.id, index + 1)} of {orderedIds.length}
+                <button type="button" onClick={() => c.openSeries(series.key)} className="rounded-sm text-left focus-ring hover:text-ink">
+                  {series.name} · Book {numbers[index]}
+                  {counted && ` of ${orderedIds.length}`}
+                </button>
               </p>
             )}
-            <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{book.book.title}</h1>
+            <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{(index >= 0 && series?.titles?.[book.book.id]) || book.book.title}</h1>
             {book.book.subtitle && <p className="mt-1 font-serif text-xl/7 text-pretty text-ink-2">{book.book.subtitle}</p>}
             <p className="mt-2 text-base/6 text-ink-2">
               {book.book.author || "Author unknown"}
@@ -263,64 +268,22 @@ export function ReaderPage() {
               title={series.name}
               description={`${seriesFinished} of ${shelfIds.length} finished${seriesLeft > 0 ? `, ${formatLeft(seriesLeft).replace(/ \d+m$/, "")} still to hear` : ""}. Use the up and down arrows to move through it.`}
               actions={
-                <Button size="sm" variant="ghost" onClick={() => c.openSeriesSetup(series.key)}>
-                  Change the series…
-                </Button>
+                <>
+                  <Button size="sm" variant="ghost" onClick={() => c.openSeries(series.key)}>
+                    Open the series
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => c.openSeriesSetup(series.key)}>
+                    Change the series…
+                  </Button>
+                </>
               }
             />
-            <ol role="list" className="flex flex-col border-t border-line">
-              {orderedIds.map((id, i) => {
-                const b = byId.get(id);
-                if (!b) return null;
-                return <SeriesRow key={id} book={b} number={seriesNumber(record, id, i + 1)} now={id === book.book.id} off={hidden.has(id)} />;
-              })}
-            </ol>
+            <SeriesBooks group={series} record={record} ids={orderedIds} hidden={hidden} place={{ id: book.book.id, kind: "page" }} label={`The books in ${series.name}`} />
           </section>
         )}
       </div>
 
     </section>
-  );
-}
-
-/** A button's words, and the shorter ones a phone shows instead. */
-function Short({ phone, children }: { phone: string; children: string }) {
-  return (
-    <>
-      <span className="sm:hidden">{phone}</span>
-      <span className="max-sm:hidden">{children}</span>
-    </>
-  );
-}
-
-/** One book in the series list: its number, cover, title, and how it stands. */
-function SeriesRow({ book, number, now, off }: { book: ScannedBook; number: string; now: boolean; off: boolean }) {
-  const shelf = useShelfProgress();
-  useCovers();
-  const c = useController();
-  const p = progressIn(book, shelf, (id) => c.readingProgress(id));
-  const standing = off ? "Left off the shelf" : p.finished ? "Finished" : p.started ? howFar(book, p, Math.max(1, Math.floor(p.fraction * 100))) : lengthOf(book);
-  return (
-    <li className="border-b border-line">
-      <button
-        type="button"
-        onClick={() => c.openReader(book.book.id)}
-        aria-current={now ? "page" : undefined}
-        className={clsx("relative grid w-full grid-cols-[2rem_2.5rem_minmax(0,1fr)_auto] items-center gap-3 py-2 pr-2 pl-3 text-left focus-ring sm:grid-cols-[2rem_2.5rem_minmax(0,1fr)_auto]", now ? "bg-raised" : "hover:bg-raised", off && "opacity-50")}
-      >
-        {now && <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-place" aria-hidden="true" />}
-        <span className="text-right text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{number}</span>
-        <Cover url={c.coverUrl(book)} title={book.book.title} className="w-10" />
-        <span className="min-w-0">
-          <span className={clsx("block truncate text-base/6 sm:text-sm/5", now ? "font-medium text-ink" : "text-ink")}>{book.book.title}</span>
-          <span className="block truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">{book.book.author}</span>
-        </span>
-        <span className="flex items-center gap-1.5 text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
-          {p.finished && !off && <CheckIcon className="size-4 shrink-0 fill-ink-3" aria-hidden="true" />}
-          {standing}
-        </span>
-      </button>
-    </li>
   );
 }
 

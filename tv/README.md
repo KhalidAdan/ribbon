@@ -22,8 +22,8 @@ files at any time, so the audio streams and the place lives on the server.
   and their places stay on the server.
 - **The library**, as the desktop's: Continue (the books you're in the
   middle of, most recent first), each series as a card with where you are in
-  it, then every other book. A card opens the book's page; its play button
-  listens straight away. While a book plays, its title at the top opens the
+  it, then every other book. A card is one button, which opens the book's
+  page; play is there. While a book plays, its title at the top opens the
   player. Switch reader, below the books, goes back to Who's reading; so
   does Menu, when there's more than one person.
 - **A book's page**: where you are as a sentence, Continue listening and Read
@@ -34,7 +34,12 @@ files at any time, so the audio streams and the place lives on the server.
   book playing.
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
-  amber, and the column glides when it leaves the middle of the screen.
+  amber, and the column glides when it leaves the middle of the screen. Once
+  the narration has played five seconds with your sentence following it, the
+  words not being read step back (the river); moving off the narrator, or
+  pausing, brings them back at once (a tenth of a second). A book whose
+  read-along is by chapter says so for a few seconds as it opens: the words
+  can be up to a minute from the voice.
 - **The Siri Remote**: up and down step a sentence, a swipe on the touch
   surface glides through several. Left listens from the sentence you're on,
   and right returns to the narrator; away from the narrator, Listen from here
@@ -105,7 +110,10 @@ book, with the same code the apps use: the EPUB parsed by `ribbon-ebook`
 (src-tauri/ebook) and paired with the narration by `src/core/reading/`. A
 sentence is marked only where it is placed to the sentence (a transcript or
 a Media Overlay around it); elsewhere the remote still steps through it and
-Play still reads from it.
+Play still reads from it. Its `check` says how much of the book is placed
+to the sentence, and how far off the moments heard in it are when each is
+left out and placed from the ones either side; the server logs it when it
+makes a read-along, and the TV says when the book is by chapter.
 
 `GET` and `POST /api/books/:id/place` give and keep the person's place as a
 sentence and a moment, so the TV keeps no position log of its own.
