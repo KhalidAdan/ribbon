@@ -16,7 +16,23 @@ interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   children: ReactNode;
 }
 
-const base = "relative inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap select-none focus-ring disabled:pointer-events-none disabled:opacity-40";
+/**
+ * How a press shows, for a phone above all, where there's no hover to say
+ * a button is live: what's pressed shrinks a little and comes back, quickly.
+ * With reduced motion it dims instead.
+ */
+export const pressed = "transition-transform duration-150 ease-out active:scale-[0.97] motion-reduce:active:scale-100 motion-reduce:active:opacity-80";
+
+/** A card that's a button: pressed the same way, shrinking less, being larger. */
+export const pressedCard = "transition-transform duration-150 ease-out active:scale-[0.98] motion-reduce:active:scale-100 motion-reduce:active:opacity-80";
+
+/**
+ * A card with its button laid over it, marked `data-card`, and buttons of
+ * its own on top (play, a menu): only the card's button presses the card.
+ */
+export const pressedCardWithButtons = "transition-transform duration-150 ease-out has-[[data-card]:active]:scale-[0.98] motion-reduce:has-[[data-card]:active]:scale-100 motion-reduce:has-[[data-card]:active]:opacity-80";
+
+const base = clsx("relative inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap select-none focus-ring disabled:pointer-events-none disabled:opacity-40", pressed);
 
 const variants: Record<Variant, string> = {
   // Inverted ink: the one thing on the screen you are most likely to want.

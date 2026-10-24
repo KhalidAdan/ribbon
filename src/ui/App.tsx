@@ -174,7 +174,7 @@ function Ready() {
 
       <SpeechNudge />
       {state.error && (
-        <div role="alert" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg items-start gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line dark:shadow-none dark:ring-line-strong">
+        <div role="alert" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg items-start gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line transition-[translate,opacity] duration-200 ease-out starting:opacity-0 motion-safe:starting:translate-y-4 dark:shadow-none dark:ring-line-strong">
           <p className="min-w-0 flex-1 py-0.5 text-base/6 text-pretty text-ink sm:text-sm/5">{state.error}</p>
           <Button size="sm" variant="ghost" onClick={() => c.clearError()}>
             Dismiss

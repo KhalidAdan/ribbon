@@ -1,26 +1,19 @@
 import { clsx } from "clsx";
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useModal } from "./modal";
 
 /**
  * A centred dialog on a native <dialog>: a title and one line about it,
  * the body, and a footer with a hint on the left and the actions on the
- * right. Escape and the close event call onClose.
+ * right. Escape and the close event call onClose. It grows in from just
+ * smaller, and leaves the same way (modal.ts).
  */
 export function Dialog({ open, onClose, title, description, children, hint, actions, labelId, wide = false }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode; hint?: ReactNode; actions: ReactNode; labelId: string; wide?: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (open && !el.open) {
-      el.showModal();
-      // showModal focuses the first control; the title is the calmer place to start.
-      el.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-    }
-    else if (!open && el.open) el.close();
-  }, [open]);
+  const { ref, closing } = useModal(open);
   return (
     <dialog
       ref={ref}
+      data-closing={closing || undefined}
       onClose={(e) => {
         // React passes a nested dialog's close up the tree; only our own closes us.
         if (e.target === e.currentTarget) onClose();
@@ -33,7 +26,7 @@ export function Dialog({ open, onClose, title, description, children, hint, acti
         }
       }}
       aria-labelledby={labelId}
-      className={clsx("m-auto hidden max-h-[90dvh] w-[calc(100%-2rem)] flex-col rounded-[10px] bg-surface p-0 text-ink shadow-xl ring-1 ring-line backdrop:bg-black/50 open:flex starting:open:scale-[0.98] starting:open:opacity-0 transition-[scale,opacity] duration-150 ease-out dark:shadow-none dark:ring-line-strong", wide ? "max-w-3xl" : "max-w-xl")}
+      className={clsx("m-auto hidden max-h-[90dvh] w-[calc(100%-2rem)] flex-col rounded-[10px] bg-surface p-0 text-ink shadow-xl ring-1 ring-line backdrop:bg-black/50 open:flex transition-[scale,opacity] duration-150 ease-out backdrop:transition-opacity backdrop:duration-150 starting:open:opacity-0 starting:open:backdrop:opacity-0 motion-safe:starting:open:scale-[0.98] data-closing:opacity-0 data-closing:backdrop:opacity-0 motion-safe:data-closing:scale-[0.98] dark:shadow-none dark:ring-line-strong", wide ? "max-w-3xl" : "max-w-xl")}
     >
       <header className="shrink-0 px-5 pt-5">
         <h2 id={labelId} tabIndex={-1} data-autofocus className="text-base/6 font-semibold text-balance text-ink outline-none">

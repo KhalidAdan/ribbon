@@ -1,4 +1,5 @@
 import { clsx } from "clsx";
+import { useLayoutEffect, useRef, useState } from "react";
 
 interface Props {
   url: string | null;
@@ -18,13 +19,36 @@ export function Cover({ url, title, className }: Props) {
   return (
     <div className={clsx("relative aspect-square shrink-0 overflow-hidden rounded-[4px] bg-raised outline-1 -outline-offset-1 outline-line", className)}>
       {url ? (
-        <img src={url} alt="" className="size-full object-cover" draggable={false} />
+        <CoverImage url={url} />
       ) : (
         <div className="@container flex size-full items-center justify-center text-ink-3">
           <p className="text-[min(1.5rem,22cqw)] font-medium tracking-tight opacity-70">{initials || "?"}</p>
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The cover's picture. One already decoded when it's drawn, as most are, from
+ * the cache, shows at once; one still on its way (a first scan, a server's
+ * books) fades in over the blank square when it lands, rather than popping.
+ */
+function CoverImage({ url }: { url: string }) {
+  const ref = useRef<HTMLImageElement>(null);
+  const [coming, setComing] = useState(false);
+  // Before the first paint, so a picture already here is never faded.
+  useLayoutEffect(() => setComing(!ref.current?.complete), [url]);
+  return (
+    <img
+      ref={ref}
+      src={url}
+      alt=""
+      draggable={false}
+      onLoad={() => setComing(false)}
+      onError={() => setComing(false)}
+      className={clsx("size-full object-cover transition-opacity duration-150 ease-out", coming && "opacity-0")}
+    />
   );
 }
 
