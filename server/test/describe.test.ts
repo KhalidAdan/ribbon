@@ -5,7 +5,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db.ts";
 import { BookIndex, bookDir, type StoredBook } from "../src/library/books.ts";
-import { booksToDescribe, catalogTitles, describeBooks, matchProduct, summaryText, type Catalog, type CatalogProduct } from "../src/library/describe.ts";
+import { authorNames, booksToDescribe, catalogTitles, describeBooks, matchProduct, namesNoOne, summaryText, type Catalog, type CatalogProduct } from "../src/library/describe.ts";
 import { readStored, writeStored } from "../src/library/prepare.ts";
 
 /** Audible's summary of Mortis as its catalog sends it, cut short: HTML, with entities. */
@@ -27,13 +27,40 @@ describe("the catalog's summaries and titles", () => {
   });
 
   it("takes a recording by one of the book's authors, as long as it, the closest when several are", () => {
-    const book = { author: "Dan Abnett", durationMs: 735 * 60_000 };
+    const book = { title: "01. Horus Rising", author: "Dan Abnett", durationMs: 735 * 60_000 };
     // Another edition (an older reading, 9 hours) and a namesake by someone else are passed over.
-    expect(matchProduct(book, [product("old", "Horus Rising", "Dan Abnett", 540), product("other", "Horus Rising", "Someone Else", 735), product("new", "Horus Rising", "Dan Abnett", 731)])?.asin).toBe("new");
-    expect(matchProduct(book, [product("a", "Horus Rising", "Dan Abnett", 760), product("b", "Horus Rising", "Dan Abnett", 736)])?.asin).toBe("b");
-    expect(matchProduct(book, [product("long", "Horus Rising", "Dan Abnett", 800), product("none", "Horus Rising", "Dan Abnett", null)])).toBeNull();
+    expect(matchProduct(book, "Horus Rising", [product("old", "Horus Rising", "Dan Abnett", 540), product("other", "Horus Rising", "Someone Else", 735), product("new", "Horus Rising", "Dan Abnett", 731)])?.asin).toBe("new");
+    expect(matchProduct(book, "Horus Rising", [product("a", "Horus Rising", "Dan Abnett", 760), product("b", "Horus Rising", "Dan Abnett", 736)])?.asin).toBe("b");
+    expect(matchProduct(book, "Horus Rising", [product("long", "Horus Rising", "Dan Abnett", 800), product("none", "Horus Rising", "Dan Abnett", null)])).toBeNull();
     // Any of several authors will do.
-    expect(matchProduct({ author: "Graham McNeill & Dan Abnett", durationMs: 600 * 60_000 }, [product("x", "Book", "Dan Abnett", 601)])?.asin).toBe("x");
+    expect(matchProduct({ title: "Book", author: "Graham McNeill & Dan Abnett", durationMs: 600 * 60_000 }, "Book", [product("x", "Book", "Dan Abnett", 601)])?.asin).toBe("x");
+  });
+
+  it("reads an author and a narrator run together with a slash as two people", () => {
+    expect(authorNames("John French/Jonathan Keeble")).toEqual(["John French", "Jonathan Keeble"]);
+    expect(authorNames("Graham McNeill & Dan Abnett")).toEqual(["Graham McNeill", "Dan Abnett"]);
+    const slaves = { title: "51. Slaves to Darkness", author: "John French/Jonathan Keeble", durationMs: 648 * 60_000 };
+    expect(matchProduct(slaves, "Slaves to Darkness", [product("B07FYPTR48", "Slaves to Darkness", "John French", 648)])?.asin).toBe("B07FYPTR48");
+  });
+
+  it("takes an author tag of Various, or of the book's own title, as naming no one", () => {
+    expect(namesNoOne({ title: "48. Burden of Loyalty", author: "Various" })).toBe(true);
+    expect(namesNoOne({ title: "21. Fear to Tread", author: "Fear to Tread" })).toBe(true);
+    expect(namesNoOne({ title: "30. The Damnation of Pythos", author: "Damnation of Pythos" })).toBe(true);
+    expect(namesNoOne({ title: "Untitled", author: "" })).toBe(true);
+    expect(namesNoOne({ title: "01. Horus Rising", author: "Dan Abnett" })).toBe(false);
+  });
+
+  it("matches a book by no one by its title, and only a recording within minutes of its length", () => {
+    const burden = { title: "48. Burden of Loyalty", author: "Various", durationMs: 823 * 60_000 };
+    // The catalog's title has an article the folder's lacks; an anthology by eight people still matches.
+    const theBurden = { asin: "B079H4CP83", title: "The Burden of Loyalty", authors: ["Dan Abnett", "John French", "Gav Thorpe"], minutes: 823 };
+    expect(matchProduct(burden, "Burden of Loyalty", [product("other", "Loyalty's Burden", "Someone Else", 823), theBurden])?.asin).toBe("B079H4CP83");
+    // Seven minutes off is inside the 3% a book with an author gets, but not without one: another edition, maybe.
+    expect(matchProduct(burden, "Burden of Loyalty", [{ ...theBurden, minutes: 830 }])).toBeNull();
+    // Fear to Tread's rip is two minutes shorter than the catalog says.
+    const fear = { title: "21. Fear to Tread", author: "Fear to Tread", durationMs: 57_234_762 };
+    expect(matchProduct(fear, "Fear to Tread", [product("B076CT4M6D", "Fear to Tread", "James Swallow", 956)])?.asin).toBe("B076CT4M6D");
   });
 });
 
@@ -89,7 +116,7 @@ describe("describing the server's books", () => {
     const done = await describeBooks(catalog, dir, ids, () => undefined, async () => undefined);
     expect(done).toMatchObject({ books: 2, done: 2, described: 2 });
     expect((await readStored(dir, "mortis"))?.book.description).toBe(summaryText(MORTIS_HTML));
-    expect((await readStored(dir, "mortis"))?.described).toEqual({ asked: "Mortis: The Horus Heresy: Siege of Terra, Book 5|John French|986", asin: "1800266340" });
+    expect((await readStored(dir, "mortis"))?.described).toEqual({ asked: "2|Mortis: The Horus Heresy: Siege of Terra, Book 5|John French|986", asin: "1800266340" });
     expect((await readStored(dir, "hr"))?.book.description).toBe("Horus Rising, the first book of the Heresy.");
     expect((await readStored(dir, "voidscarred"))?.book.description).toBe("Its own words.");
     // Mortis was asked about by its full title first, then the short one; Voidscarred never.
@@ -101,12 +128,30 @@ describe("describing the server's books", () => {
     await add("raven", { title: "Raven's Flight: The Horus Heresy Series", author: "Gav Thorpe", minutes: 69 });
     const catalog = fakeCatalog();
     await describeBooks(catalog, dir, await booksToDescribe(dir, index), () => undefined, async () => undefined);
-    expect((await readStored(dir, "raven"))?.described).toEqual({ asked: "Raven's Flight: The Horus Heresy Series|Gav Thorpe|69", asin: null });
+    expect((await readStored(dir, "raven"))?.described).toEqual({ asked: "2|Raven's Flight: The Horus Heresy Series|Gav Thorpe|69", asin: null });
     expect((await readStored(dir, "raven"))?.book.description).toBeUndefined();
     expect(await booksToDescribe(dir, index)).toEqual([]);
     const stored = (await readStored(dir, "raven"))!;
     await writeStored(dir, "raven", { ...stored, book: { ...stored.book, title: "Raven's Flight" } });
     expect(await booksToDescribe(dir, index)).toEqual(["raven"]);
+  });
+
+  it("asks once more about a book the first matching found nothing for, by its title alone when its tag names no one", async () => {
+    // As the first matching left it: asked, with nothing found.
+    await add("flame", { title: "50. Born of Flame", author: "Various", minutes: 954 }, { described: { asked: "50. Born of Flame|Various|954", asin: null } });
+    const asked: string[] = [];
+    const catalog: Catalog = {
+      async search(title, author) {
+        asked.push(`${title} / ${author}`);
+        return [product("B0DSR5HY16", "Born of Flame and Shadow", "Someone Else", 963), { asin: "B07DP5JDTV", title: "Born of Flame", authors: ["Nick Kyme", "Guy Haley"], minutes: 954 }];
+      },
+      summary: async () => "The Salamanders, in nine stories.",
+    };
+    expect(await booksToDescribe(dir, index)).toEqual(["flame"]);
+    await describeBooks(catalog, dir, await booksToDescribe(dir, index), () => undefined, async () => undefined);
+    expect(asked).toEqual(["Born of Flame / "]);
+    expect((await readStored(dir, "flame"))?.book.description).toBe("The Salamanders, in nine stories.");
+    expect((await readStored(dir, "flame"))?.described).toEqual({ asked: "2|50. Born of Flame|Various|954", asin: "B07DP5JDTV" });
   });
 
   it("waits on a book's EPUB to be looked in first, and asks again next time when the catalog is out of reach", async () => {

@@ -13,10 +13,12 @@ import { readStored, writeStored } from "./prepare.ts";
  * title and author are sent.
  *
  * A match must be by one of the book's authors and as long as the
- * recording, so another edition or a namesake is never taken. A
- * description already there, from the files, the EPUB or a person, is never
- * replaced. A book is asked about once (`StoredBook.described`), and again
- * only when its title, author or length changes.
+ * recording, so another edition or a namesake is never taken. A book whose
+ * author tag names no one ("Various", or its own title) is matched by its
+ * title and a length within minutes instead. A description already there,
+ * from the files, the EPUB or a person, is never replaced. A book is asked
+ * about once (`StoredBook.described`), and again only when its title, author
+ * or length changes, or the matching does.
  */
 
 /** Audible's catalog by store, as the apps ask it. */
@@ -59,7 +61,8 @@ export function audibleCatalog(store = "us", fetchFn: typeof fetch = fetch): Cat
   };
   return {
     async search(title, author) {
-      const d = (await get("catalog/products", { title, author, num_results: "10", products_sort_by: "Relevance", response_groups: "product_attrs,contributors" })) as {
+      // product_desc carries the title; product_attrs the length; contributors the authors.
+      const d = (await get("catalog/products", { title, ...(author ? { author } : {}), num_results: "10", products_sort_by: "Relevance", response_groups: "product_desc,product_attrs,contributors" })) as {
         products?: { asin: string; title?: string; authors?: { name: string }[]; runtime_length_min?: number }[];
       };
       return (d.products ?? []).map((p) => ({ asin: p.asin, title: p.title ?? "", authors: (p.authors ?? []).map((a) => a.name), minutes: p.runtime_length_min ?? null }));
@@ -106,28 +109,75 @@ function sameLength(bookMinutes: number, catalogMinutes: number): boolean {
   return Math.abs(bookMinutes - catalogMinutes) <= Math.max(3, bookMinutes * 0.03);
 }
 
+/**
+ * How far a recording found by its title alone may be from the catalog's: three minutes, with no
+ * percentage. Without an author to go by, the length is what tells this recording from another
+ * edition, so only the catalog's rounding and a publisher's opening line or two are allowed for.
+ */
+function sameRecording(bookMinutes: number, catalogMinutes: number): boolean {
+  return Math.abs(bookMinutes - catalogMinutes) <= 3;
+}
+
 /** A name compared loosely: letters only, lower case. */
 const plain = (s: string) => s.toLowerCase().replace(/[^\p{L}]+/gu, " ").trim();
 
+/** A title compared loosely, without a leading article: "The Burden of Loyalty" is "burden of loyalty". */
+const bare = (s: string) => plain(s).replace(/^(?:the|a|an) /, "");
+
 /**
- * The catalog's recording of this book: by one of its authors (by surname)
- * and as long as it, the closest in length when several are. Null when none
- * is.
+ * The people an author tag names, as tags write several: "Graham McNeill &
+ * Dan Abnett", or an author and the narrator run together,
+ * "John French/Jonathan Keeble".
  */
-export function matchProduct(book: { author: string; durationMs: number }, products: readonly CatalogProduct[]): CatalogProduct | null {
-  const surnames = book.author
-    .split(/\s*(?:,|&|;|\band\b)\s*/i)
-    .map((a) => plain(a).split(" ").at(-1) ?? "")
-    .filter((s) => s.length > 1);
+export function authorNames(author: string): string[] {
+  return author
+    .split(/\s*(?:\/|,|&|;|\band\b)\s*/i)
+    .map((a) => a.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Whether a book's author tag names no one: empty, "Various" on an
+ * anthology, or the book's own title, as some rips have it ("Fear to Tread"
+ * by "Fear to Tread"). Such a book can only be asked about by its title.
+ */
+export function namesNoOne(book: { title: string; author: string }): boolean {
+  const author = bare(book.author);
+  return author === "" || /^various\b/.test(author) || catalogTitles(book.title).some((t) => bare(t) === author);
+}
+
+/**
+ * The catalog's recording of this book, asked about by this title: by one
+ * of its authors (by surname) and as long as it; or, when its author tag
+ * names no one, by that title and within minutes of its length. The closest
+ * in length when several are; null when none is.
+ */
+export function matchProduct(book: { title: string; author: string; durationMs: number }, title: string, products: readonly CatalogProduct[]): CatalogProduct | null {
   const minutes = book.durationMs / 60_000;
-  const fits = products.filter((p) => p.minutes !== null && sameLength(minutes, p.minutes) && p.authors.some((a) => surnames.some((s) => plain(a).split(" ").includes(s))));
+  let fits: CatalogProduct[];
+  if (namesNoOne(book)) {
+    fits = products.filter((p) => p.minutes !== null && sameRecording(minutes, p.minutes) && bare(p.title) === bare(title));
+  } else {
+    const surnames = authorNames(book.author)
+      .map((a) => plain(a).split(" ").at(-1) ?? "")
+      .filter((s) => s.length > 1);
+    fits = products.filter((p) => p.minutes !== null && sameLength(minutes, p.minutes) && p.authors.some((a) => surnames.some((s) => plain(a).split(" ").includes(s))));
+  }
   fits.sort((a, b) => Math.abs(a.minutes! - minutes) - Math.abs(b.minutes! - minutes));
   return fits[0] ?? null;
 }
 
-/** What a book is asked about by: once asked, it isn't asked again until its title, author or length changes. */
+/**
+ * Which way of matching a book was asked with. Raised when the matching
+ * changes, so the books the catalog had nothing for are asked once more.
+ * The second way splits authors run together with a slash, and finds a book
+ * by no one by its title.
+ */
+const MATCHING = 2;
+
+/** What a book is asked about by: once asked, it isn't asked again until its title, author or length changes, or the matching does. */
 function askedBy(book: StoredBook["book"]): string {
-  return `${book.title}|${book.author}|${Math.round(book.durationMs / 60_000)}`;
+  return `${MATCHING}|${book.title}|${book.author}|${Math.round(book.durationMs / 60_000)}`;
 }
 
 /**
@@ -195,8 +245,10 @@ export async function describeBooks(catalog: Catalog, dataDir: string, ids: read
 
 /** A book's description from the catalog, and the recording it's from; null when the catalog has no recording of it with one. */
 async function describe(catalog: Catalog, book: StoredBook["book"]): Promise<{ text: string; asin: string } | null> {
+  // By the first person the tag names, which the catalog's search understands better than a list; by no one when it names no one.
+  const author = namesNoOne(book) ? "" : (authorNames(book.author)[0] ?? "");
   for (const title of catalogTitles(book.title)) {
-    const product = matchProduct(book, await catalog.search(title, book.author));
+    const product = matchProduct(book, title, await catalog.search(title, author));
     if (!product) continue;
     const text = await catalog.summary(product.asin);
     return text ? { text, asin: product.asin } : null;
