@@ -18,6 +18,7 @@ import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/pr
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 import { ReadAlongs } from "./library/readalong.ts";
+import { SearchIndex } from "./library/search.ts";
 import { Mp3Frames } from "./library/frames.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
@@ -129,10 +130,14 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const frames = new Mp3Frames(config.dataDir, config.framesTool ?? null);
   // MP3s added before the server indexed them are indexed once, in the background.
   if (frames.available) jobs.start("frames", { indexed: 0 }, async () => ({ indexed: await frames.indexMissing(books) }), null);
-  libraryRoutes(app, { auth, jobs, books, events, frames, dataDir: config.dataDir });
+  const search = new SearchIndex(db);
+  const readAlongs = new ReadAlongs(config.dataDir, config.ebookTool ?? null, search);
+  // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
+  if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
+  libraryRoutes(app, { auth, jobs, books, events, frames, readAlongs, search, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
-  readAlongRoutes(app, { auth, books, places, events, readAlongs: new ReadAlongs(config.dataDir, config.ebookTool ?? null), frames, dataDir: config.dataDir });
+  readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }
