@@ -10,6 +10,7 @@ import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
 import { readAlongOf, type ReadAlong } from "../../../src/core/reading/readalong.ts";
 import { applyCorrections, buildChapters, rowsToCorrections } from "../../../src/core/scan/chapters.ts";
 import { bookDir, type StoredBook } from "./books.ts";
+import type { SearchIndex } from "./search.ts";
 
 const run = promisify(execFile);
 
@@ -45,7 +46,8 @@ export class ReadAlongError extends Error {
  * Made when a device first asks, and again when the book or a record it
  * carries changes: a transcript coming in, a pairing fixed by hand. The
  * parsed text is kept in the book's folder (`ebook/`), so a book is parsed
- * once; the read-alongs of the books being read are kept in memory.
+ * once; the read-alongs of the books being read are kept in memory. A
+ * read-along made from something new is searched from then on (SearchIndex).
  */
 export class ReadAlongs {
   private readonly made = new Map<string, { stamp: string; made: MadeReadAlong }>();
@@ -53,17 +55,24 @@ export class ReadAlongs {
   constructor(
     private readonly dataDir: string,
     private readonly tool: string | null,
+    private readonly search: SearchIndex | null = null,
   ) {}
+
+  /** Whether this server can make read-alongs at all. */
+  get available(): boolean {
+    return this.tool !== null;
+  }
 
   /** A book's read-along as it stands, or null when it has no text, or no audio to read it along with. */
   async of(id: string, stored: StoredBook): Promise<MadeReadAlong | null> {
     if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (server/README.md).", 503);
     if (!stored.book.ebook || stored.files.length === 0) return null;
     const dir = bookDir(this.dataDir, id);
-    const stamp = await this.stampOf(dir, stored);
+    const stamp = await this.stamp(id, stored);
     const kept = this.made.get(id);
     this.made.delete(id);
     const made = kept?.stamp === stamp ? kept.made : await this.make(dir, stored);
+    if (this.search && !this.search.isCurrent(id, stamp)) this.search.index(id, stamp, made.readAlong);
     // Most recently asked for last, so the first is the one to let go.
     this.made.set(id, { stamp, made });
     if (this.made.size > KEPT) this.made.delete(this.made.keys().next().value!);
@@ -100,8 +109,9 @@ export class ReadAlongs {
     }
   }
 
-  /** What a read-along is made from, as it is now: the book's record, its EPUB, its records, and the parser. */
-  private async stampOf(dir: string, stored: StoredBook): Promise<string> {
+  /** What a book's read-along is made from, as it is now: the book's record, its EPUB, its records, and the parser. */
+  async stamp(id: string, stored: StoredBook): Promise<string> {
+    const dir = bookDir(this.dataDir, id);
     const files = ["book.json", stored.book.ebook!, ...(stored.records ?? []).map((kind) => `records/${kind}.csv`)].map((f) => path.join(dir, f));
     const stamps = await Promise.all([...files, this.tool!].map((f) => stat(f).then((s) => `${s.size}:${s.mtimeMs}`, () => "-")));
     return stamps.join("|");

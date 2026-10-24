@@ -88,6 +88,19 @@ struct ServerBookmark: Decodable, Identifiable, Hashable {
     }
 }
 
+/// A sentence found by a search (server/src/library/search.ts, `Found`): its book, where it is, and its words with the
+/// ones searched for marked.
+struct SearchResult: Decodable, Hashable {
+    let book: String
+    /// The sentence, counted across the book's read-along, as the reader counts them.
+    let sentence: Int
+    let ms: Int
+    let chapter: String?
+    let text: String
+    /// The words that matched, as [start, length] in `text`, in UTF-16.
+    let matches: [[Int]]
+}
+
 /// Why the TV says where it is, as the position log names it.
 enum Why: String {
     case pause, seek, periodic, end, close
@@ -163,6 +176,14 @@ struct RibbonServer {
         _ = try await send("POST", "api/books/\(id)/place", ["ms": ms, "why": why.rawValue], answer: Answer.self)
     }
 
+    /// The sentences that best match words someone remembers, or says: in every book, or in one.
+    func search(_ words: String, in book: String? = nil) async throws -> [SearchResult] {
+        struct Answer: Decodable { let results: [SearchResult] }
+        var query = [URLQueryItem(name: "q", value: words)]
+        if let book { query.append(URLQueryItem(name: "book", value: book)) }
+        return try await get(Answer.self, "api/search", query: query).results
+    }
+
     /// The person's bookmarks in a book, from every device.
     func bookmarks(in id: String) async throws -> [ServerBookmark] {
         struct Answer: Decodable { let bookmarks: [ServerBookmark] }
@@ -193,8 +214,8 @@ struct RibbonServer {
         path.split(separator: "/").reduce(account.url.appending(path: "api/books/\(id)/files")) { $0.appending(path: String($1)) }
     }
 
-    private func get<T: Decodable>(_ type: T.Type, _ path: String) async throws -> T {
-        let (data, response) = try await Self.reach(authorized(path))
+    private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = []) async throws -> T {
+        let (data, response) = try await Self.reach(authorized(path, query: query))
         if response.statusCode == 401 { throw ServerError(message: "This TV's sign-in has run out. Sign in again.", status: 401) }
         guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't answer (\(response.statusCode)).", status: response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)
@@ -213,8 +234,10 @@ struct RibbonServer {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private func authorized(_ path: String) -> URLRequest {
-        var request = URLRequest(url: account.url.appending(path: path))
+    private func authorized(_ path: String, query: [URLQueryItem] = []) -> URLRequest {
+        var url = account.url.appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url)
         request.setValue("Bearer \(account.token)", forHTTPHeaderField: "authorization")
         return request
     }
