@@ -1,6 +1,6 @@
 import { BookOpenIcon, CheckIcon, PauseIcon, PlayIcon, RectangleStackIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ScannedBook } from "../core/scan/scan";
 import { splitPeople } from "../core/scan/sidefiles";
 import { hiddenBookIds, orderBySeries, seriesNumber, type SeriesGroup, type SeriesRecord } from "../core/series";
@@ -51,7 +51,8 @@ function hoursOf(ms: number): string {
  * One series: how far through it you are, the one thing to do next, and
  * every book in order under its number. Reached from the series card on
  * the shelf and from the series line on a book's page. Escape goes back
- * to the library.
+ * to the library. On a wide window the series stands in the margin too, as
+ * a rail of lines (SeriesRail).
  */
 export function SeriesPage() {
   const state = useAppState((s) => ({ books: s.books, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, playing: s.player.playing, downloads: s.downloads }));
@@ -101,40 +102,101 @@ export function SeriesPage() {
 
   return (
     <section className="h-full overflow-y-auto quiet-scroll" aria-labelledby="series-title">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-4 pt-8 pb-16 sm:px-8 sm:pt-12">
-        <header className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-5 gap-y-6 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-8 sm:gap-y-5">
-          <CoverStack url={next ? c.coverUrl(next.book) : null} title={next ? next.book.book.title : group.name} count={s.books.length} className="w-full sm:row-span-2" />
-          <div className="min-w-0">
-            <h1 id="series-title" className="text-xl font-semibold text-balance text-ink">
-              {group.name}
-            </h1>
-            <p className="mt-1 text-base/6 text-pretty text-ink-2 sm:text-sm/5">{byline(s.books.map((b) => b.book))}</p>
-          </div>
-          <div className="col-span-2 flex min-w-0 flex-col sm:col-span-1 sm:col-start-2">
-            <p className="max-w-[52ch] border-l border-line-strong pl-3 text-base/6 text-pretty text-ink tabular-nums sm:text-[0.9375rem]/6">{sentence}</p>
-            {s.books.length > 0 && <SegmentedProgress parts={s.books.map((b) => (b.progress.finished ? 1 : b.progress.fraction))} className="mt-4 max-w-sm" />}
-            <div className="mt-6 flex flex-wrap items-center gap-2">
-              {next && !s.allDone && (
-                <Button
-                  variant="primary"
-                  leading={nextToRead ? BookOpenIcon : playingNext ? PauseIcon : PlayIcon}
-                  disabled={downloading}
-                  onClick={() => (nextToRead ? void c.openReading(next.book.book.id) : playingNext ? c.pause() : void c.playBook(next.book))}
-                  className="max-sm:flex-1"
-                >
-                  {playingNext ? "Pause" : <Short phone={nextToRead ? "Read" : "Listen"}>{next.progress.started ? (nextToRead ? "Continue reading" : "Continue listening") : nextToRead ? "Start reading" : "Start listening"}</Short>}
-                </Button>
-              )}
-              <Button variant="ghost" onClick={() => c.openSeriesSetup(group.key)}>
-                {record ? "Change the series…" : "Set up the series…"}
-              </Button>
+      <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_minmax(0,48rem)_minmax(0,1fr)]">
+        <SeriesRail group={group} record={record} ids={s.ids} hidden={s.hidden} place={next && !s.allDone ? next.book.book.id : null} className="sticky top-0 self-start pt-12 pl-8 max-xl:hidden" />
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-10 px-4 pt-8 pb-16 sm:px-8 sm:pt-12">
+          <header className="grid grid-cols-[6rem_minmax(0,1fr)] items-center gap-x-5 gap-y-6 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-start sm:gap-x-8 sm:gap-y-5">
+            <CoverStack url={next ? c.coverUrl(next.book) : null} title={next ? next.book.book.title : group.name} count={s.books.length} className="w-full sm:row-span-2" />
+            <div className="min-w-0">
+              <h1 id="series-title" className="text-xl font-semibold text-balance text-ink">
+                {group.name}
+              </h1>
+              <p className="mt-1 text-base/6 text-pretty text-ink-2 sm:text-sm/5">{byline(s.books.map((b) => b.book))}</p>
             </div>
-          </div>
-        </header>
+            <div className="col-span-2 flex min-w-0 flex-col sm:col-span-1 sm:col-start-2">
+              <p className="max-w-[52ch] border-l border-line-strong pl-3 text-base/6 text-pretty text-ink tabular-nums sm:text-[0.9375rem]/6">{sentence}</p>
+              {s.books.length > 0 && <SegmentedProgress parts={s.books.map((b) => (b.progress.finished ? 1 : b.progress.fraction))} className="mt-4 max-w-sm" />}
+              <div className="mt-6 flex flex-wrap items-center gap-2">
+                {next && !s.allDone && (
+                  <Button
+                    variant="primary"
+                    leading={nextToRead ? BookOpenIcon : playingNext ? PauseIcon : PlayIcon}
+                    disabled={downloading}
+                    onClick={() => (nextToRead ? void c.openReading(next.book.book.id) : playingNext ? c.pause() : void c.playBook(next.book))}
+                    className="max-sm:flex-1"
+                  >
+                    {playingNext ? "Pause" : <Short phone={nextToRead ? "Read" : "Listen"}>{next.progress.started ? (nextToRead ? "Continue reading" : "Continue listening") : nextToRead ? "Start reading" : "Start listening"}</Short>}
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={() => c.openSeriesSetup(group.key)}>
+                  {record ? "Change the series…" : "Set up the series…"}
+                </Button>
+              </div>
+            </div>
+          </header>
 
-        <SeriesBooks group={group} record={record} ids={s.ids} hidden={s.hidden} place={next && !s.allDone ? { id: next.book.book.id, kind: "next" } : null} label={`The books in ${group.name}`} />
+          <SeriesBooks group={group} record={record} ids={s.ids} hidden={s.hidden} place={next && !s.allDone ? { id: next.book.book.id, kind: "next" } : null} label={`The books in ${group.name}`} />
+        </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The series as a rail of lines, one a book in the listener's order, as
+ * book pages had it before the redesign: your place a longer line in amber,
+ * the books finished longer than the rest, the ones left off the shelf short
+ * and faint. Over the rail every line reaches out; over a line its book's
+ * title comes beside it. A line opens its book's page, and up and down move
+ * along the rail.
+ */
+export function SeriesRail({ group, record, ids, hidden, place, className }: { group: SeriesGroup; record: SeriesRecord | undefined; ids: string[]; hidden: Set<string>; place: string | null; className?: string }) {
+  const books = useAppState((s) => s.books);
+  const shelf = useShelfProgress();
+  const c = useController();
+  const byId = useMemo(() => new Map(books.map((b) => [b.book.id, b])), [books]);
+  const along = (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const lines = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+    const to = lines[lines.indexOf(document.activeElement as HTMLButtonElement) + (e.key === "ArrowDown" ? 1 : -1)];
+    if (!to) return;
+    e.preventDefault();
+    to.focus();
+  };
+  return (
+    <nav aria-label={`The books in ${group.name}`} className={className}>
+      <ol role="list" onKeyDown={along} className="group/rail flex w-60 flex-col gap-1.5">
+        {ids.map((id, i) => {
+          const b = byId.get(id);
+          if (!b) return null;
+          const p = progressOf(b, shelf, (x) => c.readingProgress(x));
+          const now = id === place;
+          const off = hidden.has(id);
+          const title = group.titles?.[id] ?? b.book.title;
+          return (
+            <li key={id} className="flex">
+              <button
+                type="button"
+                onClick={() => c.openReader(id)}
+                aria-current={now ? "true" : undefined}
+                aria-label={`${seriesNumber(record, id, i + 1, group.numbers)}, ${title}${now ? ", your place" : ""}${p.finished ? ", finished" : ""}${off ? ", left off the shelf" : ""}`}
+                className="group/line flex h-2 w-60 items-center gap-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-place"
+              >
+                <i
+                  className={clsx(
+                    "block h-0.5 shrink-0 rounded-[1px] bg-ink transition-[width,opacity] duration-300 ease-out group-hover/line:bg-place group-hover/line:opacity-100 group-focus-visible/line:bg-place group-focus-visible/line:opacity-100",
+                    now ? "h-[3px] w-8 bg-place opacity-100 group-hover/rail:w-[4.5rem]" : p.finished ? "w-6 opacity-70 group-hover/rail:w-14" : off ? "w-2.5 opacity-25 group-hover/rail:w-14" : "w-4 opacity-35 group-hover/rail:w-14",
+                  )}
+                />
+                <span className="pointer-events-none -translate-x-1.5 truncate text-sm/none font-medium text-ink opacity-0 transition-[opacity,transform] duration-150 group-hover/line:translate-x-0 group-hover/line:opacity-100 group-focus-visible/line:translate-x-0 group-focus-visible/line:opacity-100">
+                  {title}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 
