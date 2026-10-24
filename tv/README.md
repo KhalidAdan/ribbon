@@ -26,8 +26,11 @@ files at any time, so the audio streams and the place lives on the server.
   /api/series`), the same on every device, with each book's number and its
   title as the series lists it. A card is one button, which opens the
   book's page; play is there. While a book plays, its title at the top opens the
-  player. Switch reader, below the books, goes back to Who's reading; so
-  does Menu, when there's more than one person.
+  player. Menu goes back to Who's reading, when there's more than one person.
+- **Settings**, from your name at the top of the library: Keep listening
+  sessions (as the desktop's Settings has it, docs/POSITION-FORMAT.md,
+  section 3.3: off, the end of a book won't count the time spent on this TV),
+  who's signed in to which server, and Switch reader.
 - **A book's page**: where you are as a sentence, Continue listening and Read
   along, the facts, the description, and the rest of its series.
 - **The player**: the chapter and how far into it, the transport (chapters,
