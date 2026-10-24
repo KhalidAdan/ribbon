@@ -42,6 +42,22 @@ export interface StoredBook extends ScannedBook {
   analysis?: StoredAnalysis;
   /** The records carried in from its folder, by kind, in `records/<kind>.csv` (records.ts). */
   records?: string[];
+  /** What the server filled in that the book came without (hydrate.ts). */
+  filled?: FilledIn;
+}
+
+/**
+ * What the server filled in for a book from its own files, so it's never
+ * taken for something set by hand, and is worked out again when what it
+ * came from changes.
+ */
+export interface FilledIn {
+  /** The description, in the book's record, is its EPUB's. */
+  description?: "epub";
+  /** Names for chapters its files only numbered, from its text: renames by place, after the hand corrections (chapters.ts). */
+  chapters?: { index: number; title: string }[];
+  /** What it was worked out from (hydrate.ts, `hydrateStamp`). */
+  from: string;
 }
 
 /** A book's loudness, all its files together, and the silences in each file, by the file's place in the book. */

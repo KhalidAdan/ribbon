@@ -1614,9 +1614,10 @@ export class AppController {
   /**
    * Before a downloaded server book plays or opens, the first time this
    * launch: whatever the server has for it that isn't here yet (its
-   * loudness and silences, what was heard of it and how that lines up)
-   * comes down, so nothing the server has is worked out again here. A book
-   * downloaded before the server kept these gets them now.
+   * loudness and silences, what was heard of it and how that lines up, the
+   * names and description it filled in) comes down, so nothing the server
+   * has is worked out again here. A book downloaded before the server kept
+   * these gets them now, and shows them from the next scan.
    */
   private async takeServerRecords(book: ScannedBook): Promise<void> {
     const o = this.openedOf(book);
@@ -1626,6 +1627,7 @@ export class AppController {
     const detail = await o.server.client.book(serverId).catch(() => null);
     if (!detail) return;
     await o.server.keepRecords(detail, book.book.id).catch((e: unknown) => log.warn("could not take a book's records from the server:", describe(e)));
+    await o.server.keepDetails(detail).catch((e: unknown) => log.warn("could not keep a book's details from the server:", describe(e)));
     const [loudness, silence] = await Promise.all([o.lib.readLoudness(book.book.id).catch(() => null), o.lib.readSilence(book.book.id).catch(() => null)]);
     if (detail.analysis && (!loudness || !silence)) await this.keepMeasurements(o, book.book.id, detail.analysis);
   }

@@ -171,6 +171,20 @@ export class ServerShelf {
     }
   }
 
+  /**
+   * What the server says about a downloaded book, written again beside it
+   * when it has changed since the download (a description the server
+   * filled in since), so the next scan describes it as the server does.
+   */
+  async keepDetails(detail: ServerBookDetail): Promise<void> {
+    const folder = this.at(detail.book.id);
+    if (!SERVER_ID.test(detail.book.id) || !(await this.host.exists(folder))) return;
+    const file = this.host.join(folder, "metadata.opf");
+    const opf = opfFor(detail.book);
+    const kept = await this.host.readFile(file).then((b) => new TextDecoder().decode(b), () => null);
+    if (kept !== opf) await this.host.writeFile(file, new TextEncoder().encode(opf));
+  }
+
   /** Take a downloaded book off this device, with the records kept beside it. The server keeps it, and the person's place in it. */
   async remove(serverId: string, localId: string): Promise<void> {
     if (!SERVER_ID.test(serverId)) throw new Error("Not a server's book.");

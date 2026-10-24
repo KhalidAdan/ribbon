@@ -9,6 +9,7 @@ import type { Mp3Frames } from "./frames.ts";
 import type { ReadAlongs } from "./readalong.ts";
 import type { SearchIndex } from "./search.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
+import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
 
 /**
  * The admin's side of the library: adding a folder of books, following the
@@ -39,8 +40,9 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
           }
         });
         // The new books' MP3s are indexed now, so the TV's first play from a moment doesn't wait on reading a whole file;
-        // and their sentences, so they can be searched.
+        // what they came without is filled in from their EPUBs; and their sentences are indexed, so they can be searched.
         await deps.frames.indexMissing(deps.books);
+        if (deps.readAlongs.available) await hydrateBooks(deps.readAlongs, deps.dataDir, await booksToHydrate(deps.dataDir, deps.books), () => undefined);
         await deps.search.indexAll(deps.books, deps.readAlongs, deps.dataDir);
         return done;
       },

@@ -15,6 +15,11 @@ Built so far:
   heard of the narration and how it lines up with the text) comes in with
   it, and adding the folder again fills in what a book already here is
   missing. The folder is only ever read.
+- **Filling in what a book came without**, from its own EPUB, after it's
+  added: its description, and real names for chapters its files only number
+  ("Chapter 1" to "Chapter 37"), from the EPUB's contents. Never over
+  anything set by hand, and nothing is looked up elsewhere. Books added
+  before are filled in when the server starts (docs/SERVER.md, section 9).
 - **The library**, for the apps: the list, each book, covers and files, with
   HTTP caching (ETags, immutable covers, resumable downloads).
 - **Places**, each person's position log, in the database: read by cursor,

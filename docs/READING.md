@@ -305,6 +305,24 @@ question mark. **Fix pairing** puts a choice on each entry (automatic,
 not in the audio, or a chapter of the recording), kept beside the book in
 `.ribbon/pairing/<book>.csv`; the rest re-pairs around it.
 
+**Chapter names from the pairing** (`src/core/chapternames.ts`,
+`namesFromContents`). A book whose files only number their chapters
+("Chapter 1" to "Chapter 37", the opening credits among them, so the
+narrator's chapter one is the file's second) is named from its contents:
+each audio chapter after the entries it's paired with. Only where the
+pairing is sure: across the run of numbered chapters, first to last,
+which pace pairs, and outside it (credits, front and back matter, where
+lengths can't tell an epigraph from a first chapter) only where the
+narration confirms a pair: set by hand, an opening heard as its text's, a
+transcript found in it. On three books with an answer to check against
+(Echoes of Eternity, Master of Rites, Voidscarred), pace alone paired every
+chapter in that run as the narration did; at the edges, without the
+narration, it took opening credits for the "Backlist" page. A book
+that numbers its chapters again in each part gets the part ("One (Part
+Two)"). Names that would move the pairing once the chapters carry them
+aren't given. The server does this for every book it's given
+([SERVER.md](SERVER.md), section 9).
+
 The listening bar sits under the text, which shortens to make room. It
 shows itself while the book's audio is loaded; a header button shows or
 hides it either way. It has back, play and forward, where the narrator
