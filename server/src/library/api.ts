@@ -6,13 +6,18 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
+import { bytesToRows } from "../../../src/core/csv.ts";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
 import type { Mp3Frames } from "./frames.ts";
+import { HEARD, keepHeard, type HeardKind } from "./records.ts";
 import type { LibrarySeries } from "./series.ts";
 
 /** A cover's file name: its picture's hash and one of the widths it's made at. */
 const COVER_NAME = new RegExp(`^([0-9a-f]{16})-(${COVER_WIDTHS.join("|")})\\.jpg$`);
+
+/** Most a device sends of a book's records at once: a 60-hour book's whole transcript is about 5 MB. */
+const RECORD_BYTES = 32 * 1024 * 1024;
 
 /** A year: as long as a browser or an app keeps anything. A cover's address changes when its picture does. */
 const FOREVER = "private, max-age=31536000, immutable";
@@ -34,6 +39,10 @@ const ASK_FIRST = "private, no-cache";
  * - `GET /api/books/:id/files/*`: a file of the book, for downloads; an
  *   MP3 with `?ms=` is sent from the frame where that moment falls, for a
  *   player that streams (the TV), which then starts it at its own 0.
+ * - `POST /api/books/:id/records/:kind`: what a device heard of the
+ *   narration (`heard`, `aligned`), as the CSV it keeps beside the book,
+ *   merged into the book's own (records.ts), so every device and the TV
+ *   read along with what any of them transcribed.
  *
  * The JSON answers carry an ETag and are sent "no-cache": a device
  * keeps them and asks again with If-None-Match, and gets a bare 304 when
@@ -87,6 +96,17 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
       return reply.header("cache-control", ASK_FIRST).header("x-ribbon-starts-at-ms", String(start.ms)).sendFile(where, fromFrame);
     }
     return reply.header("cache-control", ASK_FIRST).sendFile(where, { cacheControl: false, acceptRanges: true, etag: true, lastModified: true });
+  });
+
+  // Records come as the CSV a device keeps them in.
+  app.addContentTypeParser("text/csv", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
+  app.post<{ Params: { id: string; kind: string }; Body: Buffer }>("/api/books/:id/records/:kind", { onRequest: mustSignIn, bodyLimit: RECORD_BYTES }, async (request, reply) => {
+    const kind = request.params.kind as HeardKind;
+    if (!HEARD.includes(kind)) return reply.code(404).send({ error: "A device sends only what it heard of a book: its heard and aligned records." });
+    if (!Buffer.isBuffer(request.body)) return reply.code(415).send({ error: "Send the record as text/csv." });
+    const kept = await keepHeard(deps.dataDir, request.params.id, kind, (await bytesToRows(new Uint8Array(request.body))).rows);
+    if (!kept) return reply.code(404).send({ error: "No such book on this server." });
+    return kept;
   });
 }
 

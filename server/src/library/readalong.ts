@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Ebook } from "../../../src/core/ebook.ts";
+import type { Alignment } from "../../../src/core/reading/align.ts";
 import { BookText } from "../../../src/core/reading/booktext.ts";
 import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows, type Narration } from "../../../src/core/reading/narration.ts";
 import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
@@ -16,10 +17,11 @@ const run = promisify(execFile);
 /** How many books' read-alongs are kept made: the few being read now. */
 const KEPT = 8;
 
-/** A book's read-along, made, with the text it was made from, for finding a place in it. */
+/** A book's read-along, made, with the text it was made from, for finding a place in it, and how that text pairs with the narration. */
 export interface MadeReadAlong {
   readAlong: ReadAlong;
   text: BookText;
+  alignment: Alignment;
   /** The read-along as it's sent. */
   json: string;
 }
@@ -87,7 +89,7 @@ export class ReadAlongs {
     const chapters = chaptersWith(stored, await correctionsOf(dir, stored));
     const alignment = pairBook(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
     const readAlong = readAlongOf(text, alignment);
-    return { readAlong, text, json: JSON.stringify(readAlong) };
+    return { readAlong, text, alignment, json: JSON.stringify(readAlong) };
   }
 
   /** A book's EPUB as `ribbon-ebook` reads it: its text and what its package says. */

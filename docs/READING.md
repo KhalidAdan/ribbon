@@ -441,7 +441,9 @@ for "Two"); each phrase whose first words are found is a checkpoint.
 On Voidscarred's first 20 minutes, 96% of heard words were found and
 a checkpoint fell every 6 s. The transcript is kept beside the book in
 `aligned/<book>.csv`, with which minutes were done, so it is made once
-for every device.
+for every device. A server's book is sent to the server as it's
+transcribed, which merges it with its own and transcribes the rest itself
+(SERVER.md, section 9), so the TV reads it along too.
 
 **Read-along.** Where the points around the narrator are less than 20 s
 apart (an overlay, or a transcribed stretch), the mapping places it to

@@ -16,13 +16,15 @@ export interface Job<P = unknown> {
 
 /**
  * The server's background work (docs/SERVER.md, section 7: nothing heavy
- * while someone waits on a request). One job runs at a time, in the order
- * asked for, and each one's progress is kept in the database as it goes,
- * so the admin pages can show it. A job still running when the server
- * stopped is marked failed on the next start rather than left hanging.
+ * while someone waits on a request). One job runs at a time in each lane,
+ * in the order asked for, and each one's progress is kept in the database
+ * as it goes, so the admin pages can show it. Work that takes days (the
+ * narration transcribed) has a lane of its own, so adding a folder never
+ * waits on it. A job still running when the server stopped is marked
+ * failed on the next start rather than left hanging.
  */
 export class Jobs {
-  private queue: Promise<void> = Promise.resolve();
+  private readonly lanes = new Map<string, Promise<void>>();
 
   constructor(
     private readonly db: DatabaseSync,
@@ -31,12 +33,12 @@ export class Jobs {
     db.prepare("UPDATE job SET state = 'failed', error = 'The server stopped while it ran.', finished_at = ? WHERE state IN ('waiting', 'running')").run(now());
   }
 
-  /** Queue work. `work` reports its progress through `report`; what it returns is its last progress. */
-  start<P>(kind: string, first: P, work: (report: (progress: P) => void) => Promise<P>, createdBy: string | null): Job<P> {
+  /** Queue work, in `lane`. `work` reports its progress through `report`; what it returns is its last progress. */
+  start<P>(kind: string, first: P, work: (report: (progress: P) => void) => Promise<P>, createdBy: string | null, lane = "work"): Job<P> {
     const id = randomUUID();
     this.db.prepare("INSERT INTO job (id, kind, state, progress, created_by, created_at) VALUES (?, ?, 'waiting', ?, ?, ?)").run(id, kind, JSON.stringify(first), createdBy, this.now());
     const report = (progress: P) => void this.db.prepare("UPDATE job SET progress = ? WHERE id = ?").run(JSON.stringify(progress), id);
-    this.queue = this.queue.then(async () => {
+    const queue = (this.lanes.get(lane) ?? Promise.resolve()).then(async () => {
       this.db.prepare("UPDATE job SET state = 'running', started_at = ? WHERE id = ?").run(this.now(), id);
       try {
         const last = await work(report);
@@ -45,6 +47,7 @@ export class Jobs {
         this.db.prepare("UPDATE job SET state = 'failed', error = ?, finished_at = ? WHERE id = ?").run(e instanceof Error ? e.message : String(e), this.now(), id);
       }
     });
+    this.lanes.set(lane, queue);
     return this.get<P>(id)!;
   }
 
@@ -63,8 +66,8 @@ export class Jobs {
     };
   }
 
-  /** Every job queued so far has finished. For tests, and for a server stopping cleanly. */
-  idle(): Promise<void> {
-    return this.queue;
+  /** Every job queued so far in `lane`, or in every lane, has finished. For tests, and for a server stopping cleanly. */
+  async idle(lane?: string): Promise<void> {
+    await Promise.all(lane === undefined ? [...this.lanes.values()] : [this.lanes.get(lane)]);
   }
 }

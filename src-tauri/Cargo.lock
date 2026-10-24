@@ -3109,6 +3109,7 @@ dependencies = [
  "reqwest",
  "ribbon-ebook",
  "ribbon-frames",
+ "ribbon-speech",
  "serde",
  "serde_json",
  "tauri",
@@ -3119,7 +3120,6 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-os",
  "tauri-plugin-shell",
- "whisper-rs",
  "zip",
 ]
 
@@ -3139,6 +3139,16 @@ dependencies = [
 [[package]]
 name = "ribbon-frames"
 version = "0.16.0"
+
+[[package]]
+name = "ribbon-speech"
+version = "0.17.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "whisper-rs",
+]
 
 [[package]]
 name = "rustc-hash"

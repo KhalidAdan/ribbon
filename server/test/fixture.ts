@@ -77,7 +77,7 @@ export async function serverWithAdmin(dir: string, config: Partial<ServerConfig>
 export async function importAs(server: RibbonServer, token: string, folder: string) {
   const started = await server.app.inject({ method: "POST", url: "/api/library/import", payload: { folder }, headers: { authorization: `Bearer ${token}` } });
   const { job } = started.json() as { job: { id: string } };
-  await server.jobs.idle();
+  await server.jobs.idle("work");
   const done = await server.app.inject({ method: "GET", url: `/api/jobs/${job.id}`, headers: { authorization: `Bearer ${token}` } });
   return { status: started.statusCode, job: (done.json() as { job: { state: string; progress: import("../src/library/importer.ts").ImportProgress; error: string | null } }).job };
 }

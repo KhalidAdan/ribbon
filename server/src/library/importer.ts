@@ -7,7 +7,7 @@ import { ensureChapters, scanLibrary, type ScannedBook } from "../../../src/core
 import { BookIndex, bookDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
 import { analyzeStored, readStored, writeStored } from "./prepare.ts";
-import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
+import { carriedAnalysis, carryRecords, findRecords, foundRows, HEARD, keepHeard } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
 import { neverWrites } from "./never-writes.ts";
 
@@ -148,12 +148,14 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
 /**
  * A book that's on the server already: whatever records its folder has
  * that the server hasn't yet are carried in, so adding a folder again fills
- * in what an earlier add, or an earlier server, left behind.
+ * in what an earlier add, or an earlier server, left behind; and what was
+ * heard of it there since is merged with what the server has.
  */
 async function fillRecords(ctx: ImportContext, root: string, scanned: ScannedBook, id: string): Promise<void> {
   const found = await findRecords(root, scanned);
   const stored = found && (await readStored(ctx.dataDir, id));
   if (!found || !stored) return;
+  for (const kind of HEARD) if (stored.records?.includes(kind)) await keepHeard(ctx.dataDir, id, kind, await foundRows(found, kind));
   const records = await carryRecords(found, bookDir(ctx.dataDir, id), stored.records ?? []);
   const analysis = stored.analysis ?? (await carriedAnalysis(found)) ?? undefined;
   if (records.length === (stored.records ?? []).length && analysis === stored.analysis) return;

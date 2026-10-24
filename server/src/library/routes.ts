@@ -9,6 +9,7 @@ import type { Mp3Frames } from "./frames.ts";
 import type { ReadAlongs } from "./readalong.ts";
 import type { SearchIndex } from "./search.ts";
 import type { LibrarySeries, SeriesBookChange } from "./series.ts";
+import type { Transcriber } from "./transcribe.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
 
@@ -19,7 +20,7 @@ import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
  * its name and its books in order). The listing the apps read comes in its
  * own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; transcriber: Transcriber; dataDir: string }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -49,6 +50,8 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
         await deps.frames.indexMissing(deps.books);
         if (deps.readAlongs.available) await hydrateBooks(deps.readAlongs, deps.dataDir, await booksToHydrate(deps.dataDir, deps.books), () => undefined);
         await deps.search.indexAll(deps.books, deps.readAlongs, deps.dataDir);
+        // And their narration is transcribed, after any being heard already.
+        deps.transcriber.start(deps.jobs);
         return done;
       },
       me.id,

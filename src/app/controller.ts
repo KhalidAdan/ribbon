@@ -38,11 +38,12 @@ import { BookText, type TextPlace } from "../core/reading/booktext";
 import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
-import { anchorsOf, pairBook, transcriptAnchors } from "../core/reading/narration";
+import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "../core/reading/narration";
+import { rowsToBytes, type Row } from "../core/csv";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
 import * as perf from "./perf";
-import { matchTranscript, type Said } from "../core/reading/transcript";
+import { narrationLanguage, placeStretch, STRETCH_MS, stretchesOf, type PlacedPhrase, type Stretch } from "../core/reading/transcript";
 import { locate as locate_ } from "../core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "../core/reading/anchors";
 
@@ -64,8 +65,7 @@ const FAST_CLIP_MS = 1_200;
 const MAX_HEARD = 800;
 /** "Listen from here" and "Go to the narrator" hear the place first unless a checkpoint is this close. */
 const PINPOINT_MS = 45_000;
-/** Read-along by transcription (#57): the narration is heard in stretches this long, several to a call. */
-const SPAN_MS = 60_000;
+/** Read-along by transcription (#57): the narration is heard in stretches (STRETCH_MS), several to a call. */
 const SPANS_PER_CALL = 8;
 /** Transcribed before the reader shows the text: a minute behind the reader to this far ahead. */
 const READY_MS = 4 * 60_000;
@@ -77,20 +77,20 @@ interface ReadingData {
   anchors: Map<number, number>;
   /** The stretches transcribed (start to end, ms), every phrase heard in them, and where each was found. */
   spans: Map<number, number>;
-  said: (Said & { chars: number | null })[];
+  said: PlacedPhrase[];
   aligned: Map<number, number>;
   overlay: Anchor[] | null;
   /** The transcript changed since it was last kept beside the book, and when that was. */
   dirty: boolean;
   written: number;
+  /** The stretches of the transcript a server has from this device, by where they start: a server's book only. */
+  sent: Set<number>;
 }
 
 function emptyReading(): ReadingData {
-  return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0 };
+  return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0, sent: new Set() };
 }
 
-/** How far either side of where the pairing puts a stretch its words are looked for, in characters: about a minute and a half of reading. */
-const SPAN_SLACK = 2_500;
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
 const ALIGNED_WRITE_MS = 30_000;
 
@@ -1973,17 +1973,8 @@ export class AppController {
   narrationTranscribed(): { done: number; total: number } | null {
     const ctx = this.readingCtx;
     if (!ctx || ctx.book.files.length === 0) return null;
-    let done = 0;
-    let total = 0;
-    let t = 0;
-    for (const f of ctx.book.files) {
-      for (let offset = 0; offset < f.durationMs - 1000; offset += SPAN_MS) {
-        total++;
-        if (ctx.rd.spans.has(t + offset)) done++;
-      }
-      t += f.durationMs;
-    }
-    return { done, total };
+    const all = stretchesOf(ctx.book.files);
+    return { done: all.filter((x) => ctx.rd.spans.has(x.startMs)).length, total: all.length };
   }
 
   /**
@@ -2098,11 +2089,39 @@ export class AppController {
     return Number.isFinite(kept) && kept > 0 ? kept : null;
   }
 
-  private keepAligned(rd: ReadingData, bookId: string, lib: Opened["lib"], now = false): Promise<void> {
-    if (!rd.dirty || (!now && Date.now() - rd.written < ALIGNED_WRITE_MS)) return Promise.resolve();
+  private async keepAligned(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }, now = false): Promise<void> {
+    const { o, book, rd } = ctx;
+    if (!rd.dirty || (!now && Date.now() - rd.written < ALIGNED_WRITE_MS)) return;
     rd.dirty = false;
     rd.written = Date.now();
-    return lib.writeAligned(bookId, rd.spans, rd.said).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+    await o.lib.writeAligned(book.book.id, rd.spans, rd.said).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+    void this.sendHeard(ctx, "aligned");
+  }
+
+  /**
+   * What this device heard of a server's book, sent to the server, which
+   * merges it with what it has (docs/SERVER.md, section 9): so the TV, and
+   * every device that downloads the book, reads along with it too. Of the
+   * transcript, the stretches the server hasn't had from here. Hearing
+   * never waits on it, and a send that fails goes again with the next.
+   */
+  private async sendHeard(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }, kind: "heard" | "aligned"): Promise<void> {
+    const { o, book, rd } = ctx;
+    if (!o.server) return;
+    const send = (rows: Row[], fields: string[]) => rowsToBytes(rows, fields).then((csv) => o.server!.client.sendRecord(serverIdOf(book), kind, csv));
+    if (kind === "heard") {
+      await send(heardRows(rd.heard, rd.anchors), HEARD_FIELDS).catch((e: unknown) => log.warn("could not send what was heard to the server:", describe(e)));
+      return;
+    }
+    const spans = new Map([...rd.spans].filter(([start]) => !rd.sent.has(start)));
+    if (spans.size === 0) return;
+    // Counted as sent while it goes, so the next send doesn't carry it too.
+    for (const start of spans.keys()) rd.sent.add(start);
+    const said = rd.said.filter((p) => [...spans].some(([start, end]) => p.startMs >= start && p.startMs < end));
+    await send(transcriptRows({ spans, said }), TRANSCRIPT_FIELDS).catch((e: unknown) => {
+      for (const start of spans.keys()) rd.sent.delete(start);
+      log.warn("could not send the transcript to the server:", describe(e));
+    });
   }
 
   /**
@@ -2110,7 +2129,7 @@ export class AppController {
    * text (#57): every phrase found becomes a checkpoint, a few seconds
    * apart, so read-along can mark the sentence being read.
    */
-  private async alignStretches(ctx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData }, model: string, language: string | null, stretches: { startMs: number; endMs: number; file: number; offset: number }[]): Promise<void> {
+  private async alignStretches(ctx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData }, model: string, language: string | null, stretches: Stretch[]): Promise<void> {
     const { o, book, text, rd } = ctx;
     const host = o.lib.host;
     const batch = stretches.slice(0, SPANS_PER_CALL);
@@ -2118,7 +2137,7 @@ export class AppController {
     // While a book plays, gently: one stretch at a time, fewer threads, behind the audio. Otherwise as fast as it goes.
     const gentle = this.state.player.playing;
     const t0 = performance.now();
-    const said = await host.speechTranscribe!.call(host, model, clips, SPAN_MS / 1000, language, gentle);
+    const said = await host.speechTranscribe!.call(host, model, clips, STRETCH_MS / 1000, language, gentle);
     if (!gentle) this.msPerSpan = (performance.now() - t0) / batch.length;
     const a = this.state.reading?.alignment;
     if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
@@ -2130,12 +2149,9 @@ export class AppController {
       const shift = x.startMs - x.offset;
       const phrases = (said[i] ?? []).map((s) => ({ startMs: s.startMs + shift, endMs: s.endMs + shift, words: s.words.trim() })).filter((s) => s.words);
       if (!a || phrases.length === 0) return;
-      const m = matchTranscript(index, phrases, msToText(a, x.startMs) - SPAN_SLACK, msToText(a, x.endMs) + SPAN_SLACK);
-      for (const an of m.anchors) rd.aligned.set(an.ms, an.chars);
-      for (const p of phrases) {
-        const an = m.anchors.find((z) => z.ms >= p.startMs && z.ms < p.endMs);
-        rd.said.push(an ? { ...p, startMs: an.ms, chars: an.chars } : { ...p, chars: null });
-      }
+      const placed = placeStretch(index, a, x, phrases);
+      for (const an of placed.anchors) rd.aligned.set(an.ms, an.chars);
+      rd.said.push(...placed.said);
     });
   }
 
@@ -2230,7 +2246,7 @@ export class AppController {
     const { o, book, text, rd } = ctx;
     const bookId = book.book.id;
     const durations = book.files.map((f) => f.durationMs);
-    const language = (text.ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
+    const language = narrationLanguage(text.ebook.meta.language, book.book.language);
     const still = () => this.readingCtx === ctx && this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
     const heardNear = (ms: number) => [...rd.heard.keys()].some((h) => Math.abs(h - ms) < HEARD_NEAR_MS);
     // A machine that hears a clip quickly (a GPU) hears every chapter's opening, and transcribes the whole narration.
@@ -2273,23 +2289,18 @@ export class AppController {
       if (this.state.current?.book.book.id === bookId) return this.state.player.positionMs;
       return a && place ? textToMs(a, text.chars(place)) : 0;
     };
-    const stretches = (): { startMs: number; endMs: number; file: number; offset: number }[] => {
+    const stretches = (): Stretch[] => {
       const a = this.state.reading?.alignment;
       if (!transcribes() || !a || a.how !== "chapter") return [];
       const focus = focusMs();
-      const out: { startMs: number; endMs: number; file: number; offset: number }[] = [];
-      let t = 0;
-      book.files.forEach((f, file) => {
-        for (let offset = 0; offset < f.durationMs - 1000; offset += SPAN_MS) if (!rd.spans.has(t + offset)) out.push({ startMs: t + offset, endMs: t + Math.min(f.durationMs, offset + SPAN_MS), file, offset });
-        t += f.durationMs;
-      });
-      const key = (x: { startMs: number }) => (x.startMs >= focus - SPAN_MS ? x.startMs - focus : 2 * (focus - x.startMs));
+      const out = stretchesOf(book.files).filter((x) => !rd.spans.has(x.startMs));
+      const key = (x: { startMs: number }) => (x.startMs >= focus - STRETCH_MS ? x.startMs - focus : 2 * (focus - x.startMs));
       return out.sort((x, y) => key(x) - key(y));
     };
     /** Untranscribed minutes around the listener: what the reader waits for, and what is always transcribed first. */
     const near = () => {
       const focus = focusMs();
-      return stretches().filter((x) => x.endMs > focus - SPAN_MS && x.startMs < focus + READY_MS);
+      return stretches().filter((x) => x.endMs > focus - STRETCH_MS && x.startMs < focus + READY_MS);
     };
     const ready = () => {
       const r = this.state.reading;
@@ -2330,7 +2341,7 @@ export class AppController {
           this.set({ reading: { ...this.state.reading!, listening: { done: rd.spans.size, total: rd.spans.size + stretches().length, what: "aligning" } } });
           await this.alignStretches(ctx, model, language, close);
           spans += Math.min(SPANS_PER_CALL, close.length);
-          await this.keepAligned(rd, bookId, o.lib);
+          await this.keepAligned(ctx);
           if (!still()) break;
           this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
           if (near().length === 0) ready();
@@ -2345,7 +2356,7 @@ export class AppController {
             this.set({ reading: { ...this.state.reading!, listening: { done: rd.spans.size, total: rd.spans.size + left.length, what: "aligning" } } });
             await this.alignStretches(ctx, model, language, left);
             spans += Math.min(SPANS_PER_CALL, left.length);
-            await this.keepAligned(rd, bookId, o.lib);
+            await this.keepAligned(ctx);
             if (!still()) break;
             this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
             this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
@@ -2375,6 +2386,7 @@ export class AppController {
         });
         done += batch.length;
         await o.lib.writeHeard(bookId, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
+        void this.sendHeard(ctx, "heard");
         if (!still()) break;
         this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
       }
@@ -2390,7 +2402,7 @@ export class AppController {
         this.hearAgain = false;
         if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
       }
-      await this.keepAligned(rd, bookId, o.lib, true);
+      await this.keepAligned(ctx, true);
       const r = this.state.reading;
       if (r?.bookId === bookId && r.listening) {
         const { listening: _, ...rest } = r;
@@ -2416,12 +2428,15 @@ export class AppController {
     const at = locate_(book.files.map((f) => f.durationMs), ms);
     this.set({ reading: { ...r, finding: true } });
     try {
-      const language = (text.ebook.meta.language || book.book.language || "").slice(0, 2).toLowerCase() || null;
+      const language = narrationLanguage(text.ebook.meta.language, book.book.language);
       const [w] = await hear.call(o.lib.host, model, [{ path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) }], HEAR_SECONDS, language);
       const words = (w ?? "").trim();
       rd.heard.set(ms, words);
       const found = this.anchorHeard(rd, text, r.alignment, ms, words);
-      void o.lib.writeHeard(book.book.id, rd.heard, rd.anchors).catch(() => undefined);
+      void o.lib
+        .writeHeard(book.book.id, rd.heard, rd.anchors)
+        .catch(() => undefined)
+        .then(() => this.sendHeard({ o, book, rd }, "heard"));
       if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(text, book, rd) } });
       return found;
     } catch (e) {

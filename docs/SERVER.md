@@ -58,7 +58,7 @@ flowchart LR
   subgraph Server["Ribbon server (a Node package, on any machine)"]
     API["HTTP API<br/>books · files · covers · places · accounts"]
     Admin["Admin pages<br/>invite people · add a folder · jobs"]
-    Jobs["Jobs<br/>import · chapters · covers<br/>(later: transcribe, read-along EPUB)"]
+    Jobs["Jobs<br/>import · chapters · covers · transcribe<br/>(later: read-along EPUB)"]
     Core["src/core/<br/>the same logic the apps run"]
     Tools["Rust tools<br/>scan · frames · EPUB · whisper"]
     Files[("Files<br/>books · each person's places")]
@@ -295,6 +295,20 @@ offered, and the book says what it's waiting for.
   fetches only the new records (the transcript, the pairing), which are
   small.
 - **Order of work:** books someone has opened go first, then the newest.
+- **Transcribed on the server, and sent by devices** (built,
+  `server/src/library/transcribe.ts`): the server hears each book's
+  narration a minute at a time with `ribbon-speech` (src-tauri/speech, the
+  apps' own whisper), as one long job in a lane of its own, so adding a
+  folder never waits on it, at the lowest priority, on half the machine. It
+  chooses again every eight minutes of narration: a book someone opened on
+  the TV first, from where they are. Each phrase is placed in the text by
+  the apps' own code (`placeStretch`, src/core/reading/transcript.ts). A
+  device that transcribed a server's book sends what it heard
+  (`POST /api/books/:id/records/aligned`), which is far quicker where it has
+  a GPU. Both are merged into the book's `records/aligned.csv` as the apps
+  merge theirs (`mergeTranscripts`): every stretch, each phrase once,
+  nothing taken away, and a minute transcribed anywhere is never heard
+  again. Adding a folder again merges what was heard beside its books too.
 - **What a book came without is filled in** from its own files, as a job
   after it's added, and when the server starts for books added before
   (`server/src/library/hydrate.ts`). Its description is its EPUB's
@@ -336,6 +350,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search: the words as a line first, then all of them in any order, then any of them, each ranked by SQLite (bm25). |
 | `GET /api/progress` | How far you are through each book you've started, for a library that keeps no log (the TV): where, when, started and finished, as the apps work it out. Never cached. |
 | `GET /api/books/:id/bookmarks` | Your bookmarks in the book, from every device; words are named by the sentences of the read-along they're in. Never cached. |
+| `POST /api/books/:id/records/:kind` | What a device heard of the narration, `heard` or `aligned`, as the CSV it keeps beside the book: merged into the book's own, never replacing it. |
 | `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader, in this device's log. |
 | `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |
 | `GET /api/bookmarks` | Your bookmarks in every book, newest first, each with its book's title and author: the TV's passages. Never cached. |
@@ -394,6 +409,27 @@ read-along comes down with the book (its transcript, or a finished read-along
 EPUB with Media Overlays), so no device does any of it. Whisper's speed on the
 host gets measured first: on an Intel CPU a long book may take an hour or two,
 which is fine overnight.
+
+Built (the transcript; the read-along EPUB is still to come), with devices
+sending theirs as well, because the measurements said so (2026-10-24,
+whisper base, `ggml-base-q5_1.bin`, heard as the apps hear it):
+
+| Where | How fast, against the book playing |
+| --- | --- |
+| A 4-core virtual machine that shows only SSE4 (no AVX, no FMA) | 1.0× on 4 threads, 0.5× on 2; 4 states of 1 thread, 0.9× |
+| An Apple M2, its processor alone | 28× |
+| An Apple M2, on Metal | 101× with 3 at once; 53× through the server's job, one at a time |
+
+On that virtual machine a 16-hour book takes a day and a half on half the
+machine, and a library of 160 hours two weeks; given its host's processor
+type, whisper.cpp could use AVX2 there. A device with a GPU does the same
+book in minutes, so whichever is first, the device or the server, fills in
+the transcript. Echoes of Eternity, 15.8 hours, through the server's job on
+the M2: 18 minutes, and its read-along went from 0% of sentences placed to
+the sentence to 99%, each moment heard 0.5 s from where its neighbours put
+it at the median (6.1 s at worst). Its transcript is 1.1 MB (450 KB
+compressed), about 70 KB an hour: sent in a fraction of a second, merged in
+60 ms, and the read-along made from it in 0.2 s.
 
 **3. The Apple TV** (streaming), Android, bookmarks and highlights per
 person, and what the first two milestones teach.

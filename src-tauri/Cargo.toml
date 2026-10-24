@@ -1,6 +1,6 @@
-# The app, and the EPUB parser and MP3 frame index it shares with the server.
+# The app, and the EPUB parser, MP3 frame index and speech it shares with the server.
 [workspace]
-members = ["ebook", "frames"]
+members = ["ebook", "frames", "speech"]
 
 [package]
 name = "ribbon"
@@ -44,18 +44,19 @@ zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 # The export's tests read the chapters it wrote.
 quick-xml = "0.39.4"
 
-# Speech (whisper.cpp) on the GPU: Metal on Apple's systems, Vulkan on Windows and Linux.
-# Android runs it on the CPU for now. How it is compiled: tools/with-build-env.mjs.
+# Speech (whisper.cpp, in a crate of its own so the server can build it alone) on the GPU: Metal on
+# Apple's systems, Vulkan on Windows and Linux. Android runs it on the CPU for now. How it is
+# compiled: tools/with-build-env.mjs.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-whisper-rs = { version = "0.16", features = ["metal"] }
+ribbon-speech = { path = "speech", features = ["metal"] }
 # Transcribing behind playback: a thread's quality-of-service class.
 libc = "0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
-whisper-rs = { version = "0.16" }
+ribbon-speech = { path = "speech" }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))'.dependencies]
-whisper-rs = { version = "0.16", features = ["vulkan"] }
+ribbon-speech = { path = "speech", features = ["vulkan"] }
 
 # Dev builds still scan at full speed: the tag reader and our own
 # scanner are optimized even when the rest of the tree is not.

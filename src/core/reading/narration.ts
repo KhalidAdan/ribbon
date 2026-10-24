@@ -4,7 +4,7 @@ import type { Chapter } from "../types";
 import { alignBook, byOverlay, type Alignment, type PairingFix } from "./align";
 import type { Anchor } from "./anchors";
 import type { BookText } from "./booktext";
-import type { Said } from "./transcript";
+import type { PlacedPhrase } from "./transcript";
 
 /**
  * What a book's records say about its narration (docs/READING.md, section
@@ -33,10 +33,54 @@ export function heardFromRows(rows: readonly Row[]): { heard: Map<number, string
   return { heard, anchors };
 }
 
+/** The fields of a `heard/` record, in order. */
+export const HEARD_FIELDS = ["audio_ms", "words", "chars"];
+
+/** What was heard as its record's rows, by time: the words, and where they were found when they were. */
+export function heardRows(heard: ReadonlyMap<number, string>, anchors: ReadonlyMap<number, number>): Row[] {
+  return [...heard].sort((a, b) => a[0] - b[0]).map(([ms, words]) => ({ audio_ms: String(ms), words, chars: anchors.has(ms) ? String(anchors.get(ms)) : "" }));
+}
+
+/** Two records of what was heard as one: every moment either heard, and where it was found. `ours` wins a tie. */
+export function mergeHeard(
+  theirs: { heard: ReadonlyMap<number, string>; anchors: ReadonlyMap<number, number> },
+  ours: { heard: ReadonlyMap<number, string>; anchors: ReadonlyMap<number, number> },
+): { heard: Map<number, string>; anchors: Map<number, number> } {
+  return { heard: new Map([...theirs.heard, ...ours.heard]), anchors: new Map([...theirs.anchors, ...ours.anchors]) };
+}
+
+/** A book's narration transcribed: each stretch that was (start to end, ms), and each phrase heard in them with where it was found in the text. */
+export interface Transcript {
+  spans: Map<number, number>;
+  said: PlacedPhrase[];
+}
+
+/** The fields of an `aligned/` record, in order. */
+export const TRANSCRIPT_FIELDS = ["start_ms", "end_ms", "words", "chars"];
+
+/** A transcript as its record's rows, by time: each stretch as a row with no words, before the phrases heard in it. */
+export function transcriptRows(t: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[] }): Row[] {
+  return [
+    ...[...t.spans].map(([s, e]) => ({ start_ms: String(s), end_ms: String(e), words: "", chars: "" })),
+    ...t.said.map((x) => ({ start_ms: String(x.startMs), end_ms: String(x.endMs), words: x.words, chars: x.chars === null ? "" : String(x.chars) })),
+  ].sort((a, b) => Number(a.start_ms) - Number(b.start_ms) || (a.words ? 1 : 0) - (b.words ? 1 : 0));
+}
+
+/**
+ * Two transcripts of a book as one: every stretch either transcribed, and
+ * each phrase once, by when it starts and what it says. `ours` wins a tie.
+ * So what another device heard stays, and nothing is ever taken away.
+ */
+export function mergeTranscripts(theirs: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[] }, ours: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[] }): Transcript {
+  const phrases = new Map(theirs.said.map((x) => [`${x.startMs}|${x.words}`, x]));
+  for (const x of ours.said) phrases.set(`${x.startMs}|${x.words}`, x);
+  return { spans: new Map([...theirs.spans, ...ours.spans]), said: [...phrases.values()] };
+}
+
 /** The narration transcribed: each stretch that was (a row with no words), and each phrase heard in them with where it was found in the text, or null. */
-export function transcriptFromRows(rows: readonly Row[]): { spans: Map<number, number>; said: (Said & { chars: number | null })[] } {
+export function transcriptFromRows(rows: readonly Row[]): Transcript {
   const spans = new Map<number, number>();
-  const said: (Said & { chars: number | null })[] = [];
+  const said: PlacedPhrase[] = [];
   for (const r of rows) {
     if (!r.start_ms || !r.end_ms) continue;
     if (!r.words) spans.set(int(r.start_ms), int(r.end_ms));
@@ -46,7 +90,7 @@ export function transcriptFromRows(rows: readonly Row[]): { spans: Map<number, n
 }
 
 /** Where each transcribed phrase begins in the text, by when it's said: the phrases found there. */
-export function transcriptAnchors(said: readonly (Said & { chars: number | null })[]): Map<number, number> {
+export function transcriptAnchors(said: readonly PlacedPhrase[]): Map<number, number> {
   return new Map(said.filter((s) => s.chars !== null).map((s) => [s.startMs, s.chars!]));
 }
 

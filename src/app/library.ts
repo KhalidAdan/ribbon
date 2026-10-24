@@ -17,7 +17,8 @@ import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
 import { guardWrites } from "./read-only";
 import type { PairingFix } from "../core/reading/align";
-import { heardFromRows, pairingFromRows, transcriptFromRows } from "../core/reading/narration";
+import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, mergeTranscripts, pairingFromRows, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "../core/reading/narration";
+import type { PlacedPhrase } from "../core/reading/transcript";
 
 /** A position log kept somewhere other than the folder's `.ribbon/positions/`: a Ribbon server's (server/server-log.ts). */
 export interface RemoteLog {
@@ -573,13 +574,8 @@ export class LibraryService {
    */
   async writeHeard(bookId: string, heard: ReadonlyMap<number, string>, anchors: ReadonlyMap<number, number>): Promise<void> {
     await this.host.mkdir(this.dir("heard"));
-    const there = await this.readHeard(bookId);
-    const allHeard = new Map([...there.heard, ...heard]);
-    const allAnchors = new Map([...there.anchors, ...anchors]);
-    heard = allHeard;
-    anchors = allAnchors;
-    const rows = [...heard].sort((a, b) => a[0] - b[0]).map(([ms, words]) => ({ audio_ms: String(ms), words, chars: anchors.has(ms) ? String(anchors.get(ms)) : "" }));
-    await this.host.writeFile(this.dir("heard", `${bookId}.csv`), await rowsToBytes(rows, ["audio_ms", "words", "chars"]));
+    const all = mergeHeard(await this.readHeard(bookId), { heard, anchors });
+    await this.host.writeFile(this.dir("heard", `${bookId}.csv`), await rowsToBytes(heardRows(all.heard, all.anchors), HEARD_FIELDS));
   }
 
   /**
@@ -588,7 +584,7 @@ export class LibraryService {
    * every stretch that was transcribed (a row with no words), so a
    * stretch is heard once for every device.
    */
-  async readAligned(bookId: string): Promise<{ spans: Map<number, number>; said: { startMs: number; endMs: number; words: string; chars: number | null }[] }> {
+  async readAligned(bookId: string): Promise<Transcript> {
     try {
       return transcriptFromRows((await bytesToRows(await this.host.readFile(this.dir("aligned", `${bookId}.csv`)))).rows);
     } catch {
@@ -597,19 +593,10 @@ export class LibraryService {
   }
 
   /** Kept beside the book, merged with what is there already, as writeHeard is. */
-  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly { startMs: number; endMs: number; words: string; chars: number | null }[]): Promise<void> {
+  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly PlacedPhrase[]): Promise<void> {
     await this.host.mkdir(this.dir("aligned"));
-    const there = await this.readAligned(bookId);
-    // A stretch is one row; a phrase is one row by when it starts and what it says.
-    spans = new Map([...there.spans, ...spans]);
-    const phrases = new Map(there.said.map((x) => [`${x.startMs}|${x.words}`, x]));
-    for (const x of said) phrases.set(`${x.startMs}|${x.words}`, x);
-    said = [...phrases.values()];
-    const rows = [
-      ...[...spans].map(([s, e]) => ({ start_ms: String(s), end_ms: String(e), words: "", chars: "" })),
-      ...said.map((x) => ({ start_ms: String(x.startMs), end_ms: String(x.endMs), words: x.words, chars: x.chars === null ? "" : String(x.chars) })),
-    ].sort((a, b) => Number(a.start_ms) - Number(b.start_ms) || (a.words ? 1 : 0) - (b.words ? 1 : 0));
-    await this.host.writeFile(this.dir("aligned", `${bookId}.csv`), await rowsToBytes(rows, ["start_ms", "end_ms", "words", "chars"]));
+    const all = mergeTranscripts(await this.readAligned(bookId), { spans, said });
+    await this.host.writeFile(this.dir("aligned", `${bookId}.csv`), await rowsToBytes(transcriptRows(all), TRANSCRIPT_FIELDS));
   }
 
   // Pairing ------------------------------------------------------------
