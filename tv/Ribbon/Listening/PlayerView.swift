@@ -407,7 +407,7 @@ struct SmallButtonStyle: ButtonStyle {
                 .background(RoundedRectangle(cornerRadius: 10).fill(focused ? Color.ink : Color.white.opacity(0.06)))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(focused ? Color.clear : Color.line))
                 .scaleEffect(configuration.isPressed ? 1.02 : focused ? 1.08 : 1)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .lifts(focused: focused, pressed: configuration.isPressed)
         }
     }
 }

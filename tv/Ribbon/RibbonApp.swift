@@ -52,7 +52,7 @@ private struct Screens: View {
                 .navigationDestination(for: AppModel.Screen.self) { screen in
                     Group {
                         switch screen {
-                        case .book(let book): BookView(book: book)
+                        case .book(let book): BookView(book: book, kept: model.library?.details[book.id])
                         case .player: PlayerView()
                         case .search: SearchView()
                         case .settings: SettingsView()
