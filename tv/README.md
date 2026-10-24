@@ -22,8 +22,8 @@ files at any time, so the audio streams and the place lives on the server.
   and their places stay on the server.
 - **The library**, as the desktop's: Continue (the books you're in the
   middle of, most recent first), each series as a card with where you are in
-  it, then every other book. A card opens the book's page; its play button
-  listens straight away. While a book plays, its title at the top opens the
+  it, then every other book. A card is one button, which opens the book's
+  page; play is there. While a book plays, its title at the top opens the
   player. Switch reader, below the books, goes back to Who's reading; so
   does Menu, when there's more than one person.
 - **A book's page**: where you are as a sentence, Continue listening and Read
