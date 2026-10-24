@@ -9,7 +9,7 @@ import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } fro
 import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from "./progress";
 import { readerOnly } from "../core/ebook";
 import { shallowEqual, useAppState, useController, useCovers } from "./store";
-import { Button } from "./Button";
+import { Button, pressed, pressedCard, pressedCardWithButtons } from "./Button";
 import { Cover, CoverStack } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
 import { SearchField } from "./SearchField";
@@ -236,7 +236,7 @@ function BookCardView({ book, coverUrl, progress }: { book: ScannedBook; coverUr
   const c = useController();
   return (
     <li>
-      <button type="button" onClick={() => c.openReader(book.book.id)} className="group flex w-full flex-col rounded-md text-left focus-ring">
+      <button type="button" onClick={() => c.openReader(book.book.id)} className={clsx("group flex w-full flex-col rounded-md text-left focus-ring", pressedCard)}>
         <span className="relative">
           <Cover url={coverUrl} title={book.book.title} className="w-full group-hover:opacity-85" />
           {progress.finished && (
@@ -261,8 +261,8 @@ function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook
   const where = book.chapters.length > 1 && ch ? `Chapter ${book.chapters.indexOf(ch) + 1} of ${book.chapters.length}` : `${Math.round(progress.fraction * 100)}% in`;
   const toRead = readerOnly(book.book);
   return (
-    <li className="relative flex items-center gap-3 rounded-[10px] bg-surface p-2 pr-3 ring-1 ring-line hover:ring-line-strong">
-      <button type="button" onClick={() => c.openReader(book.book.id)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${book.book.title}: open its page`} />
+    <li className={clsx("relative flex items-center gap-3 rounded-[10px] bg-surface p-2 pr-3 ring-1 ring-line hover:ring-line-strong", pressedCardWithButtons)}>
+      <button type="button" data-card onClick={() => c.openReader(book.book.id)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${book.book.title}: open its page`} />
       <Cover url={coverUrl} title={book.book.title} className="pointer-events-none size-16" />
       <div className="pointer-events-none min-w-0 flex-1">
         <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{book.book.title}</p>
@@ -275,7 +275,7 @@ function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook
         type="button"
         onClick={() => (toRead ? void c.openReading(book.book.id) : playing ? c.pause() : void c.playBook(book))}
         aria-label={toRead ? `Continue reading ${book.book.title}` : playing ? `Pause ${book.book.title}` : `Continue ${book.book.title}`}
-        className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary"
+        className={clsx("relative flex size-9 shrink-0 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary", pressed)}
       >
         <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
         {toRead ? <BookOpenIcon className="size-4 fill-current" aria-hidden="true" /> : playing ? <PauseGlyph /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
@@ -303,8 +303,8 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
   const { book: next, progress: nextProgress } = s.next;
   const title = group.titles?.[next.book.id] ?? next.book.title;
   return (
-    <li className="relative flex gap-4 rounded-[10px] bg-surface p-3 ring-1 ring-line hover:ring-line-strong">
-      <button type="button" onClick={() => c.openSeries(group.key)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${group.name}: open the series`} />
+    <li className={clsx("relative flex gap-4 rounded-[10px] bg-surface p-3 ring-1 ring-line hover:ring-line-strong", pressedCardWithButtons)}>
+      <button type="button" data-card onClick={() => c.openSeries(group.key)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${group.name}: open the series`} />
       <CoverStack url={c.coverUrl(next)} title={next.book.title} count={s.books.length} className="w-20" />
       <div className="pointer-events-none flex min-w-0 flex-1 flex-col">
         <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{group.name}</p>
@@ -332,7 +332,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
             type="button"
             onClick={() => void c.playBook(next)}
             aria-label={`Continue ${group.name}: ${next.book.title}`}
-            className={clsx("relative flex size-9 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary")}
+            className={clsx("relative flex size-9 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary", pressed)}
           >
             <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
             {readerOnly(next.book) ? <BookOpenIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}

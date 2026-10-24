@@ -105,7 +105,19 @@ greys.
 - Menus are compact: a muted group label, items with an ellipsis when
   they open something else, destructive items last.
 - Hover changes colour without a transition; only things that move
-  animate, and quickly (150 to 200ms).
+  animate, and quickly (150 to 200ms), easing out.
+- What comes in leaves the way it came, a little quicker: a dialog
+  shrinks and fades, a drawer goes back down or out to the side, the
+  player sinks, each in 150ms, and backdrops fade with them
+  (`src/ui/modal.ts`). A menu grows out of the corner nearest its button
+  and goes at once when an item is chosen.
+- A press shows without hover, which a phone has none of: a button
+  shrinks to 97% and comes back in 150ms, a card to 98%
+  (`pressed`, `pressedCard` in `src/ui/Button.tsx`).
+- Nothing moves on the way somewhere: panes, tabs, page turns by key
+  and the narrator's mark change at once, being seen hundreds of times a
+  day.
+- With reduced motion, things fade rather than move, and a press dims.
 
 ## 8. Checking
 

@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import { memo } from "react";
 import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
 import { useAppState, useController, useCovers } from "./store";
-import { Button, IconButton } from "./Button";
+import { Button, IconButton, pressed } from "./Button";
 import { Cover } from "./Cover";
 import { Scrubber } from "./Scrubber";
 import { scanLine, scanning } from "./LoudnessScan";
@@ -99,7 +99,7 @@ export const PlayButton = memo(function PlayButton({ size }: { size: "dock" | "s
       type="button"
       onClick={() => c.togglePlay()}
       aria-label={on ? "Pause" : "Play"}
-      className={clsx("relative flex shrink-0 items-center justify-center rounded-full bg-primary text-on-primary focus-ring hover:bg-primary/85", size === "md" ? "size-14" : size === "sm" ? "size-9" : "size-10")}
+      className={clsx("relative flex shrink-0 items-center justify-center rounded-full bg-primary text-on-primary focus-ring hover:bg-primary/85", pressed, size === "md" ? "size-14" : size === "sm" ? "size-9" : "size-10")}
     >
       <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
       {on ? <PauseIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}

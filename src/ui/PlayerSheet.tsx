@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useModal } from "./modal";
 
 interface Props {
   open: boolean;
@@ -9,23 +10,16 @@ interface Props {
 /**
  * The full player, over everything, on a native dialog: Escape and the
  * back button close it, focus stays inside, and the bar underneath keeps
- * playing. Opens from the bar; the shelf is what you come back to.
+ * playing. Opens from the bar; the shelf is what you come back to. It
+ * rises a little as it comes in, and sinks the same way as it goes
+ * (modal.ts).
  */
 export function PlayerSheet({ open, onClose, children }: Props) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (open && !el.open) {
-      el.showModal();
-      // showModal focuses the first control; the title is the calmer place to start.
-      el.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-    }
-    else if (!open && el.open) el.close();
-  }, [open]);
+  const { ref, closing } = useModal(open);
   return (
     <dialog
       ref={ref}
+      data-closing={closing || undefined}
       onClose={(e) => {
         // React passes a nested dialog's close up the tree; only our own closes us.
         if (e.target === e.currentTarget) onClose();
@@ -38,9 +32,9 @@ export function PlayerSheet({ open, onClose, children }: Props) {
         }
       }}
       aria-label="Player"
-      className="fixed inset-0 m-0 hidden h-full max-h-none w-full max-w-none bg-canvas safe-area font-sans text-ink antialiased open:block starting:open:translate-y-4 starting:open:opacity-0 transition-[translate,opacity] duration-200 ease-out"
+      className="fixed inset-0 m-0 hidden h-full max-h-none w-full max-w-none bg-canvas safe-area font-sans text-ink antialiased open:block transition-[translate,opacity] duration-200 ease-out starting:open:opacity-0 motion-safe:starting:open:translate-y-4 data-closing:opacity-0 data-closing:duration-150 motion-safe:data-closing:translate-y-4"
     >
-      {open && children}
+      {(open || closing) && children}
     </dialog>
   );
 }
