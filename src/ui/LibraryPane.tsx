@@ -10,13 +10,14 @@ import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from ".
 import { readerOnly } from "../core/ebook";
 import { shallowEqual, useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
-import { Cover } from "./Cover";
+import { Cover, CoverStack } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
 import { SearchField } from "./SearchField";
 import { EmptyState, Menu, ProgressLine, SectionHeader, SegmentedProgress } from "./kit";
 import { Downloads } from "./Servers";
 import { describeFilter, useShelfFacts, ViewBar } from "./ShelfView";
 import { applyView, filterCount, SORT_LABELS } from "../core/view";
+import { seriesStanding } from "./SeriesPage";
 
 /**
  * The library: what you are in the middle of, then each series as a card
@@ -292,43 +293,29 @@ function PauseGlyph() {
   );
 }
 
-/** A series: the next book's cover on a small stack, where you are, and a mark per book. */
+/** A series: the next book's cover on a small stack, where you are, and a mark per book. It opens the series' page; play goes on with the next book. */
 function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: SeriesRecord | undefined; byId: Map<string, ScannedBook> }) {
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();
-  const reading = (id: string) => c.readingProgress(id);
-  const hidden = hiddenBookIds(record ? [record] : []);
-  const ordered = orderBySeries(group.bookIds, (id) => id, record ? [record] : [])
-    .filter((id) => !hidden.has(id))
-    .map((id) => byId.get(id))
-    .filter((b): b is ScannedBook => !!b);
-  const progress = ordered.map((b) => progressOf(b, shelf, reading));
-  const finished = progress.filter((p) => p.finished).length;
-  const nextIndex = progress.findIndex((p) => !p.finished);
-  const next = ordered[nextIndex] ?? ordered[0];
-  const allDone = ordered.length > 0 && finished === ordered.length;
-  const nextProgress = nextIndex >= 0 ? progress[nextIndex]! : null;
-  const left = ordered.reduce((s, b, i) => s + (progress[i]!.finished ? 0 : b.book.durationMs - progress[i]!.posMs), 0);
-  if (!next) return null;
+  const s = seriesStanding(group, record, byId, (b) => progressOf(b, shelf, (id) => c.readingProgress(id)));
+  if (!s.next) return null;
+  const { book: next, progress: nextProgress } = s.next;
+  const title = group.titles?.[next.book.id] ?? next.book.title;
   return (
     <li className="relative flex gap-4 rounded-[10px] bg-surface p-3 ring-1 ring-line hover:ring-line-strong">
-      <button type="button" onClick={() => c.openReader(next.book.id)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${group.name}: open ${next.book.title}`} />
-      <div className="pointer-events-none relative w-20 shrink-0 self-start pr-2">
-        {ordered.length > 2 && <span className="absolute inset-y-[10%] right-0 left-2 rounded-[4px] bg-raised ring-1 ring-line" aria-hidden="true" />}
-        {ordered.length > 1 && <span className="absolute inset-y-[5%] right-1 left-1 rounded-[4px] bg-raised ring-1 ring-line" aria-hidden="true" />}
-        <Cover url={c.coverUrl(next)} title={next.book.title} className="relative w-full" />
-      </div>
+      <button type="button" onClick={() => c.openSeries(group.key)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${group.name}: open the series`} />
+      <CoverStack url={c.coverUrl(next)} title={next.book.title} count={s.books.length} className="w-20" />
       <div className="pointer-events-none flex min-w-0 flex-1 flex-col">
         <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{group.name}</p>
         <p className="truncate text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
-          {ordered.length} books · {allDone ? "all finished" : finished > 0 ? `${finished} finished · ${formatLeft(left).replace(/ \d+m$/, "")} to go` : `${formatLeft(left).replace(/ \d+m$/, "")}`}
+          {s.books.length} books · {s.allDone ? "all finished" : s.finished > 0 ? `${s.finished} finished · ${formatLeft(s.leftMs).replace(/ \d+m$/, "")} to go` : `${formatLeft(s.leftMs).replace(/ \d+m$/, "")}`}
         </p>
         <p className="mt-2 truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-          {allDone ? "Every book finished" : nextProgress?.started ? `${readerOnly(next.book) ? "Reading" : "Listening to"} ${next.book.title}` : `Up next: ${next.book.title}`}
+          {s.allDone ? "Every book finished" : nextProgress.started ? `${readerOnly(next.book) ? "Reading" : "Listening to"} ${title}` : `Up next: ${title}`}
         </p>
         <div className="mt-auto pt-3">
-          <SegmentedProgress parts={progress.map((p) => (p.finished ? 1 : p.fraction))} />
+          <SegmentedProgress parts={s.books.map((b) => (b.progress.finished ? 1 : b.progress.fraction))} />
         </div>
       </div>
       <div className="relative flex shrink-0 flex-col items-end justify-between gap-2">
@@ -340,7 +327,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
             { label: `Open ${next.book.title}`, onSelect: () => c.openReader(next.book.id) },
           ]}
         />
-        {!allDone && (
+        {!s.allDone && (
           <button
             type="button"
             onClick={() => void c.playBook(next)}

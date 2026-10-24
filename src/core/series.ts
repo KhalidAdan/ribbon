@@ -1,5 +1,6 @@
 import type { Book } from "./types";
 import { compareBooks } from "./order";
+import { parseNumbered } from "./scan/metadata";
 import { bytesToRows, rowsToBytes, bool, int } from "./csv";
 
 /**
@@ -17,6 +18,10 @@ export interface SeriesGroup {
   bookIds: string[];
   /** Members the listener added by hand rather than detection found. */
   added?: string[];
+  /** Each member's number in the series, by book id, where its tags, folder or title give one. */
+  numbers?: Record<string, number>;
+  /** Titles as a list of the series shows them, by book id: without the series' name or a number the list already shows. */
+  titles?: Record<string, string>;
 }
 
 export interface SeriesChoice {
@@ -66,14 +71,22 @@ function baseName(path: string): string {
 /**
  * Series worth setting up. A series tag groups books wherever they
  * live; otherwise numbered folders under one parent form a series named
- * by that parent, or by the library folder when they sit at the root.
- * Members come back in folder order.
+ * by that parent, or by the library folder when they sit at the root;
+ * otherwise a series named in the titles, the way stores write it
+ * (seriesInTitles). Members come back by their number in the series,
+ * then in folder order.
  */
 export function detectSeries(books: readonly Book[], libraryName: string): SeriesGroup[] {
-  const groups = new Map<string, { name: string; books: Book[] }>();
+  const titled = seriesInTitles(books.filter((b) => !b.series.trim() && b.seriesIndex === null));
+  const groups = new Map<string, { name: string; key: string | null; members: { book: Book; number: number | null; part: number; title: string | null }[] }>();
   for (const b of books) {
     let name: string;
     let scope: string;
+    let key: string | null = null;
+    let number = b.seriesIndex;
+    let part = 0;
+    let title: string | null = null;
+    const t = titled.get(b.id);
     if (b.series.trim()) {
       name = b.series.trim();
       scope = "tag";
@@ -81,24 +94,133 @@ export function detectSeries(books: readonly Book[], libraryName: string): Serie
       const parent = parentOf(b.path);
       name = parent ? baseName(parent) : libraryName;
       scope = `folder:${parent}`;
+    } else if (t) {
+      ({ name, number, part } = t);
+      scope = `title:${t.names}`;
+      // From the names in any order: the order most titles use can change as books arrive, and the key is a file name.
+      key = slug(t.names);
+      title = t.title || null;
     } else {
       continue;
     }
-    const key = `${scope}|${name.toLowerCase()}`;
-    const g = groups.get(key) ?? { name, books: [] };
-    g.books.push(b);
-    groups.set(key, g);
+    // "04. Flight of the Eisenstein" is Flight of the Eisenstein under its number 4.
+    const prefixed = title === null && number !== null ? parseNumbered(b.title) : null;
+    if (prefixed && prefixed.index === number) title = prefixed.name;
+    const groupKey = `${scope}|${name.toLowerCase()}`;
+    const g = groups.get(groupKey) ?? { name, key, members: [] };
+    g.members.push({ book: b, number, part, title });
+    groups.set(groupKey, g);
   }
   const out: SeriesGroup[] = [];
   const used = new Set<string>();
   for (const [scopeKey, g] of groups) {
-    if (g.books.length < MIN_SERIES_BOOKS) continue;
-    let key = slug(g.name);
+    if (g.members.length < MIN_SERIES_BOOKS) continue;
+    let key = g.key ?? slug(g.name);
     if (used.has(key)) key = `${key}-${slug(scopeKey)}`;
     used.add(key);
-    out.push({ key, name: g.name, bookIds: [...g.books].sort(compareBooks).map((b) => b.id) });
+    // Numbered books by their number (a book in parts by its part), then the rest in folder order.
+    const members = [...g.members].sort((x, y) => (x.number ?? Infinity) - (y.number ?? Infinity) || x.part - y.part || compareBooks(x.book, y.book));
+    const group: SeriesGroup = { key, name: g.name, bookIds: members.map((m) => m.book.id) };
+    const numbered = members.filter((m) => m.number !== null);
+    if (numbered.length > 0) group.numbers = Object.fromEntries(numbered.map((m) => [m.book.id, m.number!]));
+    const retitled = members.filter((m) => m.title);
+    if (retitled.length > 0) group.titles = Object.fromEntries(retitled.map((m) => [m.book.id, m.title!]));
+    out.push(group);
   }
   return out;
+}
+
+/** A book's title, read for the series it names: see parseSeriesTitle. */
+export interface SeriesTitle {
+  /** The title before the book's number, split at its colons. */
+  parts: string[];
+  /** How many parts at the start are the book's own title, not a series' name: 1, or 0 when the title is only the series. */
+  own: number;
+  /** The book's number in the series: 8 in "Book 8". */
+  number: number;
+  /** "Book 8, Part 2" is a book in parts; 0 when it is not. */
+  part: number;
+}
+
+/** "…, Book 8" at the end, or "…, Book 8, Part 2". */
+const TRAILING_BOOK = /^(.+?),?\s+Book\s+(\d+(?:\.\d+)?)(?:,?\s+Part\s+(\d+))?$/i;
+/** "Leviathan Wakes (The Expanse, Book 1)", or "(The Expanse #1)". */
+const BOOK_IN_BRACKETS = /^(.+?)\s*\(([^()]+?),?\s+(?:Book\s+|#)(\d+(?:\.\d+)?)\)$/i;
+
+/**
+ * What a title says about its series, the way stores write it:
+ * "The Solar War: Siege of Terra: The Horus Heresy, Book 1", or
+ * "Leviathan Wakes (The Expanse, Book 1)". Which parts name the series
+ * is clear only across several books, since "The End and the Death:
+ * Volume I: The Horus Heresy: Siege of Terra, Book 8" carries a volume
+ * as well; seriesInTitles decides. Null when the title has no number.
+ */
+export function parseSeriesTitle(title: string): SeriesTitle | null {
+  const text = title.trim();
+  const bracketed = BOOK_IN_BRACKETS.exec(text);
+  if (bracketed) {
+    const names = splitColons(bracketed[2]!);
+    return names.length > 0 ? { parts: [bracketed[1]!.trim(), ...names], own: 1, number: Number(bracketed[3]), part: 0 } : null;
+  }
+  const trailing = TRAILING_BOOK.exec(text);
+  if (!trailing) return null;
+  const parts = splitColons(trailing[1]!);
+  if (parts.length === 0) return null;
+  return { parts, own: parts.length > 1 ? 1 : 0, number: Number(trailing[2]), part: trailing[3] ? Number(trailing[3]) : 0 };
+}
+
+function splitColons(text: string): string[] {
+  return text
+    .split(/\s*:\s+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/** A book's series as its title names it, decided across the shelf. */
+export interface TitledSeries {
+  name: string;
+  /** The series' names, lower case, sorted and joined: the same series whichever order a title puts them in. */
+  names: string;
+  number: number;
+  part: number;
+  /** The title without the series' names: "The End and the Death: Volume I". Empty when the title is only the series. */
+  title: string;
+}
+
+/**
+ * Series named in titles, by book id. A part of a title names a series
+ * when at least MIN_SERIES_BOOKS titles carry it; the rest is the book's
+ * own. Titles that carry the same names, in any order, are one series:
+ * "Siege of Terra: The Horus Heresy, Book 4" and "The Horus Heresy:
+ * Siege of Terra, Book 5". The series takes its name in the order most
+ * of its titles use.
+ */
+export function seriesInTitles(books: readonly Book[]): Map<string, TitledSeries> {
+  const parsed = books.flatMap((b) => {
+    const t = parseSeriesTitle(b.title);
+    return t ? [{ id: b.id, ...t }] : [];
+  });
+  const carried = new Map<string, number>();
+  for (const t of parsed) for (const p of new Set(t.parts.slice(t.own).map((x) => x.toLowerCase()))) carried.set(p, (carried.get(p) ?? 0) + 1);
+
+  const found = parsed.flatMap((t) => {
+    const isName = (p: string, i: number) => i >= t.own && (carried.get(p.toLowerCase()) ?? 0) >= MIN_SERIES_BOOKS;
+    const names = t.parts.filter(isName);
+    if (names.length === 0) return [];
+    const own = t.parts.filter((p, i) => !isName(p, i)).join(": ");
+    return [{ id: t.id, names: names.map((n) => n.toLowerCase()).sort().join(" "), spelled: names.join(": "), number: t.number, part: t.part, title: own }];
+  });
+
+  // The spelling of each series' name that most of its titles use; on a tie, the first in A to Z.
+  const spellings = new Map<string, Map<string, number>>();
+  for (const f of found) {
+    const counts = spellings.get(f.names) ?? new Map<string, number>();
+    counts.set(f.spelled, (counts.get(f.spelled) ?? 0) + 1);
+    spellings.set(f.names, counts);
+  }
+  const nameOf = (names: string) => [...spellings.get(names)!].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]![0];
+
+  return new Map(found.map((f) => [f.id, { name: nameOf(f.names), names: f.names, number: f.number, part: f.part, title: f.title }]));
 }
 
 /** A key no other series has: the name's slug, numbered when taken. */
@@ -178,20 +300,25 @@ export function hiddenBookIds(records: Iterable<SeriesRecord>): Set<string> {
   return out;
 }
 
-/** What to call a book's place in a series: the number the listener gave it, or its position. */
-export function seriesNumber(record: SeriesRecord | undefined, bookId: string, position: number): string {
-  const n = record?.choices.find((c) => c.bookId === bookId)?.number;
+/**
+ * What to call a book's place in a series: the number the listener gave
+ * it, else the one detection found (`SeriesGroup.numbers`), else its
+ * position. "Siege of Terra, Book 8, Part 2" is book 8, not the ninth.
+ */
+export function seriesNumber(record: SeriesRecord | undefined, bookId: string, position: number, detected?: Readonly<Record<string, number>>): string {
+  const n = record?.choices.find((c) => c.bookId === bookId)?.number ?? detected?.[bookId];
   return n !== undefined ? String(n) : String(position);
 }
 
 /**
  * Put choices in order after a number changed: a numbered book by its
- * number, the rest by their position, which is the number they show.
- * On a tie the book that was first stays first.
+ * number, the rest by the number detection found or their position,
+ * which is the number they show. On a tie the book that was first
+ * stays first.
  */
-export function sortByNumber(choices: readonly SeriesChoice[]): SeriesChoice[] {
+export function sortByNumber(choices: readonly SeriesChoice[], detected?: Readonly<Record<string, number>>): SeriesChoice[] {
   return normalizeChoices(choices)
-    .map((c) => ({ c, k: c.number ?? c.order }))
+    .map((c) => ({ c, k: c.number ?? detected?.[c.bookId] ?? c.order }))
     .sort((a, b) => a.k - b.k || a.c.order - b.c.order)
     .map(({ c }, i) => ({ ...c, order: i + 1 }));
 }

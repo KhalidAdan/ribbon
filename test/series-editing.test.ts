@@ -36,6 +36,18 @@ describe("series numbers", () => {
     expect(seriesNumber(undefined, "b", 7)).toBe("7");
   });
 
+  it("show as the number detection found when the listener gave none, and sort by it", () => {
+    // Book 8 in three parts: the ninth and tenth on the shelf are still book 8.
+    const detected = { a: 7, b: 8, c: 8, d: 8 };
+    const r: SeriesRecord = { key: "k", name: "S", decidedAt: "", choices: [choice("a", 1), choice("b", 2, { number: 7.5 }), choice("c", 3)] };
+    expect(seriesNumber(r, "b", 2, detected)).toBe("7.5");
+    expect(seriesNumber(r, "c", 3, detected)).toBe("8");
+    expect(seriesNumber(undefined, "d", 4, detected)).toBe("8");
+    expect(seriesNumber(undefined, "e", 5, detected)).toBe("5");
+    // Numbering the fourth 7.2 puts it before the 7.5, among detected numbers rather than positions.
+    expect(sortByNumber([choice("a", 1), choice("b", 2, { number: 7.5 }), choice("c", 3), choice("d", 4, { number: 7.2 })], detected).map((c) => c.bookId)).toEqual(["a", "d", "b", "c"]);
+  });
+
   it("round-trip through the record, with removals", async () => {
     const r: SeriesRecord = { key: "k", name: "The Series", decidedAt: "2026-10-18T00:00:00.000Z", choices: [choice("a", 1, { number: 2.5 }), choice("b", 2, { removed: true }), choice("c", 3, { included: false })] };
     expect(await bytesToSeries("k", await seriesToBytes(r))).toEqual(r);

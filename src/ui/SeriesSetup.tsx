@@ -81,7 +81,7 @@ export function SeriesSetup() {
       const { number: _old, ...rest } = ch;
       return t && Number.isFinite(n) ? { ...rest, number: n } : rest;
     });
-    setChoices(sortByNumber(next));
+    setChoices(sortByNumber(next, setup.numbers));
   };
   const takeOut = (bookId: string, toKey: string | null) => setOut(new Map(out).set(bookId, toKey));
   const member = new Set(choices.map((ch) => ch.bookId));
@@ -201,7 +201,7 @@ export function SeriesSetup() {
                 name={`series-number-${ch.bookId}`}
                 inputMode="decimal"
                 defaultValue={ch.number !== undefined ? String(ch.number) : ""}
-                placeholder={String(i + 1)}
+                placeholder={String(setup.numbers?.[ch.bookId] ?? i + 1)}
                 onBlur={(e) => setNumber(ch.bookId, e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") (e.target as HTMLInputElement).blur();
@@ -210,7 +210,7 @@ export function SeriesSetup() {
               />
               <Cover url={c.coverUrl(b)} title={b.book.title} className="size-9" />
               <div className="min-w-0 flex-1">
-                <p className={clsx("truncate text-base/6 sm:text-sm/5", ch.included ? "font-medium text-ink" : "text-ink-2 line-through")}>{b.book.title}</p>
+                <p className={clsx("truncate text-base/6 sm:text-sm/5", ch.included ? "font-medium text-ink" : "text-ink-2 line-through")}>{setup.titles?.[ch.bookId] ?? b.book.title}</p>
                 <p className="truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
                   {b.book.author || "Unknown author"} · {lengthOf(b)}
                 </p>
