@@ -1,5 +1,6 @@
 import { bookId } from "./bookid";
 import type { ScannedBook } from "./scan/scan";
+import type { SeriesGroup, SeriesRecord } from "./series";
 import type { LoudnessMeasurement, SilenceRange } from "./types";
 
 /**
@@ -34,6 +35,40 @@ export interface ServerBookDetail {
   records?: string[];
   /** Its loudness and silences, measured once on the server: a device that downloads it never measures it itself. */
   analysis?: { loudness: LoudnessMeasurement | null; silence: { file: number; ranges: SilenceRange[] }[] };
+}
+
+/** A series of a server's library (server/src/library/series.ts, `ServerSeries`): its books in order. */
+export interface ServerSeries {
+  id: string;
+  name: string;
+  books: { id: string; number: number | null; title: string | null; shelved: boolean }[];
+}
+
+/**
+ * A server's series as the shelf takes them (series.ts): each as a group,
+ * with its books by their id on this device, each one's number and title as
+ * the list shows it; and as a record of what's on the shelf, in the
+ * server's order. Books the server doesn't list are left out.
+ */
+export function seriesFromServer(series: readonly ServerSeries[], books: readonly ServerBook[]): { groups: SeriesGroup[]; records: SeriesRecord[] } {
+  const here = new Map(books.map((b) => [b.id, localIdOf(b)]));
+  const groups: SeriesGroup[] = [];
+  const records: SeriesRecord[] = [];
+  for (const s of series) {
+    const members = s.books.flatMap((b) => (here.has(b.id) ? [{ ...b, local: here.get(b.id)! }] : []));
+    if (members.length === 0) continue;
+    const numbered = members.filter((m) => m.number !== null);
+    const titled = members.filter((m) => m.title !== null);
+    groups.push({
+      key: s.id,
+      name: s.name,
+      bookIds: members.map((m) => m.local),
+      ...(numbered.length > 0 ? { numbers: Object.fromEntries(numbered.map((m) => [m.local, m.number!])) } : {}),
+      ...(titled.length > 0 ? { titles: Object.fromEntries(titled.map((m) => [m.local, m.title!])) } : {}),
+    });
+    records.push({ key: s.id, name: s.name, decidedAt: "", choices: members.map((m, i) => ({ bookId: m.local, included: m.shelved, order: i + 1 })) });
+  }
+  return { groups, records };
 }
 
 /** The width of cover kept on this device for the shelf: 2x of the 200 points it's drawn at. */

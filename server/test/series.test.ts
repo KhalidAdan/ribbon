@@ -90,13 +90,15 @@ describe("the library's series", () => {
     series.find(books.list(), 1);
     const siege = series.get("siege-of-terra-the-horus-heresy")!;
     // Renamed, Echoes of Eternity taken out, and the last volume left off the shelf.
-    const kept = siege.books.filter((b) => !b.id.startsWith("Echoes")).map((b) => ({ id: b.id, number: b.number, ...(b.title?.endsWith("III") ? { shelved: false } : {}) }));
+    // Saved without numbers, as a device that didn't change them saves: each keeps its own.
+    const kept = siege.books.filter((b) => !b.id.startsWith("Echoes")).map((b) => ({ id: b.id, ...(b.title?.endsWith("III") ? { shelved: false } : {}) }));
     series.save(siege.id, "Siege of Terra", kept, "admin", 2);
     expect(series.find(books.list(), 3)).toBe(0);
     const after = series.get(siege.id)!;
     expect(after.name).toBe("Siege of Terra");
     expect(after.books.map((b) => b.id)).not.toContain(SHELF[0]);
     expect(after.books.find((b) => b.title === "The End and the Death: Volume III")!.shelved).toBe(false);
+    expect(after.books.map((b) => b.number)).toEqual([1, 2, 3, 4, 5, 6, 8, 8, 8]);
   });
 
   it("doesn't find a series again once a person deleted it, and moves a book into a series a person makes", () => {

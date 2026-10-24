@@ -22,7 +22,7 @@ export interface SeriesBook {
   shelved: boolean;
 }
 
-/** A book as a person puts it in a series. A title left out keeps the one it has. */
+/** A book as a person puts it in a series. A number or title left out keeps the one it has. */
 export interface SeriesBookChange {
   id: string;
   number?: number | null;
@@ -145,9 +145,9 @@ export class LibrarySeries {
     return out;
   }
 
-  /** A series' books as a person ordered them, each out of the series it was in; a title not given keeps the one it had. */
+  /** A series' books as a person ordered them, each out of the series it was in; a number or title not given keeps the one it had. */
   private fill(id: string, books: readonly SeriesBookChange[]): void {
-    const titles = new Map(this.db.prepare("SELECT book_id, title FROM series_book").all().map((row) => [String(row.book_id), row.title === null ? null : String(row.title)]));
+    const had = new Map(this.db.prepare("SELECT book_id, number, title FROM series_book").all().map((row) => [String(row.book_id), member(row)]));
     this.db.prepare("DELETE FROM series_book WHERE series_id = ?").run(id);
     let position = 0;
     for (const book of books) {
@@ -159,10 +159,11 @@ export class LibrarySeries {
         this.db.prepare("DELETE FROM series_book WHERE book_id = ?").run(book.id);
       }
       this.db.prepare("DELETE FROM series_left WHERE series_id = ? AND book_id = ?").run(id, book.id);
-      const title = book.title !== undefined ? book.title : (titles.get(book.id) ?? null);
+      const number = book.number !== undefined ? book.number : (had.get(book.id)?.number ?? null);
+      const title = book.title !== undefined ? book.title : (had.get(book.id)?.title ?? null);
       this.db
         .prepare("INSERT INTO series_book (series_id, book_id, position, number, title, shelved) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(id, book.id, ++position, book.number ?? null, title, book.shelved === false ? 0 : 1);
+        .run(id, book.id, ++position, number, title, book.shelved === false ? 0 : 1);
     }
   }
 
