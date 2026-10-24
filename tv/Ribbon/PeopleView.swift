@@ -84,7 +84,7 @@ private struct PersonStyle: ButtonStyle {
             configuration.label
                 .scaleEffect(configuration.isPressed ? 1.04 : focused ? 1.1 : 1)
                 .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 24, y: 16)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .lifts(focused: focused, pressed: configuration.isPressed)
         }
     }
 }

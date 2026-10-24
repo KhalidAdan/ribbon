@@ -9,11 +9,21 @@ struct BookView: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
     @State private var detail: ServerBookDetail?
+    /// Whether the details came after the page was drawn, rather than with it.
+    @State private var arrivedLate = false
     @State private var moreAbout = false
     @FocusState private var focused: Focus?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum Focus: Hashable {
         case listen, readAlong
+    }
+
+    /// `kept` is the book's details when the library has them already, so a page opened again draws them
+    /// from the first frame instead of a moment later.
+    init(book: ServerBook, kept: ServerBookDetail?) {
+        self.book = book
+        _detail = State(initialValue: kept)
     }
 
     var body: some View {
@@ -85,6 +95,7 @@ struct BookView: View {
                                 .buttonStyle(LiftStyle.row(radius: 14))
                                 .padding(.horizontal, -18)
                                 .padding(.top, 30)
+                                .modifier(FadesInPlace(fades: arrivedLate && reduceMotion))
                             }
                         }
                     }
@@ -99,7 +110,16 @@ struct BookView: View {
         }
         .defaultFocus($focused, .listen)
         .task(id: book.id) {
-            detail = await model.library?.detail(of: book)
+            if let kept = model.library?.details[book.id] {
+                detail = kept
+                return
+            }
+            let found = await model.library?.detail(of: book)
+            // Fetched after the page was drawn, the chapters, the year and the description push what's under
+            // them down: the page settles into place rather than jumping. With Reduce Motion nothing glides;
+            // the details land at once, and the description fades in where it lands.
+            arrivedLate = true
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { detail = found }
         }
     }
 
@@ -133,6 +153,19 @@ struct BookView: View {
         if let publisher = detail?.book.publisher, !publisher.isEmpty { facts.append(("Publisher", publisher)) }
         if book.ebook { facts.append(("Ebook", "EPUB")) }
         return facts
+    }
+}
+
+/// Something that fades in where it lands, without moving: how a late description arrives with Reduce Motion
+/// on. When `fades` is false it's simply there.
+private struct FadesInPlace: ViewModifier {
+    let fades: Bool
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(fades && !shown ? 0 : 1)
+            .onAppear { withAnimation(.easeOut(duration: 0.2)) { shown = true } }
     }
 }
 

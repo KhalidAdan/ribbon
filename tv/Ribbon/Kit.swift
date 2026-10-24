@@ -109,6 +109,16 @@ extension Row where Aside == EmptyView {
     }
 }
 
+extension View {
+    /// How a button moves: it lifts with the focus, and settles when pressed,
+    /// each eased rather than snapped, the press quicker so a click is felt at
+    /// once. Every button style here, and the player's and the picker's, use it.
+    func lifts(focused: Bool, pressed: Bool) -> some View {
+        animation(.easeOut(duration: 0.15), value: focused)
+            .animation(.easeOut(duration: 0.1), value: pressed)
+    }
+}
+
 /// The app's buttons (docs/DESIGN.md, section 7), as a TV shows them: only
 /// the button with the focus is lit in inverted ink, and lifts, so it's never
 /// in doubt which that is. Without the focus a button is raised with a
@@ -141,7 +151,7 @@ struct RibbonButtonStyle: ButtonStyle {
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? Color.clear : Color.line))
                 .scaleEffect(configuration.isPressed ? 1.02 : focused ? 1.08 : 1)
                 .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 18, y: 12)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .lifts(focused: focused, pressed: configuration.isPressed)
         }
     }
 }
@@ -174,7 +184,7 @@ struct LiftStyle: ButtonStyle {
                 .overlay(RoundedRectangle(cornerRadius: radius).stroke(focused ? Color.white.opacity(0.3) : Color.clear))
                 .scaleEffect(configuration.isPressed ? 1.005 : focused ? grows : 1)
                 .shadow(color: .black.opacity(focused ? 0.45 : 0), radius: 20, y: 14)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .lifts(focused: focused, pressed: configuration.isPressed)
         }
     }
 }
@@ -204,7 +214,7 @@ struct RoundButtonStyle: ButtonStyle {
                 .overlay(Circle().stroke(focused ? Color.clear : Color.line))
                 .scaleEffect(configuration.isPressed ? 1.04 : focused ? 1.14 : 1)
                 .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 16, y: 10)
-                .animation(.easeOut(duration: 0.15), value: focused)
+                .lifts(focused: focused, pressed: configuration.isPressed)
         }
     }
 }
