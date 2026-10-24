@@ -8,14 +8,17 @@ import { removeBookDir, type BookIndex } from "./books.ts";
 import type { Mp3Frames } from "./frames.ts";
 import type { ReadAlongs } from "./readalong.ts";
 import type { SearchIndex } from "./search.ts";
+import type { LibrarySeries, SeriesBookChange } from "./series.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 
 /**
  * The admin's side of the library: adding a folder of books, following the
- * job that does it, and deleting a book. The listing the apps read comes in
- * its own routes.
+ * job that does it, deleting a book, and making, changing and deleting a
+ * series (`POST /api/series`, `PUT` and `DELETE /api/series/:id`, each with
+ * its name and its books in order). The listing the apps read comes in its
+ * own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; dataDir: string }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -40,6 +43,8 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
         });
         // The new books' MP3s are indexed now, so the TV's first play from a moment doesn't wait on reading a whole file;
         // and their sentences, so they can be searched.
+        // The new books join the series they belong to, or make new ones.
+        if (deps.series.find(deps.books.list(), Date.now()) > 0) deps.events.toEveryone({ type: "series", data: {} });
         await deps.frames.indexMissing(deps.books);
         await deps.search.indexAll(deps.books, deps.readAlongs, deps.dataDir);
         return done;
@@ -63,6 +68,39 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     return reply.code(204).send();
   });
 
+  app.post<{ Body: unknown }>("/api/series", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can change the library's series." });
+    const asked = seriesAsked(request.body);
+    if (!asked) return reply.code(400).send({ error: "Give the series a name and its books, in order." });
+    const made = deps.series.create(asked.name, asked.books, me.id, Date.now());
+    if (!made) return reply.code(400).send({ error: "None of those books is on this server." });
+    deps.events.toEveryone({ type: "series", data: {} });
+    return reply.code(201).send({ series: made });
+  });
+
+  app.put<{ Params: { id: string }; Body: unknown }>("/api/series/:id", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can change the library's series." });
+    const asked = seriesAsked(request.body);
+    if (!asked) return reply.code(400).send({ error: "Give the series a name and its books, in order." });
+    const saved = deps.series.save(request.params.id, asked.name, asked.books, me.id, Date.now());
+    if (!saved) return reply.code(404).send({ error: "No such series on this server." });
+    deps.events.toEveryone({ type: "series", data: {} });
+    return { series: saved };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/series/:id", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can change the library's series." });
+    if (!deps.series.drop(request.params.id, me.id, Date.now())) return reply.code(404).send({ error: "No such series on this server." });
+    deps.events.toEveryone({ type: "series", data: {} });
+    return reply.code(204).send();
+  });
+
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
@@ -71,4 +109,26 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     if (!job) return reply.code(404).send({ error: "No such job." });
     return { job };
   });
+}
+
+/** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */
+function seriesAsked(body: unknown): { name: string; books: SeriesBookChange[] } | null {
+  const b = body as { name?: unknown; books?: unknown } | null;
+  const name = typeof b?.name === "string" ? b.name.trim() : "";
+  if (!name || name.length > 200 || !Array.isArray(b?.books)) return null;
+  const books: SeriesBookChange[] = [];
+  for (const item of b.books as unknown[]) {
+    const x = item as { id?: unknown; number?: unknown; title?: unknown; shelved?: unknown } | null;
+    if (typeof x?.id !== "string") return null;
+    if (x.number !== undefined && x.number !== null && (typeof x.number !== "number" || !Number.isFinite(x.number))) return null;
+    if (x.title !== undefined && x.title !== null && typeof x.title !== "string") return null;
+    if (x.shelved !== undefined && typeof x.shelved !== "boolean") return null;
+    books.push({
+      id: x.id,
+      ...(x.number !== undefined ? { number: x.number as number | null } : {}),
+      ...(x.title !== undefined ? { title: x.title as string | null } : {}),
+      ...(x.shelved !== undefined ? { shelved: x.shelved } : {}),
+    });
+  }
+  return { name, books };
 }

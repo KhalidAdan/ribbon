@@ -1,7 +1,7 @@
 /** Something a device should know about now rather than the next time it asks. */
 export interface ServerEvent {
-  /** `places`: one of your devices moved your place. `books`: the library changed. */
-  type: "places" | "books";
+  /** `places`: one of your devices moved your place. `books`: the library changed. `series`: its series changed. */
+  type: "places" | "books" | "series";
   data: Record<string, unknown>;
 }
 

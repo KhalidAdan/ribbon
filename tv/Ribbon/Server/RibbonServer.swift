@@ -22,6 +22,23 @@ struct ServerBook: Decodable, Identifiable, Hashable {
     let cover: Cover?
 }
 
+/// A series of the library, as the server keeps it (server/src/library/series.ts, `ServerSeries`): its books in order.
+struct ServerSeries: Decodable {
+    struct Book: Decodable {
+        let id: String
+        /// Its number in the series where one is known: 8 for "Book 8, Part 2".
+        let number: Double?
+        /// Its title as a list of the series shows it, without the series' name; nil to show its own.
+        let title: String?
+        /// False leaves it off the shelf.
+        let shelved: Bool
+    }
+
+    let id: String
+    let name: String
+    let books: [Book]
+}
+
 /// A book in full: its audio files in order, each as long as the server measured, its chapters, and what it says about itself.
 struct ServerBookDetail: Decodable {
     struct File: Decodable {
@@ -175,6 +192,12 @@ struct RibbonServer {
     func books() async throws -> [ServerBook] {
         struct Answer: Decodable { let books: [ServerBook] }
         return try await get(Answer.self, "api/books").books.filter(\.audio)
+    }
+
+    /// The library's series, each with its books in order.
+    func series() async throws -> [ServerSeries] {
+        struct Answer: Decodable { let series: [ServerSeries] }
+        return try await get(Answer.self, "api/series").series
     }
 
     /// How far this person is through each book they've started, by book id.
