@@ -5,8 +5,9 @@ import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
 import { removeBookDir, type BookIndex } from "./books.ts";
+import { readStored } from "./prepare.ts";
 import type { Mp3Frames } from "./frames.ts";
-import type { ReadAlongs } from "./readalong.ts";
+import { stateOf, type ReadAlongState, type ReadAlongs } from "./readalong.ts";
 import type { SearchIndex } from "./search.ts";
 import type { LibrarySeries, SeriesBookChange } from "./series.ts";
 import type { Transcriber } from "./transcribe.ts";
@@ -17,8 +18,9 @@ import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
  * The admin's side of the library: adding a folder of books, following the
  * job that does it, deleting a book, and making, changing and deleting a
  * series (`POST /api/series`, `PUT` and `DELETE /api/series/:id`, each with
- * its name and its books in order). The listing the apps read comes in its
- * own routes.
+ * its name and its books in order). And how every book reads along
+ * (`GET /api/library/readalong`), so a book left by chapter is never found
+ * only on the TV. The listing the apps read comes in its own routes.
  */
 export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; transcriber: Transcriber; dataDir: string }): void {
   const host = nodeHost();
@@ -106,6 +108,25 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     return reply.code(204).send();
   });
 
+  // Every book with text and narration: where its read-along stands (readalong.ts, `stateOf`), the ones a person needs to look at first.
+  app.get("/api/library/readalong", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can see how the library reads along." });
+    reply.header("cache-control", "no-store");
+    const transcribes = deps.transcriber.available;
+    const books = [];
+    // One at a time: a book whose transcript changed since is made again, which takes a moment on a slow machine.
+    for (const b of deps.books.list().filter((b) => b.ebook && b.audio)) {
+      const stored = await readStored(deps.dataDir, b.id);
+      const standing = stored ? await deps.readAlongs.standing(b.id, stored) : "It's no longer on the server.";
+      if (typeof standing === "string") books.push({ id: b.id, title: b.title, state: "unreadable" as const, error: standing });
+      else books.push({ id: b.id, title: b.title, state: stateOf(standing, transcribes), placed: standing.check.placed, heldOut: standing.check.heldOut, pairedBy: standing.pairedBy, transcribed: standing.transcribed });
+    }
+    books.sort((a, b) => FIRST.indexOf(a.state) - FIRST.indexOf(b.state) || a.title.localeCompare(b.title));
+    return { transcribes, books };
+  });
+
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
@@ -115,6 +136,9 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     return { job };
   });
 }
+
+/** The order books are listed in by how they read along: the ones that need a person first. */
+const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagged", "unpaired", "waiting", "transcribing", "sentence"];
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */
 function seriesAsked(body: unknown): { name: string; books: SeriesBookChange[] } | null {

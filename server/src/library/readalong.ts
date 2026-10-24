@@ -7,7 +7,8 @@ import type { Alignment } from "../../../src/core/reading/align.ts";
 import { BookText } from "../../../src/core/reading/booktext.ts";
 import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows, type Narration } from "../../../src/core/reading/narration.ts";
 import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
-import { readAlongOf, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
+import { BY_SENTENCE, readAlongOf, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
+import { stretchesOf } from "../../../src/core/reading/transcript.ts";
 import { bookDir, type StoredBook } from "./books.ts";
 import { chaptersWith, correctionsOf, recordRows } from "./chapters.ts";
 import type { SearchIndex } from "./search.ts";
@@ -24,6 +25,33 @@ export interface MadeReadAlong {
   alignment: Alignment;
   /** The read-along as it's sent. */
   json: string;
+  /** How it reads along, as it was made. */
+  standing: Standing;
+}
+
+/** How a book reads along: how closely it follows the narration, how it was paired, and how much of the narration is transcribed (minutes of it). */
+export interface Standing {
+  check: ReadAlongCheck;
+  pairedBy: Alignment["how"];
+  transcribed: { done: number; total: number };
+}
+
+/**
+ * Where a book stands, for the admin (docs/SERVER.md, section 9):
+ * - `sentence`: it reads along by sentence.
+ * - `transcribing`: by chapter while the server transcribes its narration.
+ * - `waiting`: by chapter until a device sends its transcript, on a server that doesn't transcribe.
+ * - `unpaired`: its text and narration didn't pair by chapter, so nothing heard can be placed: fix its pairing.
+ * - `flagged`: its narration is transcribed and it still reads along by chapter: a different edition, or a pairing to fix.
+ */
+export type ReadAlongState = "sentence" | "transcribing" | "waiting" | "unpaired" | "flagged";
+
+/** Where a book stands (ReadAlongState), on a server that transcribes or one that doesn't. */
+export function stateOf(s: Standing, transcribes: boolean): ReadAlongState {
+  if (s.check.placed >= BY_SENTENCE) return "sentence";
+  if (s.pairedBy === "proportion") return "unpaired";
+  if (s.pairedBy === "chapter" && s.transcribed.done < s.transcribed.total) return transcribes ? "transcribing" : "waiting";
+  return "flagged";
 }
 
 /** A read-along that can't be made, said to the person asking. */
@@ -61,6 +89,25 @@ export class ReadAlongs {
     private readonly log: { info(message: string): void } | null = null,
   ) {}
 
+  /** How each book read along as it was last made, with what it was made from: two numbers a book, kept for every book. */
+  private readonly standings = new Map<string, { stamp: string; standing: Standing }>();
+
+  /**
+   * How a book reads along now: as it was last made, or made again when
+   * something it's made from changed since (a transcript came in); or why
+   * it can't be made.
+   */
+  async standing(id: string, stored: StoredBook): Promise<Standing | string> {
+    const kept = this.standings.get(id);
+    if (kept && kept.stamp === (await this.stamp(id, stored))) return kept.standing;
+    try {
+      return (await this.of(id, stored))?.standing ?? "It has no text, or no narration, to read along.";
+    } catch (e) {
+      if (e instanceof ReadAlongError) return e.message;
+      throw e;
+    }
+  }
+
   /** Whether this server can make read-alongs at all. */
   get available(): boolean {
     return this.tool !== null;
@@ -76,6 +123,7 @@ export class ReadAlongs {
     this.made.delete(id);
     const made = kept?.stamp === stamp ? kept.made : await this.make(dir, stored);
     if (made !== kept?.made) this.log?.info(`read-along for "${stored.book.title}": ${checked(made.readAlong.check)}`);
+    this.standings.set(id, { stamp, standing: made.standing });
     if (this.search && !this.search.isCurrent(id, stamp)) this.search.index(id, stamp, made.readAlong);
     // Most recently asked for last, so the first is the one to let go.
     this.made.set(id, { stamp, made });
@@ -89,7 +137,10 @@ export class ReadAlongs {
     const chapters = chaptersWith(stored, await correctionsOf(dir, stored));
     const alignment = pairBook(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
     const readAlong = readAlongOf(text, alignment);
-    return { readAlong, text, alignment, json: JSON.stringify(readAlong) };
+    const spans = transcriptFromRows(await recordRows(dir, stored, "aligned")).spans;
+    const stretches = stretchesOf(stored.files);
+    const transcribed = { done: stretches.filter((x) => spans.has(x.startMs)).length, total: stretches.length };
+    return { readAlong, text, alignment, json: JSON.stringify(readAlong), standing: { check: readAlong.check, pairedBy: alignment.how, transcribed } };
   }
 
   /** A book's EPUB as `ribbon-ebook` reads it: its text and what its package says. */

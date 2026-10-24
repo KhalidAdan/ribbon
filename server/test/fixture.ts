@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildServer, type RibbonServer } from "../src/app.ts";
@@ -80,4 +80,32 @@ export async function importAs(server: RibbonServer, token: string, folder: stri
   await server.jobs.idle("work");
   const done = await server.app.inject({ method: "GET", url: `/api/jobs/${job.id}`, headers: { authorization: `Bearer ${token}` } });
   return { status: started.statusCode, job: (done.json() as { job: { state: string; progress: import("../src/library/importer.ts").ImportProgress; error: string | null } }).job };
+}
+
+/**
+ * A stand-in for `ribbon-speech` in `dir`, answering a batch of clips a
+ * line, as it does: for a clip starting at a moment in `said`, those
+ * phrases, with times in milliseconds of the file; for any other, that
+ * ffmpeg couldn't read it. It notes in `asked` what it was asked, one JSON
+ * line each: how it was started, then each batch.
+ */
+export function speechStandIn(dir: string, said: Record<number, { startMs: number; endMs: number; words: string }[]>): { tool: string; asked: string } {
+  const tool = path.join(dir, "ribbon-speech.cjs");
+  const asked = path.join(dir, "asked.jsonl");
+  writeFileSync(
+    tool,
+    `#!/usr/bin/env node
+const fs = require("fs");
+const said = ${JSON.stringify(said)};
+const lines = require("readline").createInterface({ input: process.stdin });
+fs.appendFileSync(${JSON.stringify(asked)}, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
+lines.on("line", (line) => {
+  const clips = JSON.parse(line);
+  fs.appendFileSync(${JSON.stringify(asked)}, JSON.stringify({ clips }) + "\\n");
+  console.log(JSON.stringify(clips.map((c) => said[c.startMs] ?? { error: "ffmpeg could not read the audio" })));
+});
+`,
+  );
+  chmodSync(tool, 0o755);
+  return { tool, asked };
 }

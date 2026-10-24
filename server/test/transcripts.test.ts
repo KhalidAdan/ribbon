@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,7 +10,7 @@ import { ServerClient } from "../../src/app/server/client.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import type { ListedBook } from "../src/library/books.ts";
-import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
+import { epub, importAs, mp3, serverWithAdmin, speechStandIn } from "./fixture.ts";
 
 const SENTENCES = [
   "The waygate hung in the void before them.",
@@ -26,32 +26,6 @@ const SENTENCES = [
 const AT = SENTENCES.map((_, i) => 11 + SENTENCES.slice(0, i).reduce((n, s) => n + s.length + 1, 0));
 /** When the narrator says each one: nine seconds apart, the last in the book's second minute. */
 const SAID_MS = [1000, 10_000, 19_000, 28_000, 37_000, 46_000, 55_000, 62_000];
-
-/**
- * A stand-in for `ribbon-speech`, answering a batch of clips a line as it
- * does: the first minute heard as the narrator says it, the second one
- * unreadable, as a file ffmpeg can't read. It notes what it was asked.
- */
-function standIn(dir: string): { tool: string; asked: string } {
-  const tool = path.join(dir, "ribbon-speech.cjs");
-  const asked = path.join(dir, "asked.jsonl");
-  const said = SENTENCES.slice(0, 7).map((words, i) => ({ startMs: SAID_MS[i], endMs: SAID_MS[i]! + 8000, words: ` ${words}` }));
-  writeFileSync(
-    tool,
-    `#!/usr/bin/env node
-const fs = require("fs");
-const lines = require("readline").createInterface({ input: process.stdin });
-fs.appendFileSync(${JSON.stringify(asked)}, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
-lines.on("line", (line) => {
-  const clips = JSON.parse(line);
-  fs.appendFileSync(${JSON.stringify(asked)}, JSON.stringify({ clips }) + "\\n");
-  console.log(JSON.stringify(clips.map((c) => (c.startMs === 0 ? ${JSON.stringify(said)} : { error: "ffmpeg could not read the audio" }))));
-});
-`,
-  );
-  chmodSync(tool, 0o755);
-  return { tool, asked };
-}
 
 /**
  * Getting the narration's transcript onto the server (docs/SERVER.md,
@@ -76,7 +50,9 @@ describe("transcripts on the server", () => {
     const folder = path.join(library, "An Author", "The Waygate");
     mp3(path.join(folder, "01.mp3"), { title: "The Waygate", album: "The Waygate", artist: "An Author" }, undefined, 70);
     epub(path.join(folder, "The Waygate.epub"), "Chapter One", SENTENCES);
-    const speech = standIn(dir);
+    // The first minute heard as the narrator says it; the second unreadable, as a file ffmpeg can't read.
+    const said = SENTENCES.slice(0, 7).map((words, i) => ({ startMs: SAID_MS[i]!, endMs: SAID_MS[i]! + 8000, words: ` ${words}` }));
+    const speech = speechStandIn(dir, { 0: said });
     asked = speech.asked;
     const model = path.join(dir, "ggml-base-q5_1.bin");
     writeFileSync(model, "a model");

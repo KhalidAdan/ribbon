@@ -189,6 +189,18 @@ curl "$RIBBON_URL/api/jobs/<job id>" -H "authorization: Bearer <your token>"
 
 A book already on the server, by its files or its ISBN or ASIN, is skipped.
 
+## How the library reads along
+
+Signed in as the admin, every book with text and narration, and how it reads
+along: by sentence, or by chapter and why (being transcribed, waiting for a
+device's transcript, its EPUB unreadable, its text and narration not
+pairing, or transcribed and still by chapter, which needs a person to look
+at it). Those come first:
+
+```bash
+curl "$RIBBON_URL/api/library/readalong" -H "authorization: Bearer <your token>"
+```
+
 ## Tests
 
 ```bash
