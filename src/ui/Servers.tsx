@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
+import { useKept } from "./modal";
 import { ProgressLine } from "./kit";
 
 const control = "w-full rounded-md bg-raised px-2.5 py-1.5 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1 sm:text-sm/6";
@@ -121,23 +122,26 @@ export function Downloads() {
  */
 export function SpaceShort() {
   const c = useController();
-  const short = useAppState((s) => s.spaceShort);
+  const live = useAppState((s) => s.spaceShort);
   // Redrawn when the shelf changes, as a removal does.
   useAppState((s) => s.books);
   const [freed, setFreed] = useState(0);
   const [removing, setRemoving] = useState<string | null>(null);
+  // Kept while it leaves; what was freed is forgotten once it's gone, so its title doesn't change on the way out.
+  const [short, closed] = useKept(live);
   if (!short) return null;
   const downloaded = c.downloadedBooks();
   const stillNeeded = Math.max(0, short.neededBytes - short.freeBytes - freed);
-  const close = () => {
-    setFreed(0);
-    c.dismissSpaceShort();
-  };
+  const close = () => c.dismissSpaceShort();
 
   return (
     <Dialog
-      open
+      open={live !== null}
       onClose={close}
+      onClosed={() => {
+        setFreed(0);
+        closed();
+      }}
       labelId="space-short-title"
       title={stillNeeded > 0 ? `Not enough room for ${short.title}` : `Room for ${short.title}`}
       description={stillNeeded > 0 ? `It needs ${formatBytes(stillNeeded)} more than this device can spare. Remove books you’ve downloaded to make room: the server keeps them, and your place in each.` : "There’s room for it now."}
@@ -153,7 +157,6 @@ export function SpaceShort() {
             disabled={stillNeeded > 0}
             onClick={() => {
               const id = short.bookId;
-              setFreed(0);
               c.dismissSpaceShort();
               void c.downloadBook(id);
             }}

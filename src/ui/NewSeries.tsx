@@ -5,6 +5,7 @@ import { lengthOf } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
+import { useKept } from "./modal";
 import { Checkbox } from "./kit";
 import { Cover } from "./Cover";
 
@@ -15,9 +16,12 @@ import { Cover } from "./Cover";
  * series has, afterwards.
  */
 export function NewSeries() {
-  const state = useAppState((s) => ({ seriesNew: s.seriesNew, books: s.books }));
+  const live = useAppState((s) => ({ seriesNew: s.seriesNew, books: s.books }));
   useCovers();
   const c = useController();
+  // On its way out it shows what it showed last, not the shelf Create just changed.
+  const [kept, closed] = useKept(live.seriesNew ? live : null);
+  const state = kept ?? live;
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
@@ -41,8 +45,9 @@ export function NewSeries() {
 
   return (
     <Dialog
-      open={state.seriesNew}
+      open={live.seriesNew}
       onClose={() => c.closeNewSeries()}
+      onClosed={closed}
       labelId="new-series-title"
       title="New series"
       description="Name it, then tick the books in the order you listen. You can reorder and leave books off afterwards, like any series."

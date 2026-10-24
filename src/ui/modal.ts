@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { shallowEqual } from "./store";
 
 /**
  * How long a closing dialog waits for its way out to finish before it
@@ -20,9 +21,10 @@ export function showModal(el: HTMLDialogElement): void {
  * closes for real when that's over. Meanwhile what it holds stays drawn,
  * so it doesn't go blank on its way out; opened again before it's gone, it
  * simply comes back. `show` opens it (`showModal` unless the dialog needs
- * more, as a drawer inside another dialog does).
+ * more, as a drawer inside another dialog does); `onClosed` hears when
+ * it's gone.
  */
-export function useModal(open: boolean, show: (el: HTMLDialogElement) => void = showModal) {
+export function useModal(open: boolean, { show = showModal, onClosed }: { show?: (el: HTMLDialogElement) => void; onClosed?: (() => void) | undefined } = {}) {
   const ref = useRef<HTMLDialogElement>(null);
   // Shown from opening until it has closed for real. Closing is worked out
   // from it as it renders, not set afterwards, so the render that takes
@@ -30,6 +32,8 @@ export function useModal(open: boolean, show: (el: HTMLDialogElement) => void = 
   const [shown, setShown] = useState(false);
   const showRef = useRef(show);
   showRef.current = show;
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
 
   useEffect(() => {
     const el = ref.current;
@@ -46,6 +50,7 @@ export function useModal(open: boolean, show: (el: HTMLDialogElement) => void = 
       gone = true;
       el.close();
       setShown(false);
+      onClosedRef.current?.();
     };
     // Its own transition, not one inside it (a button's press, a cover fading in).
     const ended = (e: TransitionEvent) => {
@@ -60,4 +65,20 @@ export function useModal(open: boolean, show: (el: HTMLDialogElement) => void = 
   }, [open]);
 
   return { ref, closing: shown && !open };
+}
+
+/**
+ * What a dialog shows, kept for its way out. A dialog drawn only while
+ * there's something to show (a series being set up, a book being edited)
+ * draws from this: `value` while there is one, and once it's gone, the last
+ * one, until the dialog says it has closed (`closed`, as its `onClosed`).
+ * So it leaves showing what it showed, rather than going blank, or showing
+ * the change that closed it, on its way out.
+ */
+export function useKept<T>(value: T | null): [kept: T | null, closed: () => void] {
+  const [kept, setKept] = useState(value);
+  // Taken as it renders, not after, so the render that takes the value away already has it. Compared by what
+  // it holds: a selection from the store is a new object on a dialog's first renders, though equal.
+  if (value !== null && (kept === null || !shallowEqual(value, kept))) setKept(value);
+  return [value ?? kept, () => setKept(null)];
 }

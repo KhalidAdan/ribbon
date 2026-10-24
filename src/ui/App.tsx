@@ -19,6 +19,7 @@ import { TopBar, Tabs, type Crumb } from "./Shell";
 import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
+import { useKept } from "./modal";
 import { SpaceShort } from "./Servers";
 import { SpeechNudge } from "./SpeechNudge";
 import { StatsPane } from "./StatsPane";
@@ -196,9 +197,11 @@ function Loading() {
 
 /** The edit dialog for whichever book asked for it. */
 function EditBookHost() {
-  const book = useAppState((s) => (s.editBook ? s.books.find((b) => b.book.id === s.editBook) : undefined));
+  const live = useAppState((s) => (s.editBook ? s.books.find((b) => b.book.id === s.editBook) : undefined));
   useCovers();
   const c = useController();
+  // The book as it was when the dialog opened, until the dialog is gone: Save changes it as the dialog leaves.
+  const [book, closed] = useKept(live ?? null);
   if (!book) return null;
-  return <EditBook book={book} open onClose={() => c.closeEditBook()} />;
+  return <EditBook book={book} open={live !== undefined} onClose={() => c.closeEditBook()} onClosed={closed} />;
 }

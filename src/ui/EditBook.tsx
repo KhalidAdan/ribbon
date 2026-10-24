@@ -62,7 +62,7 @@ const IMAGE_TYPES = "image/jpeg,image/png,image/webp";
  * cover. Each field shows what the files say when it differs, with a
  * way back to it. Saved beside the book; the audio is never touched.
  */
-export function EditBook({ book, open, onClose }: { book: ScannedBook; open: boolean; onClose: () => void }) {
+export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook; open: boolean; onClose: () => void; onClosed?: () => void }) {
   const c = useController();
   const original = book.original ?? book.book;
   const initial = (): Form => Object.fromEntries(EDIT_FIELDS.filter((f) => f !== "cover").map((f) => [f, fieldText(book.book, f)])) as Form;
@@ -102,6 +102,7 @@ export function EditBook({ book, open, onClose }: { book: ScannedBook; open: boo
     <Dialog
       open={open}
       onClose={onClose}
+      onClosed={onClosed}
       labelId="edit-book-title"
       wide
       title={`Edit ${book.book.title}`}

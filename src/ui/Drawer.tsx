@@ -20,17 +20,19 @@ interface Props {
 export function Drawer({ open, onClose, title, children }: Props) {
   const openRef = useRef(open);
   openRef.current = open;
-  const { ref, closing } = useModal(open, (el) => {
-    const show = () => {
-      if (el.open || !el.isConnected || !openRef.current) return;
-      showModal(el);
-    };
-    // Opened together with the dialog around it (the player and its chapters
-    // at once), React runs this effect first: wait for that one to open, or
-    // this panel lands underneath it, open but out of reach.
-    const parent = el.parentElement?.closest("dialog");
-    if (parent && !parent.open) queueMicrotask(show);
-    else show();
+  const { ref, closing } = useModal(open, {
+    show: (el) => {
+      const show = () => {
+        if (el.open || !el.isConnected || !openRef.current) return;
+        showModal(el);
+      };
+      // Opened together with the dialog around it (the player and its chapters
+      // at once), React runs this effect first: wait for that one to open, or
+      // this panel lands underneath it, open but out of reach.
+      const parent = el.parentElement?.closest("dialog");
+      if (parent && !parent.open) queueMicrotask(show);
+      else show();
+    },
   });
 
   return (
