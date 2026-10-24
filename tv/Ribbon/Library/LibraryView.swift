@@ -61,17 +61,6 @@ struct LibraryView: View {
                 } else {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
                 }
-                HStack(alignment: .center, spacing: 24) {
-                    Button("Switch reader") { model.switchReader() }
-                        .buttonStyle(RibbonButtonStyle())
-                    // As the desktop's Settings has it: a writer of sessions lets the listener turn them off (docs/POSITION-FORMAT.md, section 3.3).
-                    Button { model.keepSessions(!model.keepsSessions) } label: {
-                        Label("Keep listening sessions", systemImage: model.keepsSessions ? "checkmark.circle.fill" : "circle")
-                    }
-                    .buttonStyle(RibbonButtonStyle())
-                    Text(model.keepsSessions ? "On this TV. The end of a book says how long it took." : "Off on this TV: the end of a book won't count the time here.")
-                        .font(.ui(22)).foregroundStyle(Color.ink3)
-                }
             }
             .padding(.horizontal, 96)
             .padding(.vertical, 56)
@@ -86,7 +75,8 @@ struct LibraryView: View {
     }
 }
 
-/// Ribbon's mark, and where you are: the server, and who's reading; and the book playing, which opens the player.
+/// Ribbon's mark, and where you are: the server, and who's reading, which opens the settings; and the book playing, which
+/// opens the player.
 private struct TopBar: View {
     @Environment(AppModel.self) private var model
 
@@ -114,7 +104,12 @@ private struct TopBar: View {
                 .buttonStyle(RibbonButtonStyle())
                 .padding(.trailing, 16)
             }
-            Text(model.server?.account.name ?? "").font(.ui(26)).foregroundStyle(Color.ink3)
+            // Who's reading, which is where their settings are.
+            Button { model.showSettings() } label: {
+                Label(model.server?.account.name ?? "Settings", systemImage: "gearshape")
+            }
+            .buttonStyle(RibbonButtonStyle())
+            .accessibilityLabel("Settings")
         }
         // One place for the focus to go up to from anywhere below: its buttons sit at the far right, outside what's
         // straight above the cards.

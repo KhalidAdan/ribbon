@@ -55,6 +55,7 @@ private struct Screens: View {
                         case .book(let book): BookView(book: book)
                         case .player: PlayerView()
                         case .search: SearchView()
+                        case .settings: SettingsView()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -102,6 +103,7 @@ final class AppModel {
         case player
         case search
         case reader
+        case settings
     }
 
     struct Reading {
@@ -278,6 +280,11 @@ final class AppModel {
     }
 
     // Reading along ----------------------------------------------------------
+
+    /// The TV's settings: listening sessions, and who's reading.
+    func showSettings() {
+        if path.last != .settings { path.append(.settings) }
+    }
 
     /// Find a line, by voice or by typing, in any book.
     func showSearch() {
