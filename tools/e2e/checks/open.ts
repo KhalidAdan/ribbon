@@ -50,9 +50,9 @@ function open(r: Ribbon): Promise<Opened> {
 }
 
 /**
- * Opening a book: from cold; again, to the page left, drawn at once from its
- * snapshot and replaced in place; read last, ready before its pairing;
- * listened to last, at the narrator.
+ * Opening a book: from cold; again, closed just after a page was turned, to
+ * the page left, drawn at once from its snapshot and replaced in place; read
+ * last, ready before its pairing; listened to last, at the narrator.
  */
 export const openCheck: Check = {
   name: "open",
@@ -64,12 +64,19 @@ export const openCheck: Check = {
     let o = await open(r);
     t.expect(o.ready > 0, "opens from cold", `ready in ${o.ready} ms`);
 
-    // Read last: move on a page by hand, close, open again.
+    // Read last: go to a chapter, turn a page by hand once it is on screen, as a reader would, and close at once.
+    // The page is on screen when the layout worker has laid the chapter out; its first chapter on the first launch
+    // after a build can take most of a second. Closing at once comes before the reader keeps the chapter on its own
+    // (it waits a moment after the chapter arrives): it is kept as the book closes.
     await page.evaluate(() => window.__ribbon.moveReading({ section: 12, block: 2, offset: 0 }, "seek"));
-    await page.waitForTimeout(500);
+    await page.waitForFunction(() => document.querySelector('[role=dialog] [data-section="12"]') !== null, null, { timeout: 15_000 });
+    const went = await placeNow(page);
     await page.keyboard.press("ArrowRight");
-    await page.waitForTimeout(800);
+    const turned = await page
+      .waitForFunction((from) => { const p = window.__ribbon.getState().reading?.place; return !!p && `${p.section}:${p.block}:${p.offset}` !== from; }, went, { timeout: 5_000 })
+      .then(() => true, () => false);
     const left = await placeNow(page);
+    t.expect(turned, "turns a page by hand", `${went} to ${left}`);
     await closeReader(r);
     await page.waitForTimeout(500);
     o = await open(r);

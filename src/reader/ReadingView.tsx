@@ -16,7 +16,7 @@ import { useCompact } from "../ui/useCompact";
 import { Dock, type Folio } from "./Dock";
 import { useListening, type Visible } from "./listening";
 import { facesLoaded, FAMILY, loadFaces } from "./typeset";
-import { fitsKey, loadSnapshot, savePage, savePlace } from "./snapshot";
+import { fitsKey, loadSnapshot, savePage, savePlace, type PageSnapshot } from "./snapshot";
 import { usePageSwipe } from "./swipe";
 import { LayoutEngine } from "./layout-engine";
 import type { SectionLayout } from "./layout";
@@ -870,15 +870,23 @@ const Pages = memo(function Pages({ bookId, fits, text, place, metrics, viewport
   useEffect(() => wantAround(engine, text, place.section), [engine, text, place.section]);
 
   // The snapshot the book opens to next time (snapshot.ts): the chapter once it is laid out, the place on every turn.
+  // The chapter is kept a moment after it arrives, off the turn into it, or as the reader closes if that comes first:
+  // a book closed just after its chapter arrived opens to it all the same.
   const laidOut = l === NOT_YET || !engine.isFresh(place.section) ? null : l;
+  const unkept = useRef<PageSnapshot | null>(null);
+  const keepPage = useCallback(() => {
+    if (unkept.current) savePage(bookId, unkept.current);
+    unkept.current = null;
+  }, [bookId]);
   useEffect(() => {
+    unkept.current = laidOut ? { fits, key: engine.specKey, section: place.section, chars: text.ebook.sections[place.section]?.chars ?? 0, layout: laidOut } : null;
     if (!laidOut) return;
-    const key = engine.specKey;
-    const id = setTimeout(() => savePage(bookId, { fits, key, section: place.section, chars: text.ebook.sections[place.section]?.chars ?? 0, layout: laidOut }), 400);
+    const id = setTimeout(keepPage, 400);
     return () => clearTimeout(id);
     // The place within the chapter is saved below, on its own.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId, fits, engine, laidOut]);
+  }, [fits, engine, laidOut, keepPage]);
+  useEffect(() => () => keepPage(), [keepPage]);
   useEffect(() => {
     if (laidOut) savePlace(bookId, { place, progress: text.progress(place) });
   }, [bookId, text, place, laidOut]);

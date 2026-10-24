@@ -18,7 +18,7 @@ non-zero and lists what failed.
 
 | Check | What it holds Ribbon to |
 | --- | --- |
-| `open` | Opens from cold. Opened again, it draws the page you left at once (the snapshot) and the real page replaces it without moving. Read last, it opens at your page, ready no later than its pairing. Listened to last, it opens at the narrator. |
+| `open` | Opens from cold. Closed just after a page was turned by hand and opened again, it draws the page you left at once (the snapshot) and the real page replaces it without moving. Read last, it opens at your page, ready no later than its pairing. Listened to last, it opens at the narrator. |
 | `swipe` | The page follows a pen or finger; a long drag turns, a short slow one springs back, a quick flick turns; a trackpad's sideways swipe turns; a mouse turns on the press, once. |
 | `resize` | In pages and in scroll, no frame without text while the window's edge is dragged; laid out again for the new size; text when it is back. |
 | `readalong` | The narrator's sentence is marked and the mark moves on, the page turns with the narrator, the bar counts down; turning away stops following and offers Go to the narrator, which brings it back. |
