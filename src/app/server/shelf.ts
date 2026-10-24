@@ -1,8 +1,9 @@
 import type { Host } from "../../host/host";
 import type { ScannedBook } from "../../core/scan/scan";
-import { localIdOf, opfFor, remoteBook, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail } from "../../core/server-books";
+import { localIdOf, opfFor, remoteBook, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "../../core/server-books";
 import { RIBBON_DIR } from "../../core/scan/walk";
-import type { ServerClient } from "./client";
+import type { SeriesGroup, SeriesRecord } from "../../core/series";
+import { ServerError, type ServerClient } from "./client";
 
 /** The records kept beside a downloaded book here: what it brought from the server, and what was worked out here. */
 const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudness", "silence", "settings"];
@@ -33,9 +34,10 @@ export class NotEnoughSpace extends Error {
  * A Ribbon server's side of a source (docs/SERVER.md, sections 8 and 11).
  * The source's folder is one of Ribbon's own on this device; the books
  * downloaded into it are an ordinary library, read by the scanner like any
- * other. This keeps what the server lists (cached in the folder, so the
- * shelf draws at once on launch and the server answers "unchanged"), the
- * covers of books not downloaded yet, and the downloads themselves.
+ * other. This keeps what the server lists and its series (cached in the
+ * folder, so the shelf draws at once on launch and the server answers
+ * "unchanged"), the covers of books not downloaded yet, and the downloads
+ * themselves.
  */
 export class ServerShelf {
   private listed: ServerBook[] = [];
@@ -44,6 +46,9 @@ export class ServerShelf {
   private etag: string | null = null;
   /** The pictures kept here, by hash: a book's cover shows once it's on disk, never as a broken image. */
   private covers = new Set<string>();
+  /** The library's series, the server's own; null until a server that keeps series has answered. */
+  private series: ServerSeries[] | null = null;
+  private seriesEtag: string | null = null;
 
   constructor(
     readonly client: ServerClient,
@@ -62,6 +67,43 @@ export class ServerShelf {
       this.deleted = new Set(cached.deleted ?? []);
       this.etag = cached.etag;
     }
+    const series = await this.host
+      .readFile(this.at(".ribbon", "server-series.json"))
+      .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; series: ServerSeries[] })
+      .catch(() => null);
+    if (series) {
+      this.series = series.series;
+      this.seriesEtag = series.etag;
+    }
+  }
+
+  /** Ask the server for its series; true when they changed. A server from before it kept series has none to give, and the shelf finds series itself. */
+  async refreshSeries(): Promise<boolean> {
+    const answer = await this.client.series(this.seriesEtag).catch((e: unknown) => {
+      if (e instanceof ServerError && e.status === 404) return null;
+      throw e;
+    });
+    if (answer === "unchanged" || answer === null) return false;
+    this.series = answer.series;
+    this.seriesEtag = answer.etag;
+    await this.host.mkdir(this.at(".ribbon"));
+    await this.host.writeFile(this.at(".ribbon", "server-series.json"), new TextEncoder().encode(JSON.stringify({ etag: this.seriesEtag, series: this.series })));
+    return true;
+  }
+
+  /** Whether the server keeps the library's series, so the shelf takes them from it rather than finding its own. */
+  get keepsSeries(): boolean {
+    return this.series !== null;
+  }
+
+  /** Whether a series is one of the server's, by its id. */
+  hasSeries(id: string): boolean {
+    return this.series?.some((s) => s.id === id) ?? false;
+  }
+
+  /** The server's series as the shelf takes them, its books by their ids on this device. */
+  seriesOnShelf(): { groups: SeriesGroup[]; records: SeriesRecord[] } {
+    return seriesFromServer(this.series ?? [], this.listed);
   }
 
   /** Ask the server for its list; true when it changed. */
