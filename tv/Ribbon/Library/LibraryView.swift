@@ -2,9 +2,9 @@ import SwiftUI
 
 /// The library, as the desktop's (src/ui/LibraryPane.tsx): what you're in
 /// the middle of, then each series as a card that knows where you are in it,
-/// then every book outside a series. Selecting a card opens the book's page;
-/// a card's play button goes straight to listening. The focus starts on the
-/// book you were in the middle of.
+/// then every book outside a series. Each card is one button, which opens the
+/// book's page, where play is. The focus starts on the book you were in the
+/// middle of.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @FocusState private var focused: String?
@@ -122,7 +122,7 @@ private struct TopBar: View {
     }
 }
 
-/// A book you're in the middle of: where, how long is left, and play.
+/// A book you're in the middle of: where, and how long is left. It opens the book's page.
 private struct ContinueCard: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
@@ -130,30 +130,21 @@ private struct ContinueCard: View {
 
     var body: some View {
         let library = model.library
-        HStack(spacing: 20) {
-            Button { model.open(book) } label: {
-                HStack(spacing: 22) {
-                    CoverView(book: book, size: 120)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(book.title).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
-                        Text(where_).font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit().lineLimit(1)
-                        ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8)
-                    }
-                    .frame(width: 330, alignment: .leading)
+        Button { model.open(book) } label: {
+            HStack(spacing: 22) {
+                CoverView(book: book, size: 120)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(book.title).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
+                    Text(where_).font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit().lineLimit(1)
+                    ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8)
                 }
-                .padding(12)
+                .frame(width: 400, alignment: .leading)
             }
-            .buttonStyle(LiftStyle(radius: 14))
-            Button { Task { await model.playOrPause(book) } } label: {
-                Image(systemName: model.listening?.book.id == book.id && model.listening?.playing == true ? "pause.fill" : "play.fill")
-            }
-            .buttonStyle(RoundButtonStyle())
-            .padding(.trailing, 10)
+            .padding(22)
+            .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
         }
-        // Room inside the card for what has the focus to lift into.
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
+        .buttonStyle(LiftStyle(radius: 20))
         .task { detail = await model.library?.detail(of: book) }
     }
 
@@ -169,7 +160,8 @@ private struct ContinueCard: View {
     }
 }
 
-/// A series: the next book's cover on a small stack, how much is left, what's up next, and a mark per book.
+/// A series: the next book's cover on a small stack, how much is left, what's up next, and a mark per book. It opens
+/// the next book's page.
 private struct SeriesCard: View {
     @Environment(AppModel.self) private var model
     let series: Library.Series
@@ -185,35 +177,27 @@ private struct SeriesCard: View {
         }
         let allDone = finished == series.books.count
         let hours = Format.left(left).replacingOccurrences(of: #" \d+m$"#, with: "", options: .regularExpression)
-        HStack(spacing: 20) {
-            Button { model.open(next) } label: {
-                HStack(alignment: .top, spacing: 24) {
-                    ZStack(alignment: .leading) {
-                        if series.books.count > 2 { RoundedRectangle(cornerRadius: 6).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.line)).frame(width: 128, height: 112).offset(x: 20) }
-                        if series.books.count > 1 { RoundedRectangle(cornerRadius: 6).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.line)).frame(width: 132, height: 124).offset(x: 10) }
-                        CoverView(book: next, size: 136)
-                    }
-                    .frame(width: 160, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(series.name).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
-                        Text("\(series.books.count) books · \(allDone ? "all finished" : finished > 0 ? "\(finished) finished · \(hours) to go" : hours)").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
-                        Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6)
-                        SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16)
-                    }
-                    .frame(width: 380, alignment: .leading)
+        Button { model.open(next) } label: {
+            HStack(alignment: .top, spacing: 24) {
+                ZStack(alignment: .leading) {
+                    if series.books.count > 2 { RoundedRectangle(cornerRadius: 6).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.line)).frame(width: 128, height: 112).offset(x: 20) }
+                    if series.books.count > 1 { RoundedRectangle(cornerRadius: 6).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.line)).frame(width: 132, height: 124).offset(x: 10) }
+                    CoverView(book: next, size: 136)
                 }
-                .padding(14)
+                .frame(width: 160, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(series.name).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
+                    Text("\(series.books.count) books · \(allDone ? "all finished" : finished > 0 ? "\(finished) finished · \(hours) to go" : hours)").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
+                    Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6)
+                    SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16)
+                }
+                .frame(width: 450, alignment: .leading)
             }
-            .buttonStyle(LiftStyle(radius: 14))
-            if !allDone {
-                Button { Task { await model.playOrPause(next) } } label: { Image(systemName: model.listening?.book.id == next.id && model.listening?.playing == true ? "pause.fill" : "play.fill") }
-                    .buttonStyle(RoundButtonStyle())
-                    .padding(.trailing, 10)
-            }
+            .padding(24)
+            .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
+        .buttonStyle(LiftStyle(radius: 20))
     }
 }
 

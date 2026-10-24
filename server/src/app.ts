@@ -131,7 +131,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // MP3s added before the server indexed them are indexed once, in the background.
   if (frames.available) jobs.start("frames", { indexed: 0 }, async () => ({ indexed: await frames.indexMissing(books) }), null);
   const search = new SearchIndex(db);
-  const readAlongs = new ReadAlongs(config.dataDir, config.ebookTool ?? null, search);
+  const readAlongs = new ReadAlongs(config.dataDir, config.ebookTool ?? null, search, app.log);
   // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   libraryRoutes(app, { auth, jobs, books, events, frames, readAlongs, search, dataDir: config.dataDir });

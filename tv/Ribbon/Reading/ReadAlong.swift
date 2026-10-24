@@ -43,8 +43,27 @@ struct ReadAlong: Decodable {
         let exact: Bool
     }
 
+    /// How closely the read-along follows the narration, measured when the server made it
+    /// (src/core/reading/readalong.ts, `ReadAlongCheck`). Missing from a server older than the check.
+    struct Check: Decodable {
+        /// Of the sentences read, the share placed to the sentence; the rest are placed by how far through their
+        /// chapter they are.
+        let placed: Double
+
+        /// What to tell someone opening the book when it's placed by chapter rather than to the sentence; nil when it's
+        /// placed to the sentence.
+        var caveat: (title: String, hint: String)? {
+            guard placed < 0.9 else { return nil }
+            if placed < 0.1 {
+                return ("Read-along by chapter", "The narration isn't transcribed, so the words can be up to a minute from the voice")
+            }
+            return ("Read-along to the sentence in \(Int((placed * 100).rounded()))% of this book", "Elsewhere it's by chapter, so the words can be up to a minute from the voice")
+        }
+    }
+
     let contents: [Entry]
     let blocks: [Block]
+    let check: Check?
 }
 
 /// Every sentence of a book in order, counted across it the way the server

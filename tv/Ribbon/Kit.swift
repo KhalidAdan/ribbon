@@ -179,7 +179,7 @@ struct LiftStyle: ButtonStyle {
     }
 }
 
-/// A round button with a glyph, as the shelf's play buttons are: raised, the primary one a shade lighter,
+/// A round button with a glyph, as the player's transport is: raised, the primary one a shade lighter,
 /// and lit in inverted ink only with the focus.
 struct RoundButtonStyle: ButtonStyle {
     var size: CGFloat = 64
