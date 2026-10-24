@@ -82,6 +82,10 @@ describe("a server's shelf on this device", () => {
         res.writeHead(200).end("audio_ms,words,chars\n0,In the beginning,\n");
         return;
       }
+      if (at === `/api/books/${SERVER_ID}/files/records/corrections.csv`) {
+        res.writeHead(200).end("op,index,start_ms,title\nrename,0,,One\nrename,1,,Two\n");
+        return;
+      }
       const file = at.match(new RegExp(`^/api/books/${SERVER_ID}/files/audio/(0[12]\\.mp3)$`))?.[1];
       const picture = at.match(new RegExp(`^/covers/${COVER}-(400|800)\\.jpg$`));
       if (file || picture) {
@@ -152,6 +156,34 @@ describe("a server's shelf on this device", () => {
     expect((await scanLibrary(nodeHost(), root, { write: false })).books).toEqual([]);
     expect(statSync(path.join(root, ".ribbon", "server-books.json")).isFile()).toBe(true);
     rmSync(root, { recursive: true, force: true });
+  });
+
+  it("describes and names a book downloaded before the server filled them in, from the next scan", async () => {
+    const root = folder();
+    const shelf = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    await shelf.refresh();
+    const [remote] = shelf.remote([]);
+    await shelf.download(remote!, () => undefined);
+    const before = (await scanLibrary(nodeHost(), root, { write: false })).books[0]!;
+    expect(before.book.description).toBeUndefined();
+    expect(before.chapters.map((c) => c.title)).toEqual(["01", "02"]);
+
+    // The server filled in the description and the chapters' names from the book's EPUB since.
+    detail.book.description = "A book about the colour blue.";
+    detail.records = ["heard", "corrections"];
+    try {
+      // What the app does before the book next opens.
+      const now = await shelf.client.book(SERVER_ID);
+      await shelf.keepRecords(now, remote!.book.id);
+      await shelf.keepDetails(now);
+      const after = (await scanLibrary(nodeHost(), root, { write: false })).books[0]!;
+      expect(after.book).toMatchObject({ title: "The Blue Book", description: "A book about the colour blue." });
+      expect(after.chapters.map((c) => c.title)).toEqual(["One", "Two"]);
+    } finally {
+      delete detail.book.description;
+      detail.records = ["heard"];
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("says how much room a book needs before downloading any of it", async () => {

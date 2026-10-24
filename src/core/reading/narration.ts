@@ -1,5 +1,5 @@
 import { int, type Row } from "../csv";
-import { generatedTitles } from "../chapternames";
+import { generatedTitles, headingsOf, namesFromContents, type ChapterName } from "../chapternames";
 import type { Chapter } from "../types";
 import { alignBook, byOverlay, type Alignment, type PairingFix } from "./align";
 import type { Anchor } from "./anchors";
@@ -70,4 +70,22 @@ export interface Narration {
 export function pairBook(text: BookText, chapters: readonly Chapter[], durationMs: number, n: Narration): Alignment {
   const a = alignBook(text, chapters, durationMs, { generated: generatedTitles(chapters), fixes: n.fixes, heard: n.heard, anchors: n.anchors });
   return n.overlay ? byOverlay(text, a, n.overlay, durationMs) : a;
+}
+
+/**
+ * Real names for chapters the files only number, from the book's text
+ * (chapternames.ts, `namesFromContents`): the chapters to rename, and to
+ * what. Once named, the chapters are paired by their names too, as every
+ * device will pair them; names that would move the pairing they came from
+ * aren't sure, and none are given.
+ */
+export function chapterNamesFromText(text: BookText, chapters: readonly Chapter[], durationMs: number, n: Narration): ChapterName[] {
+  if (!generatedTitles(chapters)) return [];
+  const headings = headingsOf(text);
+  const names = namesFromContents(pairBook(text, chapters, durationMs, n), headings);
+  const named = chapters.map((c) => ({ ...c }));
+  for (const { index, title } of names) named[index]!.title = title;
+  const again = new Map(namesFromContents(pairBook(text, named, durationMs, n), headings).map((x) => [x.index, x.title]));
+  if (names.some((x) => again.get(x.index) !== x.title)) return [];
+  return names.filter((x) => x.title !== chapters[x.index]!.title);
 }

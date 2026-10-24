@@ -32,6 +32,8 @@ export interface Pair {
   /** How sure the pairing is, 0 to 1; 1 for a pair set by hand. */
   confidence: number;
   fixed: boolean;
+  /** What the narrator was heard saying at its start is how its text opens (#65): the narration says it's this chapter. */
+  heard?: true;
   /**
    * Checkpoints inside it, as [ms, characters], from its start to its end:
    * a place maps by the two around it. Just the ends without checkpoints.
@@ -389,6 +391,8 @@ export function alignBook(book: BookText, chapters: readonly Chapter[], duration
     for (let x = s.i; x < s.i + s.step.dt; x++) textOut[x]!.pair = k;
     for (let x = s.j; x < s.j + s.step.da; x++) audioOut[x]!.pair = k;
     const fixed = s.step.score >= 1000;
+    const heard = as[0]!.heard;
+    const said = !!heard && as[0]!.heardWords! >= HEARD_MIN_WORDS && openingMatch(heard, ts[0]!.opening) >= SAME;
     return withPoints(
       {
         text: { start: ts[0]!.start, end: ts[ts.length - 1]!.end },
@@ -397,6 +401,7 @@ export function alignBook(book: BookText, chapters: readonly Chapter[], duration
         audioTitle: as.map((a) => a.title).join(" + "),
         confidence: fixed ? 1 : Math.max(0, Math.min(1, s.step.score / 5)),
         fixed,
+        ...(said ? { heard: true as const } : {}),
         points: [],
       },
       opts.anchors,
