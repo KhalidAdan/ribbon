@@ -56,6 +56,11 @@ final class BookLayout: @unchecked Sendable {
         func draw() {
             manager.drawGlyphs(forGlyphRange: manager.glyphRange(for: container), at: .zero)
         }
+
+        /// Draw only a stretch of its words, where they are in the paragraph.
+        func draw(_ range: NSRange) {
+            manager.drawGlyphs(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), at: .zero)
+        }
     }
 
     let paragraphs: [Paragraph]

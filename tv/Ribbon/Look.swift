@@ -17,6 +17,9 @@ enum Look {
     static let placeWash = place.withAlphaComponent(0.24)
     /// The sentence the remote is on, when it isn't the one being read: lifted, the way tvOS lifts what has focus.
     static let focusWash = UIColor(white: 1, alpha: 0.1)
+    /// How much of the words not being read shows while the narration plays: the sentence being read stands out
+    /// by everything else stepping back, and nothing moves.
+    static let dimmedWords: CGFloat = 0.4
 }
 
 extension UIColor {
