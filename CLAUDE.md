@@ -58,7 +58,7 @@ Tailwind 4). Start with these, in this order:
 | `src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
 | `src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
 | `src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
-| `src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears on the device, and the server (`ribbon-speech`) transcribes the narration. |
+| `src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `server/` | The server (server/README.md, docs/SERVER.md). |
 | `tv/` | Ribbon on the Apple TV, in Swift: read-along from the server (tv/README.md). |
 | `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
