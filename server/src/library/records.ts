@@ -2,7 +2,7 @@ import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/prom
 import path from "node:path";
 import { bookId } from "../../../src/core/bookid.ts";
 import { bytesToRows, int, num, rowsToBytes, type Row } from "../../../src/core/csv.ts";
-import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows } from "../../../src/core/reading/narration.ts";
+import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "../../../src/core/reading/narration.ts";
 import { untranscribed } from "../../../src/core/reading/transcript.ts";
 import type { ScannedBook } from "../../../src/core/scan/scan.ts";
 import type { SilenceRange } from "../../../src/core/types.ts";
@@ -149,16 +149,43 @@ export async function keepHeard(dataDir: string, id: string, rows: readonly Row[
  * book's transcript is always one device's, start to end (#152). The
  * minutes it's missing when it isn't whole; null when there's no such book.
  */
-export async function keepTranscript(dataDir: string, id: string, rows: readonly Row[]): Promise<{ missing: number } | null> {
+export async function keepTranscript(dataDir: string, id: string, rows: readonly Row[], place: Placer | null = null): Promise<{ missing: number } | null> {
   return inTurn(id, async () => {
     const stored = await readStored(dataDir, id);
     if (!stored) return null;
     const transcript = transcriptFromRows(rows.filter((r) => holds("aligned", r)));
     const missing = untranscribed(stored.files, transcript.spans).length;
     if (missing > 0) return { missing };
-    await replace(path.join(bookDir(dataDir, id), "records", "aligned.csv"), await rowsToBytes(transcriptRows(transcript), TRANSCRIPT_FIELDS));
+    await keepPlaced(dataDir, id, transcript, place);
     await listRecord(dataDir, id, "aligned");
     return { missing: 0 };
+  });
+}
+
+/**
+ * Where a transcript's phrases are in the book's text, found by what was said
+ * (place.ts), with the version of placing that found them; null when the book
+ * can't be placed (its EPUB can't be read), and it's kept as it came.
+ */
+export type Placer = (transcript: Transcript) => Promise<{ transcript: Transcript; how: number } | null>;
+
+/** A whole transcript kept, placed first when it can be, and the book noted as placed that way. */
+async function keepPlaced(dataDir: string, id: string, transcript: Transcript, place: Placer | null): Promise<void> {
+  const placed = place ? await place(transcript) : null;
+  await replace(path.join(bookDir(dataDir, id), "records", "aligned.csv"), await rowsToBytes(transcriptRows(placed?.transcript ?? transcript), TRANSCRIPT_FIELDS));
+  const stored = await readStored(dataDir, id);
+  if (stored && placed) await writeStored(dataDir, id, { ...stored, placed: placed.how });
+}
+
+/** A transcript kept before it was placed by what was said, placed now (place.ts): false when it couldn't be. */
+export async function placeKept(dataDir: string, id: string, place: Placer): Promise<boolean> {
+  return inTurn(id, async () => {
+    const rows = await recordRows(dataDir, id, "aligned");
+    if (rows.length === 0) return false;
+    const placed = await place(transcriptFromRows(rows));
+    if (!placed) return false;
+    await keepPlaced(dataDir, id, placed.transcript, async () => placed);
+    return true;
   });
 }
 

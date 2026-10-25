@@ -306,7 +306,10 @@ offered, and the book says what it's waiting for.
   while, transcribes it start to end (src/app/transcribing.ts, whisper small
   with each word's time), and sends it whole (`PUT
   /api/books/:id/transcript`), kept in place of what the book had. One that
-  isn't whole is refused, and a piece of one is never taken. Each minute
+  isn't whole is refused, and a piece of one is never taken. It's placed
+  in the book's text by what was said in it as it comes in, and each one
+  kept before is placed once when the server starts
+  (`server/src/library/place.ts`, READING.md, #163). Each minute
   says which model heard it, and only those count: one from before that
   was heard the old way, perhaps by the server's processor, perhaps a clip
   that failed (#152), so it's heard again. A transcript in a

@@ -46,6 +46,8 @@ export interface StoredBook extends ScannedBook {
   filled?: FilledIn;
   /** What Audible's catalog was asked about it (describe.ts): by its title, author and length, and the recording its description is from; null when the catalog had none. */
   described?: { asked: string; asin: string | null };
+  /** The way its transcript was last placed in its text (place.ts, `PLACING`); placed again when that changes. */
+  placed?: number;
 }
 
 /**

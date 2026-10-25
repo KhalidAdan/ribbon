@@ -10,6 +10,8 @@ import { bytesToRows } from "../../../src/core/csv.ts";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
 import type { Mp3Frames } from "./frames.ts";
+import { placerFor } from "./place.ts";
+import type { ReadAlongs } from "./readalong.ts";
 import { keepHeard, keepTranscript } from "./records.ts";
 import type { LibrarySeries } from "./series.ts";
 
@@ -50,7 +52,7 @@ const ASK_FIRST = "private, no-cache";
  * people listen. Files carry an ETag and Last-Modified and answer Range
  * and If-Range, so a download that stopped carries on where it was.
  */
-export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; series: LibrarySeries; dataDir: string; frames: Mp3Frames }): Promise<void> {
+export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; series: LibrarySeries; dataDir: string; frames: Mp3Frames; readAlongs: ReadAlongs }): Promise<void> {
   // Sends files with Range, ETag and Last-Modified (the `send` module); no routes of its own.
   // Made now, not with the first book: the files plugin wants its folder to exist.
   mkdirSync(path.join(deps.dataDir, "books"), { recursive: true });
@@ -108,12 +110,14 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     return kept;
   });
 
-  // A book's transcript, made whole by a device with a graphics card, kept in place of the one it had: one device's, start to end (#152).
+  // A book's transcript, made whole by a device with a graphics card, kept in place of the one it had: one device's, start to end (#152),
+  // placed in the book's text by what was said in it as it comes in (place.ts).
   app.put<{ Params: { id: string }; Body: Buffer }>("/api/books/:id/transcript", { onRequest: mustSignIn, bodyLimit: RECORD_BYTES }, async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (me?.role !== "admin") return reply.code(403).send({ error: "Only the admin's devices transcribe the library." });
     if (!Buffer.isBuffer(request.body)) return reply.code(415).send({ error: "Send the transcript as text/csv." });
-    const kept = await keepTranscript(deps.dataDir, request.params.id, (await bytesToRows(new Uint8Array(request.body))).rows);
+    const place = deps.readAlongs.available ? placerFor(deps.readAlongs, deps.dataDir, request.params.id) : null;
+    const kept = await keepTranscript(deps.dataDir, request.params.id, (await bytesToRows(new Uint8Array(request.body))).rows, place);
     if (!kept) return reply.code(404).send({ error: "No such book on this server." });
     if (kept.missing > 0) return reply.code(422).send({ error: `That transcript isn't whole: ${kept.missing} ${kept.missing === 1 ? "minute" : "minutes"} of the narration aren't in it.`, missing: kept.missing });
     return reply.code(204).send();

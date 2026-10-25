@@ -3,14 +3,16 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { rowsToBytes } from "../../src/core/csv.ts";
-import { TRANSCRIPT_FIELDS, transcriptRows } from "../../src/core/reading/narration.ts";
+import { bytesToRows, rowsToBytes } from "../../src/core/csv.ts";
+import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows } from "../../src/core/reading/narration.ts";
 import type { ReadAlong } from "../../src/core/reading/readalong.ts";
 import { ServerClient } from "../../src/app/server/client.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import { inTranscribingOrder } from "../src/library/routes.ts";
-import type { ListedBook } from "../src/library/books.ts";
+import type { ListedBook, StoredBook } from "../src/library/books.ts";
+import { booksToPlace, placeBooks, PLACING } from "../src/library/place.ts";
+import { ReadAlongs } from "../src/library/readalong.ts";
 import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
 const SENTENCES = ["The waygate hung in the void before them.", "It was a giant circle of wraithbone and old light.", "Eluadhri watched the runes along its rim kindle.", "Then the gate opened, and they stepped through."];
@@ -101,6 +103,29 @@ describe("transcripts on the server", () => {
     expect((await server.app.inject({ method: "PUT", url: `/api/books/${book.id}/transcript`, payload: first, headers: { "content-type": "text/csv" } })).statusCode).toBe(401);
     // What it had stays.
     expect(record("aligned")).toContain("ggml-small-q5_1");
+  });
+
+  it("places a transcript as it comes in by what was said, finding the phrases the device didn't (#163)", async () => {
+    // As a device sends one when its guess was off: every phrase heard, none found in the text.
+    const unplaced = { ...whole("ggml-small-q5_1"), said: whole("ggml-small-q5_1").said.map((x) => ({ ...x, chars: null })) };
+    const put = await server.app.inject({ method: "PUT", url: `/api/books/${book.id}/transcript`, payload: Buffer.from(await rowsToBytes(transcriptRows(unplaced), TRANSCRIPT_FIELDS)), headers: { authorization: `Bearer ${token}`, "content-type": "text/csv" } });
+    expect(put.statusCode).toBe(204);
+    expect(transcriptFromRows((await bytesToRows(readFileSync(path.join(dir, "data", "books", book.id, "records", "aligned.csv")))).rows).said.map((x) => x.chars)).toEqual(AT);
+    expect((JSON.parse(readFileSync(path.join(dir, "data", "books", book.id, "book.json"), "utf8")) as StoredBook).placed).toBe(PLACING);
+  });
+
+  it("places once, when the server starts, a transcript kept before it placed them (#163)", async () => {
+    const unplaced = { ...whole("ggml-small-q5_1"), said: whole("ggml-small-q5_1").said.map((x) => ({ ...x, chars: null })) };
+    writeFileSync(path.join(dir, "data", "books", book.id, "records", "aligned.csv"), await rowsToBytes(transcriptRows(unplaced), TRANSCRIPT_FIELDS));
+    const file = path.join(dir, "data", "books", book.id, "book.json");
+    const { placed: _, ...before } = JSON.parse(readFileSync(file, "utf8")) as StoredBook;
+    writeFileSync(file, JSON.stringify(before));
+    const readAlongs = new ReadAlongs(path.join(dir, "data"), builtTool("ribbon-ebook"));
+    expect(await booksToPlace(path.join(dir, "data"), server.books)).toEqual([book.id]);
+    expect(await placeBooks(readAlongs, path.join(dir, "data"), [book.id], () => undefined)).toMatchObject({ books: 1, placed: 1 });
+    expect(transcriptFromRows((await bytesToRows(readFileSync(path.join(dir, "data", "books", book.id, "records", "aligned.csv")))).rows).said.map((x) => x.chars)).toEqual(AT);
+    // Placed the way placing is done now: not again.
+    expect(await booksToPlace(path.join(dir, "data"), server.books)).toEqual([]);
   });
 
   it("merges what a device heard at moments of the narration, leaving out rows that aren't times", async () => {
