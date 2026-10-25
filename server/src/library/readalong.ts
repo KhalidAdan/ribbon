@@ -39,18 +39,17 @@ export interface Standing {
 /**
  * Where a book stands, for the admin (docs/SERVER.md, section 9):
  * - `sentence`: it reads along by sentence.
- * - `transcribing`: by chapter while the server transcribes its narration.
- * - `waiting`: by chapter until a device sends its transcript, on a server that doesn't transcribe.
+ * - `waiting`: read only, until a device with a graphics card sends its whole transcript.
  * - `unpaired`: its text and narration didn't pair by chapter, so nothing heard can be placed: fix its pairing.
- * - `flagged`: its narration is transcribed and it still reads along by chapter: a different edition, or a pairing to fix.
+ * - `flagged`: its narration is transcribed and it still doesn't read along by sentence: a different edition, or a pairing to fix.
  */
-export type ReadAlongState = "sentence" | "transcribing" | "waiting" | "unpaired" | "flagged";
+export type ReadAlongState = "sentence" | "waiting" | "unpaired" | "flagged";
 
-/** Where a book stands (ReadAlongState), on a server that transcribes or one that doesn't. */
-export function stateOf(s: Standing, transcribes: boolean): ReadAlongState {
+/** Where a book stands (ReadAlongState). */
+export function stateOf(s: Standing): ReadAlongState {
+  if (s.pairedBy !== "overlay" && s.transcribed.done < s.transcribed.total) return "waiting";
   if (s.check.placed >= BY_SENTENCE) return "sentence";
   if (s.pairedBy === "proportion") return "unpaired";
-  if (s.pairedBy === "chapter" && s.transcribed.done < s.transcribed.total) return transcribes ? "transcribing" : "waiting";
   return "flagged";
 }
 
@@ -136,10 +135,10 @@ export class ReadAlongs {
     // The chapters as a device that downloaded the book has them (chapters.ts).
     const chapters = chaptersWith(stored, await correctionsOf(dir, stored));
     const alignment = pairBook(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
-    const readAlong = readAlongOf(text, alignment);
     const spans = transcriptFromRows(await recordRows(dir, stored, "aligned")).spans;
     const stretches = stretchesOf(stored.files);
     const transcribed = { done: stretches.filter((x) => spans.has(x.startMs)).length, total: stretches.length };
+    const readAlong = readAlongOf(text, alignment, transcribed);
     return { readAlong, text, alignment, json: JSON.stringify(readAlong), standing: { check: readAlong.check, pairedBy: alignment.how, transcribed } };
   }
 

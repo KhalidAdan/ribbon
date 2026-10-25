@@ -2,7 +2,8 @@ import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/prom
 import path from "node:path";
 import { bookId } from "../../../src/core/bookid.ts";
 import { bytesToRows, int, num, rowsToBytes, type Row } from "../../../src/core/csv.ts";
-import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, mergeTranscripts, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows } from "../../../src/core/reading/narration.ts";
+import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows } from "../../../src/core/reading/narration.ts";
+import { untranscribed } from "../../../src/core/reading/transcript.ts";
 import type { ScannedBook } from "../../../src/core/scan/scan.ts";
 import type { SilenceRange } from "../../../src/core/types.ts";
 import { bookDir, type StoredAnalysis } from "./books.ts";
@@ -10,23 +11,25 @@ import { readStored, writeStored } from "./prepare.ts";
 
 /**
  * The records a book keeps beside it in its folder's `.ribbon/` that the
- * server carries in with it, one file each: what Ribbon worked out about
- * the book (its chapters, hand corrections, what it heard of the narration
- * and how that lines up with the text, pairing fixes), so no device works
- * it out again. Loudness and silences come in as the book's measurements
- * (`carriedAnalysis`).
+ * server carries in with it, one file each: what people set about the book
+ * (its chapters, hand corrections, pairing fixes), so nobody sets it again.
+ * Loudness and silences come in as the book's measurements
+ * (`carriedAnalysis`). What was heard of the narration doesn't: a folder's
+ * transcript may hold clips that failed, kept as if nothing was said in
+ * them (#152), so a book's transcript is only ever one a device made whole
+ * for the server (`keepTranscript`).
  */
-export const CARRIED = ["chapters", "corrections", "heard", "aligned", "pairing"] as const;
+export const CARRIED = ["chapters", "corrections", "pairing"] as const;
 
 /**
  * The records made by hearing the narration: the words at moments of it
- * (`heard`), and stretches of it transcribed, each phrase placed in the
- * text (`aligned`). Hearing more only ever adds to them, so they're kept
- * merged, never replaced: what a device sent, what came in from a folder,
- * and what the server transcribed itself (transcribe.ts).
+ * (`heard`), and the whole narration transcribed, each phrase placed in the
+ * text (`aligned`).
  */
-export const HEARD = ["heard", "aligned"] as const;
-export type HeardKind = (typeof HEARD)[number];
+export type HeardKind = "heard" | "aligned";
+
+/** What a device sends of what it heard at moments of the narration: hearing more only adds to it, so it's kept merged, never replaced. */
+export const HEARD = ["heard"] as const;
 
 /** How many folders above the one being added to look for a book's records: it may have been part of a larger library. */
 const ABOVE = 3;
@@ -76,14 +79,6 @@ export async function carryRecords(found: FoundRecords, bookDir: string, have: r
   return now;
 }
 
-/** The rows of one of the records found, or none when it isn't there. */
-export async function foundRows(found: FoundRecords, kind: string): Promise<Row[]> {
-  return readFile(path.join(found.dir, kind, `${found.id}.csv`)).then(
-    async (b) => (await bytesToRows(new Uint8Array(b))).rows,
-    () => [],
-  );
-}
-
 const WHOLE = /^\d+$/;
 const WHOLE_OR_NONE = /^\d*$/;
 
@@ -94,12 +89,24 @@ function holds(kind: HeardKind, r: Row): boolean {
 }
 
 /** A heard record with more rows in it, as its file: what it had, and what's new, merged as the apps merge theirs. */
-async function merged(kind: HeardKind, had: readonly Row[], more: readonly Row[]): Promise<Uint8Array> {
-  if (kind === "heard") {
-    const all = mergeHeard(heardFromRows(had), heardFromRows(more));
-    return rowsToBytes(heardRows(all.heard, all.anchors), HEARD_FIELDS);
-  }
-  return rowsToBytes(transcriptRows(mergeTranscripts(transcriptFromRows(had), transcriptFromRows(more))), TRANSCRIPT_FIELDS);
+async function merged(had: readonly Row[], more: readonly Row[]): Promise<Uint8Array> {
+  const all = mergeHeard(heardFromRows(had), heardFromRows(more));
+  return rowsToBytes(heardRows(all.heard, all.anchors), HEARD_FIELDS);
+}
+
+/** Write a book's record beside it and move it into place, unless it already holds exactly this. */
+async function replace(file: string, bytes: Uint8Array): Promise<void> {
+  const before = await readFile(file).catch(() => null);
+  if (before && Buffer.compare(before, bytes) === 0) return;
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(`${file}.tmp`, bytes);
+  await rename(`${file}.tmp`, file);
+}
+
+/** The book's records list `kind`, read again just before it's written: other jobs write the book's record too. */
+async function listRecord(dataDir: string, id: string, kind: HeardKind): Promise<void> {
+  const stored = await readStored(dataDir, id);
+  if (stored && !stored.records?.includes(kind)) await writeStored(dataDir, id, { ...stored, records: [...(stored.records ?? []), kind] });
 }
 
 /** Each book's last write to its records, so the next one merges with what it wrote. */
@@ -119,29 +126,39 @@ export async function recordRows(dataDir: string, id: string, kind: HeardKind): 
 }
 
 /**
- * Add rows to one of a stored book's heard records, merged with what it
- * has, so everything every device and the server heard stays. Rows that
- * aren't times and places are left out and counted. Written beside and
- * moved into place, one write at a time per book; the kind joins the
- * book's records when it isn't listed, and a write that adds nothing
- * changes nothing. Null when there's no such book.
+ * Add rows to a stored book's record of moments heard, merged with what it
+ * has, so everything every device heard stays. Rows that aren't times and
+ * places are left out and counted. One write at a time per book; a write
+ * that adds nothing changes nothing. Null when there's no such book.
  */
-export async function keepHeard(dataDir: string, id: string, kind: HeardKind, rows: readonly Row[]): Promise<{ kept: number; refused: number } | null> {
-  const fine = rows.filter((r) => holds(kind, r));
+export async function keepHeard(dataDir: string, id: string, rows: readonly Row[]): Promise<{ kept: number; refused: number } | null> {
+  const fine = rows.filter((r) => holds("heard", r));
   return inTurn(id, async () => {
     if (!(await readStored(dataDir, id))) return null;
-    const file = path.join(bookDir(dataDir, id), "records", `${kind}.csv`);
+    const file = path.join(bookDir(dataDir, id), "records", "heard.csv");
     const before = await readFile(file).catch(() => null);
-    const after = await merged(kind, before ? (await bytesToRows(new Uint8Array(before))).rows : [], fine);
-    if (!before || Buffer.compare(before, after) !== 0) {
-      await mkdir(path.dirname(file), { recursive: true });
-      await writeFile(`${file}.tmp`, after);
-      await rename(`${file}.tmp`, file);
-    }
-    // Read again just before it's written: other jobs write the book's record too.
-    const stored = await readStored(dataDir, id);
-    if (stored && !stored.records?.includes(kind)) await writeStored(dataDir, id, { ...stored, records: [...(stored.records ?? []), kind] });
+    await replace(file, await merged(before ? (await bytesToRows(new Uint8Array(before))).rows : [], fine));
+    await listRecord(dataDir, id, "heard");
     return { kept: fine.length, refused: rows.length - fine.length };
+  });
+}
+
+/**
+ * A book's transcript, as a device that transcribed all of its narration
+ * sends it: kept in place of what the book had, whole or not at all, so a
+ * book's transcript is always one device's, start to end (#152). The
+ * minutes it's missing when it isn't whole; null when there's no such book.
+ */
+export async function keepTranscript(dataDir: string, id: string, rows: readonly Row[]): Promise<{ missing: number } | null> {
+  return inTurn(id, async () => {
+    const stored = await readStored(dataDir, id);
+    if (!stored) return null;
+    const transcript = transcriptFromRows(rows.filter((r) => holds("aligned", r)));
+    const missing = untranscribed(stored.files, transcript.spans).length;
+    if (missing > 0) return { missing };
+    await replace(path.join(bookDir(dataDir, id), "records", "aligned.csv"), await rowsToBytes(transcriptRows(transcript), TRANSCRIPT_FIELDS));
+    await listRecord(dataDir, id, "aligned");
+    return { missing: 0 };
   });
 }
 

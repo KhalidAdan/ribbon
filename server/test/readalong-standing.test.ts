@@ -1,10 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
-import { epub, importAs, mp3, serverWithAdmin, speechStandIn } from "./fixture.ts";
+import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
 const SENTENCES = ["The waygate hung in the void before them.", "It was a giant circle of wraithbone and old light.", "Eluadhri watched the runes along its rim kindle.", "Jurilan did not answer her at once.", "Then the gate opened, and they stepped through."];
 /** Where each sentence starts in the text, after the heading's 11 characters, and when the narrator says it. */
@@ -12,7 +12,6 @@ const AT = SENTENCES.map((_, i) => 11 + SENTENCES.slice(0, i).reduce((n, s) => n
 const SAID_MS = [1000, 10_000, 19_000, 28_000, 37_000];
 
 interface Listed {
-  transcribes: boolean;
   books: { title: string; state: string; placed?: number; transcribed?: { done: number; total: number }; error?: string }[];
 }
 
@@ -24,9 +23,10 @@ function aBook(library: string, title: string, seconds: number): void {
 }
 
 /**
- * A book left reading along by chapter is never found only on the TV
+ * A book that doesn't read along is never found only on the TV
  * (docs/SERVER.md, section 9): the admin sees where every book stands, and
- * one whose narration is transcribed and still goes by chapter is flagged.
+ * one whose narration is transcribed whole and still doesn't read along to
+ * the sentence is flagged.
  */
 describe("how the library reads along", () => {
   let dir: string;
@@ -45,30 +45,27 @@ describe("how the library reads along", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("flags a book whose narration is transcribed and still reads along by chapter, until it reads along by sentence", async () => {
-    const here = path.join(dir, "transcribes");
+  it("flags a book whose narration is transcribed whole and still doesn't read along to the sentence, until it does", async () => {
+    const here = path.join(dir, "transcribed");
     const library = path.join(here, "library");
     aBook(library, "The Waygate", 50);
-    // The narration heard is another book's: nothing in it is found in this one's text.
-    const speech = speechStandIn(here, { 0: [{ startMs: 1000, endMs: 9000, words: " This is Audible. Narrated by somebody else entirely, copyright twenty twenty five." }] });
-    writeFileSync(path.join(here, "model.bin"), "a model");
-    const { server, admin } = await serverWithAdmin(here, { ebookTool: builtTool("ribbon-ebook"), framesTool: builtTool("ribbon-frames"), speech: { tool: speech.tool, model: path.join(here, "model.bin"), threads: 1 } });
+    const { server, admin } = await serverWithAdmin(here, { ebookTool: builtTool("ribbon-ebook"), framesTool: builtTool("ribbon-frames") });
     servers.push(server);
-    const warned = vi.spyOn(server.app.log, "warn");
     await importAs(server, admin, library);
-    await server.jobs.idle("speech");
-
-    expect(await listed(server, admin)).toEqual({ transcribes: true, books: [expect.objectContaining({ title: "The Waygate", state: "flagged", placed: 0, transcribed: { done: 1, total: 1 } })] });
-    expect(warned).toHaveBeenCalledWith(expect.stringContaining('"The Waygate" is transcribed and still reads along by chapter (0% to the sentence)'));
-
-    // A device that heard it right sends what it heard: the book reads along by sentence, without anyone opening it.
     const id = server.books.list()[0]!.id;
-    const rows = SENTENCES.map((s, i) => `${SAID_MS[i]},${SAID_MS[i]! + 8000},"${s}",${AT[i]}`).join("\n");
-    await server.app.inject({ method: "POST", url: `/api/books/${id}/records/aligned`, payload: `start_ms,end_ms,words,chars\n${rows}\n`, headers: { authorization: `Bearer ${admin}`, "content-type": "text/csv" } });
+    const send = (said: string) =>
+      server.app.inject({ method: "PUT", url: `/api/books/${id}/transcript`, payload: `start_ms,end_ms,words,chars,heard_by,word_ms\n0,50000,,,ggml-small-q5_1,\n${said}`, headers: { authorization: `Bearer ${admin}`, "content-type": "text/csv" } });
+
+    // The narration heard is another book's: nothing in it is found in this one's text.
+    await send("1000,9000,This is Audible. Narrated by somebody else entirely.,,,\n");
+    expect(await listed(server, admin)).toEqual({ books: [expect.objectContaining({ title: "The Waygate", state: "flagged", placed: 0, transcribed: { done: 1, total: 1 } })] });
+
+    // A transcript that heard it right, in its place: the book reads along by sentence, without anyone opening it.
+    await send(SENTENCES.map((s, i) => `${SAID_MS[i]},${SAID_MS[i]! + 8000},"${s}",${AT[i]},,`).join("\n") + "\n");
     expect((await listed(server, admin)).books).toEqual([expect.objectContaining({ title: "The Waygate", state: "sentence", placed: 1 })]);
   }, 60_000);
 
-  it("says which books wait for a device on a server that doesn't transcribe, and which can't be read, those first", async () => {
+  it("says which books wait for a device to transcribe them, and which can't be read, those first", async () => {
     const here = path.join(dir, "devices");
     const library = path.join(here, "library");
     aBook(library, "The Waygate", 50);
@@ -80,8 +77,7 @@ describe("how the library reads along", () => {
     servers.push(server);
     await importAs(server, admin, library);
 
-    const { transcribes, books } = await listed(server, admin);
-    expect(transcribes).toBe(false);
+    const { books } = await listed(server, admin);
     expect(books.map((b) => [b.title, b.state])).toEqual([
       ["Broken", "unreadable"],
       ["The Waygate", "waiting"],

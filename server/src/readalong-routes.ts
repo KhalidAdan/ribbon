@@ -17,7 +17,6 @@ import type { BookIndex, ListedBook, StoredBook } from "./library/books.ts";
 import type { Mp3Frames } from "./library/frames.ts";
 import { ReadAlongError, type MadeReadAlong, type ReadAlongs } from "./library/readalong.ts";
 import type { SearchIndex } from "./library/search.ts";
-import type { Transcriber } from "./library/transcribe.ts";
 import { PlacesError, type Places } from "./places.ts";
 
 /** Why a device that only draws and plays says it's at a moment: what any app writes, but `remote` and `import`, which it never does. */
@@ -77,7 +76,7 @@ export interface BookPlace {
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */
-export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; transcriber: Transcriber; dataDir: string }): void {
+export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; dataDir: string }): void {
   /** The book and its read-along, or the answer that says why there's none. */
   const readAlongOf = async (id: string, reply: FastifyReply): Promise<{ listed: ListedBook; stored: StoredBook; made: MadeReadAlong } | null> => {
     const listed = deps.books.get(id);
@@ -89,8 +88,6 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     }
     try {
       const made = await deps.readAlongs.of(id, stored);
-      // Someone is reading it along: its narration is transcribed next, if it isn't yet.
-      deps.transcriber.want(id);
       if (made) return { listed, stored, made };
       await reply.code(404).send({ error: "This book has no text and narration to read along." });
     } catch (e) {
@@ -152,7 +149,6 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     } else if (listening) {
       place = { sentence: sentenceReadAt(readAlong, listening.ms), ms: listening.ms, from: "listening", at: listening.t };
     }
-    if (place) deps.transcriber.want(book.listed.id, place.ms);
     return { place };
   });
 
@@ -168,7 +164,6 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const stored = listed && (await storedBook(deps, request.params.id));
     if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
     const added = write(reply, me.id, who, listed, stored, { k: "pos", why, ms: Math.round(Math.min(ms, stored.book.durationMs)) });
-    deps.transcriber.want(listed.id, ms);
     return added === null ? reply : { added };
   });
 
