@@ -5,6 +5,7 @@ import { BookText } from "../src/core/reading/booktext";
 import { EBOOK_FORMAT } from "../src/core/ebook";
 import type { Said } from "../src/core/reading/transcript";
 import { HearingStalled, modelName, transcribeWhole, type TranscriptSoFar, type Transcription } from "../src/app/transcribing";
+import { looped } from "../src/core/reading/transcript";
 
 const TEXT = "The waygate hung in the void before them. Eluadhri watched the runes along its rim kindle one by one.";
 
@@ -83,6 +84,39 @@ describe("transcribing a book whole (#152)", () => {
     // The first call's eight minutes are kept; the call that never answered keeps nothing.
     expect(j.transcript.spans.size).toBe(8);
     expect(j.kept).toBe(1);
+  });
+
+  it("hears a minute again in halves when whisper heard one line over and over, and keeps what the halves heard (#165)", async () => {
+    // Master of Rites at 236 minutes: "Do not let your heart be broken!" fourteen times over 28 seconds of narration.
+    const loop = (startMs: number) => Array.from({ length: 14 }, (_, k) => phrase(startMs + 10_000 + k * 2000, "Do not let your heart be broken!"));
+    const asked: { at: number; seconds: number }[] = [];
+    const j = job(async (clips, seconds = 60) => {
+      asked.push(...clips.map((c) => ({ at: c.startMs, seconds })));
+      if (seconds === 60) return clips.map((c) => (c.startMs === 0 ? loop(0) : [phrase(c.startMs + 1000, "watched the runes")]));
+      return clips.map((c) => [phrase(c.startMs + 2000, c.startMs === 0 ? "Gem hissed, spraying the bridge crew" : "The mortals cried out in fear")]);
+    });
+    expect(await transcribeWhole(j)).toBe("whole");
+    // The looping minute, heard again as two half minutes; the others once.
+    expect(asked.filter((a) => a.seconds === 30)).toEqual([
+      { at: 0, seconds: 30 },
+      { at: 30_000, seconds: 30 },
+    ]);
+    const first = j.transcript.said.filter((x) => x.startMs < 60_000).map((x) => x.words);
+    expect(first).toEqual(["Gem hissed, spraying the bridge crew", "The mortals cried out in fear"]);
+  });
+
+  it("keeps a line once when the halves loop too, so a loop never stands for a minute (#165)", async () => {
+    const loop = (startMs: number, n: number) => Array.from({ length: n }, (_, k) => phrase(startMs + k * 2000, "I will do as I please."));
+    const j = job(async (clips, seconds = 60) => clips.map((c) => (c.startMs < 60_000 ? loop(c.startMs, seconds === 60 ? 14 : 7) : [])));
+    expect(await transcribeWhole(j)).toBe("whole");
+    // The halves' repeats run on from one into the other: one line, kept once.
+    expect(j.transcript.said.filter((x) => x.startMs < 60_000).map((x) => x.words)).toEqual(["I will do as I please."]);
+  });
+
+  it("takes a line said three times for what the narrator said: only four or more in a row is a loop", () => {
+    const no = [phrase(0, "No."), phrase(1000, "No."), phrase(2000, "No.")];
+    expect(looped(no)).toBe(false);
+    expect(looped([...no, phrase(3000, "no.")])).toBe(true);
   });
 
   it("names a model by its file", () => {

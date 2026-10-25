@@ -2182,7 +2182,7 @@ export class AppController {
         index: this.wordsOf(text),
         alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
         // Gently while a book plays, so playback comes first.
-        hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
+        hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, this.state.player.playing),
         model: modelName(model),
         keep: async () => {
           await this.keepAligned(ctx);
@@ -2392,7 +2392,7 @@ export class AppController {
       files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
       index,
       alignment: () => alignment,
-      hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
+      hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, this.state.player.playing),
       model: modelName(model),
       keep: async () => {
         await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));

@@ -22,6 +22,35 @@ export interface Said {
 /** A phrase heard, with where it was found in the text (characters of the reading order), or null when it wasn't. */
 export type PlacedPhrase = Said & { chars: number | null };
 
+/** One line heard this many times in a row is whisper looping, not the narrator (#165). */
+const LOOP = 4;
+
+/** Whether whisper looped in a minute: the same line, heard as a phrase of its own, at least four times in a row. */
+export function looped(phrases: readonly Said[]): boolean {
+  let run = 1;
+  for (let i = 1; i < phrases.length; i++) {
+    run = sameLine(phrases[i]!, phrases[i - 1]!) ? run + 1 : 1;
+    if (run >= LOOP) return true;
+  }
+  return false;
+}
+
+/** A minute's phrases with any loop kept once: a line heard over and over never stands for a minute of narration. */
+export function withoutLoops(phrases: readonly Said[]): Said[] {
+  const out: Said[] = [];
+  for (let i = 0; i < phrases.length; ) {
+    let j = i + 1;
+    while (j < phrases.length && sameLine(phrases[j]!, phrases[i]!)) j++;
+    out.push(...(j - i >= LOOP ? [phrases[i]!] : phrases.slice(i, j)));
+    i = j;
+  }
+  return out;
+}
+
+function sameLine(a: Said, b: Said): boolean {
+  return a.words.trim().toLowerCase() === b.words.trim().toLowerCase();
+}
+
 /** The narration is transcribed in stretches this long, by where they start in their file: the same minutes on every device and on the server. */
 export const STRETCH_MS = 60_000;
 /** How far either side of where the pairing puts a stretch its words are looked for, in characters: about a minute and a half of reading. */

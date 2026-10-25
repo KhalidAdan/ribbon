@@ -4,7 +4,7 @@ import type { Chapter } from "../types";
 import { alignBook, byOverlay, type Alignment, type PairingFix } from "./align";
 import type { Anchor } from "./anchors";
 import type { BookText } from "./booktext";
-import type { PlacedPhrase } from "./transcript";
+import { looped, type PlacedPhrase } from "./transcript";
 
 /**
  * What a book's records say about its narration (docs/READING.md, section
@@ -94,7 +94,9 @@ export function mergeTranscripts(theirs: { spans: ReadonlyMap<number, number>; s
  * Ribbon named the model was heard the old way: perhaps by the server's
  * processor, perhaps a clip that failed and was kept as if nothing was said.
  * It's left out, with what was heard in it, to be heard again; so a minute
- * is only ever one hearing, never an old one and a new one mixed.
+ * is only ever one hearing, never an old one and a new one mixed. So is one
+ * where whisper heard one line over and over instead of what was said
+ * (#165): heard again, in halves, it comes back with the narration.
  */
 export function transcriptFromRows(rows: readonly Row[]): Transcript {
   const stretches: { start: number; end: number; by: string }[] = [];
@@ -111,7 +113,22 @@ export function transcriptFromRows(rows: readonly Row[]): Transcript {
     spans.set(x.start, x.end);
   }
   const counted = [...spans].sort((a, b) => a[0] - b[0]);
-  return { spans, said: said.filter((x) => within(counted, x.startMs)), heardBy };
+  const kept = said.filter((x) => within(counted, x.startMs)).sort((a, b) => a.startMs - b.startMs);
+  // Each minute's phrases, in order: a minute whose phrases loop isn't counted.
+  let at = 0;
+  const loops = new Set<number>();
+  for (const [start, end] of counted) {
+    while (at < kept.length && kept[at]!.startMs < start) at++;
+    let to = at;
+    while (to < kept.length && kept[to]!.startMs < end) to++;
+    if (looped(kept.slice(at, to))) loops.add(start);
+    at = to;
+  }
+  for (const start of loops) {
+    spans.delete(start);
+    heardBy.delete(start);
+  }
+  return { spans, said: loops.size === 0 ? kept : kept.filter((x) => within([...spans].sort((a, b) => a[0] - b[0]), x.startMs)), heardBy };
 }
 
 /** Whether `ms` falls in one of these stretches, sorted by start. */
