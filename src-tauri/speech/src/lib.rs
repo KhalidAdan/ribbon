@@ -1,9 +1,8 @@
 //! The narrator's words (#65, #57): stretches of a book's audio decoded by
 //! ffmpeg and heard by whisper.cpp, as one line or phrase by phrase with when
-//! each is said. The app hears with it on the device (src-tauri/src/speech.rs),
-//! and the server runs it as the `ribbon-speech` command (server/src/library/
-//! transcribe.ts), so a book is heard the same way wherever it's heard. The
-//! model is a whisper.cpp `ggml` file.
+//! each phrase and word is said. The app hears with it on a machine with a
+//! graphics card (src-tauri/src/speech.rs), for its own books and for a
+//! server's (#152). The model is a whisper.cpp `ggml` file.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -89,23 +88,60 @@ impl Listener {
     }
 
     /// Everything said in a stretch of audio, phrase by phrase, each with when it starts and ends
-    /// in milliseconds from the stretch's start (#57), heard on `threads` threads.
+    /// in milliseconds from the stretch's start (#57), and when each of its words starts, heard on
+    /// `threads` threads.
     pub fn said(&self, samples: &[f32], language: Option<&str>, threads: usize) -> Result<Vec<Said>, String> {
         let mut state = self.ctx.create_state().map_err(|e| e.to_string())?;
-        let params = Self::params(language, threads);
+        let mut params = Self::params(language, threads);
+        // Each token's time, so each word's: when a word is said, rather than a guess by its place in its phrase.
+        params.set_token_timestamps(true);
         state.full(params, samples).map_err(|e| format!("could not transcribe: {e}"))?;
+        let eot = self.ctx.token_eot();
         Ok(state
             .as_iter()
             .filter_map(|seg| {
                 let words = seg.to_str_lossy().ok()?.trim().to_string();
+                if words.is_empty() {
+                    return None;
+                }
+                let word_ms = word_starts(&seg, eot, words.split_whitespace().count());
                 // whisper's timestamps are hundredths of a second.
-                (!words.is_empty()).then(|| Said { start_ms: seg.start_timestamp().max(0) as u64 * 10, end_ms: seg.end_timestamp().max(0) as u64 * 10, words })
+                Some(Said { start_ms: seg.start_timestamp().max(0) as u64 * 10, end_ms: seg.end_timestamp().max(0) as u64 * 10, words, word_ms })
             })
             .collect())
     }
 }
 
-/// A phrase heard, with when it is said.
+/// When each word of a phrase starts, in milliseconds from its stretch's start: the time of the first
+/// token of each, a word being the tokens from one that starts with a space to the next. Tokens from
+/// the end-of-text token on are whisper's own (timestamps, language), not words. Empty when the words
+/// found aren't `count`, the phrase's words apart by spaces, so a word is never given another's time.
+fn word_starts(seg: &whisper_rs::WhisperSegment<'_>, eot: whisper_rs::WhisperTokenId, count: usize) -> Vec<u64> {
+    let mut starts = Vec::new();
+    let mut in_word = false;
+    for i in 0..seg.n_tokens() {
+        let Some(token) = seg.get_token(i) else { continue };
+        if token.token_id() >= eot {
+            continue;
+        }
+        let Ok(text) = token.to_str_lossy() else { continue };
+        if text.trim().is_empty() {
+            in_word = false;
+            continue;
+        }
+        if text.starts_with(char::is_whitespace) || !in_word {
+            starts.push(token.token_data().t0.max(0) as u64 * 10);
+        }
+        in_word = !text.ends_with(char::is_whitespace);
+    }
+    if starts.len() == count {
+        starts
+    } else {
+        Vec::new()
+    }
+}
+
+/// A phrase heard, with when it is said, and when each of its words starts when whisper said.
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Said {
     #[serde(rename = "startMs")]
@@ -113,6 +149,8 @@ pub struct Said {
     #[serde(rename = "endMs")]
     pub end_ms: u64,
     pub words: String,
+    #[serde(rename = "wordMs", skip_serializing_if = "Vec::is_empty")]
+    pub word_ms: Vec<u64>,
 }
 
 /// The model kept between calls, reloaded when another is asked for.
@@ -187,7 +225,13 @@ pub fn transcribe(model: &Path, clips: &[Clip], seconds: f32, language: Option<&
     Ok(clips
         .iter()
         .zip(heard)
-        .map(|(c, said)| said.map(|said| said.into_iter().map(|s| Said { start_ms: s.start_ms + c.start_ms, end_ms: s.end_ms + c.start_ms, words: s.words }).collect()))
+        .map(|(c, said)| {
+            said.map(|said| {
+                said.into_iter()
+                    .map(|s| Said { start_ms: s.start_ms + c.start_ms, end_ms: s.end_ms + c.start_ms, words: s.words, word_ms: s.word_ms.into_iter().map(|w| w + c.start_ms).collect() })
+                    .collect()
+            })
+        })
         .collect())
 }
 

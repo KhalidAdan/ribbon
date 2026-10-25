@@ -44,39 +44,38 @@ fn need_gpu() -> Result<(), String> {
     }
 }
 
-/// Each clip's answer, or the empty answer for one that couldn't be heard: one bad clip never fails the rest.
-fn or_empty<T: Default>(clips: &[Clip], heard: Vec<Result<T, String>>) -> Vec<T> {
+/// Each clip's answer, or None for one that couldn't be heard, said in the log: one bad clip never fails the rest.
+fn or_none<T>(clips: &[Clip], heard: Vec<Result<T, String>>) -> Vec<Option<T>> {
     clips
         .iter()
         .zip(heard)
         .map(|(c, h)| {
-            h.unwrap_or_else(|e| {
-                log::warn!("could not hear {} at {} ms: {e}", c.path, c.start_ms);
-                T::default()
-            })
+            h.map_err(|e| log::warn!("could not hear {} at {} ms: {e}", c.path, c.start_ms))
+                .ok()
         })
         .collect()
 }
 
-/// Transcribe the start of each clip, `seconds` long, as one line each.
-pub fn opening_words(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>) -> Result<Vec<String>, String> {
+/// Transcribe the start of each clip, `seconds` long, as one line each; None for a clip that couldn't be heard.
+pub fn opening_words(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>) -> Result<Vec<Option<String>>, String> {
     need_gpu()?;
-    Ok(or_empty(clips, ribbon_speech::opening_words(model, clips, seconds, language)?))
+    Ok(or_none(clips, ribbon_speech::opening_words(model, clips, seconds, language)?))
 }
 
-/// Transcribe each clip, `seconds` long, phrase by phrase, with times in milliseconds of its file.
+/// Transcribe each clip, `seconds` long, phrase by phrase, with times in milliseconds of its file;
+/// None for a clip that couldn't be heard, which is never the same as one with nothing said in it (#152).
 /// `gentle`: one clip at a time on two threads, while a book plays, so playback comes first.
-pub fn transcribe(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>, gentle: bool) -> Result<Vec<Vec<Said>>, String> {
+pub fn transcribe(model: &Path, clips: &[Clip], seconds: f32, language: Option<&str>, gentle: bool) -> Result<Vec<Option<Vec<Said>>>, String> {
     need_gpu()?;
     let (ways, threads) = if gentle { (1, 2) } else { (transcribe_ways(), ribbon_speech::half_the_machine()) };
-    Ok(or_empty(clips, ribbon_speech::transcribe(model, clips, seconds, language, ways, threads)?))
+    Ok(or_none(clips, ribbon_speech::transcribe(model, clips, seconds, language, ways, threads)?))
 }
 
 /// Transcribe stretches of a book's audio, phrase by phrase (#57). Runs off the main thread; gently
 /// (`gentle`) on a thread of its own at a lower priority, which the threads it starts share, so the
 /// audio a book is playing is never kept waiting.
 #[tauri::command]
-pub async fn speech_transcribe(model: String, clips: Vec<Clip>, seconds: f32, language: Option<String>, gentle: Option<bool>) -> Result<Vec<Vec<Said>>, String> {
+pub async fn speech_transcribe(model: String, clips: Vec<Clip>, seconds: f32, language: Option<String>, gentle: Option<bool>) -> Result<Vec<Option<Vec<Said>>>, String> {
     let gentle = gentle.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
         if !gentle {
@@ -108,13 +107,15 @@ fn lower_priority() {}
 
 /// Hear the opening seconds of each clip with the model at `model`. Runs off the main thread.
 #[tauri::command]
-pub async fn speech_openings(model: String, clips: Vec<Clip>, seconds: f32, language: Option<String>) -> Result<Vec<String>, String> {
+pub async fn speech_openings(model: String, clips: Vec<Clip>, seconds: f32, language: Option<String>) -> Result<Vec<Option<String>>, String> {
     tauri::async_runtime::spawn_blocking(move || opening_words(Path::new(&model), &clips, seconds, language.as_deref())).await.map_err(|e| e.to_string())?
 }
 
-/// The model Ribbon offers to download: whisper base, multilingual, quantised (about 57 MB).
-pub const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin";
-pub const MODEL_FILE: &str = "ggml-base-q5_1.bin";
+/// The model Ribbon offers to download: whisper small, multilingual, quantised (about 190 MB). Against
+/// base, it hears about a third fewer words wrong, at 29 times real time on an M2's graphics against
+/// base's 45 (#152).
+pub const MODEL_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin";
+pub const MODEL_FILE: &str = "ggml-small-q5_1.bin";
 pub const MODEL_PROGRESS: &str = "ribbon://model-progress";
 
 /// Download the speech model into the Ribbon folder, reporting progress as
