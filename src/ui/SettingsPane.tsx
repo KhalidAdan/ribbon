@@ -28,7 +28,7 @@ export function SettingsPane() {
     history: s.history,
     perfLog: s.perfLog,
     canAddFolders: s.canAddFolders,
-    readAlongMode: s.readAlongMode,
+    transcribing: s.transcribingForServer,
   }));
   const c = useController();
   const groups = groupProblems(state.problems);
@@ -207,12 +207,13 @@ export function SettingsPane() {
 
         <section aria-labelledby="settings-readalong" className="flex flex-col gap-4">
           <SectionHeader id="settings-readalong" title="Read-along" description="How Ribbon pairs a book’s text with its narration." />
-          <Group footer="With a speech model, Ribbon listens to the first seconds of each chapter, on this machine, and matches the words with the book’s text. Nothing is sent anywhere, and each book is heard once. Use a whisper.cpp model you already have, or download Ribbon’s (whisper base, about 57 MB, from Hugging Face).">
-            <Row
-              title="Wait for read-along before playing"
-              description="When a book’s narration hasn’t been transcribed on this computer yet, playback waits until it has, so the text follows every sentence: about a tenth of the book’s length, once. Off: it plays at once, and read-along catches up quietly behind it."
-              aside={<Toggle checked={state.readAlongMode === "wait"} onChange={(on) => c.setReadAlongMode(on ? "wait" : "play")} label="Wait for read-along before playing" />}
-            />
+          <Group footer="On a computer with a graphics card, Ribbon transcribes a book’s whole narration once, start to end, on this machine, and finds every sentence in the text; a book reads along once that’s done, and opens to read only until then. As a server’s admin, this computer transcribes the server’s books too, and sends each transcript to it, so every device reads them along. Use a whisper.cpp model you already have, or download Ribbon’s (whisper small, about 190 MB, from Hugging Face).">
+            {state.transcribing && (
+              <Row
+                title="Transcribing for the server"
+                description={`${state.transcribing.title}: ${Math.floor((100 * state.transcribing.done) / Math.max(1, state.transcribing.total))}% of its narration, then the next book still missing some.`}
+              />
+            )}
             <Row
               title="Speech model"
               description={state.speech.downloading ? `Downloading… ${state.speech.downloading.total > 0 ? Math.round((state.speech.downloading.done / state.speech.downloading.total) * 100) : 0}%` : state.speech.model ? state.speech.model.split(/[\\/]/).pop() : "None: chapters are paired by length and name."}

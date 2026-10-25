@@ -133,9 +133,19 @@ export class ServerClient {
     return ((await (await this.get(`/api/jobs/${encodeURIComponent(id)}`)).json()) as { job: ServerJob }).job;
   }
 
-  /** What this device heard of a book's narration (`heard`, `aligned`), as the CSV kept beside it, for the server to merge with its own. */
-  async sendRecord(serverId: string, kind: "heard" | "aligned", csv: Uint8Array): Promise<void> {
+  /** What this device heard at moments of a book's narration (`heard`), as the CSV kept beside it, for the server to merge with its own. */
+  async sendRecord(serverId: string, kind: "heard", csv: Uint8Array): Promise<void> {
     await this.send(`/api/books/${encodeURIComponent(serverId)}/records/${kind}`, { method: "POST", headers: { "content-type": "text/csv; charset=utf-8" }, body: new TextDecoder().decode(csv) });
+  }
+
+  /** A book's transcript, whole, as the CSV kept beside it, kept by the server in place of what it had (#152). The admin's devices only. */
+  async putTranscript(serverId: string, csv: Uint8Array): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/transcript`, { method: "PUT", headers: { "content-type": "text/csv; charset=utf-8" }, body: new TextDecoder().decode(csv) });
+  }
+
+  /** How much of each book's narration the server has transcribed, the books still missing some first: what the admin's devices with a graphics card work through. */
+  async transcripts(): Promise<{ id: string; title: string; done: number; total: number }[]> {
+    return ((await (await this.get("/api/library/transcripts")).json()) as { books: { id: string; title: string; done: number; total: number }[] }).books;
   }
 
   /** This person's position records from every device, newer than the cursor (none: from the start), the cursor to ask with next, and whether there's more past it. */

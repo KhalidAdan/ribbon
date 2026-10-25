@@ -26,7 +26,6 @@ import { msToText, precise, type Alignment } from "../core/reading/align";
 import type { Sentence } from "../core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
 import * as perf from "../app/perf";
-import { ReadAlongWaitCard } from "../ui/ReadAlongWait";
 
 /** A sentence marked in the text: the one a tap would listen from, or the one being read aloud. */
 interface Mark extends Sentence {
@@ -44,14 +43,12 @@ const NOT_YET: SectionLayout = { blocks: [], pages: [], flow: { section: -1, ite
  */
 export function ReadingView() {
   // Not the player's place, which moves five times a second: the parts that follow it (the mark, the listening bar) select it themselves.
-  const { r, book, loadedHere, anyLoaded, settings, wait } = useAppState((s) => ({
+  const { r, book, loadedHere, anyLoaded, settings } = useAppState((s) => ({
     r: s.reading,
     book: s.reading ? s.books.find((b) => b.book.id === s.reading!.bookId) : undefined,
     loadedHere: !!s.reading && s.current?.book.book.id === s.reading.bookId,
     anyLoaded: !!s.current,
     settings: s.readingSettings,
-    // This book's playback waiting for its read-along (Settings).
-    wait: s.readAlongWait && s.reading && s.readAlongWait.bookId === s.reading.bookId ? s.readAlongWait : null,
   }));
   const c = useController();
   // A phone: the header and the bars below give way to the dock (Dock.tsx).
@@ -70,7 +67,8 @@ export function ReadingView() {
   const entry = text && place ? text.tocEntryAt(place) : -1;
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
-  const listen = !!r.alignment && !!book && book.book.durationMs > 0;
+  // Listening from the page needs to know when its sentences are read: only once the book reads along (#152).
+  const listen = !!r.alignment && !!r.readsAlong && !!book && book.book.durationMs > 0;
   const title = book?.book.title ?? "";
   // The dock's menu: listening from the page, the full player, and what the header holds on a wider window.
   const menu: MenuItem[] = [
@@ -123,14 +121,8 @@ export function ReadingView() {
           <p className="mt-1 max-w-md text-base/6 text-ink-2 sm:text-sm/5">{r.message}</p>
         </Middle>
       )}
-      {r.status === "ready" && r.preparing && <Preparing listening={r.listening} onReadNow={() => c.readNow()} />}
-      {wait && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-10 flex justify-center px-4">
-          <ReadAlongWaitCard wait={wait} onPlayAnyway={() => c.playAnyway()} />
-        </div>
-      )}
-      {(r.status === "failed" || (r.status === "ready" && r.preparing)) && idleDock}
-      {r.status === "ready" && !r.preparing && text && ebook && place && (
+      {r.status === "failed" && idleDock}
+      {r.status === "ready" && text && ebook && place && (
         <Text
           key={ebook.meta.title + r.bookId}
           bookId={r.bookId}
@@ -139,7 +131,7 @@ export function ReadingView() {
           settings={settings}
           bar={barOpen}
           listen={listen}
-          alignment={loadedHere ? r.alignment : undefined}
+          alignment={loadedHere && r.readsAlong ? r.alignment : undefined}
           highlights={r.highlights ?? NO_HIGHLIGHTS}
           compact={compact}
           title={title}
@@ -158,7 +150,7 @@ export function ReadingView() {
 
       {ebook && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
-          <Contents ebook={ebook} alignment={r.alignment} listening={r.listening} entry={entry} c={c} onGo={() => setContents(false)} />
+          <Contents ebook={ebook} alignment={r.alignment} readsAlong={!!r.readsAlong} listening={r.listening} entry={entry} c={c} onGo={() => setContents(false)} />
           {r.alignment && r.alignment.how !== "overlay" && <ExportReadAlong exporting={r.exporting} exported={r.exported} c={c} />}
         </Drawer>
       )}
@@ -212,7 +204,7 @@ const UNSURE = 0.4;
  * Fixing the pairing puts a choice on each entry: automatic, not in the
  * audio, or a chapter of the recording; it is kept beside the book.
  */
-function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; listening: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" } | undefined; entry: number; c: AppController; onGo: () => void }) {
+function Contents({ ebook, alignment, readsAlong, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; readsAlong: boolean; listening: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" } | undefined; entry: number; c: AppController; onGo: () => void }) {
   const [fixing, setFixing] = useState(false);
   const units = new Map((alignment?.text ?? []).map((u) => [u.ref, u]));
   const paired = alignment?.how === "chapter";
@@ -230,14 +222,14 @@ function Contents({ ebook, alignment, listening, entry, c, onGo }: { ebook: Eboo
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
             {listening
-              ? listening.what === "aligning"
-                ? `Following the narration for read-along… ${Math.floor((100 * listening.done) / Math.max(1, listening.total))}%`
-                : `${listening.what === "openings" ? "Listening to chapter openings" : "Placing checkpoints"}… ${listening.done} of ${listening.total}`
+              ? `Transcribing the narration for read-along… ${Math.floor((100 * listening.done) / Math.max(1, listening.total))}%`
               : alignment.how === "overlay"
                 ? "Read-along from the book’s own narration timing"
-                : paired
-                  ? "Paired with the audiobook’s chapters"
-                  : "Matched to the audiobook by length"}
+                : !readsAlong
+                  ? "Read only until the narration is transcribed, on a computer with a graphics card"
+                  : paired
+                    ? "Paired with the audiobook’s chapters, and read along to the sentence"
+                    : "Matched to the audiobook by length"}
           </p>
           {alignment.how !== "overlay" && (
             <Button size="sm" variant={fixing ? "secondary" : "ghost"} aria-pressed={fixing} onClick={() => setFixing((v) => !v)}>
@@ -347,36 +339,6 @@ function HighlightList({ text, highlights, listen, c, onGo }: { text: BookText; 
         );
       })}
     </ul>
-  );
-}
-
-/** While read-along gets the pages around the reader ready: a few seconds, once per book. */
-const READYING = ["Listening to the narrator…", "Finding the words on the page…", "Lining up voice and text…", "Marking where each sentence begins…", "Turning to your page…"];
-
-function Preparing({ listening, onReadNow }: { listening: { done: number; total: number } | undefined; onReadNow: () => void }) {
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setI((n) => (n + 1) % READYING.length), 2400);
-    return () => clearInterval(id);
-  }, []);
-  return (
-    <Middle>
-      <div className="flex w-full max-w-xs flex-col items-center gap-4">
-        <span aria-hidden="true" className="flex gap-1.5">
-          {[0, 1, 2].map((d) => (
-            <span key={d} className="size-1.5 rounded-full bg-place motion-safe:animate-pulse" style={{ animationDelay: `${d * 180}ms` }} />
-          ))}
-        </span>
-        <p key={i} className="font-serif motion-safe:animate-[fade-in_400ms_ease-out] text-lg/7 text-ink" aria-live="polite">
-          {READYING[i]}
-        </p>
-        <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Getting read-along ready. This happens once for each part of a book.</p>
-        {listening && listening.total > 0 && <ProgressLine fraction={Math.min(1, listening.done / listening.total)} className="w-full" />}
-        <Button size="sm" variant="ghost" onClick={onReadNow}>
-          Read now
-        </Button>
-      </div>
-    </Middle>
   );
 }
 

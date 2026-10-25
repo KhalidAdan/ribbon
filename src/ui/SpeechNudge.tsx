@@ -16,7 +16,7 @@ export function SpeechNudge() {
     <div role="status" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg flex-col gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line transition-[translate,opacity] duration-200 ease-out starting:opacity-0 motion-safe:starting:translate-y-4 sm:flex-row sm:items-center dark:shadow-none dark:ring-line-strong">
       <div className="min-w-0 flex-1">
         <p className="text-base/6 font-medium text-ink sm:text-sm/5">Read along sentence by sentence</p>
-        <p className="mt-0.5 text-base/6 text-pretty text-ink-2 sm:text-sm/5">With a speech model, Ribbon matches the narration to the text on {c.here}, sentence by sentence; without one, only chapter by chapter. About 57 MB, downloaded once. Nothing is sent anywhere.</p>
+        <p className="mt-0.5 text-base/6 text-pretty text-ink-2 sm:text-sm/5">With a speech model, Ribbon matches the narration to the text on {c.here}, sentence by sentence; without one, only chapter by chapter. About 190 MB, downloaded once. Nothing is sent anywhere.</p>
       </div>
       <div className="flex shrink-0 gap-1 self-end sm:self-center">
         <Button size="sm" variant="ghost" onClick={() => c.dismissSpeechNudge()}>

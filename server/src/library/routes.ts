@@ -6,11 +6,13 @@ import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
 import { removeBookDir, type BookIndex } from "./books.ts";
 import { readStored } from "./prepare.ts";
+import { recordRows } from "./records.ts";
+import { transcriptFromRows } from "../../../src/core/reading/narration.ts";
+import { stretchesOf, untranscribed } from "../../../src/core/reading/transcript.ts";
 import type { Mp3Frames } from "./frames.ts";
 import { stateOf, type ReadAlongState, type ReadAlongs } from "./readalong.ts";
 import type { SearchIndex } from "./search.ts";
 import type { LibrarySeries, SeriesBookChange } from "./series.ts";
-import type { Transcriber } from "./transcribe.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
 import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
 import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } from "./describe.ts";
@@ -23,7 +25,7 @@ import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } f
  * (`GET /api/library/readalong`), so a book left by chapter is never found
  * only on the TV. The listing the apps read comes in its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; transcriber: Transcriber; catalog: Catalog | null; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; dataDir: string }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -53,8 +55,6 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
         await deps.frames.indexMissing(deps.books);
         if (deps.readAlongs.available) await hydrateBooks(deps.readAlongs, deps.dataDir, await booksToHydrate(deps.dataDir, deps.books), () => undefined);
         await deps.search.indexAll(deps.books, deps.readAlongs, deps.dataDir);
-        // And their narration is transcribed, after any being heard already.
-        deps.transcriber.start(deps.jobs);
         // The ones still without a description get the catalog's, once this job is done (describe.ts).
         const catalog = deps.catalog;
         if (catalog) deps.jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, deps.dataDir, await booksToDescribe(deps.dataDir, deps.books), report), me.id);
@@ -118,17 +118,37 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     if (!me) return reply.code(401).send({ error: "Sign in first." });
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can see how the library reads along." });
     reply.header("cache-control", "no-store");
-    const transcribes = deps.transcriber.available;
     const books = [];
     // One at a time: a book whose transcript changed since is made again, which takes a moment on a slow machine.
     for (const b of deps.books.list().filter((b) => b.ebook && b.audio)) {
       const stored = await readStored(deps.dataDir, b.id);
       const standing = stored ? await deps.readAlongs.standing(b.id, stored) : "It's no longer on the server.";
       if (typeof standing === "string") books.push({ id: b.id, title: b.title, state: "unreadable" as const, error: standing });
-      else books.push({ id: b.id, title: b.title, state: stateOf(standing, transcribes), placed: standing.check.placed, heldOut: standing.check.heldOut, pairedBy: standing.pairedBy, transcribed: standing.transcribed });
+      else books.push({ id: b.id, title: b.title, state: stateOf(standing), placed: standing.check.placed, heldOut: standing.check.heldOut, pairedBy: standing.pairedBy, transcribed: standing.transcribed });
     }
     books.sort((a, b) => FIRST.indexOf(a.state) - FIRST.indexOf(b.state) || a.title.localeCompare(b.title));
-    return { transcribes, books };
+    return { books };
+  });
+
+  // How much of each book's narration is transcribed, the books still missing some first: what the admin's devices with a
+  // graphics card work through, transcribing each whole and sending it (PUT /api/books/:id/transcript).
+  app.get("/api/library/transcripts", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin's devices transcribe the library." });
+    reply.header("cache-control", "no-store");
+    const books = [];
+    for (const b of deps.books.list().filter((b) => b.ebook && b.audio)) {
+      const stored = await readStored(deps.dataDir, b.id);
+      if (!stored) continue;
+      const total = stretchesOf(stored.files).length;
+      const missing = untranscribed(stored.files, transcriptFromRows(await recordRows(deps.dataDir, b.id, "aligned")).spans).length;
+      books.push({ id: b.id, title: b.title, done: total - missing, total });
+    }
+    // The ones still missing minutes first, and among them the newest added first (the list is oldest first): a book just
+    // added reads along soonest.
+    books.reverse().sort((a, b) => Number(a.done === a.total) - Number(b.done === b.total));
+    return { books };
   });
 
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {
@@ -142,7 +162,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
 }
 
 /** The order books are listed in by how they read along: the ones that need a person first. */
-const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagged", "unpaired", "waiting", "transcribing", "sentence"];
+const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagged", "unpaired", "waiting", "sentence"];
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */
 function seriesAsked(body: unknown): { name: string; books: SeriesBookChange[] } | null {

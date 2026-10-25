@@ -1,7 +1,8 @@
 //! Everything a narrator says in stretches of a book, phrase by phrase, as the app hears it for
 //! read-along (#57): `cargo run --release --example transcribe -- <model> <seconds> <language|auto> <audio> <ms> [<audio> <ms>…]`.
 //! RIBBON_BATCH=N hears N stretches per call; RIBBON_GENTLE=1 hears them as while a book plays (one at
-//! a time, two threads). Prints each phrase with its times, and how long each call took.
+//! a time, two threads). Prints each phrase with its times, each word with when it starts where whisper
+//! said (`word@ms`), and how long each call took.
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,8 +24,9 @@ fn main() {
         let t = std::time::Instant::now();
         let said = ribbon_lib::speech::transcribe(model, batch, seconds, language, gentle).expect("transcribe");
         eprintln!("{} stretches of {seconds} s in {:.1} s", batch.len(), t.elapsed().as_secs_f32());
-        for s in said.into_iter().flatten() {
-            println!("{:>9} {:>9}  {}", s.start_ms, s.end_ms, s.words);
+        for s in said.into_iter().flatten().flatten() {
+            let words: Vec<String> = s.words.split_whitespace().zip(s.word_ms.iter().map(Some).chain(std::iter::repeat(None))).map(|(w, ms)| ms.map_or_else(|| w.to_string(), |ms| format!("{w}@{ms}"))).collect();
+            println!("{:>9} {:>9}  {}", s.start_ms, s.end_ms, words.join(" "));
         }
     }
     eprintln!("{} s of audio in {:.1} s", clips.len() as f32 * seconds, all.elapsed().as_secs_f32());

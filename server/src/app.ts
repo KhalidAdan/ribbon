@@ -23,7 +23,6 @@ import { ReadAlongs } from "./library/readalong.ts";
 import { SearchIndex } from "./library/search.ts";
 import { LibrarySeries } from "./library/series.ts";
 import { Mp3Frames } from "./library/frames.ts";
-import { Transcriber } from "./library/transcribe.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
 import { readAlongRoutes } from "./readalong-routes.ts";
@@ -147,14 +146,11 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   if (catalog) jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, config.dataDir, await booksToDescribe(config.dataDir, books), report), null);
   // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
-  // The narration of books added before the server transcribed is heard in the background, in a lane of its own: it takes hours a book.
-  const transcriber = new Transcriber({ dataDir: config.dataDir, books, readAlongs, speech: config.speech ?? null, log: app.log });
-  transcriber.start(jobs);
-  app.addHook("onClose", async () => transcriber.stop());
-  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, transcriber, catalog, dataDir: config.dataDir });
+  // The narration isn't transcribed here: a device with a graphics card transcribes each book whole and sends it (records.ts, `keepTranscript`).
+  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir });
   await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
-  readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, transcriber, dataDir: config.dataDir });
+  readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }

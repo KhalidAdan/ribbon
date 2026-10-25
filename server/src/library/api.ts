@@ -10,7 +10,7 @@ import { bytesToRows } from "../../../src/core/csv.ts";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
 import type { Mp3Frames } from "./frames.ts";
-import { HEARD, keepHeard, type HeardKind } from "./records.ts";
+import { keepHeard, keepTranscript } from "./records.ts";
 import type { LibrarySeries } from "./series.ts";
 
 /** A cover's file name: its picture's hash and one of the widths it's made at. */
@@ -101,12 +101,22 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
   // Records come as the CSV a device keeps them in.
   app.addContentTypeParser("text/csv", { parseAs: "buffer" }, (_request, body, done) => done(null, body));
   app.post<{ Params: { id: string; kind: string }; Body: Buffer }>("/api/books/:id/records/:kind", { onRequest: mustSignIn, bodyLimit: RECORD_BYTES }, async (request, reply) => {
-    const kind = request.params.kind as HeardKind;
-    if (!HEARD.includes(kind)) return reply.code(404).send({ error: "A device sends only what it heard of a book: its heard and aligned records." });
+    if (request.params.kind !== "heard") return reply.code(404).send({ error: "A device sends what it heard at moments of a book (its heard record); a transcript is sent whole (PUT /api/books/:id/transcript)." });
     if (!Buffer.isBuffer(request.body)) return reply.code(415).send({ error: "Send the record as text/csv." });
-    const kept = await keepHeard(deps.dataDir, request.params.id, kind, (await bytesToRows(new Uint8Array(request.body))).rows);
+    const kept = await keepHeard(deps.dataDir, request.params.id, (await bytesToRows(new Uint8Array(request.body))).rows);
     if (!kept) return reply.code(404).send({ error: "No such book on this server." });
     return kept;
+  });
+
+  // A book's transcript, made whole by a device with a graphics card, kept in place of the one it had: one device's, start to end (#152).
+  app.put<{ Params: { id: string }; Body: Buffer }>("/api/books/:id/transcript", { onRequest: mustSignIn, bodyLimit: RECORD_BYTES }, async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (me?.role !== "admin") return reply.code(403).send({ error: "Only the admin's devices transcribe the library." });
+    if (!Buffer.isBuffer(request.body)) return reply.code(415).send({ error: "Send the transcript as text/csv." });
+    const kept = await keepTranscript(deps.dataDir, request.params.id, (await bytesToRows(new Uint8Array(request.body))).rows);
+    if (!kept) return reply.code(404).send({ error: "No such book on this server." });
+    if (kept.missing > 0) return reply.code(422).send({ error: `That transcript isn't whole: ${kept.missing} ${kept.missing === 1 ? "minute" : "minutes"} of the narration aren't in it.`, missing: kept.missing });
+    return reply.code(204).send();
   });
 }
 

@@ -4,6 +4,8 @@ import { localIdOf, opfFor, remoteBook, seriesFromServer, serverCoverPath, SHELF
 import { RIBBON_DIR } from "../../core/scan/walk";
 import type { SeriesGroup, SeriesRecord } from "../../core/series";
 import { ServerError, type ServerClient } from "./client";
+import { bytesToRows, rowsToBytes } from "../../core/csv";
+import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, withMinutesOf } from "../../core/reading/narration";
 
 /** The records kept beside a downloaded book here: what it brought from the server, and what was worked out here. */
 const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudness", "silence", "settings"];
@@ -198,16 +200,22 @@ export class ServerShelf {
   }
 
   /**
-   * The records the server carried in with a book (its chapters, what was
-   * heard of the narration and how it lines up with the text, …), kept
-   * beside it here under its id on this device, where Ribbon looks for
-   * them. Only the ones not here yet are fetched.
+   * The records the server keeps with a book (its chapters, what was heard
+   * of the narration, its transcript, …), kept beside it here under its id
+   * on this device, where Ribbon looks for them. Only the ones not here yet
+   * are fetched, but the transcript: the server's is taken every time, with
+   * only the minutes this device heard itself that it lacks (#152).
    */
   async keepRecords(detail: ServerBookDetail, localId: string): Promise<void> {
     for (const kind of detail.records ?? []) {
       const file = this.at(RIBBON_DIR, kind, `${localId}.csv`);
-      if (await this.host.exists(file)) continue;
-      const bytes = await this.client.file(detail.book.id, `records/${kind}.csv`);
+      const here = await this.host.exists(file);
+      if (here && kind !== "aligned") continue;
+      let bytes = await this.client.file(detail.book.id, `records/${kind}.csv`);
+      if (here) {
+        const read = async (b: Uint8Array) => transcriptFromRows((await bytesToRows(b)).rows);
+        bytes = await rowsToBytes(transcriptRows(withMinutesOf(await read(bytes), await read(await this.host.readFile(file)))), TRANSCRIPT_FIELDS);
+      }
       await this.host.mkdir(this.at(RIBBON_DIR, kind));
       await this.host.writeFile(file, bytes);
     }

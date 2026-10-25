@@ -37,13 +37,12 @@ Built so far:
   every book; and their listening, kept as the desktop keeps it, so the end
   of a book can say how long it took (`POST /api/books/:id/listened` and
   `…/finished`).
-- **The narration transcribed**, so read-along goes by sentence, not by
-  chapter (docs/SERVER.md, section 9). The server hears each book a minute
-  at a time with `ribbon-speech` (src-tauri/speech, the apps' own hearing),
-  in the background and behind everything else, a book someone opened
-  first; and a device that transcribed a book sends what it heard
-  (`POST /api/books/:id/records/aligned`). Both are merged into the book's
-  transcript, and a minute heard once is never heard again.
+- **The narration's transcript**, so read-along goes by sentence
+  (docs/SERVER.md, section 9). The server doesn't transcribe: the admin's
+  Mac or PC with a graphics card transcribes each book whole and sends it
+  (`PUT /api/books/:id/transcript`), working through the books still
+  missing minutes (`GET /api/library/transcripts`). Until a book's
+  transcript is whole, it's read only, on every device (#152).
 
 ## Running it
 
@@ -78,26 +77,10 @@ The server finds them in the repository's `target/` folder, or wherever
 `RIBBON_EBOOK_TOOL` and `RIBBON_FRAMES_TOOL` say. Without them, everything
 else works and asking for a read-along says the server can't.
 
-To transcribe the narration itself, it needs a third, `ribbon-speech`
-(src-tauri/speech: whisper.cpp, which needs cmake to build), and a whisper
-model, the one the apps download (`ggml-base-q5_1.bin`, about 57 MB, from
-[Hugging Face](https://huggingface.co/ggerganov/whisper.cpp)):
-
-```bash
-cargo build --release --manifest-path src-tauri/Cargo.toml -p ribbon-speech
-RIBBON_SPEECH_MODEL=~/models/ggml-base-q5_1.bin npm start
-```
-
-Without them, the transcripts are the ones devices send.
-
-How fast it hears is the machine's processor. On a 4-core virtual machine
-that shows its programs only SSE4 (no AVX), whisper base hears as fast as
-the book plays with all four cores, and half as fast on two, the default
-there: a 16-hour book in a day and a half. An Apple M2 hears 28 times as
-fast as the book plays on its processor, and 100 times on its GPU. A
-virtual machine given its host's processor type (`host` in Proxmox and
-libvirt) can use the host's AVX2, which whisper.cpp is built for when the
-image is built there.
+The narration is transcribed by the apps, on a computer with a graphics
+card, signed in as the server's admin: on a 4-core virtual machine whisper
+hears 0.8 times as fast as the book plays (base) or 0.22 times (small),
+where an Apple M2's graphics hear 29 to 45 times as fast.
 
 ## In Docker
 
@@ -155,9 +138,6 @@ From the environment:
 | `RIBBON_SECRET` | made on the first start | Signs sessions. Kept in the data folder unless given here. |
 | `RIBBON_EBOOK_TOOL` | `target/release/ribbon-ebook`, else `target/debug/` | The EPUB parser, for read-along. |
 | `RIBBON_FRAMES_TOOL` | `target/release/ribbon-frames`, else `target/debug/` | The MP3 frame index, so a streamed MP3 starts at the exact moment. |
-| `RIBBON_SPEECH_TOOL` | `target/release/ribbon-speech`, else `target/debug/` | Speech, to transcribe the narration. |
-| `RIBBON_SPEECH_MODEL` | none (the image's own, in Docker) | The whisper model. Empty, or not there: the server transcribes nothing, and keeps what devices send. |
-| `RIBBON_SPEECH_THREADS` | half the machine's cores | How many threads transcribing takes, always at the lowest priority. |
 | `RIBBON_DESCRIPTIONS` | none | `audible`: a book that came with no description, and has no EPUB with one, gets Audible's summary, after each folder is added and when the server starts. It asks Audible's catalog, sending only the book's title and author, and takes a recording only by one of its authors and as long as it (within 3%). A description already there is never replaced, and each book is asked about once. Unset, the server asks no one. |
 | `RIBBON_AUDIBLE_STORE` | `us` | Which Audible store to ask: `us`, `uk`, `ca`, `au`, `de`, `fr`, `it`, `es`, `in` or `jp`. |
 

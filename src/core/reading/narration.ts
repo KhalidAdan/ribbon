@@ -49,44 +49,100 @@ export function mergeHeard(
   return { heard: new Map([...theirs.heard, ...ours.heard]), anchors: new Map([...theirs.anchors, ...ours.anchors]) };
 }
 
-/** A book's narration transcribed: each stretch that was (start to end, ms), and each phrase heard in them with where it was found in the text. */
+/**
+ * A book's narration transcribed: each stretch that was (start to end, ms),
+ * which speech model heard each, and each phrase heard in them with where it
+ * was found in the text.
+ */
 export interface Transcript {
   spans: Map<number, number>;
   said: PlacedPhrase[];
+  /** The model each stretch was heard by (`ggml-small-q5_1`), by its start: how a stretch heard to have nothing in it is told from one that failed (#152). */
+  heardBy: Map<number, string>;
 }
 
-/** The fields of an `aligned/` record, in order. */
-export const TRANSCRIPT_FIELDS = ["start_ms", "end_ms", "words", "chars"];
+/** The fields of an `aligned/` record, in order. `word_ms` is when each of a phrase's words starts, in ms of the book, apart by spaces. */
+export const TRANSCRIPT_FIELDS = ["start_ms", "end_ms", "words", "chars", "heard_by", "word_ms"];
 
-/** A transcript as its record's rows, by time: each stretch as a row with no words, before the phrases heard in it. */
-export function transcriptRows(t: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[] }): Row[] {
+/** A transcript as its record's rows, by time: each stretch as a row with no words and the model that heard it, before the phrases heard in it. */
+export function transcriptRows(t: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[]; heardBy?: ReadonlyMap<number, string> }): Row[] {
   return [
-    ...[...t.spans].map(([s, e]) => ({ start_ms: String(s), end_ms: String(e), words: "", chars: "" })),
-    ...t.said.map((x) => ({ start_ms: String(x.startMs), end_ms: String(x.endMs), words: x.words, chars: x.chars === null ? "" : String(x.chars) })),
+    ...[...t.spans].map(([s, e]) => ({ start_ms: String(s), end_ms: String(e), words: "", chars: "", heard_by: t.heardBy?.get(s) ?? "", word_ms: "" })),
+    ...t.said.map((x) => ({ start_ms: String(x.startMs), end_ms: String(x.endMs), words: x.words, chars: x.chars === null ? "" : String(x.chars), heard_by: "", word_ms: x.wordMs?.join(" ") ?? "" })),
   ].sort((a, b) => Number(a.start_ms) - Number(b.start_ms) || (a.words ? 1 : 0) - (b.words ? 1 : 0));
 }
 
 /**
  * Two transcripts of a book as one: every stretch either transcribed, and
  * each phrase once, by when it starts and what it says. `ours` wins a tie.
- * So what another device heard stays, and nothing is ever taken away.
+ * One device keeps its own record this way across sessions; a book's
+ * transcript on a server is only ever replaced whole.
  */
-export function mergeTranscripts(theirs: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[] }, ours: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[] }): Transcript {
+export function mergeTranscripts(theirs: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[]; heardBy?: ReadonlyMap<number, string> }, ours: { spans: ReadonlyMap<number, number>; said: readonly PlacedPhrase[]; heardBy?: ReadonlyMap<number, string> }): Transcript {
   const phrases = new Map(theirs.said.map((x) => [`${x.startMs}|${x.words}`, x]));
   for (const x of ours.said) phrases.set(`${x.startMs}|${x.words}`, x);
-  return { spans: new Map([...theirs.spans, ...ours.spans]), said: [...phrases.values()] };
+  return { spans: new Map([...theirs.spans, ...ours.spans]), said: [...phrases.values()], heardBy: new Map([...(theirs.heardBy ?? []), ...(ours.heardBy ?? [])]) };
 }
 
-/** The narration transcribed: each stretch that was (a row with no words), and each phrase heard in them with where it was found in the text, or null. */
+/**
+ * The narration transcribed: each stretch that was (a row with no words),
+ * and each phrase heard in them with where it was found in the text, or
+ * null.
+ *
+ * A stretch counts as transcribed when it names the model that heard it, or
+ * when something was heard in it. One from before Ribbon named the model,
+ * with nothing heard in it, may be a clip that failed and was kept as if
+ * nothing was said (#152), so it's left out, to be heard again.
+ */
 export function transcriptFromRows(rows: readonly Row[]): Transcript {
-  const spans = new Map<number, number>();
+  const stretches: { start: number; end: number; by: string }[] = [];
   const said: PlacedPhrase[] = [];
   for (const r of rows) {
     if (!r.start_ms || !r.end_ms) continue;
-    if (!r.words) spans.set(int(r.start_ms), int(r.end_ms));
-    else said.push({ startMs: int(r.start_ms), endMs: int(r.end_ms), words: r.words, chars: r.chars ? int(r.chars) : null });
+    if (!r.words) stretches.push({ start: int(r.start_ms), end: int(r.end_ms), by: r.heard_by ?? "" });
+    else said.push({ startMs: int(r.start_ms), endMs: int(r.end_ms), words: r.words, chars: r.chars ? int(r.chars) : null, ...(r.word_ms ? { wordMs: r.word_ms.split(" ").map(int) } : {}) });
   }
-  return { spans, said };
+  const starts = said.map((x) => x.startMs).sort((a, b) => a - b);
+  const spans = new Map<number, number>();
+  const heardBy = new Map<number, string>();
+  for (const x of stretches) {
+    if (x.by) heardBy.set(x.start, x.by);
+    else if (!somethingIn(starts, x.start, x.end)) continue;
+    spans.set(x.start, x.end);
+  }
+  return { spans, said, heardBy };
+}
+
+/** Whether any of these times, in order, falls in [from, to). */
+function somethingIn(sorted: readonly number[], from: number, to: number): boolean {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid]! < from) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo < sorted.length && sorted[lo]! < to;
+}
+
+/**
+ * A transcript, with the minutes another has that it hasn't. Each minute is
+ * one transcript's, never both, so two hearings of the same minute are
+ * never mixed: a device takes a server's transcript, keeping only the
+ * minutes it heard itself that the server's lacks.
+ */
+export function withMinutesOf(base: Transcript, more: Transcript): Transcript {
+  const spans = new Map(base.spans);
+  const heardBy = new Map(base.heardBy);
+  const said = [...base.said];
+  const extra = [...more.spans].filter(([start]) => !base.spans.has(start));
+  for (const [start, end] of extra) {
+    spans.set(start, end);
+    const by = more.heardBy.get(start);
+    if (by) heardBy.set(start, by);
+  }
+  for (const p of more.said) if (extra.some(([start, end]) => p.startMs >= start && p.startMs < end)) said.push(p);
+  return { spans, heardBy, said };
 }
 
 /** Where each transcribed phrase begins in the text, by when it's said: the phrases found there. */

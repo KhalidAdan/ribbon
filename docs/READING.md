@@ -404,18 +404,20 @@ chapter, and whisper hears them, encoding only the clip's own frames. The words
 are matched against each contents entry's opening, loosely (whisper spells
 "Eluadhri" as "Eloadri" and says "2" for "Two"; the commonest words are
 left out), and a match is the strongest evidence in the pairing score.
-It runs only when the pairing has doubts, the doubtful chapters first,
-while the book is open to read, and keeps what it heard beside the book
-in `heard/<book>.csv`, so each book is heard once. The model is any
-whisper.cpp `ggml` file (Settings → Read-along), or Ribbon's download of
-whisper base (about 57 MB, from Hugging Face). On Voidscarred with
+On a machine with a graphics card, every chapter's opening is heard
+before the narration is transcribed, while the book is open to read, and
+kept beside the book in `heard/<book>.csv`, so each book is heard once. The
+model is any whisper.cpp `ggml` file (Settings → Read-along), or Ribbon's
+download of whisper small (about 190 MB, from Hugging Face; base, 57 MB,
+until #152). On Voidscarred with
 SayIt's small model: 34 of 35 pairs confirmed by their words; with only
 generated titles, mean confidence rose from 0.53 to 0.99.
 
 whisper.cpp is compiled with AVX2 and FMA (`.cargo/config.toml`);
 without them MSVC builds it unoptimised and a clip takes a minute.
 
-**Checkpoints inside chapters.** Chapter and proportion, measured on
+**Checkpoints inside chapters** (until #152, which made read-along wait
+for a whole transcript; kept for the measurements). Chapter and proportion, measured on
 Voidscarred by hearing 27 places a quarter, half and three quarters into
 nine chapters and finding the words in the text: a median of 15 s off,
 52 s at worst. A page is about two minutes. So after the doubts, Ribbon
@@ -429,21 +431,24 @@ GPU) checks the whole book; a slower one, the chapters around the reader.
 "Listen from here" and "Go to the narrator" hear the place itself first
 when no checkpoint is within 45 s.
 
-**The whole narration, on a GPU (#57).** A machine that hears a clip in
-under 1.2 s transcribes the whole recording instead of hearing
-checkpoints: minutes of audio, three at once (an RTX 2070 does 8
-minutes in 7.5 s; a 10-hour book in about ten minutes), from just
-before the narrator or the reader onward first. whisper gives each
-phrase with its time. The phrases of a minute are matched word by word
+**The whole narration, on a GPU (#57, #152).** A machine that hears a
+clip in under 1.2 s transcribes the whole recording, start to end:
+minutes of audio, three at once (an RTX 2070 does 8 minutes in 7.5 s; a
+10-hour book in about ten minutes). A slower machine transcribes nothing.
+whisper gives each phrase with its time, and each word's. The phrases of a minute are matched word by word
 to the text around where the pairing puts them, the best local
 alignment of the two (whisper hears "Eloadri" for "Eluadhri" and "2"
 for "Two"); each phrase whose first words are found is a checkpoint.
 On Voidscarred's first 20 minutes, 96% of heard words were found and
 a checkpoint fell every 6 s. The transcript is kept beside the book in
-`aligned/<book>.csv`, with which minutes were done, so it is made once
-for every device. A server's book is sent to the server as it's
-transcribed, which merges it with its own and transcribes the rest itself
-(SERVER.md, section 9), so the TV reads it along too.
+`aligned/<book>.csv`, with which minutes were done and the model that
+heard each, so it is made once for every device. A minute that couldn't
+be heard isn't kept, and is heard again; one heard to have nothing in it
+is kept as that (#152). The book reads along once every minute is
+transcribed, and opens to read only until then. A server's book is sent
+to the server whole, in place of what it had (SERVER.md, section 9), so
+the TV reads it along too; the admin's machine transcribes the server's
+books in the background, one at a time.
 
 **Read-along.** Where the points around the narrator are less than 20 s
 apart (an overlay, or a transcribed stretch), the mapping places it to

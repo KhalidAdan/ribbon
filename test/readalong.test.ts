@@ -40,11 +40,12 @@ function book(): Ebook {
 const DURATION = 20_000;
 const chapters = [{ startMs: 0, endMs: DURATION, title: "Chapter 1" }];
 
-function paired(withOverlay: boolean) {
+/** The book paired by its Media Overlay, or by its one chapter with `transcribed` of its narration's one minute transcribed. */
+function paired(withOverlay: boolean, transcribed = { done: 0, total: 1 }) {
   const text = new BookText(book());
   const overlay = withOverlay ? overlayAnchors(text, { files: [{ path: "x.mp3", durationMs: DURATION }], durationMs: DURATION }) : null;
   const alignment = pairBook(text, chapters, DURATION, { fixes: [], heard: new Map(), anchors: [], overlay });
-  return { text, readAlong: readAlongOf(text, alignment) };
+  return { text, readAlong: readAlongOf(text, alignment, transcribed) };
 }
 
 describe("a read-along", () => {
@@ -68,6 +69,12 @@ describe("a read-along", () => {
     expect(sentences.map((s) => s.ms)).toEqual([1000, 4000, 7000]);
     expect(sentences.every((s) => s.exact && s.endMs > s.ms)).toBe(true);
     expect(readAlong.blocks[3]!.sentences![0]).toMatchObject({ ms: 10_000, exact: true });
+  });
+
+  it("reads along by its Media Overlay, or once its narration is transcribed whole, and reads only until then (#152)", () => {
+    expect(paired(true).readAlong).toMatchObject({ ready: true, transcribed: { done: 0, total: 1 } });
+    expect(paired(false).readAlong).toMatchObject({ ready: false, transcribed: { done: 0, total: 1 } });
+    expect(paired(false, { done: 1, total: 1 }).readAlong.ready).toBe(true);
   });
 
   it("marks nothing exact when the text is paired with the audio only by its chapters", () => {

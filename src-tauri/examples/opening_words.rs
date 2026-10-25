@@ -22,7 +22,7 @@ fn main() {
             let words = ribbon_lib::speech::opening_words(model, batch, seconds, language).expect("words");
             let each = t.elapsed().as_secs_f32() / batch.len() as f32;
             for (c, w) in batch.iter().zip(words) {
-                println!("{:>9} ms  {each:>6.1}s  {w}", c.start_ms);
+                println!("{:>9} ms  {each:>6.1}s  {}", c.start_ms, w.as_deref().unwrap_or("(could not hear it)"));
             }
         }
         return;
@@ -34,6 +34,6 @@ fn main() {
             continue;
         }
         let words = ribbon_lib::speech::opening_words(model, std::slice::from_ref(c), seconds, language).expect("words");
-        println!("{:>9} ms  {:>6.1}s  {}", c.start_ms, t.elapsed().as_secs_f32(), words[0]);
+        println!("{:>9} ms  {:>6.1}s  {}", c.start_ms, t.elapsed().as_secs_f32(), words[0].as_deref().unwrap_or("(could not hear it)"));
     }
 }

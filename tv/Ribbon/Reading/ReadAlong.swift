@@ -61,9 +61,28 @@ struct ReadAlong: Decodable {
         }
     }
 
+    /// How many minutes of the narration are transcribed, of how many.
+    struct Transcribed: Decodable {
+        let done: Int
+        let total: Int
+    }
+
     let contents: [Entry]
     let blocks: [Block]
     let check: Check?
+    /// Whether it reads along: its narration is transcribed whole (#152). Missing from an older server, which always did.
+    let ready: Bool?
+    let transcribed: Transcribed?
+
+    /// Reads along, marking and following the narrator's sentence; else the book opens to read only, at your place.
+    var readsAlong: Bool { ready ?? true }
+
+    /// What to tell someone opening a book that doesn't read along yet.
+    var notReady: (title: String, hint: String)? {
+        guard !readsAlong else { return nil }
+        let share = transcribed.map { $0.total > 0 ? Int((Double($0.done) / Double($0.total) * 100).rounded(.down)) : 0 } ?? 0
+        return ("Reading only for now", "Read-along comes once the narration is transcribed, \(share)% so far, on a computer with Ribbon and a graphics card")
+    }
 }
 
 /// Every sentence of a book in order, counted across it the way the server

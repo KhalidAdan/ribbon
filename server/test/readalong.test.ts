@@ -12,11 +12,14 @@ import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
 const SENTENCES = ["The first sentence is here.", "A second one follows it.", "The third ends the chapter."];
 
+/** The narration transcribed whole on a computer with a graphics card, each phrase found in the text: the heading is 11 characters, then the sentences. */
+const TRANSCRIPT = "start_ms,end_ms,words,chars,heard_by,word_ms\n0,12000,,,ggml-small-q5_1,\n1000,3900,The first sentence is here,11,,\n4000,7900,A second one follows it,39,,\n8000,11500,The third ends the chapter,64,,\n";
+
 /**
  * Read-along for a device that only draws and plays (the Apple TV): a
  * book's text with when each sentence is read, from the EPUB and the
- * transcript that came in with it, and the person's place in it as a
- * sentence.
+ * transcript a computer with a graphics card sent whole, and the person's
+ * place in it as a sentence.
  */
 describe("read-along from the server", () => {
   let dir: string;
@@ -34,10 +37,10 @@ describe("read-along from the server", () => {
     const folder = path.join(library, "An Author", "Read Along");
     mp3(path.join(folder, "01.mp3"), { title: "Read Along", album: "Read Along", artist: "An Author" }, undefined, 12);
     epub(path.join(folder, "Read Along.epub"), "Chapter One", SENTENCES);
-    // The narration transcribed on a desktop, each phrase found in the text: the heading is 11 characters, then the sentences.
+    // A transcript in the folder's records, from before (#152), isn't carried in: the book reads only until one is sent whole.
     const id = bookId("An Author/Read Along", statSync(path.join(folder, "01.mp3")).size);
     mkdirSync(path.join(library, ".ribbon", "aligned"), { recursive: true });
-    writeFileSync(path.join(library, ".ribbon", "aligned", `${id}.csv`), "start_ms,end_ms,words,chars\n0,12000,,\n1000,3900,The first sentence is here,11\n4000,7900,A second one follows it,39\n8000,11500,The third ends the chapter,64\n");
+    writeFileSync(path.join(library, ".ribbon", "aligned", `${id}.csv`), "start_ms,end_ms,words,chars\n0,12000,,\n1000,3900,The first sentence is here,11\n");
     const made = await serverWithAdmin(dir, { ebookTool: tool, framesTool: builtTool("ribbon-frames") });
     server = made.server;
     token = made.admin;
@@ -58,10 +61,27 @@ describe("read-along from the server", () => {
     expect((await server.app.inject({ method: "POST", url: `/api/books/${book.id}/place`, payload: {} })).statusCode).toBe(401);
   });
 
+  it("reads only until a computer with a graphics card sends its whole transcript, which it keeps in place of what it had (#152)", async () => {
+    const before = (await get(`/api/books/${book.id}/readalong`)).json() as ReadAlong;
+    expect(before).toMatchObject({ ready: false, transcribed: { done: 0, total: 1 } });
+    expect(before.blocks.flatMap((b) => b.sentences ?? []).some((s) => s.exact)).toBe(false);
+    const put = (csv: string, as = token) => server.app.inject({ method: "PUT", url: `/api/books/${book.id}/transcript`, payload: csv, headers: { authorization: `Bearer ${as}`, "content-type": "text/csv" } });
+    // A transcript that isn't whole is refused: its minute was never heard, only noted.
+    const partial = await put("start_ms,end_ms,words,chars,heard_by,word_ms\n0,12000,,,,\n");
+    expect(partial.statusCode).toBe(422);
+    expect(partial.json()).toMatchObject({ missing: 1 });
+    expect((await put(TRANSCRIPT)).statusCode).toBe(204);
+    // A device no longer adds pieces to it.
+    expect((await server.app.inject({ method: "POST", url: `/api/books/${book.id}/records/aligned`, payload: TRANSCRIPT, headers: { authorization: `Bearer ${token}`, "content-type": "text/csv" } })).statusCode).toBe(404);
+    const list = (await get("/api/library/transcripts")).json() as { books: { id: string; done: number; total: number }[] };
+    expect(list.books).toEqual([{ id: book.id, title: "Read Along", done: 1, total: 1 }]);
+  });
+
   it("gives the book's text with when each sentence is read, exact where the narration was transcribed", async () => {
     const r = await get(`/api/books/${book.id}/readalong`);
     expect(r.statusCode).toBe(200);
     const readAlong = r.json() as ReadAlong;
+    expect(readAlong.ready).toBe(true);
     expect(readAlong.blocks.map((b) => b.k)).toEqual(["h", "p"]);
     expect(readAlong.contents).toEqual([{ title: "Chapter One", block: 0 }]);
     const sentences = readAlong.blocks[1]!.sentences!;

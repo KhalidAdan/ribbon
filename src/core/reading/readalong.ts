@@ -17,6 +17,14 @@ export const READ_ALONG_FORMAT = "ribbon-readalong/1";
 
 export interface ReadAlong {
   format: typeof READ_ALONG_FORMAT;
+  /**
+   * Whether it reads along: its narration is transcribed whole, or its own
+   * Media Overlay places it. Until then a device opens it to read only, at
+   * the reader's place, and marks nothing as the narrator's (#152).
+   */
+  ready: boolean;
+  /** How many minutes of its narration are transcribed, of how many. */
+  transcribed: { done: number; total: number };
   /** The contents: each entry's title and the block it starts at. */
   contents: { title: string; block: number }[];
   /** The reading order's paragraphs, headings and breaks between scenes. Pictures are left out. */
@@ -97,8 +105,9 @@ function* shownBlocks(text: BookText): Generator<{ section: number; block: numbe
   }
 }
 
-/** A book's read-along, from its text and the text paired with its audio. */
-export function readAlongOf(text: BookText, alignment: Alignment): ReadAlong {
+/** A book's read-along, from its text, the text paired with its audio, and how much of the narration is transcribed. */
+export function readAlongOf(text: BookText, alignment: Alignment, transcribed: { done: number; total: number }): ReadAlong {
+  const ready = alignment.how === "overlay" || transcribed.done >= transcribed.total;
   const blocks: ReadAlongBlock[] = [];
   const where: { section: number; block: number }[] = [];
   for (const { section, block, source } of shownBlocks(text)) {
@@ -111,7 +120,7 @@ export function readAlongOf(text: BookText, alignment: Alignment): ReadAlong {
     const sentences = text.sentences(section, block).map((s) => {
       const ms = at(s.start);
       const endMs = at(s.end);
-      return { start: s.start, end: s.end, ms, endMs, exact: endMs > ms && precise(alignment, ms) };
+      return { start: s.start, end: s.end, ms, endMs, exact: ready && endMs > ms && precise(alignment, ms) };
     });
     blocks.push({
       k: source.k === "h" ? "h" : "p",
@@ -130,7 +139,7 @@ export function readAlongOf(text: BookText, alignment: Alignment): ReadAlong {
     const block = where.findIndex((w) => w.section > entry.section || (w.section === entry.section && w.block >= entry.block));
     if (block >= 0 && contents.at(-1)?.block !== block) contents.push({ title: entry.label, block });
   }
-  return { format: READ_ALONG_FORMAT, contents, blocks, check: checkReadAlong(alignment, blocks) };
+  return { format: READ_ALONG_FORMAT, ready, transcribed, contents, blocks, check: checkReadAlong(alignment, blocks) };
 }
 
 /** A read-along's sentences checked against what was heard of its narration (`ReadAlongCheck`). */

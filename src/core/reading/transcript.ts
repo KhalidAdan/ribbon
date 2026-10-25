@@ -15,6 +15,8 @@ export interface Said {
   startMs: number;
   endMs: number;
   words: string;
+  /** When each of its words (apart by spaces) starts, when the model said: a word's own time, rather than a guess by its place in the phrase. */
+  wordMs?: number[];
 }
 
 /** A phrase heard, with where it was found in the text (characters of the reading order), or null when it wasn't. */
@@ -36,6 +38,11 @@ export interface Stretch {
   endMs: number;
   file: number;
   offset: number;
+}
+
+/** The stretches of a book's narration not yet transcribed, in order: none when its transcript is whole. */
+export function untranscribed(files: readonly { durationMs: number }[], spans: ReadonlyMap<number, number>): Stretch[] {
+  return stretchesOf(files).filter((x) => !spans.has(x.startMs));
 }
 
 /** Every stretch of a book's narration, a minute each from the start of each file, in order. */
@@ -102,8 +109,13 @@ function firstAt(index: readonly WordAt[], chars: number): number {
  * checkpoint at each phrase whose opening words were found.
  */
 export function matchTranscript(index: readonly WordAt[], said: readonly Said[], from: number, to: number): TranscriptMatch {
-  const heard: { w: string; phrase: number; k: number }[] = [];
-  said.forEach((s, phrase) => words(s.words).forEach((w, k) => heard.push({ w, phrase, k })));
+  // Each word heard, with its own time when the model gave one for each of the phrase's words.
+  const heard: { w: string; phrase: number; ms: number | null }[] = [];
+  said.forEach((s, phrase) => {
+    const tokens = s.words.split(/\s+/).filter(Boolean);
+    const timed = s.wordMs?.length === tokens.length ? s.wordMs : null;
+    tokens.forEach((token, t) => words(token).forEach((w) => heard.push({ w, phrase, ms: timed ? timed[t]! : null })));
+  });
   const lo = firstAt(index, from);
   const hi = Math.max(lo, firstAt(index, to));
   const text = index.slice(lo, hi);
@@ -166,8 +178,8 @@ export function matchTranscript(index: readonly WordAt[], said: readonly Said[],
       const j = at[start + k]!;
       if (j < 0) continue;
       const s = said[p]!;
-      // A later word of the phrase: its time by its share of the phrase.
-      const ms = Math.round(s.startMs + ((s.endMs - s.startMs) * k) / Math.max(1, count));
+      // A later word of the phrase: its own time, or else its time by its share of the phrase.
+      const ms = heard[start + k]!.ms ?? Math.round(s.startMs + ((s.endMs - s.startMs) * k) / Math.max(1, count));
       anchors.push({ ms, chars: text[j]!.at });
       break;
     }

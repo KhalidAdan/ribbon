@@ -276,39 +276,41 @@ offered, and the book says what it's waiting for.
 | --- | --- | --- | --- | --- |
 | Copied in, chapters read, covers made | minutes | yes | | |
 | EPUB parsed | seconds | yes | yes | |
-| Text paired with audio, by chapter | seconds | yes | yes | **chapter starts only** |
-| Narration transcribed | hours | yes | yes | **any sentence, with the highlight** |
+| Text paired with audio, by chapter | seconds | yes | yes | |
+| Narration transcribed whole, by a computer with a graphics card | under an hour a book | yes | yes | **any sentence, with the highlight** |
 
 - **Listening and reading never wait for read-along.** A book can be
   listened to as soon as its audio is in, and read as soon as its EPUB is.
-- **Paired by chapter,** the only places known exactly in both editions are
-  chapter starts. So moving between them is offered at those: "Listen from
-  the start of this chapter", opening the text at the narrator's chapter.
-  "Listen from here" at a sentence, following the narrator page by page,
-  and the highlight wait for the transcript.
+- **Read-along waits for the whole transcript** (#152). Until a book's
+  narration is transcribed whole, every device opens it to read only, at
+  the person's place: no sentence marked, no pages following the narrator,
+  no "Listen from here". A guess by chapter is never shown as the
+  sentence being read. A book with its own Media Overlay reads along at
+  once.
 - **Transcribed,** everything read-along does is offered.
-- **The book says where it stands** on its page, in plain words: "Read-along:
-  by chapter for now; sentences in about 2 hours". The estimate comes from
-  how long the server's last transcriptions took.
+- **The book says where it stands** as it opens on the TV: "Reading only
+  for now: read-along comes once the narration is transcribed, 34% so
+  far".
 - **Devices catch up on their own.** A book downloaded at an earlier stage
   gets the rest when it's ready: the server pushes an event, and the device
   fetches only the new records (the transcript, the pairing), which are
   small.
-- **Order of work:** books someone has opened go first, then the newest.
-- **Transcribed on the server, and sent by devices** (built,
-  `server/src/library/transcribe.ts`): the server hears each book's
-  narration a minute at a time with `ribbon-speech` (src-tauri/speech, the
-  apps' own whisper), as one long job in a lane of its own, so adding a
-  folder never waits on it, at the lowest priority, on half the machine. It
-  chooses again every eight minutes of narration: a book someone opened on
-  the TV first, from where they are. Each phrase is placed in the text by
-  the apps' own code (`placeStretch`, src/core/reading/transcript.ts). A
-  device that transcribed a server's book sends what it heard
-  (`POST /api/books/:id/records/aligned`), which is far quicker where it has
-  a GPU. Both are merged into the book's `records/aligned.csv` as the apps
-  merge theirs (`mergeTranscripts`): every stretch, each phrase once,
-  nothing taken away, and a minute transcribed anywhere is never heard
-  again. Adding a folder again merges what was heard beside its books too.
+- **Transcribed by a computer with a graphics card, one transcript a book**
+  (#152). The server transcribes nothing: its processor is too slow (on a
+  4-core virtual machine, 0.8 times as fast as the book plays with whisper
+  base, 0.22 with small), and two machines writing one transcript is how a
+  failure stayed in one through deleting the book and adding it again. The
+  admin's Mac or PC, signed in as the admin with a speech model, works
+  through the books still missing minutes (`GET /api/library/transcripts`),
+  one at a time, while Ribbon is open: it downloads a book it hasn't for the
+  while, transcribes it start to end (src/app/transcribing.ts, whisper small
+  with each word's time), and sends it whole (`PUT
+  /api/books/:id/transcript`), kept in place of what the book had. One that
+  isn't whole is refused, and a piece of one is never taken. Each minute
+  says which model heard it; one from before that with nothing heard in it
+  may be a clip that failed (#152), so it's heard again. A transcript in a
+  folder's records isn't carried in. What was heard at chapter starts
+  still comes from devices (`POST /api/books/:id/records/heard`), merged.
 - **What a book came without is filled in** from its own files, as a job
   after it's added, and when the server starts for books added before
   (`server/src/library/hydrate.ts`). Its description is its EPUB's
@@ -332,15 +334,11 @@ offered, and the book says what it's waiting for.
   lists every book for the admin, the ones that need a person first
   (`GET /api/library/readalong`, `stateOf` in
   server/src/library/readalong.ts):
-  - flagged: transcribed, and still by chapter;
+  - flagged: transcribed whole, and still not to the sentence;
   - unpaired: its chapters didn't pair, so nothing heard can be placed;
   - unreadable: its EPUB can't be read;
-  - waiting for a device's transcript, on a server that doesn't transcribe;
-  - transcribing;
+  - waiting for a computer with a graphics card to transcribe it whole;
   - by sentence.
-
-  When the server has heard all it can of a book, it says in its log how
-  the book reads along, and warns about one still by chapter.
 
 ## 10. The API (first milestone)
 
@@ -438,10 +436,13 @@ whisper base, `ggml-base-q5_1.bin`, heard as the apps hear it):
 | An Apple M2, on Metal | 101× with 3 at once; 53× through the server's job, one at a time |
 
 On that virtual machine a 16-hour book takes a day and a half on half the
-machine, and a library of 160 hours two weeks; given its host's processor
-type, whisper.cpp could use AVX2 there. A device with a GPU does the same
-book in minutes, so whichever is first, the device or the server, fills in
-the transcript. Echoes of Eternity, 15.8 hours, through the server's job on
+machine, and a library of 160 hours two weeks. A device with a GPU does the
+same book in minutes. Since 2026-10-24 (#152) only a device with a GPU
+transcribes, with whisper small, each book whole: on the M2's GPU small
+hears 29 times as fast as the book plays to base's 45, and on 12 minutes of
+Echoes of Eternity 97.2% of the words it heard were in the text there, to
+base's 95.6%; on the virtual machine small was 0.22 times as fast, 3.7 times
+slower than base. Echoes of Eternity, 15.8 hours, through the server's job on
 the M2: 18 minutes, and its read-along went from 0% of sentences placed to
 the sentence to 99%, each moment heard 0.5 s from where its neighbours put
 it at the median (6.1 s at worst). Its transcript is 1.1 MB (450 KB

@@ -588,14 +588,14 @@ export class LibraryService {
     try {
       return transcriptFromRows((await bytesToRows(await this.host.readFile(this.dir("aligned", `${bookId}.csv`)))).rows);
     } catch {
-      return { spans: new Map(), said: [] }; // nothing transcribed yet
+      return { spans: new Map(), said: [], heardBy: new Map() }; // nothing transcribed yet
     }
   }
 
   /** Kept beside the book, merged with what is there already, as writeHeard is. */
-  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly PlacedPhrase[]): Promise<void> {
+  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly PlacedPhrase[], heardBy: ReadonlyMap<number, string>): Promise<void> {
     await this.host.mkdir(this.dir("aligned"));
-    const all = mergeTranscripts(await this.readAligned(bookId), { spans, said });
+    const all = mergeTranscripts(await this.readAligned(bookId), { spans, said, heardBy });
     await this.host.writeFile(this.dir("aligned", `${bookId}.csv`), await rowsToBytes(transcriptRows(all), TRANSCRIPT_FIELDS));
   }
 
