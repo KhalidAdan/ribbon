@@ -66,13 +66,14 @@ final class ReadingSession {
     /// The river comes in once the narration has played this long with the remote following it.
     static let riverAfterMs = 5_000
 
-    /// Opened at the narrator's sentence when the book is playing, else at the place the server gave.
+    /// Opened at the narrator's sentence when the book is playing and reads along, else at the place the server gave.
     init(listening: Listening, readAlong: ReadAlong, place: BookPlace?) {
         self.listening = listening
         self.readAlong = readAlong
         sentences = Sentences(readAlong)
         let last = max(0, sentences.count - 1)
-        let start = min(listening.playing ? sentences.read(at: listening.positionMs) : place?.sentence ?? sentences.read(at: listening.positionMs), last)
+        let narrated = readAlong.readsAlong && listening.playing
+        let start = min(narrated ? sentences.read(at: listening.positionMs) : place?.sentence ?? sentences.read(at: listening.positionMs), last)
         cursor = start
         narrator = start
         // The sentences time the narration's resuming and its stopping for someone who dozed off, in the player too.
@@ -80,7 +81,7 @@ final class ReadingSession {
         listening.onTime = { [weak self] ms in self?.heard(ms) }
         listening.onStop = { [weak self] in self?.stopped() }
         if !listening.playing { offerDozed() }
-        caveat = readAlong.check?.caveat
+        caveat = readAlong.notReady ?? readAlong.check?.caveat
         if caveat != nil {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(6))
@@ -105,9 +106,11 @@ final class ReadingSession {
     }
 
     /// Play and pause, or Select: on the narrator's sentence, pause or go on, back a little after a while away; on
-    /// any other, read from it.
+    /// any other, read from it. A book that reads only plays on from where it was, wherever the remote is.
     func playPause() {
-        if cursor != narrator {
+        if !readAlong.readsAlong {
+            if listening.playing { listening.pause() } else { resumePlace() }
+        } else if cursor != narrator {
             listenFromHere()
         } else if listening.playing {
             listening.pause()
@@ -119,8 +122,10 @@ final class ReadingSession {
     }
 
     /// Left: listen from the sentence the remote is on. Again within a moment, from the sentence before the one
-    /// listened from, and again, a sentence further back each time.
+    /// listened from, and again, a sentence further back each time. Nothing, in a book that reads only: when its
+    /// sentences are read isn't known yet.
     func left() {
+        guard readAlong.readsAlong else { return }
         if let last = lastLeft, Date().timeIntervalSince(last.at) < Self.againWithin {
             var back = last.sentence - 1
             while back > 0 && !sentences[back].narrated { back -= 1 }
@@ -306,8 +311,10 @@ final class ReadingSession {
         onMarks?()
     }
 
-    /// The narration reached a moment: the sentence it's in is the narrator's, and the remote's while it follows.
+    /// The narration reached a moment: the sentence it's in is the narrator's, and the remote's while it follows. In a
+    /// book that reads only, the text stays where the person is reading.
     private func heard(_ ms: Int) {
+        guard readAlong.readsAlong else { return }
         let before = river
         flow(ms)
         let now = sentences.read(at: followed(ms))
