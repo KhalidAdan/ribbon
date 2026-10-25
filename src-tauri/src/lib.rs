@@ -1,6 +1,7 @@
 pub mod ebook;
 pub mod frames;
 pub mod awake;
+pub mod quit;
 pub mod speech;
 mod home;
 mod online;
@@ -108,6 +109,8 @@ pub fn run() {
             ebook::ebook_open,
             ebook::export::ebook_export,
             awake::stay_awake,
+            quit::quit_heard,
+            quit::quit,
             speech::speech_openings,
             speech::speech_transcribe,
             frames::audio_prepare,
@@ -136,6 +139,16 @@ pub fn run() {
         )
         .setup(|app| {
             log::info!("ribbon starting; home folder {}", home::home_dir().display());
+            // Cmd-Q asks the page first, in case Ribbon is transcribing (quit.rs).
+            #[cfg(target_os = "macos")]
+            {
+                app.set_menu(quit::menu(app.handle())?)?;
+                app.on_menu_event(|app, event| {
+                    if event.id() == quit::QUIT {
+                        quit::asked(app);
+                    }
+                });
+            }
             // Covers are served from the local mirror; a local path canonicalises in microseconds.
             let base = home::mirror_base();
             let _ = std::fs::create_dir_all(&base);

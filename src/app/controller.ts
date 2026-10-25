@@ -44,7 +44,7 @@ import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
 import * as perf from "./perf";
 import { narrationLanguage, STRETCH_MS, stretchesOf, untranscribed, type PlacedPhrase } from "../core/reading/transcript";
-import { modelName, transcribeWhole } from "./transcribing";
+import { HearingStalled, modelName, transcribeWhole } from "./transcribing";
 import { locate as locate_ } from "../core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "../core/reading/anchors";
 
@@ -109,10 +109,13 @@ export interface Platform {
   /** Ask for one file, of the given kinds. Hosts without a file dialog leave it out. */
   pickFile?: (title: string, filters: { name: string; extensions: string[] }[]) => Promise<string | null>;
   /**
-   * Run `flush` before the window closes, and wait for it. Returns an
+   * Run `flush` before the window closes or the app quits, and wait for it;
+   * first ask `mayClose`, and stay open when it says no. Returns an
    * unsubscribe. Hosts without a window of their own leave it out.
    */
-  onWindowClose?: (flush: () => Promise<void>) => () => void;
+  onWindowClose?: (flush: () => Promise<void>, mayClose: () => Promise<boolean>) => () => void;
+  /** Ask the person whether to close anyway, saying `why` not to; true to close. */
+  askToClose?: (why: string) => Promise<boolean>;
   /** The one folder the app owns on this machine, when there is one. */
   home?: {
     path(): Promise<string>;
@@ -2183,6 +2186,11 @@ export class AppController {
       }
     } catch (e) {
       log.warn("could not hear the narrator:", describe(e));
+      // The speech model stopped answering (#158): tried again in a minute, from what's kept, if the book is still open.
+      if (e instanceof HearingStalled)
+        setTimeout(() => {
+          if (this.readingCtx === ctx) void this.hearPlaces();
+        }, 60_000);
     } finally {
       this.hearing = false;
       this.keepAwake("reader", false);
@@ -2248,6 +2256,11 @@ export class AppController {
   /** The server's books not yet transcribed whole that couldn't be this session, so they aren't tried again until the next. */
   private untranscribable = new Set<string>();
   private transcribingServer = false;
+  /** The server's books downloaded only to be transcribed, taken off again once sent; kept meanwhile when sending has to wait. */
+  private downloadedToTranscribe = new Set<string>();
+  /** When the worker tries again, after the server couldn't be reached or the speech model stalled: a wait that doubles, up to half an hour. */
+  private serverRetry: ReturnType<typeof setTimeout> | null = null;
+  private serverRetryMs = 0;
 
   /** Who is transcribing (the open book's hearing, the server's worker): the computer stays awake while either is (#158). */
   private awakeFor = new Set<"reader" | "server">();
@@ -2267,7 +2280,8 @@ export class AppController {
    * whole, so the TV and every device read them along. A book that isn't
    * downloaded here is downloaded for it and taken off again once sent. The
    * book open in the reader comes first: this stops for it, and starts again
-   * after.
+   * after. When the server can't be reached, or the speech model stops
+   * answering, it tries again a little later (#158), from what it kept.
    */
   private async transcribeForServer(): Promise<void> {
     // A model downloading (Ribbon's, replacing an older one) is waited for: setSpeechModel starts this again with it.
@@ -2288,10 +2302,13 @@ export class AppController {
         const book = this.state.books.find((b) => serverIdOf(b) === next.id && this.openedOf(b) === o);
         const result = book ? await this.transcribeServerBook(o, book, model) : "failed";
         if (result === "failed") this.untranscribable.add(next.id);
+        if (result === "whole") this.serverRetryMs = 0;
+        if (result === "retry") return this.transcribeForServerLater();
         if (result === "stopped") return;
       }
     } catch (e) {
       log.warn("could not transcribe the server's books:", describe(e));
+      this.transcribeForServerLater();
     } finally {
       this.transcribingServer = false;
       this.keepAwake("server", false);
@@ -2299,50 +2316,81 @@ export class AppController {
     }
   }
 
-  /** One of a server's books transcribed whole here and sent: its text paired with its audio as the reader pairs it, then every minute heard. */
-  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed"> {
-    const downloaded = !listed.remote;
-    const book = downloaded ? listed : await this.downloadRemote(listed);
-    if (!book?.book.ebook) return "failed";
+  /** The worker again in a while: once, however many reasons there are. */
+  private transcribeForServerLater(): void {
+    if (this.serverRetry) return;
+    this.serverRetryMs = Math.min(30 * 60_000, Math.max(60_000, this.serverRetryMs * 2));
+    log.info(`transcribing the server's books again in ${Math.round(this.serverRetryMs / 60_000)} min`);
+    this.serverRetry = setTimeout(() => {
+      this.serverRetry = null;
+      void this.transcribeForServer();
+    }, this.serverRetryMs);
+  }
+
+  /**
+   * One of a server's books transcribed whole here and sent: its text paired
+   * with its audio as the reader pairs it, then every minute heard. `retry`
+   * when it has to wait: the download or the sending failed, which the
+   * server being out of reach does, and the book is never given up on for it.
+   */
+  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+    const serverId = serverIdOf(listed);
+    const book = listed.remote ? await this.downloadRemote(listed) : listed;
+    // No room for it here is the one download failure that waiting doesn't mend.
+    if (!book) return this.state.spaceShort?.bookId === listed.book.id ? "failed" : "retry";
+    if (listed.remote) this.downloadedToTranscribe.add(serverId);
+    // A stall or an error leaves it as it is, transcript so far and all, for the next try.
+    let result: "whole" | "stopped" | "failed" | "retry" = "retry";
+    try {
+      result = await this.hearServerBook(o, book, model);
+      return result;
+    } finally {
+      // Downloaded only to be transcribed: taken off again once sent, or when it can't be transcribed at all.
+      if (this.downloadedToTranscribe.has(serverId) && (result === "whole" || result === "failed") && !this.hearing) {
+        this.downloadedToTranscribe.delete(serverId);
+        await this.removeDownload(book.book.id).catch(() => undefined);
+      }
+    }
+  }
+
+  /** A server's book, downloaded here, heard whole and sent. `retry` when it's whole and the server couldn't take it. */
+  private async hearServerBook(o: Opened, book: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+    if (!book.book.ebook) return "failed";
     const host = o.lib.host;
     const transcribe = host.speechTranscribe!;
-    try {
-      // What the server has of it comes first: its transcript so far, with what this machine heard itself.
-      await this.takeServerRecords(book);
-      const [opened, withChapters, fixes, heard, aligned] = await Promise.all([openEbook(host, o.lib.root, book.book), this.chaptersOf(o, book), o.lib.readPairing(book.book.id), o.lib.readHeard(book.book.id), o.lib.readAligned(book.book.id)]);
-      if (!opened.ok) return "failed";
-      const language = narrationLanguage(opened.ebook.meta.language, book.book.language);
-      if (this.clipMs() === null) await this.timeClips({ o, book }, model, language);
-      if (!this.transcribesHere(host)) return "stopped";
-      const text = new BookText(opened.ebook);
-      const rd: ReadingData = { ...emptyReading(), fixes, heard: heard.heard, anchors: heard.anchors, spans: aligned.spans, heardBy: aligned.heardBy, said: aligned.said, aligned: transcriptAnchors(aligned.said) };
-      rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
-      // A Media Overlay places it exactly: nothing to transcribe.
-      if (rd.overlay) return "failed";
-      let alignment = this.pairUp(text, withChapters, rd);
-      const started = performance.now();
-      const result = await transcribeWhole({
-        transcript: rd,
-        files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
-        index: wordIndex(text),
-        alignment: () => alignment,
-        hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
-        model: modelName(model),
-        keep: async () => {
-          await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
-          alignment = this.pairUp(text, withChapters, rd);
-        },
-        progress: (done, total) => this.set({ transcribingForServer: { title: book.book.title, done, total } }),
-        // The reader's book comes first.
-        still: () => !this.hearing,
-      });
-      log.info(`transcribing ${book.book.title} for the server ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
-      if (result !== "whole") return result;
-      return (await this.sendTranscript(o, book, rd)) ? "whole" : "failed";
-    } finally {
-      // Downloaded only to be transcribed: taken off again, as it was.
-      if (!downloaded && !this.hearing) await this.removeDownload(book.book.id).catch(() => undefined);
-    }
+    // What the server has of it comes first: its transcript so far, with what this machine heard itself.
+    await this.takeServerRecords(book);
+    const [opened, withChapters, fixes, heard, aligned] = await Promise.all([openEbook(host, o.lib.root, book.book), this.chaptersOf(o, book), o.lib.readPairing(book.book.id), o.lib.readHeard(book.book.id), o.lib.readAligned(book.book.id)]);
+    if (!opened.ok) return "failed";
+    const language = narrationLanguage(opened.ebook.meta.language, book.book.language);
+    if (this.clipMs() === null) await this.timeClips({ o, book }, model, language);
+    if (!this.transcribesHere(host)) return "stopped";
+    const text = new BookText(opened.ebook);
+    const rd: ReadingData = { ...emptyReading(), fixes, heard: heard.heard, anchors: heard.anchors, spans: aligned.spans, heardBy: aligned.heardBy, said: aligned.said, aligned: transcriptAnchors(aligned.said) };
+    rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
+    // A Media Overlay places it exactly: nothing to transcribe.
+    if (rd.overlay) return "failed";
+    let alignment = this.pairUp(text, withChapters, rd);
+    const started = performance.now();
+    const outcome = await transcribeWhole({
+      transcript: rd,
+      files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
+      index: wordIndex(text),
+      alignment: () => alignment,
+      hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
+      model: modelName(model),
+      keep: async () => {
+        await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+        alignment = this.pairUp(text, withChapters, rd);
+      },
+      progress: (done, total) => this.set({ transcribingForServer: { title: book.book.title, done, total } }),
+      // The reader's book comes first.
+      still: () => !this.hearing,
+    });
+    log.info(`transcribing ${book.book.title} for the server ${outcome} after ${Math.round((performance.now() - started) / 1000)} s`);
+    if (outcome !== "whole") return outcome;
+    // Whole but not sent: kept here, transcript and all, and sent when the server is back.
+    return (await this.sendTranscript(o, book, rd)) ? "whole" : "retry";
   }
 
   /**
@@ -2796,12 +2844,16 @@ export class AppController {
    */
   installLifecycle(): () => void {
     const offs: (() => void)[] = [];
-    if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.flushPositions()));
+    if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.flushPositions(), () => this.mayClose()));
     if (typeof document !== "undefined") {
       const onVisibility = () => {
         if (document.visibilityState === "hidden") void this.checkpoint();
         // Back in front: another device may have moved on meanwhile, and a phone's event stream doesn't last in the background.
-        else this.syncAllServers();
+        else {
+          this.syncAllServers();
+          // And the server's books go on being transcribed, if that stopped while nobody looked (#158).
+          void this.transcribeForServer();
+        }
       };
       document.addEventListener("visibilitychange", onVisibility);
       offs.push(() => document.removeEventListener("visibilitychange", onVisibility));
@@ -2810,8 +2862,29 @@ export class AppController {
       const onUnload = () => void this.flushPositions();
       window.addEventListener("pagehide", onUnload);
       offs.push(() => window.removeEventListener("pagehide", onUnload));
+      // Back online, after a sleep or a dropped connection: the server's books go on being transcribed.
+      const onOnline = () => void this.transcribeForServer();
+      window.addEventListener("online", onOnline);
+      offs.push(() => window.removeEventListener("online", onOnline));
     }
     return () => offs.forEach((f) => f());
+  }
+
+  /** What Ribbon is transcribing now, said for a person: the book and how far it has got. Null when nothing. */
+  transcribingNow(): string | null {
+    const percent = (done: number, total: number) => `${Math.floor((100 * done) / Math.max(1, total))}%`;
+    const server = this.state.transcribingForServer;
+    if (server) return `${server.title} for the server, ${percent(server.done, server.total)} of the way`;
+    const r = this.state.reading;
+    const open = r?.listening?.what === "aligning" ? this.state.books.find((b) => b.book.id === r.bookId) : undefined;
+    return open && r?.listening ? `${open.book.title}, ${percent(r.listening.done, r.listening.total)} of the way` : null;
+  }
+
+  /** Whether to let Ribbon close: asked first while it transcribes (#158), which closing stops until it's next open. */
+  async mayClose(): Promise<boolean> {
+    const what = this.transcribingNow();
+    if (!what || !this.platform.askToClose) return true;
+    return this.platform.askToClose(`Ribbon is transcribing ${what}. Closing stops it, and it carries on from there the next time Ribbon is open.`);
   }
 
   /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
