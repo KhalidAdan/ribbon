@@ -19,6 +19,17 @@ import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
 import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } from "./describe.ts";
 
 /**
+ * The order the admin's devices transcribe books in: the ones still missing
+ * minutes first, the fewest missing first, since a book a few minutes short
+ * reads along after seconds of hearing where a whole one takes half an hour.
+ * Among equals, the order they came in (newest first, from the route).
+ */
+export function inTranscribingOrder<T extends { done: number; total: number }>(books: T[]): T[] {
+  const left = (b: T) => b.total - b.done;
+  return [...books].sort((a, b) => Number(left(a) === 0) - Number(left(b) === 0) || left(a) - left(b));
+}
+
+/**
  * The admin's side of the library: adding a folder of books, following the
  * job that does it, deleting a book, and making, changing and deleting a
  * series (`POST /api/series`, `PUT` and `DELETE /api/series/:id`, each with
@@ -137,8 +148,8 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     return { books };
   });
 
-  // How much of each book's narration is transcribed, the books still missing some first: what the admin's devices with a
-  // graphics card work through, transcribing each whole and sending it (PUT /api/books/:id/transcript).
+  // How much of each book's narration is transcribed, in the order the admin's devices with a graphics card work through
+  // them (`inTranscribingOrder`), transcribing each whole and sending it (PUT /api/books/:id/transcript).
   app.get("/api/library/transcripts", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
@@ -152,10 +163,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       const missing = untranscribed(stored.files, transcriptFromRows(await recordRows(deps.dataDir, b.id, "aligned")).spans).length;
       books.push({ id: b.id, title: b.title, done: total - missing, total });
     }
-    // The ones still missing minutes first, and among them the newest added first (the list is oldest first): a book just
-    // added reads along soonest.
-    books.reverse().sort((a, b) => Number(a.done === a.total) - Number(b.done === b.total));
-    return { books };
+    return { books: inTranscribingOrder(books.reverse()) };
   });
 
   app.get<{ Params: { id: string } }>("/api/jobs/:id", async (request, reply) => {

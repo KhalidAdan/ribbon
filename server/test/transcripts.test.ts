@@ -9,6 +9,7 @@ import type { ReadAlong } from "../../src/core/reading/readalong.ts";
 import { ServerClient } from "../../src/app/server/client.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
+import { inTranscribingOrder } from "../src/library/routes.ts";
 import type { ListedBook } from "../src/library/books.ts";
 import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
@@ -123,5 +124,19 @@ describe("transcripts on the server", () => {
     expect((await send("pairing", "text,audio_ms\n")).statusCode).toBe(404);
     expect((await send("heard", "audio_ms,words,chars\n", "0000000000000000")).statusCode).toBe(404);
     expect((await send("heard", "audio_ms,words,chars\n", book.id, {})).statusCode).toBe(401);
+  });
+});
+
+/** The order the admin's devices take books in: the closest to whole first, so a book a few minutes short reads along soonest. */
+describe("the order books are transcribed in", () => {
+  it("is the books missing fewest minutes first, then the rest as they came, and the whole ones last", () => {
+    const books = [
+      { id: "new", done: 0, total: 714 },
+      { id: "whole", done: 951, total: 951 },
+      { id: "half", done: 320, total: 1009 },
+      { id: "newer-empty", done: 0, total: 700 },
+      { id: "short", done: 604, total: 612 },
+    ];
+    expect(inTranscribingOrder(books).map((b) => b.id)).toEqual(["short", "half", "newer-empty", "new", "whole"]);
   });
 });
