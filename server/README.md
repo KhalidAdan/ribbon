@@ -103,19 +103,21 @@ on Linux): SQLite needs it. The books can live elsewhere, mounted over
 `/data/books`.
 
 Adding a folder from the app sends the server the folder's path, and the
-server reads it there itself. When the books are on a network share the
-apps mount, mount the share on the server's machine as well and give it to
-the container read-only at the path the apps see it at, so the same path
-works on both. For a share a Mac has at `/Volumes/media`, mounted on the
-server's machine at `/mnt/media`:
+server reads it itself. When the books are on a network share the apps
+mount, mount the share on the server's machine as well, give it to the
+container read-only, and name it in `RIBBON_FOLDERS`. The server looks for a
+picked folder at its path, then under those folders: a folder picked as
+`M:\Books\Dune` or `\\nas\media\Books\Dune` on Windows, or
+`/Volumes/media/Books/Dune` on a Mac, is found at `/media/Books/Dune`. For a
+share mounted on the server's machine at `/mnt/media`:
 
 ```bash
---mount type=bind,source=/mnt/media,target=/Volumes/media,readonly,bind-propagation=rslave
+--mount type=bind,source=/mnt/media,target=/media,readonly,bind-propagation=rslave \
+  -e RIBBON_FOLDERS=/media
 ```
 
 `rslave` lets the container see the share even when it's mounted after the
-container starts. A Windows path (`\\server\share`, `M:\`) can't be given
-the same way yet, so add folders from a Mac, or on the server's own machine.
+container starts.
 
 To update, pull, build again, and replace the container (`docker rm -f
 ribbon-server`, then the same `docker run`): everything it keeps is in the
@@ -140,6 +142,7 @@ From the environment:
 | `RIBBON_FRAMES_TOOL` | `target/release/ribbon-frames`, else `target/debug/` | The MP3 frame index, so a streamed MP3 starts at the exact moment. |
 | `RIBBON_DESCRIPTIONS` | none | `audible`: a book that came with no description, and has no EPUB with one, gets Audible's summary, after each folder is added and when the server starts. It asks Audible's catalog, sending only the book's title and author, and takes a recording only by one of its authors and as long as it (within 3%). A description already there is never replaced, and each book is asked about once. Unset, the server asks no one. |
 | `RIBBON_AUDIBLE_STORE` | `us` | Which Audible store to ask: `us`, `uk`, `ca`, `au`, `de`, `fr`, `it`, `es`, `in` or `jp`. |
+| `RIBBON_FOLDERS` | none | Where the server has the share the apps add folders from, so a folder picked on a Windows PC or a Mac is found here: the longest stretch of its path that's under one of these. Separated by `:` (`;` on Windows). Unset, a folder is found only at the path it was picked at. |
 
 ## Reaching it from elsewhere
 
@@ -160,7 +163,8 @@ curl -X POST "$RIBBON_URL/api/invites" -H "authorization: Bearer <your token>"
 
 ## Adding a folder
 
-Signed in as the admin, give the folder's full path on the server's machine.
+Signed in as the admin, give the folder's full path on the server's machine,
+or on the computer it was picked on when it's under `RIBBON_FOLDERS`.
 It runs as a job; ask for the job to see how it's going:
 
 ```bash

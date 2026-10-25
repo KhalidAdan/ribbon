@@ -14,6 +14,7 @@ import { stateOf, type ReadAlongState, type ReadAlongs } from "./readalong.ts";
 import type { SearchIndex } from "./search.ts";
 import type { LibrarySeries, SeriesBookChange } from "./series.ts";
 import { importFolder, type ImportProgress } from "./importer.ts";
+import { findFolder } from "./folders.ts";
 import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
 import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } from "./describe.ts";
 
@@ -25,15 +26,21 @@ import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } f
  * (`GET /api/library/readalong`), so a book left by chapter is never found
  * only on the TV. The listing the apps read comes in its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; dataDir: string }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; dataDir: string; folders: string[] }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can add books." });
-    const folder = typeof request.body?.folder === "string" ? request.body.folder.trim() : "";
-    if (!folder || !path.isAbsolute(folder)) return reply.code(400).send({ error: "Give the folder's full path on the server's machine." });
+    const picked = typeof request.body?.folder === "string" ? request.body.folder.trim() : "";
+    if (!picked) return reply.code(400).send({ error: "Give the folder's full path." });
+    // Picked on another computer, perhaps a Windows one: found under the folders the server reads, or taken as it is.
+    const folder = (await findFolder(picked, deps.folders)) ?? picked;
+    if (!path.isAbsolute(folder)) {
+      const where = deps.folders.length > 0 ? `in ${deps.folders.join(" or ")}` : "on its machine: give the server the folder your share is mounted at (RIBBON_FOLDERS)";
+      return reply.code(400).send({ error: `The server can't find ${picked} ${where}.` });
+    }
     const first: ImportProgress = { folder, found: 0, added: 0, skipped: 0, failed: 0, current: null, notes: [] };
     const job = deps.jobs.start(
       "import",

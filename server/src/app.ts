@@ -148,7 +148,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   // The narration isn't transcribed here: a device with a graphics card transcribes each book whole and sends it (records.ts, `keepTranscript`).
-  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir });
+  libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir, folders: config.folders ?? [] });
   await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, dataDir: config.dataDir });

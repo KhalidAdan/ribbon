@@ -25,6 +25,12 @@ export interface ServerConfig {
    * `de`, …); null, the default, asks no one.
    */
   descriptions?: { store: string } | null;
+  /**
+   * The folders a folder picked on another computer is looked for under (library/folders.ts): the server's own
+   * mount of the share the apps add folders from. RIBBON_FOLDERS, separated as this system separates paths (`:`,
+   * or `;` on Windows). None by default: a folder is found only at the path it was picked at.
+   */
+  folders?: string[];
 }
 
 /** The origins Ribbon's apps run at: Tauri's on each system, and the browser harness in development. */
@@ -45,6 +51,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ebookTool: env.RIBBON_EBOOK_TOOL ?? builtTool("ribbon-ebook"),
     framesTool: env.RIBBON_FRAMES_TOOL ?? builtTool("ribbon-frames"),
     descriptions: env.RIBBON_DESCRIPTIONS === "audible" ? { store: env.RIBBON_AUDIBLE_STORE || "us" } : null,
+    folders: (env.RIBBON_FOLDERS ?? "").split(path.delimiter).filter(Boolean).map((folder) => path.resolve(folder)),
   };
 }
 
