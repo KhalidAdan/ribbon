@@ -2257,14 +2257,17 @@ export class AppController {
    * after.
    */
   private async transcribeForServer(): Promise<void> {
-    if (this.transcribingServer || this.hearing) return;
+    // A model downloading (Ribbon's, replacing an older one) is waited for: setSpeechModel starts this again with it.
+    if (this.transcribingServer || this.hearing || this.state.speech.downloading) return;
     const o = this.openedInOrder().find((x) => x.server && x.serverAdmin);
-    const model = this.state.speech.model;
     // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
-    if (!o?.server || !model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
+    if (!o?.server || !this.state.speech.model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
     this.transcribingServer = true;
     try {
       while (!this.hearing) {
+        // The model as it is now, for each book: one chosen meanwhile hears the next.
+        const model = this.state.speech.model;
+        if (!model) return;
         const list = await o.server.client.transcripts();
         const next = list.find((b) => b.done < b.total && !this.untranscribable.has(b.id));
         if (!next) return;
