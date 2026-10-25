@@ -105,7 +105,8 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
 }
 
 async function connect(port: number): Promise<Browser> {
-  const deadline = Date.now() + 30_000;
+  // A freshly built app's first start on CI's Windows runners has twice taken longer than half a minute (2026-10-25).
+  const deadline = Date.now() + 90_000;
   for (;;) {
     try {
       return await chromium.connectOverCDP(`http://127.0.0.1:${port}`);

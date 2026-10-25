@@ -41,6 +41,23 @@ export interface ReadAlong {
 export const BY_SENTENCE = 0.9;
 
 /**
+ * A book reads along by sentence when no stretch of its narration goes
+ * unmarked longer than this, or than a tenth of the narration in a book
+ * shorter than ten minutes (#163): what's felt while listening. Voidscarred
+ * has none at all.
+ */
+export const LONGEST_UNMARKED_MS = 60_000;
+
+/** Whether a book reads along by sentence: by narration unmarked when what was heard says, else by the share of sentences placed. */
+export function readsBySentence(check: ReadAlongCheck): boolean {
+  const u = check.unmarked;
+  return u ? u.longestMs <= Math.min(LONGEST_UNMARKED_MS, u.narrationMs / 10) : check.placed >= BY_SENTENCE;
+}
+
+/** Fewer words a minute than this, heard where nothing is marked, is credits, music or a pause, not narration. */
+const SPEAKING = 80;
+
+/**
  * How closely a read-along follows its narration, measured as it's made,
  * so a device can say so rather than mark a guess as the sentence being
  * read (docs/SERVER.md, section 9: nothing is guessed silently).
@@ -61,6 +78,14 @@ export interface ReadAlongCheck {
    * inside chapters to measure.
    */
   heldOut: { moments: number; medianMs: number; worstMs: number } | null;
+  /**
+   * Narration heard with nothing marked, in all and the longest stretch of
+   * it: how a read-along is felt (#163). A stretch with nothing marked where
+   * little was said (credits, music, pages nobody reads) isn't narration.
+   * Null without a transcript to tell what was said. With how long the
+   * narration runs, from the first sentence read to the last.
+   */
+  unmarked: { totalMs: number; longestMs: number; narrationMs: number } | null;
 }
 
 export interface ReadAlongBlock {
@@ -105,8 +130,12 @@ function* shownBlocks(text: BookText): Generator<{ section: number; block: numbe
   }
 }
 
-/** A book's read-along, from its text, the text paired with its audio, and how much of the narration is transcribed. */
-export function readAlongOf(text: BookText, alignment: Alignment, transcribed: { done: number; total: number }): ReadAlong {
+/**
+ * A book's read-along, from its text, the text paired with its audio, how
+ * much of the narration is transcribed, and what was heard in it (when each
+ * phrase starts, and its words), to tell narration from quiet.
+ */
+export function readAlongOf(text: BookText, alignment: Alignment, transcribed: { done: number; total: number }, said: readonly { startMs: number; words: string }[] = []): ReadAlong {
   const ready = alignment.how === "overlay" || transcribed.done >= transcribed.total;
   const blocks: ReadAlongBlock[] = [];
   const where: { section: number; block: number }[] = [];
@@ -139,11 +168,11 @@ export function readAlongOf(text: BookText, alignment: Alignment, transcribed: {
     const block = where.findIndex((w) => w.section > entry.section || (w.section === entry.section && w.block >= entry.block));
     if (block >= 0 && contents.at(-1)?.block !== block) contents.push({ title: entry.label, block });
   }
-  return { format: READ_ALONG_FORMAT, ready, transcribed, contents, blocks, check: checkReadAlong(alignment, blocks) };
+  return { format: READ_ALONG_FORMAT, ready, transcribed, contents, blocks, check: checkReadAlong(alignment, blocks, said) };
 }
 
 /** A read-along's sentences checked against what was heard of its narration (`ReadAlongCheck`). */
-export function checkReadAlong(alignment: Alignment, blocks: readonly ReadAlongBlock[]): ReadAlongCheck {
+export function checkReadAlong(alignment: Alignment, blocks: readonly ReadAlongBlock[], said: readonly { startMs: number; words: string }[] = []): ReadAlongCheck {
   const narrated = blocks.flatMap((b) => b.sentences ?? []).filter((s) => s.endMs > s.ms);
   const placed = narrated.length === 0 ? 0 : narrated.filter((s) => s.exact).length / narrated.length;
   const off: number[] = [];
@@ -161,7 +190,45 @@ export function checkReadAlong(alignment: Alignment, blocks: readonly ReadAlongB
   }
   off.sort((a, b) => a - b);
   const heldOut = off.length === 0 ? null : { moments: off.length, medianMs: Math.round(off[off.length >> 1]!), worstMs: Math.round(off.at(-1)!) };
-  return { placed, heldOut };
+  return { placed, heldOut, unmarked: said.length === 0 ? null : unmarkedNarration(narrated, said) };
+}
+
+/** Each stretch where nothing is marked, from its first sentence unmarked to the next marked, counted when narration was heard in it. */
+function unmarkedNarration(narrated: readonly ReadAlongSentence[], said: readonly { startMs: number; words: string }[]): { totalMs: number; longestMs: number; narrationMs: number } {
+  const heard = [...said].sort((a, b) => a.startMs - b.startMs);
+  // Words heard before each phrase, so a stretch's words are a subtraction.
+  const before = [0];
+  for (const p of heard) before.push(before[before.length - 1]! + p.words.split(/\s+/).filter(Boolean).length);
+  const firstFrom = (ms: number) => {
+    let lo = 0;
+    let hi = heard.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (heard[mid]!.startMs < ms) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  let totalMs = 0;
+  let longestMs = 0;
+  const count = (from: number, to: number) => {
+    const words = before[firstFrom(to)]! - before[firstFrom(from)]!;
+    if (to > from && words / ((to - from) / 60_000) > SPEAKING) {
+      totalMs += to - from;
+      longestMs = Math.max(longestMs, to - from);
+    }
+  };
+  let from: number | null = null;
+  for (const s of narrated) {
+    if (!s.exact && from === null) from = s.ms;
+    if (s.exact && from !== null) {
+      count(from, s.ms);
+      from = null;
+    }
+  }
+  if (from !== null) count(from, narrated[narrated.length - 1]!.endMs);
+  const narrationMs = narrated.length === 0 ? 0 : narrated[narrated.length - 1]!.endMs - narrated[0]!.ms;
+  return { totalMs, longestMs, narrationMs };
 }
 
 /**

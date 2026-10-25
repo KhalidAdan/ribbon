@@ -331,9 +331,14 @@ offered, and the book says what it's waiting for.
 - **A book whose text and audio don't pair** (a different edition, a missing
   chapter) is flagged on the admin pages for a person to fix. It's never
   offered as read-along on a guess.
-- **No book stays by chapter unnoticed** (built). A read-along places at
-  least 90% of its sentences to the sentence, or it goes by chapter and the
-  TV says so as it opens (`BY_SENTENCE`, src/core/reading/readalong.ts).
+- **No book stays by chapter unnoticed** (built). A read-along reads by
+  sentence when no stretch of narration goes unmarked for more than a
+  minute, as it's felt while listening (#163): a stretch with nothing
+  marked counts only where the transcript shows the narrator speaking, so
+  credits, music and pages nobody reads don't (`readsBySentence`,
+  src/core/reading/readalong.ts). Otherwise the TV says how long it drops
+  out for as the book opens. Without a transcript, it's the share of
+  sentences placed, at least 90% (`BY_SENTENCE`).
   The server keeps where each book stands as it makes its read-along, and
   lists every book for the admin, the ones that need a person first
   (`GET /api/library/readalong`, `stateOf` in

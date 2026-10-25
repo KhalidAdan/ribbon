@@ -49,10 +49,23 @@ struct ReadAlong: Decodable {
         /// Of the sentences read, the share placed to the sentence; the rest are placed by how far through their
         /// chapter they are.
         let placed: Double
+        /// Narration heard with nothing marked, in all and the longest stretch of it: how the read-along is felt
+        /// (#163). Missing from an older server, or a book whose narration isn't transcribed.
+        let unmarked: Unmarked?
 
-        /// What to tell someone opening the book when it's placed by chapter rather than to the sentence; nil when it's
-        /// placed to the sentence.
+        struct Unmarked: Decodable {
+            let totalMs: Int
+            let longestMs: Int
+        }
+
+        /// What to tell someone opening the book when it doesn't read along by sentence throughout; nil when it does.
         var caveat: (title: String, hint: String)? {
+            if let unmarked {
+                // A minute unmarked at most is how Voidscarred reads, and every book that reads along well.
+                guard unmarked.longestMs > 60_000 else { return nil }
+                let minutes = Int((Double(unmarked.longestMs) / 60_000).rounded())
+                return ("Read-along drops out for up to \(minutes) \(minutes == 1 ? "minute" : "minutes") in this book", "Elsewhere each sentence is marked as it's read")
+            }
             guard placed < 0.9 else { return nil }
             if placed < 0.1 {
                 return ("Read-along by chapter", "The narration isn't transcribed, so the words can be up to a minute from the voice")

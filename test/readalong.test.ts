@@ -123,7 +123,7 @@ describe("a read-along", () => {
     // The overlay's four passages are moments the narration is known at; the two between others are checked.
     expect(paired(true).readAlong.check).toMatchObject({ placed: 1, heldOut: { moments: 2 } });
     // Nothing heard inside the one chapter, so nothing to check the chapter's proportion against.
-    expect(paired(false).readAlong.check).toEqual({ placed: 0, heldOut: null });
+    expect(paired(false).readAlong.check).toEqual({ placed: 0, heldOut: null, unmarked: null });
   });
 
   it("checks each moment heard by leaving it out and placing it from the moments either side", () => {
@@ -143,7 +143,20 @@ describe("a read-along", () => {
     const sentence = (ms: number, endMs: number, exact: boolean) => ({ start: 0, end: 1, ms, endMs, exact });
     // Three sentences read, one of them placed to the sentence; one the narration skips doesn't count.
     const blocks = [{ k: "p" as const, sentences: [sentence(0, 3000, true), sentence(3000, 6000, false), sentence(6000, 6000, false), sentence(6000, 9000, false)] }];
-    expect(checkReadAlong(alignment, blocks)).toEqual({ placed: 1 / 3, heldOut: { moments: 3, medianMs: 1500, worstMs: 2000 } });
+    expect(checkReadAlong(alignment, blocks)).toEqual({ placed: 1 / 3, heldOut: { moments: 3, medianMs: 1500, worstMs: 2000 }, unmarked: null });
+  });
+
+  it("measures narration heard with nothing marked, as it's felt: quiet with nothing marked doesn't count (#163)", () => {
+    const alignment = { how: "chapter" as const, pairs: [], text: [], audio: [] };
+    const sentence = (ms: number, endMs: number, exact: boolean) => ({ start: 0, end: 1, ms, endMs, exact });
+    // Credits for half a minute with nothing marked, a minute marked, then two minutes of narration with nothing marked
+    // (Plague War's last chapter against a preview's pages), then marked again.
+    const blocks = [{ k: "p" as const, sentences: [sentence(0, 30_000, false), sentence(30_000, 90_000, true), sentence(90_000, 150_000, false), sentence(150_000, 210_000, false), sentence(210_000, 240_000, true)] }];
+    // A phrase every four seconds while the narrator reads; the credits only say who reads it.
+    const said = [{ startMs: 5000, words: "This is Audible" }, ...Array.from({ length: 52 }, (_, i) => ({ startMs: 30_000 + i * 4000, words: "and so the gates were opened wide" }))];
+    expect(checkReadAlong(alignment, blocks, said).unmarked).toEqual({ totalMs: 120_000, longestMs: 120_000, narrationMs: 240_000 });
+    // Nothing heard to tell narration from quiet: not measured.
+    expect(checkReadAlong(alignment, blocks).unmarked).toBeNull();
   });
 });
 
