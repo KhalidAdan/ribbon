@@ -447,7 +447,20 @@ be heard isn't kept, and is heard again; one heard to have nothing in it
 is kept as that (#152). Only a minute that names the model that heard it
 counts: one from before Ribbon named it is heard again, the old hearing
 dropped with it, so no minute is two hearings mixed. The book reads along once every minute is
-transcribed, and opens to read only until then. A server's book is sent
+transcribed, and opens to read only until then.
+
+Once a transcript is whole, it's placed again by what was said in it,
+wherever that is in the book (#163, `src/core/reading/placing.ts`),
+because the pairing's guess fails where the book and the recording don't
+line up: a cast list or a preview of another book the narrator never
+reads, an audio chapter named "Chapter 29" for the book's "Chapter
+Twenty-Eight". Five heard words in a row found exactly once in the book
+are a sure checkpoint; the longest run of those going forward in both the
+text and the recording is a backbone, and each minute's phrases are
+matched around where it puts them. The pairing is told where each audio
+chapter's own words were found, and a pair reaches the text its words are
+in, through pages no other audio claims. On the 15 books transcribed on
+the server, narration with nothing marked went from 98 minutes to 1. A server's book is sent
 to the server whole, in place of what it had (SERVER.md, section 9), so
 the TV reads it along too; the admin's machine transcribes the server's
 books in the background, one at a time.

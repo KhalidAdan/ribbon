@@ -148,3 +148,62 @@ describe("pairing the text's chapters with the audio's", () => {
     expect(p).toEqual({ section: 5, block: 0, offset: 50 });
   });
 });
+
+/**
+ * Books whose text and recording don't line up at their edges (#163), as the
+ * Siege of Terra and Dark Imperium books were found: paired by what was heard
+ * in each audio chapter, not by its name alone.
+ */
+describe("pairing by what each audio chapter was heard to say", () => {
+  /**
+   * Plague War's last pages: chapters named in words, a page about the author, and a preview of another book, in its
+   * proportions. Its last audio chapter is 30.8 minutes; Twenty-Eight is 28 minutes at the book's pace, the preview 30.
+   */
+  function plagueWar(lastAudioTitle: string): { ebook: Ebook; chapters: Chapter[]; durationMs: number } {
+    const names = ["Twenty-Five", "Twenty-Six", "Twenty-Seven", "Twenty-Eight"];
+    const sections: EbookSection[] = names.map((n, i) => section(`ch${i}.xhtml`, Math.round((i < 3 ? 25 : 28) * MIN * PACE)));
+    sections.push(section("about.xhtml", 700), section("extract.xhtml", Math.round(30 * MIN * PACE)));
+    const toc = [...names, "About the Author", "An Extract from Dawn of Fire"].map((label, i) => ({ label, section: i, block: 0, depth: 0 }));
+    const ebook: Ebook = { format: EBOOK_FORMAT, meta: { title: "Plague War", authors: [], identifiers: [] }, layout: "reflowable", sections, toc };
+    const titles = ["Chapter Twenty-Five", "Chapter Twenty-Six", "Chapter Twenty-Seven", lastAudioTitle];
+    const chapters = titles.map((title, i) => ({ title, startMs: i * 25 * MIN, endMs: i < 3 ? (i + 1) * 25 * MIN : 75 * MIN + 30.8 * MIN }));
+    return { ebook, chapters, durationMs: chapters.at(-1)!.endMs };
+  }
+
+  it("pairs a last audio chapter named for the wrong number with the chapter its words are in, not the preview after it", () => {
+    // Plague War's file names its last chapter "Chapter 29" where the book has "Twenty-Eight": by name and pace alone it went
+    // with the preview of another book, and the final chapter was read along against the preview's pages.
+    const { ebook, chapters, durationMs } = plagueWar("Chapter 29");
+    const text = new BookText(ebook);
+    const byName = alignBook(text, chapters, durationMs);
+    expect(byName.pairs.at(-1)!.textLabel).toBe("An Extract from Dawn of Fire");
+    // Its words, heard twenty seconds in, are at the start of Twenty-Eight.
+    const twentyEight = text.chars({ section: 3, block: 0, offset: 0 });
+    const heard = [{ ms: 75 * MIN + 20_000, chars: twentyEight + 300 }, { ms: 75 * MIN + 60_000, chars: twentyEight + 950 }];
+    const a = alignBook(text, chapters, durationMs, { anchors: heard });
+    expect(a.pairs.at(-1)!.textLabel).toBe("Twenty-Eight");
+    expect(a.text.find((t) => t.label === "An Extract from Dawn of Fire")!.pair).toBe(-1);
+  });
+
+  it("reaches the text its own words were found in, through pages no other audio was paired with", () => {
+    // The First Wall: the opening audio chapter (the series' epigraph, then the prologue) went with the epigraph's page, and
+    // the prologue, a page of its own after a cast list, was left out though its words were heard.
+    const sections = [section("epigraph.xhtml", 600), section("cast.xhtml", 2500), section("prologue.xhtml", 1700), section("one.xhtml", Math.round(20 * MIN * PACE))];
+    const toc = ["The Horus Heresy", "Dramatis Personae", "Prologue", "One"].map((label, i) => ({ label, section: i, block: 0, depth: 0 }));
+    const ebook: Ebook = { format: EBOOK_FORMAT, meta: { title: "The First Wall", authors: [], identifiers: [] }, layout: "reflowable", sections, toc };
+    const chapters = [
+      { title: "Chapter 1", startMs: 0, endMs: 3 * MIN },
+      { title: "One", startMs: 3 * MIN, endMs: 23 * MIN },
+    ];
+    const text = new BookText(ebook);
+    const prologue = text.chars({ section: 2, block: 0, offset: 0 });
+    // The epigraph heard half a minute in, the prologue from a minute and a quarter.
+    const heard = [{ ms: 30_000, chars: 100 }, ...[75_000, 100_000, 125_000, 150_000].map((ms, i) => ({ ms, chars: prologue + 50 + i * 400 }))];
+    const a = alignBook(text, chapters, 23 * MIN, { anchors: heard });
+    const first = a.pairs[0]!;
+    expect(first.text.end).toBe(text.chars({ section: 3, block: 0, offset: 0 }));
+    expect(a.text.find((t) => t.label === "Prologue")!.pair).toBe(0);
+    // So the prologue's place is found to the moment it was heard.
+    expect(textToMs(a, prologue + 50 + 400)).toBe(100_000);
+  });
+});

@@ -593,9 +593,10 @@ export class LibraryService {
   }
 
   /** Kept beside the book, merged with what is there already, as writeHeard is. */
-  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly PlacedPhrase[], heardBy: ReadonlyMap<number, string>): Promise<void> {
+  async writeAligned(bookId: string, spans: ReadonlyMap<number, number>, said: readonly PlacedPhrase[], heardBy: ReadonlyMap<number, string>, whole = false): Promise<void> {
     await this.host.mkdir(this.dir("aligned"));
-    const all = mergeTranscripts(await this.readAligned(bookId), { spans, said, heardBy });
+    // A whole transcript, placed by what was said in it, is kept in place of what was there, as the server keeps one (#163).
+    const all = whole ? { spans, said, heardBy } : mergeTranscripts(await this.readAligned(bookId), { spans, said, heardBy });
     await this.host.writeFile(this.dir("aligned", `${bookId}.csv`), await rowsToBytes(transcriptRows(all), TRANSCRIPT_FIELDS));
   }
 

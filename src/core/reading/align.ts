@@ -16,6 +16,8 @@ import type { Anchor } from "./anchors";
  *   says how likely it is to be narrated, so skipping it costs more or less;
  * - one audio chapter may cover up to three text chapters, and the other
  *   way round;
+ * - where an audio chapter's own words were found in the text says which
+ *   text chapter it is, whatever either is called (#163);
  * - pairs set by hand are kept, and the rest is paired around them.
  */
 
@@ -177,10 +179,42 @@ interface AudioIn {
   /** What the narrator says at its start, when it was heard (#65), and how many words that is. */
   heard?: string;
   heardWords?: number;
+  /** Where its opening words were found in the text, when its narration is transcribed (#163). */
+  opensAt?: number;
 }
 
 /** Heard openings with at least this many words say something. */
 const HEARD_MIN_WORDS = 5;
+
+/**
+ * Where an audio chapter opens, by its words found in the text: the first
+ * found this far in and no further (a chapter marker can be a few seconds
+ * early, and its first words the last of the chapter before).
+ */
+const OPENS_FROM_MS = 10_000;
+const OPENS_TO_MS = 90_000;
+/** Opening words found this far into a text chapter (or a tenth of it, if longer) are its opening. */
+const OPENS_NEAR = 3_000;
+
+/** The first of these checkpoints, sorted by time, at or after a moment. */
+function firstFrom(anchors: readonly Anchor[], ms: number): number {
+  let lo = 0;
+  let hi = anchors.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (anchors[mid]!.ms < ms) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** For each audio chapter, where in the text its opening words were found, from checkpoints sorted by time. */
+function openings(audio: readonly { startMs: number; endMs: number }[], anchors: readonly Anchor[]): (number | undefined)[] {
+  return audio.map((a) => {
+    const i = firstFrom(anchors, a.startMs + OPENS_FROM_MS);
+    return i < anchors.length && anchors[i]!.ms < Math.min(a.endMs, a.startMs + OPENS_TO_MS) ? anchors[i]!.chars : undefined;
+  });
+}
 
 /** The contents entries in reading order, each running to the next. */
 function textUnits(book: BookText): TextIn[] {
@@ -279,6 +313,14 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
       else if (t.kind && NARRATED.has(t.kind)) score += 0.5;
     }
     score -= 0.75 * (ts.length + as.length - 2);
+    // Where its own words are in the text: as strong as what the narrator says at its start, and sure even when the
+    // names disagree ("Chapter 29" for the book's "Chapter Twenty-Eight") or the text holds what's never read.
+    const opens = as[0]!.opensAt;
+    if (opens !== undefined) {
+      const first = ts[0]!;
+      if (opens >= first.start && opens < first.start + Math.max(OPENS_NEAR, (first.end - first.start) / 10)) score += 6;
+      else if (opens < first.start || opens >= ts[ts.length - 1]!.end) score -= 6;
+    }
     // What the narrator says: the strongest evidence there is. The first audio chapter opens with the first text chapter.
     const heard = as[0]!.heard;
     // Not looked at for a pair pace has already ruled out: hearing is what costs time here.
@@ -343,7 +385,9 @@ export function alignBook(book: BookText, chapters: readonly Chapter[], duration
   const text = textUnits(book);
   // Audible books open and close with credits; generated titles hide them, so a short first or last track is taken for them.
   const creditsLike = (c: Chapter, j: number) => CREDITS.test(c.title) || (!!opts.generated && (j === 0 || j === chapters.length - 1) && c.endMs - c.startMs < 75_000);
-  const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)!, heardWords: words(opts.heard.get(c.startMs)!).length } : {}) }));
+  const byTime = [...(opts.anchors ?? [])].sort((a, b) => a.ms - b.ms);
+  const opened = openings(chapters, byTime);
+  const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)!, heardWords: words(opts.heard.get(c.startMs)!).length } : {}), ...(opened[j] !== undefined ? { opensAt: opened[j] } : {}) }));
   const total = book.total;
   const whole = (): Alignment => ({
     how: "proportion",
@@ -385,7 +429,7 @@ export function alignBook(book: BookText, chapters: readonly Chapter[], duration
 
   const textOut: TextUnit[] = text.map((t) => ({ ref: t.ref, label: t.label, ...(t.kind ? { kind: t.kind } : {}), start: t.start, end: t.end, pair: -1 }));
   const audioOut: AudioUnit[] = audio.map((a) => ({ title: a.title, startMs: a.startMs, endMs: a.endMs, pair: -1 }));
-  const pairs: Pair[] = steps.map((s, k) => {
+  const paired: Pair[] = steps.map((s, k) => {
     const ts = text.slice(s.i, s.i + s.step.dt);
     const as = audio.slice(s.j, s.j + s.step.da);
     for (let x = s.i; x < s.i + s.step.dt; x++) textOut[x]!.pair = k;
@@ -393,21 +437,51 @@ export function alignBook(book: BookText, chapters: readonly Chapter[], duration
     const fixed = s.step.score >= 1000;
     const heard = as[0]!.heard;
     const said = !!heard && as[0]!.heardWords! >= HEARD_MIN_WORDS && openingMatch(heard, ts[0]!.opening) >= SAME;
-    return withPoints(
-      {
-        text: { start: ts[0]!.start, end: ts[ts.length - 1]!.end },
-        audio: { startMs: as[0]!.startMs, endMs: as[as.length - 1]!.endMs },
-        textLabel: ts.map((t) => t.label).join(" + "),
-        audioTitle: as.map((a) => a.title).join(" + "),
-        confidence: fixed ? 1 : Math.max(0, Math.min(1, s.step.score / 5)),
-        fixed,
-        ...(said ? { heard: true as const } : {}),
-        points: [],
-      },
-      opts.anchors,
-    );
+    return {
+      text: { start: ts[0]!.start, end: ts[ts.length - 1]!.end },
+      audio: { startMs: as[0]!.startMs, endMs: as[as.length - 1]!.endMs },
+      textLabel: ts.map((t) => t.label).join(" + "),
+      audioTitle: as.map((a) => a.title).join(" + "),
+      confidence: fixed ? 1 : Math.max(0, Math.min(1, s.step.score / 5)),
+      fixed,
+      ...(said ? { heard: true as const } : {}),
+      points: [],
+    };
   });
+  const pairs = reachingTheirWords(paired, textOut, byTime).map((p) => withPoints(p, opts.anchors));
   return { how: "chapter", pairs, text: textOut, audio: audioOut };
+}
+
+/**
+ * Each pair's text, reaching as far as its own audio's words were found
+ * (#163): through text chapters no other audio was paired with, either way.
+ * A first audio chapter paired with a page of other titles, whose words are
+ * on the series page after it, or a prologue left out while its words are
+ * heard, is then read along. A pair set by hand stays as it was set.
+ */
+function reachingTheirWords(pairs: Pair[], units: TextUnit[], byTime: readonly Anchor[]): Pair[] {
+  return pairs.map((p, k) => {
+    if (p.fixed) return p;
+    let lowest = Infinity;
+    let highest = -Infinity;
+    for (let i = firstFrom(byTime, p.audio.startMs + 1); i < byTime.length && byTime[i]!.ms < p.audio.endMs; i++) {
+      lowest = Math.min(lowest, byTime[i]!.chars);
+      highest = Math.max(highest, byTime[i]!.chars);
+    }
+    if (lowest === Infinity) return p;
+    let start = p.text.start;
+    let end = p.text.end;
+    // Back through unpaired text to the chapter its earliest words are in, and on to the one its last words are in.
+    for (let i = units.findIndex((u) => u.start === p.text.start) - 1; i >= 0 && units[i]!.pair === -1 && lowest < start; i--) {
+      start = units[i]!.start;
+      units[i]!.pair = k;
+    }
+    for (let i = units.findIndex((u) => u.end === p.text.end) + 1; i > 0 && i < units.length && units[i]!.pair === -1 && highest >= end; i++) {
+      end = units[i]!.end;
+      units[i]!.pair = k;
+    }
+    return start === p.text.start && end === p.text.end ? p : { ...p, text: { start, end } };
+  });
 }
 
 /**

@@ -17,6 +17,7 @@ import { BookIndex } from "./library/books.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { audibleCatalog, booksToDescribe, describeBooks, type DescribeProgress } from "./library/describe.ts";
 import { booksToHydrate, hydrateBooks, type HydrateProgress } from "./library/hydrate.ts";
+import { booksToPlace, placeBooks, type PlaceProgress } from "./library/place.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
 import { ReadAlongs } from "./library/readalong.ts";
@@ -142,6 +143,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // Books added before the server filled in what they came without get it from their EPUBs, in the background, before
   // their sentences are indexed with the chapters named.
   if (readAlongs.available) jobs.start<HydrateProgress>("hydrate", { books: 0, done: 0, described: 0, named: 0, current: null }, async (report) => hydrateBooks(readAlongs, config.dataDir, await booksToHydrate(config.dataDir, books), report), null);
+  // Transcripts kept before they were placed by what was said in them are placed now, once each (place.ts).
+  if (readAlongs.available) jobs.start<PlaceProgress>("place", { books: 0, done: 0, placed: 0, current: null }, async (report) => placeBooks(readAlongs, config.dataDir, await booksToPlace(config.dataDir, books), report), null);
   // Then, when the admin has turned it on, the books still without a description get the catalog's (describe.ts).
   const catalog = config.descriptions ? audibleCatalog(config.descriptions.store) : null;
   if (catalog) jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, config.dataDir, await booksToDescribe(config.dataDir, books), report), null);
@@ -149,7 +152,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   // The narration isn't transcribed here: a device with a graphics card transcribes each book whole and sends it (records.ts, `keepTranscript`).
   libraryRoutes(app, { auth, jobs, books, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir, folders: config.folders ?? [] });
-  await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames });
+  await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames, readAlongs });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, dataDir: config.dataDir });
 

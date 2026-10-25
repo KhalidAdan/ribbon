@@ -47,6 +47,7 @@ import { narrationLanguage, STRETCH_MS, stretchesOf, untranscribed, type PlacedP
 import { HearingStalled, modelName, transcribeWhole } from "./transcribing";
 import { locate as locate_ } from "../core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "../core/reading/anchors";
+import { placeTranscript } from "../core/reading/placing";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
 const HEAR_SECONDS = 8;
@@ -2083,12 +2084,24 @@ export class AppController {
     return Number.isFinite(kept) && kept > 0 ? kept : null;
   }
 
-  private async keepAligned(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }, now = false): Promise<void> {
+  private async keepAligned(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }, now = false, whole = false): Promise<void> {
     const { o, book, rd } = ctx;
     if (!rd.dirty || (!now && Date.now() - rd.written < ALIGNED_WRITE_MS)) return;
     rd.dirty = false;
     rd.written = Date.now();
-    await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+    await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, whole).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+  }
+
+  /**
+   * A transcript just made whole, placed in the text by what was said in it
+   * (placing.ts, #163): each phrase found wherever it is in the book, not only
+   * near where its chapter was thought to be. The places every device reads
+   * along from; the server places one it's sent the same way.
+   */
+  private placeWhole(rd: ReadingData, index: readonly WordAt[]): void {
+    rd.said = placeTranscript(index, rd.said);
+    rd.aligned = transcriptAnchors(rd.said);
+    rd.dirty = true;
   }
 
   /** What this device heard at the starts of a server's book's chapters, sent to the server, which merges it with what it has. Hearing never waits on it. */
@@ -2180,7 +2193,8 @@ export class AppController {
       });
       log.info(`transcribing ${book.book.title} ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
       if (result === "whole") {
-        await this.keepAligned(ctx, true);
+        this.placeWhole(rd, this.wordsOf(text));
+        await this.keepAligned(ctx, true, true);
         show({ alignment: this.realign(text, book, rd), readsAlong: true });
         await this.sendTranscript(o, book, rd);
       }
@@ -2371,11 +2385,12 @@ export class AppController {
     // A Media Overlay places it exactly: nothing to transcribe.
     if (rd.overlay) return "failed";
     let alignment = this.pairUp(text, withChapters, rd);
+    const index = wordIndex(text);
     const started = performance.now();
     const outcome = await transcribeWhole({
       transcript: rd,
       files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
-      index: wordIndex(text),
+      index,
       alignment: () => alignment,
       hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
       model: modelName(model),
@@ -2389,6 +2404,8 @@ export class AppController {
     });
     log.info(`transcribing ${book.book.title} for the server ${outcome} after ${Math.round((performance.now() - started) / 1000)} s`);
     if (outcome !== "whole") return outcome;
+    this.placeWhole(rd, index);
+    await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, true).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
     // Whole but not sent: kept here, transcript and all, and sent when the server is back.
     return (await this.sendTranscript(o, book, rd)) ? "whole" : "retry";
   }
