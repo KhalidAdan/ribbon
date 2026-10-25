@@ -86,8 +86,8 @@ describe("the narration, a minute at a time", () => {
   });
 
   it("is merged from every device that heard it: every stretch, each phrase once, nothing taken away", () => {
-    const theirs = transcriptFromRows(transcriptRows({ spans: new Map([[0, 60_000]]), said: [{ startMs: 1000, endMs: 2000, words: "Before", chars: 4 }] }));
-    const ours = { spans: new Map([[60_000, 120_000]]), said: [{ startMs: 1000, endMs: 2000, words: "Before", chars: 5 }, { startMs: 61_000, endMs: 62_000, words: "After", chars: 90 }] };
+    const theirs = transcriptFromRows(transcriptRows({ spans: new Map([[0, 60_000]]), heardBy: new Map([[0, "ggml-small-q5_1"]]), said: [{ startMs: 1000, endMs: 2000, words: "Before", chars: 4 }] }));
+    const ours = { spans: new Map([[60_000, 120_000]]), heardBy: new Map([[60_000, "ggml-small-q5_1"]]), said: [{ startMs: 1000, endMs: 2000, words: "Before", chars: 5 }, { startMs: 61_000, endMs: 62_000, words: "After", chars: 90 }] };
     const both = mergeTranscripts(theirs, ours);
     expect([...both.spans]).toEqual([
       [0, 60_000],
@@ -98,7 +98,7 @@ describe("the narration, a minute at a time", () => {
     expect(transcriptRows(both).map((r) => r.start_ms)).toEqual(["0", "1000", "60000", "61000"]);
   });
 
-  it("keeps a minute heard to have nothing in it, by the model that heard it, and hears again one from before that with nothing in it (#152)", () => {
+  it("counts only the minutes a named model heard, one with nothing said in it too, and hears again every one from before (#152)", () => {
     const t = transcriptFromRows([
       // From before Ribbon named the model: one with something heard in it, one with nothing, perhaps a clip that failed.
       { start_ms: "0", end_ms: "60000", words: "", chars: "" },
@@ -106,9 +106,17 @@ describe("the narration, a minute at a time", () => {
       { start_ms: "60000", end_ms: "120000", words: "", chars: "" },
       // Heard by small, with nothing said in it: music.
       { start_ms: "120000", end_ms: "180000", words: "", chars: "", heard_by: "ggml-small-q5_1" },
+      // Heard by small, with a phrase.
+      { start_ms: "180000", end_ms: "240000", words: "", chars: "", heard_by: "ggml-small-q5_1" },
+      { start_ms: "181000", end_ms: "183000", words: "Chapter two.", chars: "40" },
     ]);
-    expect([...t.spans.keys()]).toEqual([0, 120_000]);
-    expect([...t.heardBy]).toEqual([[120_000, "ggml-small-q5_1"]]);
+    expect([...t.spans.keys()]).toEqual([120_000, 180_000]);
+    expect([...t.heardBy]).toEqual([
+      [120_000, "ggml-small-q5_1"],
+      [180_000, "ggml-small-q5_1"],
+    ]);
+    // What was heard in a minute from before goes with it, so a minute heard again is never the old hearing and the new mixed.
+    expect(t.said.map((x) => x.words)).toEqual(["Chapter two."]);
     // As its rows again, the model with each minute, and each word's time with its phrase.
     const rows = transcriptRows({ spans: new Map([[0, 60_000]]), heardBy: new Map([[0, "ggml-small-q5_1"]]), said: [{ startMs: 1000, endMs: 3000, words: "Chapter one.", chars: 0, wordMs: [1000, 1900] }] });
     expect(rows).toEqual([

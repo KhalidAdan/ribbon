@@ -25,10 +25,10 @@ describe("what was heard and transcribed, kept beside the book", () => {
         { startMs: 1000, endMs: 4000, words: "The waygate hung.", chars: 10 },
         { startMs: 61_000, endMs: 64_000, words: "It was a giant circle.", chars: 900 },
       ],
-      new Map(),
+      new Map([[0, "ggml-small-q5_1"], [60_000, "ggml-small-q5_1"]]),
     );
     // Opened again while the share was away: nothing read, one new minute transcribed.
-    await lib.writeAligned("b", new Map([[120_000, 180_000]]), [{ startMs: 121_000, endMs: 125_000, words: "Eluadhri watched.", chars: 1800 }], new Map());
+    await lib.writeAligned("b", new Map([[120_000, 180_000]]), [{ startMs: 121_000, endMs: 125_000, words: "Eluadhri watched.", chars: 1800 }], new Map([[120_000, "ggml-small-q5_1"]]));
     const back = await lib.readAligned("b");
     expect([...back.spans.keys()].sort((a, b) => a - b)).toEqual([0, 60_000, 120_000]);
     expect(back.said.map((x) => x.words)).toEqual(["The waygate hung.", "It was a giant circle.", "Eluadhri watched."]);

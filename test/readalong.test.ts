@@ -160,7 +160,7 @@ describe("a book's narration records", () => {
     ]);
     expect([...heard.anchors]).toEqual([[1000, 3]]);
     const transcript = transcriptFromRows([
-      { start_ms: "0", end_ms: "60000", words: "", chars: "" },
+      { start_ms: "0", end_ms: "60000", words: "", chars: "", heard_by: "ggml-small-q5_1" },
       { start_ms: "1000", end_ms: "3800", words: "First sentence here.", chars: "3" },
       { start_ms: "4000", end_ms: "6500", words: "Second one follows", chars: "" },
     ]);

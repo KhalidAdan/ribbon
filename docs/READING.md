@@ -444,7 +444,9 @@ a checkpoint fell every 6 s. The transcript is kept beside the book in
 `aligned/<book>.csv`, with which minutes were done and the model that
 heard each, so it is made once for every device. A minute that couldn't
 be heard isn't kept, and is heard again; one heard to have nothing in it
-is kept as that (#152). The book reads along once every minute is
+is kept as that (#152). Only a minute that names the model that heard it
+counts: one from before Ribbon named it is heard again, the old hearing
+dropped with it, so no minute is two hearings mixed. The book reads along once every minute is
 transcribed, and opens to read only until then. A server's book is sent
 to the server whole, in place of what it had (SERVER.md, section 9), so
 the TV reads it along too; the admin's machine transcribes the server's

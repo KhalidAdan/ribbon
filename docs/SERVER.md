@@ -307,8 +307,9 @@ offered, and the book says what it's waiting for.
   with each word's time), and sends it whole (`PUT
   /api/books/:id/transcript`), kept in place of what the book had. One that
   isn't whole is refused, and a piece of one is never taken. Each minute
-  says which model heard it; one from before that with nothing heard in it
-  may be a clip that failed (#152), so it's heard again. A transcript in a
+  says which model heard it, and only those count: one from before that
+  was heard the old way, perhaps by the server's processor, perhaps a clip
+  that failed (#152), so it's heard again. A transcript in a
   folder's records isn't carried in. What was heard at chapter starts
   still comes from devices (`POST /api/books/:id/records/heard`), merged.
 - **What a book came without is filled in** from its own files, as a job
