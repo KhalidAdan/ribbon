@@ -84,8 +84,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  # Ribbon on the Apple TV (tv/, tv/README.md), built for the simulator so it
-  # keeps building. Nothing is signed: the Apple team is the signer's own.
+  # Ribbon on the Apple TV and the iPad (tv/, tv/README.md), built for each
+  # simulator so it keeps building. Nothing is signed: the Apple team is the
+  # signer's own.
   tv:
     name: Apple TV
     runs-on: macos-26
@@ -102,4 +103,6 @@ jobs:
       - run: xcodegen generate
         working-directory: tv
       - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=tvOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+        working-directory: tv
+      - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
         working-directory: tv

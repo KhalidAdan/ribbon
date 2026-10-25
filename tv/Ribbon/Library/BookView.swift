@@ -14,6 +14,7 @@ struct BookView: View {
     @State private var moreAbout = false
     @FocusState private var focused: Focus?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.upright) private var upright
 
     private enum Focus: Hashable {
         case listen, readAlong
@@ -33,34 +34,36 @@ struct BookView: View {
         ZStack(alignment: .top) {
             // The ground and the wash reach every edge of the screen, under the safe area, or the system's own backdrop shows at the sides.
             Color.canvas.ignoresSafeArea()
-            RadialGradient(colors: [tone.opacity(0.16), .clear], center: UnitPoint(x: 0.2, y: 0), startRadius: 0, endRadius: 640)
+            RadialGradient(colors: [tone.opacity(0.16), .clear], center: UnitPoint(x: 0.2, y: 0), startRadius: 0, endRadius: 640.scaled)
                 // An ellipse twice as wide as it is tall, as the desktop's wash is, that has faded out before its frame ends.
                 .scaleEffect(x: 2, y: 1, anchor: UnitPoint(x: 0.2, y: 0))
-                .frame(height: 720)
+                .frame(height: 720.scaled)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
             ScrollView {
-                VStack(alignment: .leading, spacing: 80) {
-                    HStack(alignment: .top, spacing: 72) {
+                VStack(alignment: .leading, spacing: 80.scaled) {
+                    // Upright, the iPad has the cover above the rest.
+                    let side = upright ? AnyLayout(VStackLayout(alignment: .leading, spacing: 48.scaled)) : AnyLayout(HStackLayout(alignment: .top, spacing: 72.scaled))
+                    side {
                         CoverView(book: book, size: 440)
                         VStack(alignment: .leading, spacing: 0) {
                             if let series, let index = series.books.firstIndex(where: { $0.id == book.id }) {
                                 Text("\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
                             }
-                            Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6)
-                            Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12)
+                            Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6.scaled)
+                            Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)
 
                             Text(sentence(progress))
                                 .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
-                                .frame(maxWidth: 900, alignment: .leading)
-                                .padding(.leading, 18)
+                                .frame(maxWidth: 900.scaled, alignment: .leading)
+                                .padding(.leading, 18.scaled)
                                 .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
-                                .padding(.top, 36)
+                                .padding(.top, 36.scaled)
                             if progress?.started == true && progress?.finished != true {
-                                ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480).padding(.top, 22)
+                                ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480.scaled).padding(.top, 22.scaled)
                             }
 
-                            HStack(spacing: 24) {
+                            HStack(spacing: 24.scaled) {
                                 Button { Task { await model.listen(to: book) } } label: {
                                     Label(listenLabel(progress), systemImage: "play.fill")
                                 }
@@ -74,27 +77,27 @@ struct BookView: View {
                                     .focused($focused, equals: .readAlong)
                                 }
                             }
-                            .padding(.top, 36)
+                            .padding(.top, 36.scaled)
                             if let problem = model.problem {
-                                Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 16)
+                                Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 16.scaled)
                             }
 
                             Facts(items: facts)
-                                .padding(.top, 48)
+                                .padding(.top, 48.scaled)
 
                             if let description = detail?.book.description, !description.isEmpty {
                                 // Focusable, so the remote reaches it and can open the rest.
                                 Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text(description).font(.ui(24)).foregroundStyle(Color.ink2).lineSpacing(8).lineLimit(moreAbout ? nil : 5).multilineTextAlignment(.leading)
+                                    VStack(alignment: .leading, spacing: 10.scaled) {
+                                        Text(description).font(.ui(24)).foregroundStyle(Color.ink2).lineSpacing(8.scaled).lineLimit(moreAbout ? nil : 5).multilineTextAlignment(.leading)
                                         Text(moreAbout ? "Less" : "More").font(.ui(22, weight: 500)).foregroundStyle(Color.ink3)
                                     }
-                                    .frame(maxWidth: 1000, alignment: .leading)
-                                    .padding(18)
+                                    .frame(maxWidth: 1000.scaled, alignment: .leading)
+                                    .padding(18.scaled)
                                 }
                                 .buttonStyle(LiftStyle.row(radius: 14))
-                                .padding(.horizontal, -18)
-                                .padding(.top, 30)
+                                .padding(.horizontal, -18.scaled)
+                                .padding(.top, 30.scaled)
                                 .modifier(FadesInPlace(fades: arrivedLate && reduceMotion))
                             }
                         }
@@ -104,8 +107,8 @@ struct BookView: View {
                         SeriesList(series: series, current: book)
                     }
                 }
-                .padding(.horizontal, 96)
-                .padding(.vertical, 72)
+                .padding(.horizontal, 96.scaled)
+                .padding(.vertical, 72.scaled)
             }
         }
         .defaultFocus($focused, .listen)
@@ -174,18 +177,18 @@ private struct Facts: View {
     let items: [(term: String, value: String)]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 22.scaled) {
             Rectangle().fill(Color.line).frame(height: 1)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32, alignment: .leading), count: 4), alignment: .leading, spacing: 22) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32.scaled, alignment: .leading), count: 4), alignment: .leading, spacing: 22.scaled) {
                 ForEach(items, id: \.term) { fact in
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 4.scaled) {
                         Text(fact.term).font(.ui(22)).foregroundStyle(Color.ink3)
                         Text(fact.value).font(.ui(24, weight: 500)).foregroundStyle(Color.ink).monospacedDigit().lineLimit(1)
                     }
                 }
             }
         }
-        .frame(maxWidth: 1000)
+        .frame(maxWidth: 1000.scaled)
     }
 }
 
@@ -203,32 +206,32 @@ private struct SeriesList: View {
             return sum + (p?.finished == true ? 0 : book.durationMs - (p?.ms ?? 0))
         }
         let hours = Format.left(left).replacingOccurrences(of: #" \d+m$"#, with: "", options: .regularExpression)
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 24.scaled) {
             SectionHeader(title: series.name, description: "\(finished) of \(series.books.count) finished\(left > 0 ? ", \(hours) still to hear" : "").")
-            VStack(spacing: 4) {
+            VStack(spacing: 4.scaled) {
                 ForEach(Array(series.books.enumerated()), id: \.element.id) { index, book in
                     let now = book.id == current.id
                     let progress = library?.progress(of: book)
                     Button { model.open(book) } label: {
-                        HStack(spacing: 24) {
-                            Text(series.number(of: book, at: index)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44, alignment: .trailing)
+                        HStack(spacing: 24.scaled) {
+                            Text(series.number(of: book, at: index)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44.scaled, alignment: .trailing)
                             CoverView(book: book, size: 72)
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 4.scaled) {
                                 Text(series.title(of: book)).font(.ui(26, weight: now ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(1)
                                 Text(book.author).font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1)
                             }
-                            Spacer(minLength: 24)
-                            HStack(spacing: 10) {
-                                if progress?.finished == true { Image(systemName: "checkmark").font(.system(size: 20, weight: .semibold)).foregroundStyle(Color.ink3) }
+                            Spacer(minLength: 24.scaled)
+                            HStack(spacing: 10.scaled) {
+                                if progress?.finished == true { Image(systemName: "checkmark").font(.system(size: 20.scaled, weight: .semibold)).foregroundStyle(Color.ink3) }
                                 Text(library?.standing(of: book) ?? "").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
                             }
                         }
-                        .padding(.vertical, 12)
-                        .padding(.leading, 20)
-                        .padding(.trailing, 24)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(now ? Color.raised : Color.clear))
+                        .padding(.vertical, 12.scaled)
+                        .padding(.leading, 20.scaled)
+                        .padding(.trailing, 24.scaled)
+                        .background(RoundedRectangle(cornerRadius: 12.scaled).fill(now ? Color.raised : Color.clear))
                         .overlay(alignment: .leading) {
-                            if now { Capsule().fill(Color.place).frame(width: 4).padding(.vertical, 14) }
+                            if now { Capsule().fill(Color.place).frame(width: 4.scaled).padding(.vertical, 14.scaled) }
                         }
                     }
                     .buttonStyle(LiftStyle.row(radius: 12))

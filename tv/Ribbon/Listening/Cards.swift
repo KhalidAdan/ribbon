@@ -16,18 +16,18 @@ struct ChapterCard: View {
         let heading = Self.heading(of: listening.chapters.indices.contains(index) ? listening.chapters[index].title : "")
         ZStack {
             Color.canvas
-            VStack(spacing: 36) {
+            VStack(spacing: 36.scaled) {
                 if let kicker = heading.kicker ?? (heading.title == nil ? "Chapter \(index + 1)" : nil) {
-                    Text(kicker.uppercased()).font(.ui(26, weight: 500)).tracking(6).foregroundStyle(Color.ink3)
+                    Text(kicker.uppercased()).font(.ui(26, weight: 500)).tracking(6.scaled).foregroundStyle(Color.ink3)
                 }
                 if let title = heading.title {
                     Text(title)
                         .font(.book(92)).foregroundStyle(Color.ink)
-                        .multilineTextAlignment(.center).lineLimit(3).lineSpacing(8)
-                        .frame(maxWidth: 1400)
+                        .multilineTextAlignment(.center).lineLimit(3).lineSpacing(8.scaled)
+                        .frame(maxWidth: 1400.scaled)
                 }
             }
-            .padding(120)
+            .padding(120.scaled)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -76,23 +76,29 @@ private struct Wiped: ViewModifier {
 
 /// Asked after forty minutes of narration with nothing pressed: any press
 /// answers, and goes no further (Remote). Unanswered, the narration stops at
-/// the end of the sentence a minute later (Dozing).
+/// the end of the sentence a minute later (Dozing). On the iPad, any touch.
 struct StillListening: View {
     var body: some View {
-        HStack(spacing: 22) {
-            Image(systemName: "moon.fill").font(.system(size: 30)).foregroundStyle(Color.place)
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 22.scaled) {
+            Image(systemName: "moon.fill").font(.system(size: 30.scaled)).foregroundStyle(Color.place)
+            VStack(alignment: .leading, spacing: 6.scaled) {
                 Text("Still listening?").font(.ui(30, weight: 600)).foregroundStyle(Color.ink)
-                Text("Press anything to keep going. If not, the book stops in a minute, and Ribbon keeps where you dozed off.")
+                Text(Self.answer)
                     .font(.ui(22)).foregroundStyle(Color.ink2)
             }
         }
-        .frame(maxWidth: 1000, alignment: .leading)
-        .padding(.horizontal, 36)
-        .padding(.vertical, 26)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color.raised))
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+        .frame(maxWidth: 1000.scaled, alignment: .leading)
+        .padding(.horizontal, 36.scaled)
+        .padding(.vertical, 26.scaled)
+        .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.raised))
+        .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
+        .shadow(color: .black.opacity(0.5), radius: 30.scaled, y: 14.scaled)
         .allowsHitTesting(false)
     }
+
+    #if os(tvOS)
+    private static let answer = "Press anything to keep going. If not, the book stops in a minute, and Ribbon keeps where you dozed off."
+    #else
+    private static let answer = "Touch anything to keep going. If not, the book stops in a minute, and Ribbon keeps where you dozed off."
+    #endif
 }

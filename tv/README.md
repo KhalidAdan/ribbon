@@ -1,4 +1,4 @@
-# Ribbon on the Apple TV
+# Ribbon on the Apple TV and the iPad
 
 A book from your Ribbon server, its text on the screen and its narration
 playing, the sentence being read marked in amber as it goes: read-along
@@ -9,6 +9,12 @@ tvOS has no web view, so Ribbon's own UI can't run on it, and Tauri doesn't
 build for it: this is a small native app in SwiftUI and UIKit, talking to the
 server's API. It keeps only who has signed in on it; tvOS may clear an app's
 files at any time, so the audio streams and the place lives on the server.
+
+The same app runs on the iPad, with the TV's screens by touch (below). The
+iPad has a web view, so that's a choice, not a need: the TV's read-along is
+the one the owner reads with, and the iPad's bigger screen suits it. Like the
+TV it's a server client only, with no folders of its own and no transcribing;
+Ribbon in Tauri stays the whole app on the iPhone and the desktop (CLAUDE.md).
 
 ## What it does
 
@@ -107,6 +113,35 @@ files at any time, so the audio streams and the place lives on the server.
   for the end of a book; Keep listening sessions, below the library, turns
   that off for you on this TV (docs/POSITION-FORMAT.md, section 3.3).
 
+## On the iPad
+
+Everything above, with the finger for the remote. Every size is the TV's,
+drawn at seven tenths (`Look.scale`): the TV's 24-point text is the iPad's
+17. What the TV sets side by side (a book's page, the player, the end of a
+book) stacks when the iPad is upright, and the reader's column is narrow
+enough for an iPad mini held upright, so turning the iPad keeps every line
+where it was.
+
+- **Taps** for the focus and Select: the primary button is in inverted ink, as
+  the desktop's is, and a press shrinks a button to 97% and a card to 98%
+  (docs/DESIGN.md, section 7). Menu is a way back at the top left of each
+  screen, named for where it goes; sheets have Done, and the sign-in Cancel.
+  From the library, Who's reading is Switch reader, in Settings.
+- **The reader**: the finger moves the column, and the sentence at the eye
+  line, a third of the way down, is the one you're on, as a swipe on the
+  remote glides through them. Tapping a sentence goes to it, and tapping it
+  again listens from it. Under the column are the remote's buttons: Listen
+  from here and Return to narrator either side of play when you're away from
+  the narrator, and, following it, Again, which is the remote's Left (from
+  the start of the sentence being read, and a sentence further back each
+  time). Holding a sentence starts a bookmark, tapping or scrolling takes in
+  more, and Keep bookmark or Cancel finish it; holding a bookmark offers to
+  delete it. Turning the iPad keeps your sentence where the eyes are.
+- **A keyboard** in the reader: the arrows are the remote's edges and space
+  is its Play.
+- **Any touch** answers Still listening? and brings back the screen from the
+  passages, and goes no further, as a press does on the TV (`Remote.swift`).
+
 ## Where the read-along comes from
 
 `GET /api/books/:id/readalong` (server/src/readalong-routes.ts): the book's
@@ -151,12 +186,12 @@ passages.
 | `Reading/ReadingSession.swift` | A book open: the remote's sentence, the narrator's, playing, the place. |
 | `Reading/BookLayout.swift` | The text set in type by TextKit, once, so every sentence's place is known. |
 | `Reading/ReaderViewController.swift` | The column on screen, and the remote. |
-| `Look.swift`, `Kit.swift`, `Format.swift` | Colours and faces (docs/DESIGN.md), the shapes screens are built from, and times written as the desktop writes them. |
-| `Assets.xcassets` | The icon in layers, as tvOS tilts it, and the Top Shelf pictures: made from the app's own icon by `make-icons.sh`. |
+| `Look.swift`, `Kit.swift`, `Format.swift` | Colours and faces (docs/DESIGN.md), the TV's sizes as the iPad draws them, the shapes screens are built from and how a press shows on each, and times written as the desktop writes them. |
+| `Assets.xcassets` | The icon in layers, as tvOS tilts it, and the Top Shelf pictures; the iPad's icon whole. All made from the app's own icon by `make-icons.sh`. |
 
 ## Building it
 
-Xcode (with the tvOS platform), [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+Xcode (with the tvOS and iOS platforms), [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 (`brew install xcodegen`), and the repository's npm packages, which bring the
 fonts (`npm install` at the root).
 
@@ -167,9 +202,10 @@ open RibbonTV.xcodeproj
 ```
 
 The Xcode project is made from `project.yml` and isn't kept in the
-repository. Pick your team in Xcode's Signing tab when running on a real
-Apple TV; it goes into the generated project only, never into this public
-repository.
+repository. It has one app, `Ribbon`, for both the Apple TV and the iPad
+(`app.ribbon.tv` on each, as one app). Pick your team in Xcode's Signing tab
+when running on a real Apple TV or iPad; it goes into the generated project
+only, never into this public repository.
 
 ### In the simulator
 
@@ -194,6 +230,17 @@ reaches a server on this Mac at `localhost`. The arrow keys are the remote's
 edges and Return is Select; Menu and Play/Pause are on the Simulator's own
 Apple TV Remote.
 
+On the iPad simulator, the same, for the iOS simulator:
+
+```bash
+xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build build
+xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/Ribbon.app
+SIMCTL_CHILD_RIBBON_SERVER=http://localhost:7766 SIMCTL_CHILD_RIBBON_NAME=<name> SIMCTL_CHILD_RIBBON_PASSWORD=<password> xcrun simctl launch booted app.ribbon.tv
+```
+
+iPadOS leaves what's typed in a password field out of screenshots, so a
+screenshot of the sign-in shows that field empty.
+
 How long opening a book takes is in the system log:
 
 ```bash
@@ -209,7 +256,17 @@ Devices window, Pair Nearby Device with the PIN the TV shows. Then run the
 iPhone (docs/MAC.md); the paid program signs it for a year and allows
 TestFlight.
 
+### On an iPad
+
+Connect it to the Mac and run the `Ribbon` scheme on it, as for the iPhone
+(docs/MAC.md): a free Apple ID signs it for seven days.
+
 ## Not yet
+
+On the iPad, a window narrower than the reader's column (Split View, or a
+small window beside others) cuts the column's edges. While a book is paused
+in the player or the reader, the iPad's screen stays on for the passages, an
+hour at most, as the TV's does.
 
 Pages, text sizes, loudness, notes on bookmarks, and books without a narration.
 

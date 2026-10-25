@@ -61,5 +61,12 @@ enum ThisDevice {
 
     static var name: String { "Ribbon on \(UIDevice.current.name)" }
 
-    static var app: String { "Ribbon TV \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")" }
+    static var app: String { "Ribbon \(kind) \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")" }
+
+    /// What this device is, in what the app says about it: "this TV", "this iPad".
+    #if os(tvOS)
+    static let kind = "TV"
+    #else
+    static let kind = "iPad"
+    #endif
 }

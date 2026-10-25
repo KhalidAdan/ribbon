@@ -1,9 +1,9 @@
 #!/bin/sh
-# Ribbon's icon for the Apple TV, made from the app's own
+# Ribbon's icon for the Apple TV and the iPad, made from the app's own
 # (src-tauri/icons/icon-ios.svg): tvOS wants it in layers, so the focus can
 # tilt it, at its own sizes, and a wide Top Shelf picture besides. The back
 # layer is the icon's near-black tile; the front is the open book with its
-# ribbon. Run it again when the icon changes:
+# ribbon. The iPad takes it whole. Run it again when the icon changes:
 #
 #   sh tv/make-icons.sh
 #
@@ -41,3 +41,10 @@ shelf 3840 1440 880 "$out/Top Shelf Image.imageset/top-shelf@2x.png"
 shelf 2320 720 440 "$out/Top Shelf Image Wide.imageset/top-shelf-wide.png"
 shelf 4640 1440 880 "$out/Top Shelf Image Wide.imageset/top-shelf-wide@2x.png"
 echo "made the icon and the Top Shelf pictures in $out"
+
+# The iPad's: the icon as the phone has it, one square picture with its tile,
+# which iPadOS rounds and sizes itself (no transparency, or it's refused).
+ipad="$here/Ribbon/Assets.xcassets/App Icon.appiconset"
+rsvg-convert -w 1024 -h 1024 "$svg" -o "$work/ipad.png"
+magick "$work/ipad.png" -background '#0a0a0a' -alpha remove -alpha off "PNG24:$ipad/icon.png"
+echo "made the iPad's icon in $ipad"

@@ -9,11 +9,19 @@ import UIKit
 /// Made off the main thread (TextKit's own objects may be, before anything
 /// draws them), then only read.
 final class BookLayout: @unchecked Sendable {
-    /// The type, for reading from a sofa three metres away: about sixty letters a line.
+    /// The type, for reading from a sofa three metres away: about sixty letters a line. On the iPad, at arm's
+    /// length, the same sixty letters a line, the column narrow enough for an iPad mini held upright, so turning
+    /// the iPad keeps every line as it was.
     enum Measure {
+        #if os(tvOS)
         static let width: CGFloat = 1200
         static let size: CGFloat = 42
         static let lineHeight: CGFloat = 68
+        #else
+        static let width: CGFloat = 680
+        static let size: CGFloat = 24
+        static let lineHeight: CGFloat = 39
+        #endif
         static let indent = size * 1.5
     }
 
@@ -61,6 +69,11 @@ final class BookLayout: @unchecked Sendable {
         func draw(_ range: NSRange) {
             manager.drawGlyphs(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil), at: .zero)
         }
+
+        /// The character nearest a point in the paragraph: where a finger lands on its words.
+        func character(at point: CGPoint) -> Int {
+            manager.characterIndexForGlyph(at: manager.glyphIndex(for: point, in: container))
+        }
     }
 
     let paragraphs: [Paragraph]
@@ -91,6 +104,12 @@ final class BookLayout: @unchecked Sendable {
         var end = low
         while end < paragraphs.count && paragraphs[end].top <= bottom { end += 1 }
         return low..<end
+    }
+
+    /// The paragraph at a height on the column; in the room between two, the one below. Nil for a book with none.
+    func paragraph(at y: CGFloat) -> Int? {
+        guard !paragraphs.isEmpty else { return nil }
+        return min(paragraphs(from: y, to: y).lowerBound, paragraphs.count - 1)
     }
 
     /// The box around a sentence's first line on the column: what the side buttons sit beside.

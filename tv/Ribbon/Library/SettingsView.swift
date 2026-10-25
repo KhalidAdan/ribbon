@@ -12,21 +12,21 @@ struct SettingsView: View {
         ZStack {
             Color.canvas.ignoresSafeArea()
             ScrollView {
-                VStack(alignment: .leading, spacing: 56) {
-                    VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 56.scaled) {
+                    VStack(alignment: .leading, spacing: 10.scaled) {
                         Text("Settings").font(.book(56, weight: 500)).foregroundStyle(Color.ink)
-                        Text("On this TV, for \(name).").font(.ui(26)).foregroundStyle(Color.ink2)
+                        Text("On this \(ThisDevice.kind), for \(name).").font(.ui(26)).foregroundStyle(Color.ink2)
                     }
-                    VStack(alignment: .leading, spacing: 40) {
+                    VStack(alignment: .leading, spacing: 40.scaled) {
                         Rows(label: "Listening") {
                             Button { model.keepSessions(!model.keepsSessions) } label: {
                                 Row(
                                     title: "Keep listening sessions",
                                     description: model.keepsSessions
                                         ? "The end of a book says when you started and finished it, and how long it took."
-                                        : "Off on this TV: the end of a book won't count the time spent here."
+                                        : "Off on this \(ThisDevice.kind): the end of a book won't count the time spent here."
                                 ) {
-                                    HStack(spacing: 10) {
+                                    HStack(spacing: 10.scaled) {
                                         Text(model.keepsSessions ? "On" : "Off")
                                         Image(systemName: model.keepsSessions ? "checkmark.circle.fill" : "circle")
                                             .foregroundStyle(model.keepsSessions ? Color.place : Color.ink3)
@@ -45,10 +45,10 @@ struct SettingsView: View {
                             .buttonStyle(LiftStyle.row())
                         }
                     }
-                    .frame(maxWidth: 1100, alignment: .leading)
+                    .frame(maxWidth: 1100.scaled, alignment: .leading)
                 }
-                .padding(.horizontal, 96)
-                .padding(.vertical, 72)
+                .padding(.horizontal, 96.scaled)
+                .padding(.vertical, 72.scaled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

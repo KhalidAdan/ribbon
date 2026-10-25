@@ -148,6 +148,18 @@ struct Sentences {
         return found
     }
 
+    /// The sentence a character of a block is in: what a finger lands on. In a block without sentences, a break
+    /// between scenes, the next sentence after it. Nil in a book without any.
+    func at(_ character: Int, in block: Int) -> Int? {
+        guard firstOfBlock.indices.contains(block) else { return nil }
+        guard let start = firstOfBlock[block] else {
+            return firstOfBlock[block...].lazy.compactMap { $0 }.first ?? (all.isEmpty ? nil : all.count - 1)
+        }
+        var found = start
+        while found + 1 < all.count && all[found + 1].block == block && all[found + 1].range.location <= character { found += 1 }
+        return found
+    }
+
     /// The words of some sentences that are in one block, from the first of them there to the last:
     /// one stretch to wash or underline. Nil when none of them is in it.
     func span(of sentences: ClosedRange<Int>, in block: Int) -> NSRange? {

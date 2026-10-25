@@ -380,4 +380,4 @@ bookmarks, corrections, pairing); README.md lists which is which.
 | Playback | `player/engine.ts`, `src-tauri/src/frames.rs` |
 | The EPUB parser | `src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
 | The export | `core/reading/export.ts`, `src-tauri/src/ebook/export.rs`, `src-tauri/ebook/src/source.rs` |
-| Read-along on the Apple TV | `core/reading/readalong.ts`, `server/src/readalong-routes.ts`, `tv/` (tv/README.md) |
+| Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `server/src/readalong-routes.ts`, `tv/` (tv/README.md) |

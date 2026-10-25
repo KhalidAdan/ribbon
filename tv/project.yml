@@ -1,12 +1,14 @@
-# Ribbon on the Apple TV: an Xcode project made from this file with
-# XcodeGen (`xcodegen generate` in tv/). The project itself is not kept in
-# the repository: it is made again from here, and the signer's Apple team
-# never goes into it (tv/README.md).
+# Ribbon on the Apple TV and the iPad: an Xcode project made from this file
+# with XcodeGen (`xcodegen generate` in tv/). The project itself is not kept
+# in the repository: it is made again from here, and the signer's Apple team
+# never goes into it (tv/README.md). One app, one set of sources, built for
+# either: the iPad draws the TV's screens at its own size, by touch.
 name: RibbonTV
 options:
   bundleIdPrefix: app.ribbon
   deploymentTarget:
     tvOS: "17.0"
+    iOS: "17.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -16,7 +18,7 @@ settings:
 targets:
   Ribbon:
     type: application
-    platform: tvOS
+    supportedDestinations: [tvOS, iOS]
     sources:
       - path: Ribbon
         excludes: [Info.plist]
@@ -37,7 +39,11 @@ targets:
         PRODUCT_NAME: Ribbon
         PRODUCT_BUNDLE_IDENTIFIER: app.ribbon.tv
         INFOPLIST_FILE: Ribbon/Info.plist
-        TARGETED_DEVICE_FAMILY: "3"
+        # The Apple TV and the iPad; the iPhone and the Mac keep the Tauri app (CLAUDE.md).
+        TARGETED_DEVICE_FAMILY: "2,3"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
         CODE_SIGN_STYLE: Automatic
-        # Ribbon's icon in layers, and the Top Shelf pictures (tv/make-icons.sh).
-        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        # Ribbon's icon in layers and the Top Shelf pictures on the TV, one picture on the iPad (tv/make-icons.sh).
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]": "App Icon & Top Shelf Image"
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphone*]": "App Icon"
