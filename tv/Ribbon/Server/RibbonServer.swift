@@ -285,7 +285,7 @@ struct RibbonServer {
 
     private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = []) async throws -> T {
         let (data, response) = try await Self.reach(authorized(path, query: query))
-        if response.statusCode == 401 { throw ServerError(message: "This TV's sign-in has run out. Sign in again.", status: 401) }
+        if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
         guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't answer (\(response.statusCode)).", status: response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -298,7 +298,7 @@ struct RibbonServer {
         let device = ["id": ThisDevice.id, "name": ThisDevice.name, "app": ThisDevice.app]
         request.httpBody = try JSONSerialization.data(withJSONObject: body.merging(["device": device]) { mine, _ in mine })
         let (data, response) = try await Self.reach(request)
-        if response.statusCode == 401 { throw ServerError(message: "This TV's sign-in has run out. Sign in again.", status: 401) }
+        if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
         guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't do that (\(response.statusCode)).", status: response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -316,7 +316,7 @@ struct RibbonServer {
             let (data, response) = try await session.data(for: request)
             return (data, response as! HTTPURLResponse)
         } catch {
-            throw ServerError(message: "Couldn't reach \(request.url?.host() ?? "the server"). Is it on, and is this TV on its network?")
+            throw ServerError(message: "Couldn't reach \(request.url?.host() ?? "the server"). Is it on, and is this \(ThisDevice.kind) on its network?")
         }
     }
 

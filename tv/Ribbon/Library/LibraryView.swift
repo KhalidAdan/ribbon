@@ -12,7 +12,7 @@ struct LibraryView: View {
     var body: some View {
         let library = model.library
         ScrollView {
-            VStack(alignment: .leading, spacing: 72) {
+            VStack(alignment: .leading, spacing: 72.scaled) {
                 TopBar()
                 if let library, library.loaded {
                     if library.books.isEmpty {
@@ -20,40 +20,40 @@ struct LibraryView: View {
                     }
                     let continuing = library.inProgress
                     if !continuing.isEmpty {
-                        VStack(alignment: .leading, spacing: 28) {
+                        VStack(alignment: .leading, spacing: 28.scaled) {
                             SectionHeader(title: "Continue", description: continuing.count == 1 ? "One book in progress." : "\(continuing.count) books in progress, most recent first.")
                             ScrollView(.horizontal) {
-                                HStack(spacing: 28) {
+                                HStack(spacing: 28.scaled) {
                                     ForEach(continuing) { book in ContinueCard(book: book).focused($focused, equals: "continue-\(book.id)") }
                                 }
-                                .padding(24)
+                                .padding(24.scaled)
                             }
-                            .padding(-24)
+                            .padding(-24.scaled)
                             .scrollClipDisabled()
                         }
                     }
                     let series = library.series
                     if !series.isEmpty {
-                        VStack(alignment: .leading, spacing: 28) {
+                        VStack(alignment: .leading, spacing: 28.scaled) {
                             SectionHeader(title: "Series", description: "\(series.count) series, in the order you listen.")
                             ScrollView(.horizontal) {
-                                HStack(spacing: 28) {
+                                HStack(spacing: 28.scaled) {
                                     ForEach(series) { group in SeriesCard(series: group) }
                                 }
-                                .padding(24)
+                                .padding(24.scaled)
                             }
-                            .padding(-24)
+                            .padding(-24.scaled)
                             .scrollClipDisabled()
                         }
                     }
                     let standalone = library.standalone
                     if !standalone.isEmpty {
-                        VStack(alignment: .leading, spacing: 32) {
+                        VStack(alignment: .leading, spacing: 32.scaled) {
                             SectionHeader(
                                 title: series.isEmpty ? "All books" : "Books",
                                 description: series.isEmpty ? "\(standalone.count) \(standalone.count == 1 ? "book" : "books"), most recently listened first." : "\(standalone.count) \(standalone.count == 1 ? "book" : "books") outside a series."
                             )
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250, maximum: 270), spacing: 48, alignment: .top)], alignment: .leading, spacing: 64) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250.scaled, maximum: 270.scaled), spacing: 48.scaled, alignment: .top)], alignment: .leading, spacing: 64.scaled) {
                                 ForEach(standalone) { book in BookCard(book: book) }
                             }
                         }
@@ -62,11 +62,13 @@ struct LibraryView: View {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
                 }
             }
-            .padding(.horizontal, 96)
-            .padding(.vertical, 56)
+            .padding(.horizontal, 96.scaled)
+            .padding(.vertical, 56.scaled)
         }
         .background(Color.canvas.ignoresSafeArea())
+        #if os(tvOS)
         .onExitCommand(perform: model.people.count > 1 ? { model.switchReader() } : nil)
+        #endif
         .task { await model.loadLibrary() }
         .onChange(of: model.library?.loaded) { _, loaded in
             // The cards arrive after the screen is up: the focus goes to the book you were in the middle of.
@@ -79,41 +81,48 @@ struct LibraryView: View {
 /// opens the player.
 private struct TopBar: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.upright) private var upright
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: "bookmark.fill").font(.system(size: 26)).foregroundStyle(Color.place)
+        HStack(spacing: 14.scaled) {
+            Image(systemName: "bookmark.fill").font(.system(size: 26.scaled)).foregroundStyle(Color.place)
             Text("Ribbon").font(.ui(30, weight: 600)).foregroundStyle(Color.ink)
-            Image(systemName: "chevron.right").font(.system(size: 18, weight: .semibold)).foregroundStyle(Color.ink3)
-            Text(model.host).font(.ui(28)).foregroundStyle(Color.ink2)
+            Image(systemName: "chevron.right").font(.system(size: 18.scaled, weight: .semibold)).foregroundStyle(Color.ink3)
+            Text(model.host).font(.ui(28)).foregroundStyle(Color.ink2).lineLimit(1)
             Spacer()
+            // Each button's words whole: where the bar is short, as on an iPad held upright, the book playing gives way.
             Button { model.showSearch() } label: {
-                Label("Search", systemImage: "magnifyingglass")
+                Label("Search", systemImage: "magnifyingglass").fixedSize()
             }
             .buttonStyle(RibbonButtonStyle())
-            .padding(.trailing, 16)
+            .padding(.trailing, 16.scaled)
             if let listening = model.listening {
                 Button { model.showPlayer() } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: listening.playing ? "speaker.wave.2.fill" : "pause.fill").font(.system(size: 20))
+                    HStack(spacing: 14.scaled) {
+                        Image(systemName: listening.playing ? "speaker.wave.2.fill" : "pause.fill").font(.system(size: 20.scaled))
                         Text(listening.book.title).lineLimit(1)
-                        Text("\(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left").opacity(0.7).monospacedDigit()
+                        // Upright, the iPad's bar is short: the book keeps its title, and the time left goes.
+                        if !upright {
+                            Text("\(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left").opacity(0.7).monospacedDigit()
+                        }
                     }
-                    .frame(maxWidth: 640)
+                    .frame(maxWidth: 640.scaled)
                 }
                 .buttonStyle(RibbonButtonStyle())
-                .padding(.trailing, 16)
+                .padding(.trailing, 16.scaled)
             }
             // Who's reading, which is where their settings are.
             Button { model.showSettings() } label: {
-                Label(model.server?.account.name ?? "Settings", systemImage: "gearshape")
+                Label(model.server?.account.name ?? "Settings", systemImage: "gearshape").fixedSize()
             }
             .buttonStyle(RibbonButtonStyle())
             .accessibilityLabel("Settings")
         }
+        #if os(tvOS)
         // One place for the focus to go up to from anywhere below: its buttons sit at the far right, outside what's
         // straight above the cards.
         .focusSection()
+        #endif
     }
 }
 
@@ -126,18 +135,18 @@ private struct ContinueCard: View {
     var body: some View {
         let library = model.library
         Button { model.open(book) } label: {
-            HStack(spacing: 22) {
+            HStack(spacing: 22.scaled) {
                 CoverView(book: book, size: 120)
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8.scaled) {
                     Text(book.title).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
                     Text(where_).font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit().lineLimit(1)
-                    ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8)
+                    ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8.scaled)
                 }
-                .frame(width: 400, alignment: .leading)
+                .frame(width: 400.scaled, alignment: .leading)
             }
-            .padding(22)
-            .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
+            .padding(22.scaled)
+            .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.surface))
+            .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
         }
         .buttonStyle(LiftStyle(radius: 20))
         .task { detail = await model.library?.detail(of: book) }
@@ -173,24 +182,24 @@ private struct SeriesCard: View {
         let allDone = finished == series.books.count
         let hours = Format.left(left).replacingOccurrences(of: #" \d+m$"#, with: "", options: .regularExpression)
         Button { model.open(next) } label: {
-            HStack(alignment: .top, spacing: 24) {
+            HStack(alignment: .top, spacing: 24.scaled) {
                 ZStack(alignment: .leading) {
-                    if series.books.count > 2 { RoundedRectangle(cornerRadius: 6).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.line)).frame(width: 128, height: 112).offset(x: 20) }
-                    if series.books.count > 1 { RoundedRectangle(cornerRadius: 6).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.line)).frame(width: 132, height: 124).offset(x: 10) }
+                    if series.books.count > 2 { RoundedRectangle(cornerRadius: 6.scaled).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6.scaled).stroke(Color.line)).frame(width: 128.scaled, height: 112.scaled).offset(x: 20.scaled) }
+                    if series.books.count > 1 { RoundedRectangle(cornerRadius: 6.scaled).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6.scaled).stroke(Color.line)).frame(width: 132.scaled, height: 124.scaled).offset(x: 10.scaled) }
                     CoverView(book: next, size: 136)
                 }
-                .frame(width: 160, alignment: .leading)
-                VStack(alignment: .leading, spacing: 8) {
+                .frame(width: 160.scaled, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8.scaled) {
                     Text(series.name).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
                     Text("\(series.books.count) books · \(allDone ? "all finished" : finished > 0 ? "\(finished) finished · \(hours) to go" : hours)").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
-                    Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6)
-                    SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16)
+                    Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6.scaled)
+                    SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16.scaled)
                 }
-                .frame(width: 450, alignment: .leading)
+                .frame(width: 450.scaled, alignment: .leading)
             }
-            .padding(24)
-            .background(RoundedRectangle(cornerRadius: 20).fill(Color.surface))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.line))
+            .padding(24.scaled)
+            .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.surface))
+            .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
         }
         .buttonStyle(LiftStyle(radius: 20))
     }
@@ -204,32 +213,36 @@ private struct BookCard: View {
     var body: some View {
         let library = model.library
         let progress = library?.progress(of: book)
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6.scaled) {
             Button { model.open(book) } label: {
                 CoverView(book: book, size: 250)
                     .overlay(alignment: .topTrailing) {
                         if progress?.finished == true {
-                            Image(systemName: "checkmark").font(.system(size: 18, weight: .bold)).foregroundStyle(Color.ink)
-                                .frame(width: 36, height: 36).background(Circle().fill(Color.canvas.opacity(0.8))).padding(10)
+                            Image(systemName: "checkmark").font(.system(size: 18.scaled, weight: .bold)).foregroundStyle(Color.ink)
+                                .frame(width: 36.scaled, height: 36.scaled).background(Circle().fill(Color.canvas.opacity(0.8))).padding(10.scaled)
                         }
                     }
             }
+            #if os(tvOS)
             .buttonStyle(.card)
-            .padding(.bottom, 18)
+            #else
+            .buttonStyle(LiftStyle(radius: 6))
+            #endif
+            .padding(.bottom, 18.scaled)
             Text(book.title).font(.ui(24, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
             Text(book.author.isEmpty ? "Unknown author" : book.author).font(.ui(22)).foregroundStyle(Color.ink2).lineLimit(1)
             Text(library?.standing(of: book) ?? "").font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().lineLimit(1)
             if progress?.started == true && progress?.finished != true {
-                ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8)
+                ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8.scaled)
             }
         }
-        .frame(width: 250)
+        .frame(width: 250.scaled)
     }
 }
 
 /// A book's cover, square as the desktop draws covers, cropped to fill, in
 /// its own colour before the picture arrives so nothing moves when it does;
-/// the title's initials when there's no picture.
+/// the title's initials when there's no picture. Its size is the TV's.
 struct CoverView: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
@@ -245,9 +258,9 @@ struct CoverView: View {
                 Text(initials).font(.ui(size * 0.2, weight: 500)).foregroundStyle(Color.ink3)
             }
         }
-        .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: max(4, size * 0.025)))
-        .overlay(RoundedRectangle(cornerRadius: max(4, size * 0.025)).stroke(Color.line))
+        .frame(width: size.scaled, height: size.scaled)
+        .clipShape(RoundedRectangle(cornerRadius: max(4, size * 0.025).scaled))
+        .overlay(RoundedRectangle(cornerRadius: max(4, size * 0.025).scaled).stroke(Color.line))
         .task(id: book.cover?.hash) {
             guard let hash = book.cover?.hash, let server = model.server else { return }
             let found = try? await server.cover(hash, width: size > 200 ? 800 : 400)

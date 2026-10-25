@@ -6,7 +6,7 @@ import SwiftUI
 /// the player, and the reader, where the text is on the screen and the
 /// sentence being read is marked as the narration goes. Everything the TV
 /// shows comes from the server (docs/SERVER.md, section 8): it keeps only who
-/// has signed in on it.
+/// has signed in on it. The iPad runs the same app, by touch (tv/README.md).
 @main
 struct RibbonApp: App {
     @State private var model = AppModel()
@@ -27,6 +27,9 @@ struct RibbonApp: App {
             .background(WatchTheRemote())
             .environment(model)
             .preferredColorScheme(.dark)
+            #if os(iOS)
+            .modifier(SaysWhichWayUp())
+            #endif
             .onChange(of: phase, initial: true) { _, phase in
                 model.inFront = phase == .active
                 // Coming back to the app took a press, which the home screen had.
@@ -52,10 +55,10 @@ private struct Screens: View {
                 .navigationDestination(for: AppModel.Screen.self) { screen in
                     Group {
                         switch screen {
-                        case .book(let book): BookView(book: book, kept: model.library?.details[book.id])
-                        case .player: PlayerView()
-                        case .search: SearchView()
-                        case .settings: SettingsView()
+                        case .book(let book): BookView(book: book, kept: model.library?.details[book.id]).wayBack()
+                        case .player: PlayerView().wayBack()
+                        case .search: SearchView().wayBack()
+                        case .settings: SettingsView().wayBack()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -67,7 +70,7 @@ private struct Screens: View {
         }
         .overlay(alignment: .bottom) {
             if let listening, listening.dozing.asked != nil {
-                StillListening().padding(.bottom, 72).transition(.opacity.combined(with: .move(edge: .bottom)))
+                StillListening().padding(.bottom, 72.scaled).transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
         .overlay {
@@ -88,6 +91,23 @@ private struct Screens: View {
         }
     }
 }
+
+#if os(iOS)
+/// Tells every screen whether the iPad is held upright (`upright`), and again as it turns.
+private struct SaysWhichWayUp: ViewModifier {
+    @State private var upright = false
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.upright, upright)
+            .background {
+                GeometryReader { space in
+                    Color.clear.onChange(of: space.size, initial: true) { _, size in upright = size.height > size.width }
+                }
+            }
+    }
+}
+#endif
 
 /// What the app is showing: who's reading, everyone who can, their library,
 /// the book they're listening to, and the screens open over the library.
@@ -159,6 +179,18 @@ final class AppModel {
 
     /// The server's name, as people know it.
     var host: String { server?.account.url.host() ?? "the server" }
+
+    /// The screen under the one in front, which the iPad's way back names.
+    var beneath: String {
+        guard path.count > 1 else { return "Library" }
+        switch path[path.count - 2] {
+        case .book(let book): return book.title
+        case .player: return "Player"
+        case .search: return "Find a line"
+        case .settings: return "Settings"
+        case .reader: return "Read along"
+        }
+    }
 
     // Who's reading --------------------------------------------------------
 

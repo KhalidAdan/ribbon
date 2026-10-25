@@ -21,6 +21,15 @@ import UIKit
 /// the desktop's reader underlines them, and holding Select on them offers to
 /// delete the bookmark.
 ///
+/// On the iPad the finger does what the remote does. It moves the column,
+/// and the sentence at the eye line, a third of the way down, is the one
+/// you're on, as a swipe on the remote glides through them; tapping a
+/// sentence goes to it, and tapping it again listens from it. Holding a
+/// sentence starts a bookmark, and tapping or scrolling takes in more.
+/// Listen from here, Return to narrator, and play and pause are buttons under
+/// the column (ReaderView). A keyboard's arrows are the remote's edges, and
+/// space is its Play.
+///
 /// Only the paragraphs near the screen are drawn; the rest are measured
 /// (BookLayout) and wait.
 final class ReaderViewController: UIViewController, UIScrollViewDelegate {
@@ -54,6 +63,11 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     /// How far a swipe on the touch surface has gone, in sentences already stepped.
     private var swiped: CGFloat = 0
     private static let swipePerSentence: CGFloat = 70
+    /// Where the eyes are on the screen, from its top: a sentence brought into view sits here.
+    private static let eyeLine: CGFloat = 0.32
+    /// A finger is moving the column, or it's still gliding from one: the sentence at the eye line follows it, and
+    /// the column is left where the finger puts it.
+    private var fingerScrolling = false
 
     init(session: ReadingSession, layout: BookLayout, onClose: @escaping () -> Void) {
         self.session = session
@@ -76,11 +90,6 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         column.clipsToBounds = false
         column.contentInsetAdjustmentBehavior = .never
         view.addSubview(column)
-        // In the column, so they move with the words.
-        for button in [listenHere, toNarrator] {
-            button.alpha = 0
-            column.addSubview(button)
-        }
 
         // The words fade in and out at the top and bottom, under the title and the time left.
         let fade = CAGradientLayer()
@@ -88,9 +97,27 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         fade.locations = [0.1, 0.2, 0.8, 0.9]
         view.layer.mask = fade
 
+        #if os(tvOS)
+        // In the column, so they move with the words.
+        for button in [listenHere, toNarrator] {
+            button.alpha = 0
+            column.addSubview(button)
+        }
+
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiping))
         swipe.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
         view.addGestureRecognizer(swipe)
+        #else
+        column.isScrollEnabled = true
+        column.showsVerticalScrollIndicator = false
+        // A finger anywhere on the screen moves the column, the margins too.
+        view.addGestureRecognizer(column.panGestureRecognizer)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+        view.addGestureRecognizer(tap)
+        let hold = UILongPressGestureRecognizer(target: self, action: #selector(held))
+        hold.minimumPressDuration = Self.holdFor
+        view.addGestureRecognizer(hold)
+        #endif
 
         session.onMarks = { [weak self] in self?.marksChanged() }
     }
@@ -98,6 +125,12 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         view.layer.mask?.frame = view.bounds
+        #if os(iOS)
+        // Clear under the title, and under the buttons and the time left, which take more of the iPad's screen.
+        let fadeTop = view.safeAreaInsets.top + 56
+        let fadeBottom = view.bounds.height - view.safeAreaInsets.bottom - 150
+        (view.layer.mask as? CAGradientLayer)?.locations = [fadeTop, fadeTop + 40, fadeBottom - 48, fadeBottom].map { NSNumber(value: Double($0 / max(1, view.bounds.height))) }
+        #endif
         let height = view.bounds.height
         column.frame = CGRect(x: (view.bounds.width - BookLayout.Measure.width) / 2, y: 0, width: BookLayout.Measure.width, height: height)
         column.contentSize = CGSize(width: BookLayout.Measure.width, height: layout.height)
@@ -112,7 +145,23 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         super.viewDidAppear(animated)
         setNeedsFocusUpdate()
         updateFocusIfNeeded()
+        #if os(iOS)
+        // A keyboard's keys come to the reader, as the remote's presses do on the TV.
+        becomeFirstResponder()
+        #endif
     }
+
+    #if os(iOS)
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// Turned, the iPad keeps the sentence you're on where the eyes are.
+    override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { _ in
+            self.bringIntoView(self.session.cursor, gently: false)
+        }
+    }
+    #endif
 
     // The remote ---------------------------------------------------------
 
@@ -121,10 +170,12 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         // The simulator's remote can't be held, and a keyboard has no Menu: in a debug build, Page Down holds Select
         // and Delete is Menu (tv/README.md).
+        #if os(tvOS)
         if press.type == .pageDown { return session.holdSelect() }
+        #endif
         if press.key?.keyCode == .keyboardDeleteOrBackspace { return session.back() ? () : onClose() }
         #endif
-        switch press.type {
+        switch Self.button(of: press) {
         case .upArrow: hold { $0.session.step(by: -1) }
         case .downArrow: hold { $0.session.step(by: 1) }
         case .leftArrow:
@@ -153,7 +204,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         repeater?.invalidate()
         repeater = nil
-        if presses.contains(where: { $0.type == .select }) {
+        if presses.contains(where: { Self.button(of: $0) == .select }) {
             selectHeld?.invalidate()
             selectHeld = nil
             if !heldLong { pressSelect() }
@@ -187,6 +238,22 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         session.marking != nil || session.deleting != nil
     }
 
+    /// Which of the remote's buttons a press is. On the iPad a keyboard stands in for the remote: the arrows are
+    /// its edges and space is Play. (Return and escape never come here: iPadOS keeps them.)
+    private static func button(of press: UIPress) -> UIPress.PressType {
+        #if os(iOS)
+        switch press.key?.keyCode {
+        case .keyboardUpArrow: return .upArrow
+        case .keyboardDownArrow: return .downArrow
+        case .keyboardLeftArrow: return .leftArrow
+        case .keyboardRightArrow: return .rightArrow
+        case .keyboardSpacebar: return .playPause
+        default: break
+        }
+        #endif
+        return press.type
+    }
+
     /// Step once now, then again and again while the button is held.
     private func hold(_ step: @escaping (ReaderViewController) -> Void) {
         step(self)
@@ -213,10 +280,69 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         }
     }
 
+    // The finger, on the iPad -----------------------------------------------
+
+    #if os(iOS)
+    /// A tap on a sentence goes to it, as up and down do; on the sentence you're on, away from the narrator, it
+    /// listens from there, as Select does. While a bookmark is made, it takes in the words up to the one tapped.
+    @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        guard let sentence = sentence(at: tap.location(in: column)) else { return }
+        if sentence == session.cursor && !session.following && session.marking == nil {
+            session.listenFromHere()
+        } else {
+            session.show(sentence)
+        }
+    }
+
+    /// Holding a sentence is holding Select on it: a bookmark starts there, or, on one, it's offered for deleting.
+    @objc private func held(_ hold: UILongPressGestureRecognizer) {
+        guard hold.state == .began, let sentence = sentence(at: hold.location(in: column)) else { return }
+        if !bookmarking { session.show(sentence) }
+        session.holdSelect()
+    }
+
+    /// The sentence under a point on the column.
+    private func sentence(at point: CGPoint) -> Int? {
+        guard let block = layout.paragraph(at: point.y) else { return nil }
+        let paragraph = layout.paragraphs[block]
+        let inside = CGPoint(x: min(max(0, point.x), BookLayout.Measure.width), y: point.y - paragraph.top)
+        return session.sentences.at(paragraph.character(at: inside), in: block)
+    }
+
+    /// The column moved by the finger: the sentence at the eye line is the one you're on. It's the one whose words
+    /// end that line, as a sentence brought into view sits with its first line there.
+    private func followTheFinger() {
+        let eye = column.contentOffset.y + column.bounds.height * Self.eyeLine + BookLayout.Measure.lineHeight / 2
+        guard let sentence = sentence(at: CGPoint(x: BookLayout.Measure.width, y: eye)), sentence != session.cursor else { return }
+        session.show(sentence)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // A finger on the column stops its glide where it is.
+        if gliding, let shown = column.layer.presentation()?.bounds.origin.y {
+            column.layer.removeAllAnimations()
+            column.contentOffset.y = shown
+            gliding = false
+        }
+        fingerScrolling = true
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { fingerScrolling = false }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        fingerScrolling = false
+    }
+    #endif
+
     // The column ---------------------------------------------------------
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         if !gliding { tile(around: visible(at: column.contentOffset.y)) }
+        #if os(iOS)
+        if fingerScrolling { followTheFinger() }
+        #endif
     }
 
     /// The stretch of the column on screen when it's scrolled to `offset`.
@@ -267,15 +393,17 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         }
         marked = now
         if lastCursor != session.cursor {
-            bringIntoView(session.cursor, gently: lastCursor != nil)
+            // Where a finger has put the column, it stays.
+            if !fingerScrolling { bringIntoView(session.cursor, gently: lastCursor != nil) }
             lastCursor = session.cursor
         }
         showSideLabels()
     }
 
     /// What left and right do, beside the first line of the remote's sentence when it's away from the narrator;
-    /// hidden when it isn't, and while a bookmark is made.
+    /// hidden when it isn't, and while a bookmark is made. The iPad has them as buttons under the column instead.
     private func showSideLabels() {
+        #if os(tvOS)
         let away = !session.following && !bookmarking
         if away, let line = layout.firstLine(of: session.sentences[session.cursor]) {
             let gap: CGFloat = 40
@@ -290,6 +418,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         UIView.animate(withDuration: 0.15) {
             for button in [self.listenHere, self.toNarrator] { button.alpha = away ? 1 : 0 }
         }
+        #endif
     }
 
     /// The sentences washed now: the narrator's in amber when it's placed to the sentence, and the remote's lifted when it's elsewhere.
@@ -349,7 +478,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         let offset = column.contentOffset.y
         let inMiddle = frame.minY >= offset + height * 0.2 && frame.maxY <= offset + height * 0.66
         guard !inMiddle || !gently else { return }
-        let target = min(max(frame.minY - height * 0.32, -column.contentInset.top), layout.height + column.contentInset.bottom - height)
+        let target = min(max(frame.minY - height * Self.eyeLine, -column.contentInset.top), layout.height + column.contentInset.bottom - height)
         if gently && abs(target - offset) < height * 1.5 {
             // Everything the glide passes over is drawn before it starts.
             tile(around: min(offset, target)...(max(offset, target) + height))
@@ -427,7 +556,7 @@ private final class RemoteView: UIView {
 /// then the lines under bookmarked words.
 private final class ParagraphView: UIView {
     /// Room around the paragraph for its washes, which reach a little past its words.
-    static let bleed: CGFloat = 16
+    static let bleed: CGFloat = 16.scaled
 
     private var paragraph: BookLayout.Paragraph?
     private var washes: [(NSRange, UIColor)] = []
@@ -458,7 +587,7 @@ private final class ParagraphView: UIView {
         for (range, colour) in washes {
             colour.setFill()
             for box in paragraph.lineBoxes(range) {
-                UIBezierPath(roundedRect: box.insetBy(dx: -8, dy: -2), cornerRadius: 6).fill()
+                UIBezierPath(roundedRect: box.insetBy(dx: -8.scaled, dy: -2.scaled), cornerRadius: 6.scaled).fill()
             }
         }
         if let lit {
@@ -473,7 +602,7 @@ private final class ParagraphView: UIView {
         for (range, colour) in underlines {
             colour.setFill()
             for box in paragraph.lineBoxes(range) {
-                UIBezierPath(roundedRect: CGRect(x: box.minX, y: box.maxY + 2, width: box.width, height: 3), cornerRadius: 1.5).fill()
+                UIBezierPath(roundedRect: CGRect(x: box.minX, y: box.maxY + 2.scaled, width: box.width, height: 3.scaled), cornerRadius: 1.5.scaled).fill()
             }
         }
     }

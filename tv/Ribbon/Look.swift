@@ -3,8 +3,18 @@ import SwiftUI
 import UIKit
 
 /// Ribbon's look on the TV (docs/DESIGN.md), seen from a sofa: the dark
-/// tokens, the reader's own face for the book, and Inter for the rest.
+/// tokens, the reader's own face for the book, and Inter for the rest. The
+/// iPad has the same look, nearer.
 enum Look {
+    /// How large the TV's sizes are drawn on this screen. Every size in the screens is the TV's, for a sofa three
+    /// metres away; the iPad, held at arm's length, draws them at seven tenths, so the TV's 24-point text is the
+    /// iPad's 17. The faces scale themselves (`Font.ui`, `Font.book`); a length says `.scaled`.
+    #if os(tvOS)
+    static let scale: CGFloat = 1
+    #else
+    static let scale: CGFloat = 0.7
+    #endif
+
     static let canvas = UIColor(rgb: 0x0a0a0a)
     static let surface = UIColor(rgb: 0x141414)
     static let raised = UIColor(rgb: 0x1c1c1c)
@@ -75,13 +85,29 @@ enum Faces {
 }
 
 extension Font {
-    /// Inter, for SwiftUI.
+    /// Inter, for SwiftUI, at a TV size.
     static func ui(_ size: CGFloat, weight: CGFloat = 400) -> Font {
-        Font(Faces.ui(size: size, weight: weight) as CTFont)
+        Font(Faces.ui(size: size.scaled, weight: weight) as CTFont)
     }
 
-    /// Newsreader, for a book's title on its own, where it is the book speaking.
+    /// Newsreader, for a book's title on its own, where it is the book speaking, at a TV size.
     static func book(_ size: CGFloat, weight: CGFloat = 400) -> Font {
-        Font(Faces.text(size: size, weight: weight) as CTFont)
+        Font(Faces.text(size: size.scaled, weight: weight) as CTFont)
     }
+}
+
+extension BinaryInteger {
+    /// A length at the TV's size, as this screen draws it (Look.scale).
+    var scaled: CGFloat { CGFloat(self) * Look.scale }
+}
+
+extension BinaryFloatingPoint {
+    /// A length at the TV's size, as this screen draws it (Look.scale).
+    var scaled: CGFloat { CGFloat(self) * Look.scale }
+}
+
+extension EnvironmentValues {
+    /// Whether the screen is taller than it is wide: an iPad held upright, where what the TV sets side by side is
+    /// stacked. Never on a TV.
+    @Entry var upright = false
 }

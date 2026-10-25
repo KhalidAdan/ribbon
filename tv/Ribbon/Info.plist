@@ -33,6 +33,14 @@
 	</dict>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<!-- The iPad, held either way up. -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
 	<!-- The narration plays on when the TV goes to the home screen. -->
 	<key>UIBackgroundModes</key>
 	<array>

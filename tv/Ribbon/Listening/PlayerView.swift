@@ -5,8 +5,10 @@ import SwiftUI
 /// chapter's progress and the transport on the left; what you can change
 /// about listening, and the book's chapters, on the right. The focus starts
 /// on play; Menu goes back where you came from, and the narration plays on.
+/// An iPad held upright has the settings under the book, scrolling with it.
 struct PlayerView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.upright) private var upright
     @State private var chapters = false
     @State private var bookmarks = false
     @FocusState private var playFocused: Bool
@@ -15,24 +17,38 @@ struct PlayerView: View {
         ZStack {
             Color.canvas.ignoresSafeArea()
             if let listening = model.listening {
-                VStack(alignment: .leading, spacing: 48) {
-                    Header(listening: listening)
-                    HStack(alignment: .top, spacing: 96) {
-                        NowPlaying(listening: listening, playFocused: $playFocused)
-                            .frame(width: 660)
+                let settings = VStack(alignment: .leading, spacing: 40.scaled) {
+                    ListeningGroup(listening: listening)
+                    ThisBookGroup(listening: listening, chapters: $chapters, bookmarks: $bookmarks)
+                }
+                Group {
+                    if upright {
                         ScrollView {
-                            VStack(alignment: .leading, spacing: 40) {
-                                ListeningGroup(listening: listening)
-                                ThisBookGroup(listening: listening, chapters: $chapters, bookmarks: $bookmarks)
+                            VStack(alignment: .leading, spacing: 48.scaled) {
+                                Header(listening: listening)
+                                NowPlaying(listening: listening, playFocused: $playFocused)
+                                settings
                             }
-                            .padding(24)
+                            .padding(.horizontal, 96.scaled)
+                            .padding(.vertical, 56.scaled)
                         }
-                        .padding(-24)
-                        .scrollClipDisabled()
+                    } else {
+                        VStack(alignment: .leading, spacing: 48.scaled) {
+                            Header(listening: listening)
+                            HStack(alignment: .top, spacing: 96.scaled) {
+                                NowPlaying(listening: listening, playFocused: $playFocused)
+                                    .frame(width: 660.scaled)
+                                ScrollView {
+                                    settings.padding(24.scaled)
+                                }
+                                .padding(-24.scaled)
+                                .scrollClipDisabled()
+                            }
+                        }
+                        .padding(.horizontal, 96.scaled)
+                        .padding(.vertical, 56.scaled)
                     }
                 }
-                .padding(.horizontal, 96)
-                .padding(.vertical, 56)
                 .defaultFocus($playFocused, true)
                 // Come to from the end of the book before, the focus would stay where that card's button was.
                 .onAppear { playFocused = true }
@@ -47,12 +63,13 @@ struct PlayerView: View {
     }
 }
 
-/// The way back, and where you are, in one sentence beside a rule.
+/// The way back, and where you are, in one sentence beside a rule. The iPad's way back is a button above it.
 private struct Header: View {
     let listening: Listening
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 14.scaled) {
+            #if os(tvOS)
             HStack(spacing: 10) {
                 Text("Library").foregroundStyle(Color.ink3)
                 Text("›").foregroundStyle(Color.ink3)
@@ -60,9 +77,10 @@ private struct Header: View {
             }
             .font(.ui(22))
             .lineLimit(1)
+            #endif
             Text(sentence)
                 .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
-                .padding(.leading, 18)
+                .padding(.leading, 18.scaled)
                 .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
         }
     }
@@ -89,15 +107,15 @@ private struct NowPlaying: View {
         let length = chapter.map { $0.endMs - $0.startMs } ?? listening.durationMs
         let inChapter = min(length, max(0, listening.positionMs - start))
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 36) {
+            HStack(alignment: .center, spacing: 36.scaled) {
                 CoverView(book: book, size: 300)
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 10.scaled) {
                     Text(book.title).font(.ui(36, weight: 600)).foregroundStyle(Color.ink).lineLimit(3)
                     Text("\(book.author.isEmpty ? "Unknown author" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(24)).foregroundStyle(Color.ink2).lineLimit(2)
                 }
                 Spacer(minLength: 0)
             }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12.scaled) {
                 if let chapter {
                     HStack(alignment: .firstTextBaseline) {
                         Text(chapter.title).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
@@ -105,7 +123,7 @@ private struct NowPlaying: View {
                         Text("-\(Format.duration(Format.atSpeed(length - inChapter, listening.speed)))").font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit()
                     }
                 }
-                ProgressLine(fraction: length > 0 ? Double(inChapter) / Double(length) : 0).frame(height: 6)
+                ProgressLine(fraction: length > 0 ? Double(inChapter) / Double(length) : 0).frame(height: 6.scaled)
                 HStack {
                     Text(Format.duration(inChapter))
                     Spacer()
@@ -113,8 +131,8 @@ private struct NowPlaying: View {
                 }
                 .font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit()
             }
-            .padding(.top, 56)
-            HStack(spacing: 36) {
+            .padding(.top, 56.scaled)
+            HStack(spacing: 36.scaled) {
                 Button { listening.chapter(by: -1) } label: { Image(systemName: "backward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
                 Button { listening.skip(by: -30_000) } label: { Image(systemName: "gobackward.30") }
@@ -127,15 +145,15 @@ private struct NowPlaying: View {
                 Button { listening.chapter(by: 1) } label: { Image(systemName: "forward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
             }
-            .padding(.top, 40)
+            .padding(.top, 40.scaled)
             if let ms = listening.dozedOffer {
                 Offer(words: "You dozed off around \(Format.duration(ms))\(chapterOf(ms).map { ", in chapter \($0 + 1)" } ?? "").", take: "Go back to where you dozed off", action: listening.goBackToDozed, dismiss: listening.dozing.forget)
-                    .padding(.top, 28)
+                    .padding(.top, 28.scaled)
             } else if let offer = listening.resumeOffer {
                 Offer(words: "You were away for \(Format.away(offer.awayMs)). Start this chapter over?", take: "Start it over", action: listening.restartChapter, dismiss: listening.dismissResumeOffer)
-                    .padding(.top, 28)
+                    .padding(.top, 28.scaled)
             } else {
-                Text(listening.playing ? " " : "Paused").font(.ui(22)).foregroundStyle(Color.ink3).padding(.top, 20)
+                Text(listening.playing ? " " : "Paused").font(.ui(22)).foregroundStyle(Color.ink3).padding(.top, 20.scaled)
             }
         }
     }
@@ -154,18 +172,18 @@ private struct Offer: View {
     let dismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 16.scaled) {
             Text(words).font(.ui(22)).foregroundStyle(Color.ink2).multilineTextAlignment(.center).monospacedDigit()
-            HStack(spacing: 14) {
+            HStack(spacing: 14.scaled) {
                 Button(take, action: action).buttonStyle(SmallButtonStyle())
                 Button("Keep going", action: dismiss).buttonStyle(SmallButtonStyle())
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 18)
+        .padding(.horizontal, 24.scaled)
+        .padding(.vertical, 18.scaled)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.surface))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.line))
+        .background(RoundedRectangle(cornerRadius: 14.scaled).fill(Color.surface))
+        .overlay(RoundedRectangle(cornerRadius: 14.scaled).stroke(Color.line))
     }
 }
 
@@ -176,10 +194,10 @@ private struct ListeningGroup: View {
     var body: some View {
         Rows(label: "Listening") {
             Row(title: "Speed", description: listening.speed != 1 ? "Kept for this book. \(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left at this speed." : "Kept for this book.") {
-                HStack(spacing: 18) {
+                HStack(spacing: 18.scaled) {
                     Button { listening.setSpeed(listening.speed - Listening.speedStep) } label: { Image(systemName: "minus") }
                         .buttonStyle(RoundButtonStyle(size: 52))
-                    Text(Format.speed(listening.speed)).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).frame(width: 90)
+                    Text(Format.speed(listening.speed)).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).frame(width: 90.scaled)
                     Button { listening.setSpeed(listening.speed + Listening.speedStep) } label: { Image(systemName: "plus") }
                         .buttonStyle(RoundButtonStyle(size: 52))
                 }
@@ -194,10 +212,10 @@ private struct SleepRow: View {
     let listening: Listening
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Image(systemName: "moon.fill").font(.system(size: 22)).foregroundStyle(listening.sleep == nil ? Color.ink3 : Color.ink)
-                VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 18.scaled) {
+            HStack(alignment: .firstTextBaseline, spacing: 14.scaled) {
+                Image(systemName: "moon.fill").font(.system(size: 22.scaled)).foregroundStyle(listening.sleep == nil ? Color.ink3 : Color.ink)
+                VStack(alignment: .leading, spacing: 4.scaled) {
                     Text("Sleep timer").font(.ui(26, weight: 500)).foregroundStyle(Color.ink)
                     // Counting down by the second while it's on.
                     TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -205,7 +223,7 @@ private struct SleepRow: View {
                     }
                 }
             }
-            HStack(spacing: 12) {
+            HStack(spacing: 12.scaled) {
                 if listening.sleep == nil {
                     ForEach([15, 30, 45, 60], id: \.self) { minutes in
                         Button("\(minutes) min") { listening.sleep(after: minutes) }.buttonStyle(SmallButtonStyle())
@@ -218,12 +236,12 @@ private struct SleepRow: View {
                     Button("Turn off") { listening.sleep(after: nil) }.buttonStyle(SmallButtonStyle())
                 }
             }
-            .padding(.leading, 36)
+            .padding(.leading, 36.scaled)
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
+        .padding(.horizontal, 22.scaled)
+        .padding(.vertical, 18.scaled)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.raised))
+        .background(RoundedRectangle(cornerRadius: 10.scaled).fill(Color.raised))
     }
 
     private var status: String {
@@ -251,7 +269,7 @@ private struct ThisBookGroup: View {
             }
             .buttonStyle(LiftStyle.row())
             Button { bookmarks = true } label: {
-                Row(title: "Bookmarks", description: listening.bookmarks.all.isEmpty ? "Hold Select on the words in Read along to keep them." : nil) { Text(String(listening.bookmarks.all.count)) }
+                Row(title: "Bookmarks", description: listening.bookmarks.all.isEmpty ? Self.howToBookmark : nil) { Text(String(listening.bookmarks.all.count)) }
             }
             .buttonStyle(LiftStyle.row())
             if listening.book.ebook {
@@ -262,20 +280,26 @@ private struct ThisBookGroup: View {
             }
             if let about = listening.detail.book.description, !about.isEmpty {
                 Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8.scaled) {
                         Text("About").font(.ui(26, weight: 500)).foregroundStyle(Color.ink)
-                        Text(about).font(.ui(22)).foregroundStyle(Color.ink2).lineSpacing(6).lineLimit(moreAbout ? nil : 4).multilineTextAlignment(.leading)
+                        Text(about).font(.ui(22)).foregroundStyle(Color.ink2).lineSpacing(6.scaled).lineLimit(moreAbout ? nil : 4).multilineTextAlignment(.leading)
                         Text(moreAbout ? "Less" : "More").font(.ui(20, weight: 500)).foregroundStyle(Color.ink3)
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.vertical, 18)
+                    .padding(.horizontal, 22.scaled)
+                    .padding(.vertical, 18.scaled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.raised))
+                    .background(RoundedRectangle(cornerRadius: 10.scaled).fill(Color.raised))
                 }
                 .buttonStyle(LiftStyle.row())
             }
         }
     }
+
+    #if os(tvOS)
+    static let howToBookmark = "Hold Select on the words in Read along to keep them."
+    #else
+    static let howToBookmark = "Hold the words in Read along to keep them."
+    #endif
 }
 
 /// Every chapter, the one playing marked in amber: choosing one plays from its start.
@@ -285,40 +309,44 @@ private struct ChapterSheet: View {
     @FocusState private var focused: Int?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            SectionHeader(title: "Chapters", description: "\(listening.chapters.count) in \(listening.book.title).")
+        VStack(alignment: .leading, spacing: 28.scaled) {
+            SectionHeader(title: "Chapters", description: "\(listening.chapters.count) in \(listening.book.title).") {
+                SheetDone(action: onDone)
+            }
             ScrollView {
-                VStack(spacing: 4) {
+                VStack(spacing: 4.scaled) {
                     ForEach(Array(listening.chapters.enumerated()), id: \.offset) { index, chapter in
                         let now = index == listening.chapterIndex
                         Button {
                             listening.play(from: chapter.startMs)
                             onDone()
                         } label: {
-                            HStack(spacing: 24) {
-                                Text(String(index + 1)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 56, alignment: .trailing)
+                            HStack(spacing: 24.scaled) {
+                                Text(String(index + 1)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 56.scaled, alignment: .trailing)
                                 Text(chapter.title).font(.ui(26, weight: now ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(1)
-                                Spacer(minLength: 24)
+                                Spacer(minLength: 24.scaled)
                                 Text(Format.duration(chapter.endMs - chapter.startMs)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit()
                             }
-                            .padding(.vertical, 16)
-                            .padding(.leading, 16)
-                            .padding(.trailing, 24)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(now ? Color.raised : Color.clear))
+                            .padding(.vertical, 16.scaled)
+                            .padding(.leading, 16.scaled)
+                            .padding(.trailing, 24.scaled)
+                            .background(RoundedRectangle(cornerRadius: 12.scaled).fill(now ? Color.raised : Color.clear))
                             .overlay(alignment: .leading) {
-                                if now { Capsule().fill(Color.place).frame(width: 4).padding(.vertical, 14) }
+                                if now { Capsule().fill(Color.place).frame(width: 4.scaled).padding(.vertical, 14.scaled) }
                             }
                         }
                         .buttonStyle(LiftStyle.row(radius: 12))
                         .focused($focused, equals: index)
                     }
                 }
-                .padding(24)
+                .padding(24.scaled)
             }
-            .padding(-24)
+            .padding(-24.scaled)
         }
-        .padding(64)
+        .padding(64.scaled)
+        #if os(tvOS)
         .frame(width: 1100)
+        #endif
         .background(Color.surface.ignoresSafeArea())
         .defaultFocus($focused, listening.chapterIndex)
     }
@@ -333,25 +361,27 @@ private struct BookmarkSheet: View {
 
     var body: some View {
         let all = listening.bookmarks.all
-        VStack(alignment: .leading, spacing: 28) {
-            SectionHeader(title: "Bookmarks", description: all.isEmpty ? "None yet. In Read along, hold Select on a sentence to keep it." : "\(all.count) in \(listening.book.title), on every device.")
+        VStack(alignment: .leading, spacing: 28.scaled) {
+            SectionHeader(title: "Bookmarks", description: all.isEmpty ? Self.none : "\(all.count) in \(listening.book.title), on every device.") {
+                SheetDone(action: onDone)
+            }
             ScrollView {
-                VStack(spacing: 4) {
+                VStack(spacing: 4.scaled) {
                     ForEach(all) { bookmark in
                         Button {
                             if let ms = bookmark.ms { listening.play(from: ms) }
                             onDone()
                         } label: {
-                            HStack(alignment: .top, spacing: 20) {
-                                Image(systemName: "bookmark.fill").font(.system(size: 20)).foregroundStyle(Color.place).padding(.top, 4)
-                                VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .top, spacing: 20.scaled) {
+                                Image(systemName: "bookmark.fill").font(.system(size: 20.scaled)).foregroundStyle(Color.place).padding(.top, 4.scaled)
+                                VStack(alignment: .leading, spacing: 6.scaled) {
                                     Text(words(of: bookmark)).font(.ui(24)).foregroundStyle(Color.ink).lineLimit(3).multilineTextAlignment(.leading)
                                     Text(whereIs(bookmark)).font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit().lineLimit(1)
                                 }
                                 Spacer(minLength: 0)
                             }
-                            .padding(.vertical, 16)
-                            .padding(.horizontal, 20)
+                            .padding(.vertical, 16.scaled)
+                            .padding(.horizontal, 20.scaled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(LiftStyle.row(radius: 12))
@@ -362,14 +392,22 @@ private struct BookmarkSheet: View {
                         }
                     }
                 }
-                .padding(24)
+                .padding(24.scaled)
             }
-            .padding(-24)
+            .padding(-24.scaled)
         }
-        .padding(64)
+        .padding(64.scaled)
+        #if os(tvOS)
         .frame(width: 1100)
+        #endif
         .background(Color.surface.ignoresSafeArea())
     }
+
+    #if os(tvOS)
+    private static let none = "None yet. In Read along, hold Select on a sentence to keep it."
+    #else
+    private static let none = "None yet. In Read along, hold a sentence to keep it."
+    #endif
 
     /// The words it marks, or its note, or that it's a moment.
     private func words(of bookmark: ServerBookmark) -> String {
@@ -402,12 +440,23 @@ struct SmallButtonStyle: ButtonStyle {
                 .lineLimit(1)
                 .fixedSize()
                 .foregroundStyle(focused ? Color.canvas : Color.ink)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 10).fill(focused ? Color.ink : Color.white.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(focused ? Color.clear : Color.line))
-                .scaleEffect(configuration.isPressed ? 1.02 : focused ? 1.08 : 1)
+                .padding(.horizontal, 20.scaled)
+                .padding(.vertical, 10.scaled)
+                .background(RoundedRectangle(cornerRadius: 10.scaled).fill(focused ? Color.ink : Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 10.scaled).stroke(focused ? Color.clear : Color.line))
+                .scaleEffect(configuration.isPressed ? Pressed.button(settlingTo: 1.02) : focused ? 1.08 : 1)
                 .lifts(focused: focused, pressed: configuration.isPressed)
         }
+    }
+}
+
+/// Done, at the top of a sheet on the iPad, which has no Menu to close it with; on the TV, nothing.
+private struct SheetDone: View {
+    let action: () -> Void
+
+    var body: some View {
+        #if os(iOS)
+        Button("Done", action: action).buttonStyle(RibbonButtonStyle())
+        #endif
     }
 }

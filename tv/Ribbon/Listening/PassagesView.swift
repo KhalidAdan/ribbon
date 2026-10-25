@@ -41,18 +41,18 @@ private struct PassageView: View {
         let quoted = words.first.map { "\u{201C}\"\u{2018}'".contains($0) } == true ? words : "\u{201C}\(words)\u{201D}"
         // Short passages larger, long ones smaller, so each fills about the same room.
         let size: CGFloat = words.count <= 140 ? 64 : words.count <= 320 ? 52 : 44
-        VStack(alignment: .leading, spacing: 32) {
+        VStack(alignment: .leading, spacing: 32.scaled) {
             Text(quoted)
                 .font(.book(size)).foregroundStyle(Color.ink)
-                .lineSpacing(size * 0.28).lineLimit(10).minimumScaleFactor(0.7)
+                .lineSpacing((size * 0.28).scaled).lineLimit(10).minimumScaleFactor(0.7)
             Text(passage.book.author.isEmpty ? passage.book.title : "\(passage.book.title), \(passage.book.author)")
                 .font(.ui(24)).foregroundStyle(Color.ink3).lineLimit(1)
         }
-        .frame(maxWidth: 1080, alignment: .leading)
+        .frame(maxWidth: 1080.scaled, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: place.isMultiple(of: 2) ? .leading : .trailing)
-        .offset(y: [-90, 70, 100, -60][place] + (risen ? -36 : 36))
-        .padding(.horizontal, 160)
-        .padding(.vertical, 140)
+        .offset(y: ([-90, 70, 100, -60][place] + (risen ? -36 : 36)).scaled)
+        .padding(.horizontal, 160.scaled)
+        .padding(.vertical, 140.scaled)
         .onAppear {
             withAnimation(.linear(duration: PassagesView.each + 2.4)) { risen = true }
         }

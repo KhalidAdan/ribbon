@@ -7,7 +7,8 @@ import UIKit
 /// up. While something on screen only waits to be woken from (Still
 /// listening?, the passages that drift by while a book is paused), the
 /// press or touch that wakes it goes no further, so it doesn't also act on
-/// the screen beneath.
+/// the screen beneath. On the iPad it's every touch of the screen, and the
+/// keyboard's presses, seen the same way.
 @MainActor
 enum Remote {
     /// When the person last pressed or touched anything, or used the TV's own play and pause.
@@ -60,7 +61,10 @@ private final class Watcher: UIGestureRecognizer, UIGestureRecognizerDelegate {
         super.init(target: nil, action: nil)
         delegate = self
         allowedTouchTypes = [UITouch.TouchType.direct, .indirect].map { NSNumber(value: $0.rawValue) }
-        let presses: [UIPress.PressType] = [.upArrow, .downArrow, .leftArrow, .rightArrow, .select, .menu, .playPause, .pageUp, .pageDown]
+        var presses: [UIPress.PressType] = [.upArrow, .downArrow, .leftArrow, .rightArrow, .select, .menu, .playPause]
+        #if os(tvOS)
+        presses += [.pageUp, .pageDown]
+        #endif
         allowedPressTypes = presses.map { NSNumber(value: $0.rawValue) }
         takesNext(false)
     }
