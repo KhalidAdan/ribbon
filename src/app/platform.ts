@@ -62,7 +62,7 @@ export function memorySources(): Platform["sources"] {
 
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -114,27 +114,37 @@ export async function detectPlatform(): Promise<Platform> {
       },
       defaultRoot: envLibrary,
       uptimeMs,
-      onWindowClose(flush) {
+      onWindowClose(flush, mayClose) {
         // Tauri waits for this handler, then closes the window: the
-        // position is on disk before the webview goes away.
-        let unlisten: (() => void) | null = null;
+        // position is on disk before the webview goes away. Ribbon's own
+        // Quit comes the same way. Either first asks whether to close.
+        const leave = async (): Promise<boolean> => {
+          // Asking can't keep Ribbon open by failing: only a "no" does.
+          if (!(await mayClose().catch(() => true))) return false;
+          log.info("window closing; keeping positions");
+          await flush().catch((e: unknown) => log.warn("could not flush positions on close:", String(e)));
+          return true;
+        };
+        const unlisten: (() => void)[] = [];
         let gone = false;
+        const keep = (u: () => void) => {
+          if (gone) u();
+          else unlisten.push(u);
+        };
         void import("@tauri-apps/api/window").then(({ getCurrentWindow }) =>
           getCurrentWindow()
-            .onCloseRequested(async () => {
-              log.info("window closing; keeping positions");
-              await flush().catch((e: unknown) => log.warn("could not flush positions on close:", String(e)));
+            .onCloseRequested(async (event) => {
+              if (!(await leave())) event.preventDefault();
             })
-            .then((u) => {
-              if (gone) u();
-              else unlisten = u;
-            }),
+            .then(keep),
         );
+        void onQuitAsked(leave).then(keep);
         return () => {
           gone = true;
-          unlisten?.();
+          unlisten.forEach((u) => u());
         };
       },
+      askToClose: (why) => dialog.ask(why, { title: "Ribbon is transcribing", kind: "warning", okLabel: "Close anyway", cancelLabel: "Keep transcribing" }),
       appSettings: { read: appSettingsRead, write: appSettingsWrite },
       home: {
         path: async () => (await homeInfo()).path,

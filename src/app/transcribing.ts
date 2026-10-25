@@ -18,6 +18,25 @@ import { placeStretch, stretchesOf, type PlacedPhrase, type Said } from "../core
 /** Minutes heard in one call to the speech model. */
 export const MINUTES_PER_CALL = 8;
 
+/** How long one call may take before it's given up on: its eight minutes take seconds on a graphics card, a few minutes at worst while a book plays. */
+export const HEARING_DEADLINE_MS = 10 * 60_000;
+
+/** A call to the speech model that never answered (#158): given up on, so the transcribing can start again from what's kept. */
+export class HearingStalled extends Error {
+  constructor(ms: number) {
+    super(`the speech model didn't answer in ${Math.round(ms / 60_000)} minutes`);
+  }
+}
+
+/** What `asked` answers, or HearingStalled once `ms` go by without an answer. */
+export function answerWithin<T>(asked: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new HearingStalled(ms)), ms);
+  });
+  return Promise.race([asked, late]).finally(() => clearTimeout(timer));
+}
+
 /** What a book's transcript is kept in as it grows: the minutes transcribed, which model heard each, every phrase and where it was found. */
 export interface TranscriptSoFar {
   spans: Map<number, number>;
@@ -45,6 +64,8 @@ export interface Transcription {
   progress: (done: number, total: number) => void;
   /** Whether to go on: false once the book is closed, or another needs the model. */
   still: () => boolean;
+  /** How long a call to hear may take: HEARING_DEADLINE_MS unless given. */
+  deadlineMs?: number;
 }
 
 /**
@@ -52,7 +73,8 @@ export interface Transcription {
  * yet transcribed to the end. `whole` when every minute is; `stopped` when
  * `still` said to stop; `failed` when a whole call's minutes couldn't be
  * heard, rather than going round again (the next try starts where this one
- * stopped).
+ * stopped). A call that doesn't answer in time throws HearingStalled, with
+ * everything before it kept.
  */
 export async function transcribeWhole(t: Transcription): Promise<"whole" | "stopped" | "failed"> {
   const all = stretchesOf(t.files);
@@ -63,7 +85,10 @@ export async function transcribeWhole(t: Transcription): Promise<"whole" | "stop
     if (left.length === 0) return "whole";
     if (!t.still()) return "stopped";
     const batch = left.slice(0, MINUTES_PER_CALL);
-    const said = await t.hear(batch.map((x) => ({ path: t.files[x.file]!.path, startMs: x.offset })));
+    const said = await answerWithin(
+      t.hear(batch.map((x) => ({ path: t.files[x.file]!.path, startMs: x.offset }))),
+      t.deadlineMs ?? HEARING_DEADLINE_MS,
+    );
     const alignment = t.alignment();
     let heard = 0;
     batch.forEach((x, i) => {

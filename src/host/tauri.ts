@@ -285,3 +285,17 @@ export function appSettingsRead(): Promise<Record<string, unknown>> {
 export function appSettingsWrite(settings: Record<string, unknown>): Promise<void> {
   return invoke<void>("app_settings_write", { settings });
 }
+
+/**
+ * Ribbon's own Quit (Cmd-Q on a Mac, src-tauri/src/quit.rs) asks the page
+ * first, so quitting while transcribing can be asked about (#158): `asked`
+ * runs on each, and resolves to whether to quit. The page says it heard at
+ * once; a page that doesn't answer is quit regardless.
+ */
+export async function onQuitAsked(asked: () => Promise<boolean>): Promise<() => void> {
+  return listen("ribbon://quit", () => {
+    void invoke("quit_heard").then(async () => {
+      if (await asked().catch(() => true)) await invoke("quit");
+    });
+  });
+}

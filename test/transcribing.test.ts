@@ -4,7 +4,7 @@ import { wordIndex } from "../src/core/reading/anchors";
 import { BookText } from "../src/core/reading/booktext";
 import { EBOOK_FORMAT } from "../src/core/ebook";
 import type { Said } from "../src/core/reading/transcript";
-import { modelName, transcribeWhole, type TranscriptSoFar, type Transcription } from "../src/app/transcribing";
+import { HearingStalled, modelName, transcribeWhole, type TranscriptSoFar, type Transcription } from "../src/app/transcribing";
 
 const TEXT = "The waygate hung in the void before them. Eluadhri watched the runes along its rim kindle one by one.";
 
@@ -69,6 +69,20 @@ describe("transcribing a book whole (#152)", () => {
     // Ten minutes, eight to a call: told to stop after the first.
     expect(calls).toBe(1);
     expect(j.transcript.spans.size).toBe(8);
+  });
+
+  it("gives up on a call that never answers (#158), keeping the minutes heard before it", async () => {
+    let calls = 0;
+    const j = job(
+      (clips) => (calls++ === 0 ? Promise.resolve(clips.map(() => [])) : new Promise(() => undefined)),
+      () => true,
+      600_000,
+    );
+    j.deadlineMs = 20;
+    await expect(transcribeWhole(j)).rejects.toBeInstanceOf(HearingStalled);
+    // The first call's eight minutes are kept; the call that never answered keeps nothing.
+    expect(j.transcript.spans.size).toBe(8);
+    expect(j.kept).toBe(1);
   });
 
   it("names a model by its file", () => {
