@@ -145,8 +145,9 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       const missing = untranscribed(stored.files, transcriptFromRows(await recordRows(deps.dataDir, b.id, "aligned")).spans).length;
       books.push({ id: b.id, title: b.title, done: total - missing, total });
     }
-    // The ones still missing minutes first, the newest added first among them, as the list gives them.
-    books.sort((a, b) => Number(a.done === a.total) - Number(b.done === b.total));
+    // The ones still missing minutes first, and among them the newest added first (the list is oldest first): a book just
+    // added reads along soonest.
+    books.reverse().sort((a, b) => Number(a.done === a.total) - Number(b.done === b.total));
     return { books };
   });
 
