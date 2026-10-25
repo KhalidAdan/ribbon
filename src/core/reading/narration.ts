@@ -89,10 +89,12 @@ export function mergeTranscripts(theirs: { spans: ReadonlyMap<number, number>; s
  * and each phrase heard in them with where it was found in the text, or
  * null.
  *
- * A stretch counts as transcribed when it names the model that heard it, or
- * when something was heard in it. One from before Ribbon named the model,
- * with nothing heard in it, may be a clip that failed and was kept as if
- * nothing was said (#152), so it's left out, to be heard again.
+ * A stretch counts as transcribed only when it names the model that heard
+ * it, which every transcript made start to end does (#152). One from before
+ * Ribbon named the model was heard the old way: perhaps by the server's
+ * processor, perhaps a clip that failed and was kept as if nothing was said.
+ * It's left out, with what was heard in it, to be heard again; so a minute
+ * is only ever one hearing, never an old one and a new one mixed.
  */
 export function transcriptFromRows(rows: readonly Row[]): Transcript {
   const stretches: { start: number; end: number; by: string }[] = [];
@@ -102,27 +104,27 @@ export function transcriptFromRows(rows: readonly Row[]): Transcript {
     if (!r.words) stretches.push({ start: int(r.start_ms), end: int(r.end_ms), by: r.heard_by ?? "" });
     else said.push({ startMs: int(r.start_ms), endMs: int(r.end_ms), words: r.words, chars: r.chars ? int(r.chars) : null, ...(r.word_ms ? { wordMs: r.word_ms.split(" ").map(int) } : {}) });
   }
-  const starts = said.map((x) => x.startMs).sort((a, b) => a - b);
   const spans = new Map<number, number>();
   const heardBy = new Map<number, string>();
-  for (const x of stretches) {
-    if (x.by) heardBy.set(x.start, x.by);
-    else if (!somethingIn(starts, x.start, x.end)) continue;
+  for (const x of stretches.filter((x) => x.by).sort((a, b) => a.start - b.start)) {
+    heardBy.set(x.start, x.by);
     spans.set(x.start, x.end);
   }
-  return { spans, said, heardBy };
+  const counted = [...spans].sort((a, b) => a[0] - b[0]);
+  return { spans, said: said.filter((x) => within(counted, x.startMs)), heardBy };
 }
 
-/** Whether any of these times, in order, falls in [from, to). */
-function somethingIn(sorted: readonly number[], from: number, to: number): boolean {
+/** Whether `ms` falls in one of these stretches, sorted by start. */
+function within(stretches: readonly (readonly [number, number])[], ms: number): boolean {
   let lo = 0;
-  let hi = sorted.length;
+  let hi = stretches.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (sorted[mid]! < from) lo = mid + 1;
+    if (stretches[mid]![0] <= ms) lo = mid + 1;
     else hi = mid;
   }
-  return lo < sorted.length && sorted[lo]! < to;
+  // The last stretch starting at or before it.
+  return lo > 0 && ms < stretches[lo - 1]![1];
 }
 
 /**
