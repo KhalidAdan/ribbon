@@ -39,56 +39,42 @@ import { parseReading, type ReadingSettings } from "../core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "../core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "../core/reading/narration";
-import { rowsToBytes, type Row } from "../core/csv";
+import { rowsToBytes } from "../core/csv";
 import { overlayAnchors } from "../core/reading/overlay";
 import { exportPlan } from "../core/reading/export";
 import * as perf from "./perf";
-import { narrationLanguage, placeStretch, STRETCH_MS, stretchesOf, type PlacedPhrase, type Stretch } from "../core/reading/transcript";
+import { narrationLanguage, STRETCH_MS, stretchesOf, untranscribed, type PlacedPhrase } from "../core/reading/transcript";
+import { modelName, transcribeWhole } from "./transcribing";
 import { locate as locate_ } from "../core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "../core/reading/anchors";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
 const HEAR_SECONDS = 8;
-/** A pairing this sure of every pair is not worth hearing. */
-const DOUBT = 0.6;
-/** Checkpoints inside chapters this far apart. */
-const CHECK_MS = 90_000;
-/** No checkpoint this close to a chapter's end: its next start is one. */
-const CHECK_END_MS = 20_000;
-/** A place heard this close to another needs no hearing. */
-const HEARD_NEAR_MS = 20_000;
 /** Heard words are looked for this far either side of where the pairing puts them. */
 const SEARCH_MS = 4 * 60_000;
-/** A clip heard this fast (a GPU) is cheap enough to hear the whole book. */
+/** A clip heard this fast (a graphics card) is cheap enough to transcribe whole books: a machine that hears slower transcribes nothing (#152). */
 const FAST_CLIP_MS = 1_200;
-/** Most places heard in one go. */
-const MAX_HEARD = 800;
 /** "Listen from here" and "Go to the narrator" hear the place first unless a checkpoint is this close. */
 const PINPOINT_MS = 45_000;
-/** Read-along by transcription (#57): the narration is heard in stretches (STRETCH_MS), several to a call. */
-const SPANS_PER_CALL = 8;
-/** Transcribed before the reader shows the text: a minute behind the reader to this far ahead. */
-const READY_MS = 4 * 60_000;
 /** What is heard, transcribed and fixed for one book's text: see AppController.rd. */
 interface ReadingData {
   fixes: PairingFix[];
   /** What the narrator was heard saying, by time, and where each was found in the text. */
   heard: Map<number, string>;
   anchors: Map<number, number>;
-  /** The stretches transcribed (start to end, ms), every phrase heard in them, and where each was found. */
+  /** The stretches transcribed (start to end, ms), the model that heard each, every phrase heard in them, and where each was found. */
   spans: Map<number, number>;
+  heardBy: Map<number, string>;
   said: PlacedPhrase[];
   aligned: Map<number, number>;
   overlay: Anchor[] | null;
   /** The transcript changed since it was last kept beside the book, and when that was. */
   dirty: boolean;
   written: number;
-  /** The stretches of the transcript a server has from this device, by where they start: a server's book only. */
-  sent: Set<number>;
 }
 
 function emptyReading(): ReadingData {
-  return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0, sent: new Set() };
+  return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), heardBy: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0 };
 }
 
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
@@ -246,10 +232,8 @@ export interface AppState {
   speech: { model: string | null; downloading: { done: number; total: number } | null };
   /** Say, once, that a speech model makes read-along follow the sentence: shown the first time a book with both editions opens on a computer without one. */
   speechNudge: boolean;
-  /** When a book's narration isn't transcribed yet: hold playback until it is ("wait"), or play now and transcribe gently behind it ("play"). */
-  readAlongMode: "wait" | "play";
-  /** A book whose playback waits for its read-along: how many minutes of narration are transcribed, of how many, and about how long is left. */
-  readAlongWait: { bookId: string; done: number; total: number; leftMs: number | null } | null;
+  /** A server's book this machine is transcribing for the server, in the background (#152): which, and how far it has got, in minutes. */
+  transcribingForServer: { title: string; done: number; total: number } | null;
   /** Speed measurements are summarised in the log (app/perf.ts). */
   perfLog: boolean;
 }
@@ -506,8 +490,7 @@ export class AppController {
       readingSettings: parseReading(undefined),
       speech: { model: null, downloading: null },
       speechNudge: false,
-      readAlongMode: "wait",
-      readAlongWait: null,
+      transcribingForServer: null,
       perfLog: false,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
@@ -647,9 +630,14 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ readAlongMode: this.appSettings.readAlongMode === "play" ? "play" : "wait" });
       this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
       perf.setLogging(this.appSettings.perfLog === true);
+      // Ribbon's model was whisper base until it was small (#152): one downloaded then is replaced, once, in the background,
+      // where it hears (not a phone).
+      if (this.platform.host.speechTranscribe && /[\\/]models[\\/]ggml-base-q5_1\.bin$/.test(this.state.speech.model ?? "")) {
+        log.info("replacing Ribbon's speech model, whisper base, with whisper small");
+        void this.downloadSpeechModel();
+      }
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
@@ -1214,6 +1202,7 @@ export class AppController {
         if (this.opened.get(o.source.id) !== o) return;
         o.serverAdmin = me.role === "admin";
         this.updateCanAddFolders();
+        void this.transcribeForServer();
       })
       .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
     // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
@@ -1261,7 +1250,10 @@ export class AppController {
       await client
         .events((type, data) => {
           if (type === "places" && (data as { device?: string } | null)?.device !== me) void this.syncPlaces(o);
-          if (type === "books") this.refreshServerSoon(o);
+          if (type === "books") {
+            this.refreshServerSoon(o);
+            void this.transcribeForServer();
+          }
           if (type === "series") void this.refreshServerSeries(o);
         }, signal)
         .catch((e: unknown) => {
@@ -1863,6 +1855,7 @@ export class AppController {
           heard: heard.heard,
           anchors: heard.anchors,
           spans: aligned.spans,
+          heardBy: aligned.heardBy,
           said: aligned.said,
           aligned: transcriptAnchors(aligned.said),
         }));
@@ -1936,7 +1929,11 @@ export class AppController {
     };
     /** With the text paired: listening from the page, hearing the narration, read-along. */
     const listen = (rd: ReadingData) => {
-      this.readingCtx = { o, book: withChapters, text, rd, early };
+      const ctx = { o, book: withChapters, text, rd };
+      this.readingCtx = ctx;
+      // It reads along when its narration is transcribed whole, and opens to read only until then (#152).
+      const r = this.state.reading;
+      if (r?.bookId === bookId && this.readsAlongNow(ctx)) this.set({ reading: { ...r, readsAlong: true } });
       this.prepareAudio(o.lib, withChapters);
       void this.hearPlaces();
     };
@@ -2013,14 +2010,6 @@ export class AppController {
     }
   }
 
-  /** In the reader: show the text now, while read-along gets ready behind it. */
-  readNow(): void {
-    const r = this.state.reading;
-    if (!r?.preparing) return;
-    const { preparing: _, ...rest } = r;
-    this.set({ reading: rest });
-  }
-
   /**
    * Everything heard, transcribed and fixed for the book open to read, as
    * that book's own object: work still running for a book that was closed
@@ -2032,8 +2021,8 @@ export class AppController {
   private rd: ReadingData = emptyReading();
   private readingData = new Map<string, ReadingData>();
   private readingIndex: { text: BookText; index: WordAt[] } | null = null;
-  /** The open book with its text paired; `early` when the reader opened before the pairing (openReading). */
-  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData; early?: boolean } | null = null;
+  /** The open book with its text paired. */
+  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData } | null = null;
   private hearing = false;
   /** How long a clip took to hear, last measured: a fast machine hears the whole book, a slow one only around the reader. */
   private msPerClip: number | null = null;
@@ -2072,7 +2061,9 @@ export class AppController {
       await hear.call(o.lib.host, model, [clip(total / 2)], HEAR_SECONDS, language);
       const six = [1, 2, 3, 4, 5, 6].map((k) => clip((total * k) / 7));
       const t0 = performance.now();
-      await hear.call(o.lib.host, model, six, HEAR_SECONDS, language);
+      const heard = await hear.call(o.lib.host, model, six, HEAR_SECONDS, language);
+      // Clips that fail fail fast: that's no measure of hearing.
+      if (heard.every((w) => w === null)) return log.warn("could not hear the clips timed on this machine");
       this.msPerClip = (performance.now() - t0) / six.length;
       this.appSettings = { ...this.appSettings, speechClipMs: Math.round(this.msPerClip) };
       this.saveAppSettingsSoon();
@@ -2094,65 +2085,29 @@ export class AppController {
     if (!rd.dirty || (!now && Date.now() - rd.written < ALIGNED_WRITE_MS)) return;
     rd.dirty = false;
     rd.written = Date.now();
-    await o.lib.writeAligned(book.book.id, rd.spans, rd.said).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
-    void this.sendHeard(ctx, "aligned");
+    await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
   }
 
-  /**
-   * What this device heard of a server's book, sent to the server, which
-   * merges it with what it has (docs/SERVER.md, section 9): so the TV, and
-   * every device that downloads the book, reads along with it too. Of the
-   * transcript, the stretches the server hasn't had from here. Hearing
-   * never waits on it, and a send that fails goes again with the next.
-   */
-  private async sendHeard(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }, kind: "heard" | "aligned"): Promise<void> {
+  /** What this device heard at the starts of a server's book's chapters, sent to the server, which merges it with what it has. Hearing never waits on it. */
+  private async sendHeard(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }): Promise<void> {
     const { o, book, rd } = ctx;
     if (!o.server) return;
-    const send = (rows: Row[], fields: string[]) => rowsToBytes(rows, fields).then((csv) => o.server!.client.sendRecord(serverIdOf(book), kind, csv));
-    if (kind === "heard") {
-      await send(heardRows(rd.heard, rd.anchors), HEARD_FIELDS).catch((e: unknown) => log.warn("could not send what was heard to the server:", describe(e)));
-      return;
-    }
-    const spans = new Map([...rd.spans].filter(([start]) => !rd.sent.has(start)));
-    if (spans.size === 0) return;
-    // Counted as sent while it goes, so the next send doesn't carry it too.
-    for (const start of spans.keys()) rd.sent.add(start);
-    const said = rd.said.filter((p) => [...spans].some(([start, end]) => p.startMs >= start && p.startMs < end));
-    await send(transcriptRows({ spans, said }), TRANSCRIPT_FIELDS).catch((e: unknown) => {
-      for (const start of spans.keys()) rd.sent.delete(start);
-      log.warn("could not send the transcript to the server:", describe(e));
-    });
+    const csv = await rowsToBytes(heardRows(rd.heard, rd.anchors), HEARD_FIELDS);
+    await o.server.client.sendRecord(serverIdOf(book), "heard", csv).catch((e: unknown) => log.warn("could not send what was heard to the server:", describe(e)));
   }
 
   /**
-   * Transcribe stretches of the open book's narration and match each to the
-   * text (#57): every phrase found becomes a checkpoint, a few seconds
-   * apart, so read-along can mark the sentence being read.
+   * A server's book's transcript, whole, sent to the server in place of what
+   * it had (#152): so the TV and every device that downloads it reads along
+   * with it. Only the server's admin's devices transcribe its books.
    */
-  private async alignStretches(ctx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData }, model: string, language: string | null, stretches: Stretch[]): Promise<void> {
-    const { o, book, text, rd } = ctx;
-    const host = o.lib.host;
-    const batch = stretches.slice(0, SPANS_PER_CALL);
-    const clips = batch.map((x) => ({ path: o.lib.absPath(book.files[x.file]!.path), startMs: x.offset }));
-    // While a book plays, gently: one stretch at a time, fewer threads, behind the audio. Otherwise as fast as it goes.
-    const gentle = this.state.player.playing;
-    const t0 = performance.now();
-    const said = await host.speechTranscribe!.call(host, model, clips, STRETCH_MS / 1000, language, gentle);
-    if (!gentle) this.msPerSpan = (performance.now() - t0) / batch.length;
-    const a = this.state.reading?.alignment;
-    if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
-    const index = this.readingIndex.index;
-    batch.forEach((x, i) => {
-      rd.spans.set(x.startMs, x.endMs);
-      rd.dirty = true;
-      // The file's times, as the book's.
-      const shift = x.startMs - x.offset;
-      const phrases = (said[i] ?? []).map((s) => ({ startMs: s.startMs + shift, endMs: s.endMs + shift, words: s.words.trim() })).filter((s) => s.words);
-      if (!a || phrases.length === 0) return;
-      const placed = placeStretch(index, a, x, phrases);
-      for (const an of placed.anchors) rd.aligned.set(an.ms, an.chars);
-      rd.said.push(...placed.said);
-    });
+  private async sendTranscript(o: Opened, book: ScannedBook, rd: ReadingData): Promise<boolean> {
+    if (!o.server || !o.serverAdmin) return false;
+    const csv = await rowsToBytes(transcriptRows(rd), TRANSCRIPT_FIELDS);
+    return o.server.client.putTranscript(serverIdOf(book), csv).then(
+      () => (log.info(`sent the transcript of ${book.book.title} to the server`), true),
+      (e: unknown) => (log.warn(`could not send the transcript of ${book.book.title} to the server:`, describe(e)), false),
+    );
   }
 
   /** Find heard words in the text near where the pairing puts them, and keep them as a checkpoint when found. */
@@ -2167,68 +2122,15 @@ export class AppController {
   }
 
   /**
-   * Hear the narrator where it helps, a few clips at a time in the
-   * background, pairing again after each few (#65, #55):
-   * - first where the pairing has doubts: the starts of the doubtful
-   *   pairs' audio chapters, or every chapter when nothing pairs;
-   * - then checkpoints inside chapters, every minute and a half, nearest
-   *   the reader first: the whole book on a machine that hears a clip
-   *   quickly (a GPU), the chapters around the reader on one that does not.
-   * Kept beside the book after every few, so each place is heard once.
+   * Hear the open book's narration, on a machine with a graphics card
+   * (#152): the opening words of every chapter, which make the pairing of
+   * its text with its audio sure, then the whole narration, transcribed
+   * start to end (transcribing.ts) and kept beside the book as it goes. The
+   * book reads along once its transcript is whole, and opens to read only
+   * until then. A machine without one hears nothing: a server's book is
+   * transcribed by one of the admin's machines that has one.
    */
   private hearAgain = false;
-
-  /** How long a minute of narration takes to transcribe here at full speed, as last timed: for how long the wait has left. */
-  private msPerSpan: number | null = null;
-  /** Books the listener chose to play before their read-along was ready ("Play anyway"), this launch. */
-  private readAlongPlayAnyway = new Set<string>();
-  /** Playback was paused to wait for read-along, and starts again when it's ready. */
-  private pausedForReadAlong = false;
-
-  /**
-   * While a book's narration is still being transcribed and the listener
-   * chose to wait for read-along (Settings): say how far it has got, and
-   * hold playback. Cleared when it's done, or when it stops.
-   */
-  private waitForReadAlong(bookId: string, done: number, total: number): void {
-    if (this.state.readAlongMode !== "wait" || this.readAlongPlayAnyway.has(bookId) || done >= total) return this.readAlongReady(bookId);
-    const leftMs = this.msPerSpan === null ? null : (total - done) * this.msPerSpan;
-    this.set({ readAlongWait: { bookId, done, total, leftMs } });
-    if (this.state.current?.book.book.id === bookId && this.state.player.playing) {
-      log.info("pausing until read-along is ready:", done, "of", total, "minutes transcribed");
-      this.pausedForReadAlong = true;
-      this.pause();
-    }
-  }
-
-  /** The wait is over: read-along is ready (`resume`: playback held for it starts again), or it stopped part way. */
-  private readAlongReady(bookId: string, resume = true): void {
-    if (this.state.readAlongWait?.bookId !== bookId) return;
-    this.set({ readAlongWait: null });
-    if (resume && this.pausedForReadAlong && this.state.current?.book.book.id === bookId) {
-      this.pausedForReadAlong = false;
-      void this.play();
-    }
-    this.pausedForReadAlong = false;
-  }
-
-  /** Play a book whose read-along isn't ready yet, rather than wait: it's transcribed gently behind the audio. */
-  playAnyway(): void {
-    const w = this.state.readAlongWait;
-    if (!w) return;
-    this.readAlongPlayAnyway.add(w.bookId);
-    this.pausedForReadAlong = false;
-    this.set({ readAlongWait: null });
-    void this.play();
-  }
-
-  /** Settings: wait for read-along before playing, or play now and let it catch up. */
-  setReadAlongMode(mode: "wait" | "play"): void {
-    this.appSettings = { ...this.appSettings, readAlongMode: mode };
-    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
-    this.set({ readAlongMode: mode });
-    if (mode === "play" && this.state.readAlongWait) this.readAlongReady(this.state.readAlongWait.bookId);
-  }
 
   private async hearPlaces(): Promise<void> {
     const ctx = this.readingCtx;
@@ -2239,175 +2141,189 @@ export class AppController {
       this.hearAgain = true;
       return;
     }
-    const hear = ctx.o.lib.host.speechOpenings;
-    if (!hear) return;
-    // A Media Overlay is exact: nothing to hear.
-    if (this.state.reading?.alignment?.how === "overlay") return;
+    const host = ctx.o.lib.host;
+    const transcribe = host.speechTranscribe;
+    if (!host.speechOpenings || !transcribe || this.readsAlongNow(ctx)) return;
     const { o, book, text, rd } = ctx;
     const bookId = book.book.id;
-    const durations = book.files.map((f) => f.durationMs);
     const language = narrationLanguage(text.ebook.meta.language, book.book.language);
     const still = () => this.readingCtx === ctx && this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
-    const heardNear = (ms: number) => [...rd.heard.keys()].some((h) => Math.abs(h - ms) < HEARD_NEAR_MS);
-    // A machine that hears a clip quickly (a GPU) hears every chapter's opening, and transcribes the whole narration.
-    const fast = () => {
-      const ms = this.clipMs();
-      return ms !== null && ms < FAST_CLIP_MS;
-    };
-    const transcribes = () => fast() && !!ctx.o.lib.host.speechTranscribe;
-    const doubts = (): number[] => {
-      const a = this.state.reading?.alignment;
-      const latest = this.state.books.find((b) => b.book.id === bookId) ?? book;
-      const starts = !a || a.how === "proportion" || fast() ? latest.chapters.map((c) => c.startMs) : a.pairs.filter((p) => p.confidence < DOUBT && !p.fixed).map((p) => p.audio.startMs);
-      return [...new Set(starts)].filter((ms) => !rd.heard.has(ms)).sort((x, y) => x - y);
-    };
-    const checkpoints = (): number[] => {
-      const a = this.state.reading?.alignment;
-      const place = this.state.reading?.place;
-      if (!a || a.how !== "chapter" || !place || transcribes()) return [];
-      const here = text.chars(place);
-      const readerMs = textToMs(a, here);
-      let at = a.pairs.findIndex((p) => here >= p.text.start && here < p.text.end);
-      if (at < 0) at = Math.max(0, a.pairs.findIndex((p) => here < p.text.start));
-      const order = a.pairs.map((_, i) => i).filter((i) => Math.abs(i - at) <= 1).sort((x, y) => Math.abs(x - at) - Math.abs(y - at) || x - y);
-      const out: number[] = [];
-      for (const i of order) {
-        const p = a.pairs[i]!;
-        const inPair: number[] = [];
-        for (let ms = p.audio.startMs + CHECK_MS; ms < p.audio.endMs - CHECK_END_MS; ms += CHECK_MS) if (!heardNear(ms)) inPair.push(ms);
-        // In the reader's own chapter, nearest the reader first.
-        if (i === at) inPair.sort((x, y) => Math.abs(x - readerMs) - Math.abs(y - readerMs));
-        out.push(...inPair);
-      }
-      return out;
-    };
-    /** Stretches of the narration not yet transcribed, from just before where the narrator or the reader is, onward first. */
-    /** Where the listener is: the narrator, when this book plays, else the reader's place in the audio. */
-    const focusMs = (): number => {
-      const a = this.state.reading?.alignment;
-      const place = this.state.reading?.place;
-      if (this.state.current?.book.book.id === bookId) return this.state.player.positionMs;
-      return a && place ? textToMs(a, text.chars(place)) : 0;
-    };
-    const stretches = (): Stretch[] => {
-      const a = this.state.reading?.alignment;
-      if (!transcribes() || !a || a.how !== "chapter") return [];
-      const focus = focusMs();
-      const out = stretchesOf(book.files).filter((x) => !rd.spans.has(x.startMs));
-      const key = (x: { startMs: number }) => (x.startMs >= focus - STRETCH_MS ? x.startMs - focus : 2 * (focus - x.startMs));
-      return out.sort((x, y) => key(x) - key(y));
-    };
-    /** Untranscribed minutes around the listener: what the reader waits for, and what is always transcribed first. */
-    const near = () => {
-      const focus = focusMs();
-      return stretches().filter((x) => x.endMs > focus - STRETCH_MS && x.startMs < focus + READY_MS);
-    };
-    const ready = () => {
+    const show = (patch: Partial<ReadingState>) => {
       const r = this.state.reading;
-      if (r?.bookId === bookId && r.preparing) {
-        const { preparing: _, ...rest } = r;
-        this.set({ reading: rest });
-      }
+      if (r?.bookId === bookId) this.set({ reading: { ...r, ...patch } });
     };
-    // The reader waits for read-along when this machine may transcribe and the minutes around it are not done.
-    const a0 = this.state.reading?.alignment;
-    const mayTranscribe = !!ctx.o.lib.host.speechTranscribe && a0?.how === "chapter" && (this.clipMs() === null || fast());
-    // Not for a book opened before its pairing: its page is already being read, and read-along catches up beside it.
-    if (mayTranscribe && !ctx.early && (this.clipMs() === null || near().length > 0)) this.set({ reading: { ...this.state.reading!, preparing: true } });
-    // Never timed on this machine (an older Ribbon heard everything near already): time it now, so a
-    // machine that can transcribes the whole narration rather than waiting for something to hear.
-    if (this.clipMs() === null) {
-      this.hearing = true;
-      try {
-        await this.timeClips(ctx, model, language);
-      } finally {
-        this.hearing = false;
-      }
-      if (!still()) return ready();
-    }
-    if (near().length === 0) ready();
-    if (stretches().length > 0) this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
-    if (doubts().length === 0 && checkpoints().length === 0 && stretches().length === 0) return;
     this.hearing = true;
     const started = performance.now();
-    let done = 0;
-    let found = 0;
-    let spans = 0;
     try {
-      while (still()) {
-        // The minutes around the listener come first, always: then the reader can show the text.
-        const close = near();
-        if (close.length > 0) {
-          this.set({ reading: { ...this.state.reading!, listening: { done: rd.spans.size, total: rd.spans.size + stretches().length, what: "aligning" } } });
-          await this.alignStretches(ctx, model, language, close);
-          spans += Math.min(SPANS_PER_CALL, close.length);
+      // Never timed on this machine: timed now, which says whether it hears quickly enough (a graphics card) to transcribe.
+      if (this.clipMs() === null) await this.timeClips(ctx, model, language);
+      if (!this.transcribesHere(host) || !still()) return;
+      await this.hearOpenings(ctx, model, language, still);
+      const result = await transcribeWhole({
+        transcript: rd,
+        files: book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
+        index: this.wordsOf(text),
+        alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
+        // Gently while a book plays, so playback comes first.
+        hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
+        model: modelName(model),
+        keep: async () => {
           await this.keepAligned(ctx);
-          if (!still()) break;
-          this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
-          if (near().length === 0) ready();
-          this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
-          continue;
-        }
-        ready();
-        let todo = doubts();
-        if (todo.length === 0) {
-          const left = stretches();
-          if (left.length > 0) {
-            this.set({ reading: { ...this.state.reading!, listening: { done: rd.spans.size, total: rd.spans.size + left.length, what: "aligning" } } });
-            await this.alignStretches(ctx, model, language, left);
-            spans += Math.min(SPANS_PER_CALL, left.length);
-            await this.keepAligned(ctx);
-            if (!still()) break;
-            this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
-            this.waitForReadAlong(bookId, rd.spans.size, rd.spans.size + stretches().length);
-            continue;
-          }
-        }
-        if (done >= MAX_HEARD) break;
-        const what: "openings" | "checkpoints" = todo.length > 0 ? "openings" : "checkpoints";
-        if (what === "checkpoints") todo = checkpoints();
-        if (todo.length === 0) break;
-        const batch = todo.slice(0, what === "openings" ? 4 : 6);
-        const clips = batch.map((ms) => {
-          const at = locate_(durations, ms);
-          return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
-        });
-        this.set({ reading: { ...this.state.reading!, listening: { done, total: done + todo.length, what } } });
-        const t0 = performance.now();
-        const words = await hear.call(o.lib.host, model, clips, HEAR_SECONDS, language);
-        this.msPerClip = (performance.now() - t0) / batch.length;
-        this.appSettings = { ...this.appSettings, speechClipMs: Math.round(this.msPerClip) };
-        this.saveAppSettingsSoon();
-        const before = this.state.reading?.alignment;
-        batch.forEach((ms, i) => {
-          const w = (words[i] ?? "").trim();
-          rd.heard.set(ms, w);
-          if (what === "checkpoints" && before && this.anchorHeard(rd, text, before, ms, w)) found++;
-        });
-        done += batch.length;
-        await o.lib.writeHeard(bookId, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
-        void this.sendHeard(ctx, "heard");
-        if (!still()) break;
-        this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
+          if (still()) show({ alignment: this.realign(text, book, rd) });
+        },
+        progress: (done, total) => show({ listening: { done, total, what: "aligning" } }),
+        still,
+      });
+      log.info(`transcribing ${book.book.title} ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
+      if (result === "whole") {
+        await this.keepAligned(ctx, true);
+        show({ alignment: this.realign(text, book, rd), readsAlong: true });
+        await this.sendTranscript(o, book, rd);
       }
-      log.info(`heard ${done} places in ${book.book.title} (${found} found in the text) and transcribed ${spans} minutes in ${Math.round((performance.now() - started) / 1000)} s, ${Math.round(this.msPerClip ?? 0)} ms a clip`);
     } catch (e) {
       log.warn("could not hear the narrator:", describe(e));
     } finally {
       this.hearing = false;
-      ready();
-      // Stopped: nothing to wait for any more. Playback held for it starts again only when it's all transcribed.
-      this.readAlongReady(bookId, stretches().length === 0);
-      if (this.hearAgain) {
-        this.hearAgain = false;
-        if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
-      }
       await this.keepAligned(ctx, true);
       const r = this.state.reading;
       if (r?.bookId === bookId && r.listening) {
         const { listening: _, ...rest } = r;
         this.set({ reading: rest });
       }
+      if (this.hearAgain) {
+        this.hearAgain = false;
+        if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
+      }
+      void this.transcribeForServer();
+    }
+  }
+
+  /** The start of every audio chapter, a few seconds each: what a chapter opens with says which text it is, so the pairing is sure (#65). */
+  private async hearOpenings(ctx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData }, model: string, language: string | null, still: () => boolean): Promise<void> {
+    const { o, book, text, rd } = ctx;
+    const host = o.lib.host;
+    const durations = book.files.map((f) => f.durationMs);
+    for (;;) {
+      const latest = this.state.books.find((b) => b.book.id === book.book.id) ?? book;
+      const starts = [...new Set(latest.chapters.map((c) => c.startMs))].filter((ms) => !rd.heard.has(ms)).sort((x, y) => x - y);
+      if (starts.length === 0 || !still()) return;
+      const batch = starts.slice(0, 4);
+      const clips = batch.map((ms) => {
+        const at = locate_(durations, ms);
+        return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
+      });
+      const words = await host.speechOpenings!.call(host, model, clips, HEAR_SECONDS, language);
+      // None of them could be heard: stop rather than go round, and try again next time.
+      if (words.every((w) => w === null)) return;
+      batch.forEach((ms, i) => {
+        const w = words[i];
+        if (typeof w === "string") rd.heard.set(ms, w.trim());
+      });
+      await o.lib.writeHeard(book.book.id, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
+      void this.sendHeard(ctx);
+      if (!still()) return;
+      this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
+    }
+  }
+
+  /** Whether this machine transcribes: it has a speech model, and hears a clip quickly enough (a graphics card) to hear whole books. */
+  private transcribesHere(host: Host): boolean {
+    const ms = this.clipMs();
+    return !!this.state.speech.model && !!host.speechTranscribe && ms !== null && ms < FAST_CLIP_MS;
+  }
+
+  /** Whether a book reads along: by its own Media Overlay, or its narration is transcribed whole (#152). */
+  private readsAlongNow(ctx: { book: ScannedBook; rd: ReadingData }): boolean {
+    return !!ctx.rd.overlay || untranscribed(ctx.book.files, ctx.rd.spans).length === 0;
+  }
+
+  /** The words of a text, indexed once while it's open. */
+  private wordsOf(text: BookText): WordAt[] {
+    if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
+    return this.readingIndex.index;
+  }
+
+  /** The server's books not yet transcribed whole that couldn't be this session, so they aren't tried again until the next. */
+  private untranscribable = new Set<string>();
+  private transcribingServer = false;
+
+  /**
+   * A server's books transcribed in the background on this machine, when it
+   * has a graphics card and is signed in as the server's admin (#152): the
+   * books still missing minutes, one at a time, each start to end, then sent
+   * whole, so the TV and every device read them along. A book that isn't
+   * downloaded here is downloaded for it and taken off again once sent. The
+   * book open in the reader comes first: this stops for it, and starts again
+   * after.
+   */
+  private async transcribeForServer(): Promise<void> {
+    if (this.transcribingServer || this.hearing) return;
+    const o = this.openedInOrder().find((x) => x.server && x.serverAdmin);
+    const model = this.state.speech.model;
+    // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
+    if (!o?.server || !model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
+    this.transcribingServer = true;
+    try {
+      while (!this.hearing) {
+        const list = await o.server.client.transcripts();
+        const next = list.find((b) => b.done < b.total && !this.untranscribable.has(b.id));
+        if (!next) return;
+        const book = this.state.books.find((b) => serverIdOf(b) === next.id && this.openedOf(b) === o);
+        const result = book ? await this.transcribeServerBook(o, book, model) : "failed";
+        if (result === "failed") this.untranscribable.add(next.id);
+        if (result === "stopped") return;
+      }
+    } catch (e) {
+      log.warn("could not transcribe the server's books:", describe(e));
+    } finally {
+      this.transcribingServer = false;
+      this.set({ transcribingForServer: null });
+    }
+  }
+
+  /** One of a server's books transcribed whole here and sent: its text paired with its audio as the reader pairs it, then every minute heard. */
+  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed"> {
+    const downloaded = !listed.remote;
+    const book = downloaded ? listed : await this.downloadRemote(listed);
+    if (!book?.book.ebook) return "failed";
+    const host = o.lib.host;
+    const transcribe = host.speechTranscribe!;
+    try {
+      // What the server has of it comes first: its transcript so far, with what this machine heard itself.
+      await this.takeServerRecords(book);
+      const [opened, withChapters, fixes, heard, aligned] = await Promise.all([openEbook(host, o.lib.root, book.book), this.chaptersOf(o, book), o.lib.readPairing(book.book.id), o.lib.readHeard(book.book.id), o.lib.readAligned(book.book.id)]);
+      if (!opened.ok) return "failed";
+      const language = narrationLanguage(opened.ebook.meta.language, book.book.language);
+      if (this.clipMs() === null) await this.timeClips({ o, book }, model, language);
+      if (!this.transcribesHere(host)) return "stopped";
+      const text = new BookText(opened.ebook);
+      const rd: ReadingData = { ...emptyReading(), fixes, heard: heard.heard, anchors: heard.anchors, spans: aligned.spans, heardBy: aligned.heardBy, said: aligned.said, aligned: transcriptAnchors(aligned.said) };
+      rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
+      // A Media Overlay places it exactly: nothing to transcribe.
+      if (rd.overlay) return "failed";
+      let alignment = this.pairUp(text, withChapters, rd);
+      const started = performance.now();
+      const result = await transcribeWhole({
+        transcript: rd,
+        files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
+        index: wordIndex(text),
+        alignment: () => alignment,
+        hear: (clips) => transcribe.call(host, model, clips, STRETCH_MS / 1000, language, this.state.player.playing),
+        model: modelName(model),
+        keep: async () => {
+          await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+          alignment = this.pairUp(text, withChapters, rd);
+        },
+        progress: (done, total) => this.set({ transcribingForServer: { title: book.book.title, done, total } }),
+        // The reader's book comes first.
+        still: () => !this.hearing,
+      });
+      log.info(`transcribing ${book.book.title} for the server ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
+      if (result !== "whole") return result;
+      return (await this.sendTranscript(o, book, rd)) ? "whole" : "failed";
+    } finally {
+      // Downloaded only to be transcribed: taken off again, as it was.
+      if (!downloaded && !this.hearing) await this.removeDownload(book.book.id).catch(() => undefined);
     }
   }
 
@@ -2430,13 +2346,15 @@ export class AppController {
     try {
       const language = narrationLanguage(text.ebook.meta.language, book.book.language);
       const [w] = await hear.call(o.lib.host, model, [{ path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) }], HEAR_SECONDS, language);
-      const words = (w ?? "").trim();
+      // Couldn't be heard: nothing to go by, and nothing kept as heard.
+      if (typeof w !== "string") return false;
+      const words = w.trim();
       rd.heard.set(ms, words);
       const found = this.anchorHeard(rd, text, r.alignment, ms, words);
       void o.lib
         .writeHeard(book.book.id, rd.heard, rd.anchors)
         .catch(() => undefined)
-        .then(() => this.sendHeard({ o, book, rd }, "heard"));
+        .then(() => this.sendHeard({ o, book, rd }));
       if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(text, book, rd) } });
       return found;
     } catch (e) {
@@ -2463,7 +2381,7 @@ export class AppController {
     this.setSpeechModel(path);
   }
 
-  /** Download Ribbon's speech model (whisper base, about 57 MB) into the Ribbon folder. */
+  /** Download Ribbon's speech model (whisper small, about 190 MB) into the Ribbon folder. */
   async downloadSpeechModel(): Promise<void> {
     const download = this.platform.host.downloadSpeechModel;
     if (!download || this.state.speech.downloading) return;
@@ -2481,6 +2399,7 @@ export class AppController {
     this.appSettings = { ...this.appSettings, speechModel: path ?? "" };
     this.set({ speech: { ...this.state.speech, model: path } });
     this.saveAppSettingsSoon(0);
+    void this.transcribeForServer();
   }
 
 
@@ -2704,8 +2623,6 @@ export class AppController {
     const engine = this.engine;
     const cur = this.state.current;
     if (!engine || !cur) return;
-    // Held while its read-along is made, as the listener chose (Settings); the reader says so, with Play anyway.
-    if (this.state.readAlongWait?.bookId === cur.book.book.id) return;
     engine.setStopAt(null);
     if (this.state.previewing !== null) this.set({ previewing: null });
     // Read on since this book last played, outside the reader: carry on from the page.

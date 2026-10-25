@@ -16,14 +16,14 @@ export interface ReadingState {
   place?: TextPlace;
   /** The text's chapters paired with the audio's, for switching between them (level 1). */
   alignment?: Alignment;
-  /** Hearing the narrator, while it runs: chapter openings first (#65), then checkpoints inside chapters. */
+  /** Transcribing the narration, while it runs: minutes transcribed, of all (#152). */
   listening?: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" };
   /**
-   * Getting read-along ready: the minutes around the reader are being
-   * transcribed, so the sentence is marked from the first page. The
-   * reader waits on it, unless it is told to read now.
+   * It reads along: its narration is transcribed whole, or its own Media
+   * Overlay places it. Until then the book opens to read only: no
+   * narrator's sentence marked, no pages following it (#152).
    */
-  preparing?: boolean;
+  readsAlong?: boolean;
   /** The read-along export: chapters encoded so far while it runs, then what it made or why it could not. */
   exporting?: { done: number; total: number };
   exported?: { path: string } | { error: string };

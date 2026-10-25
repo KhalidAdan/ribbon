@@ -159,15 +159,19 @@ export interface Host {
   readEbookPackage?(path: string): Promise<{ tags: Record<string, string>; hasCover: boolean } | null>;
   /**
    * Hear the first `seconds` of each clip with a whisper.cpp model on this
-   * machine (#65): one answer per clip, empty when a clip could not be
-   * heard. Optional: hosts without the Rust side leave it out.
+   * machine (#65): one answer per clip, null when a clip could not be
+   * heard. Optional: hosts without the Rust side, or without ffmpeg (a
+   * phone), leave it out.
    */
-  speechOpenings?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<string[]>;
+  speechOpenings?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null): Promise<(string | null)[]>;
   /**
    * Everything said in stretches of audio, `seconds` from each clip's start,
-   * phrase by phrase with times in ms of its file (#57). Optional, as above.
+   * phrase by phrase with times in ms of its file, and when each word starts
+   * where the model said (#57): one answer per clip, null when a clip could
+   * not be heard, which is never the same as nothing said in it (#152).
+   * Optional, as above.
    */
-  speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null, gentle?: boolean): Promise<{ startMs: number; endMs: number; words: string }[][]>;
+  speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null, gentle?: boolean): Promise<({ startMs: number; endMs: number; words: string; wordMs?: number[] }[] | null)[]>;
   /** Index a book's MP3s ahead of their first seek, in the background. Optional. */
   audioPrepare?(paths: string[]): Promise<void>;
   /** Make a read-along EPUB from a plan (core/reading/export.ts); resolves to its path. Optional. */

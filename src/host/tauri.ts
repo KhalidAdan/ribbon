@@ -142,9 +142,15 @@ export function tauriHost(): Host {
     writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
     catalogSearch: (title, author, region) => invoke<string>("catalog_search", { title, author, region }),
     openEbook: (path) => invoke<string>("ebook_open", { path }),
-    speechOpenings: (model, clips, seconds, language) => invoke<string[]>("speech_openings", { model, clips, seconds, language }),
+    // Hearing decodes the audio with ffmpeg, which a phone hasn't: it never hears, and reads along from a server's transcript (#152).
+    ...(tools
+      ? {
+          speechOpenings: (model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null) => invoke<(string | null)[]>("speech_openings", { model, clips, seconds, language }),
+          speechTranscribe: (model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null, gentle?: boolean) =>
+            invoke<({ startMs: number; endMs: number; words: string; wordMs?: number[] }[] | null)[]>("speech_transcribe", { model, clips, seconds, language, gentle: gentle ?? false }),
+        }
+      : {}),
     audioPrepare: (paths) => invoke<void>("audio_prepare", { paths }),
-    speechTranscribe: (model, clips, seconds, language, gentle) => invoke<{ startMs: number; endMs: number; words: string }[][]>("speech_transcribe", { model, clips, seconds, language, gentle: gentle ?? false }),
     async exportEbook(plan, onProgress) {
       const unlisten = await listen<{ done: number; total: number }>("ribbon://export-progress", (e) => onProgress(e.payload.done, e.payload.total));
       try {

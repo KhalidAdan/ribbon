@@ -7,7 +7,6 @@ import { Button, IconButton, pressed } from "./Button";
 import { Cover } from "./Cover";
 import { Scrubber } from "./Scrubber";
 import { scanLine, scanning } from "./LoudnessScan";
-import { readAlongLine } from "./ReadAlongWait";
 
 /**
  * The player as a bar along the bottom: what is playing and where, the
@@ -16,7 +15,7 @@ import { readAlongLine } from "./ReadAlongWait";
  */
 export function PlayerBar() {
   // The one part of the shell that follows the player tick by tick.
-  const state = useAppState((s) => ({ current: s.current, player: s.player, sleep: s.sleep, job: s.current ? s.jobs[s.current.book.book.id] : undefined, wait: s.current && s.readAlongWait?.bookId === s.current.book.book.id ? s.readAlongWait : null }));
+  const state = useAppState((s) => ({ current: s.current, player: s.player, sleep: s.sleep, job: s.current ? s.jobs[s.current.book.book.id] : undefined }));
   useCovers();
   const c = useController();
   const cur = state.current;
@@ -29,7 +28,7 @@ export function PlayerBar() {
   const inChapter = Math.min(length, Math.max(0, p.positionMs - start));
   const bookLeft = remainingAtSpeed(p.durationMs - p.positionMs, p.speed);
   const sleeping = state.sleep.state.mode !== null;
-  const status = p.reconnecting ? "Reconnecting…" : p.error ? p.error : p.buffering ? "Loading…" : state.wait ? readAlongLine(state.wait) : scanning(state.job) ? scanLine(state.job) : null;
+  const status = p.reconnecting ? "Reconnecting…" : p.error ? p.error : p.buffering ? "Loading…" : scanning(state.job) ? scanLine(state.job) : null;
 
   return (
     <div className="shrink-0 border-t border-line bg-surface" role="region" aria-label="Now playing">
