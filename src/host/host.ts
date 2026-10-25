@@ -172,6 +172,12 @@ export interface Host {
    * Optional, as above.
    */
   speechTranscribe?(model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null, gentle?: boolean): Promise<({ startMs: number; endMs: number; words: string; wordMs?: number[] }[] | null)[]>;
+  /**
+   * Keep the computer from going to sleep while `on`, for transcribing
+   * through the night (#158); the display still sleeps. Optional: only a
+   * machine that hears has it.
+   */
+  stayAwake?(on: boolean): Promise<void>;
   /** Index a book's MP3s ahead of their first seek, in the background. Optional. */
   audioPrepare?(paths: string[]): Promise<void>;
   /** Make a read-along EPUB from a plan (core/reading/export.ts); resolves to its path. Optional. */

@@ -52,6 +52,14 @@ ribbon-speech = { path = "speech", features = ["metal"] }
 # Transcribing behind playback: a thread's quality-of-service class.
 libc = "0.2"
 
+# Keeping the computer awake while it transcribes (awake.rs): an activity on macOS, a thread's request on Windows.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSProcessInfo", "NSString"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Power"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 ribbon-speech = { path = "speech" }
 
