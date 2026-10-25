@@ -3104,6 +3104,8 @@ dependencies = [
  "libc",
  "lofty",
  "log",
+ "objc2",
+ "objc2-foundation",
  "quick-xml 0.39.4",
  "rayon",
  "reqwest",
@@ -3120,6 +3122,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-os",
  "tauri-plugin-shell",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

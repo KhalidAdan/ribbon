@@ -2153,6 +2153,7 @@ export class AppController {
       if (r?.bookId === bookId) this.set({ reading: { ...r, ...patch } });
     };
     this.hearing = true;
+    this.keepAwake("reader", true);
     const started = performance.now();
     try {
       // Never timed on this machine: timed now, which says whether it hears quickly enough (a graphics card) to transcribe.
@@ -2184,6 +2185,7 @@ export class AppController {
       log.warn("could not hear the narrator:", describe(e));
     } finally {
       this.hearing = false;
+      this.keepAwake("reader", false);
       await this.keepAligned(ctx, true);
       const r = this.state.reading;
       if (r?.bookId === bookId && r.listening) {
@@ -2247,6 +2249,17 @@ export class AppController {
   private untranscribable = new Set<string>();
   private transcribingServer = false;
 
+  /** Who is transcribing (the open book's hearing, the server's worker): the computer stays awake while either is (#158). */
+  private awakeFor = new Set<"reader" | "server">();
+
+  private keepAwake(who: "reader" | "server", on: boolean): void {
+    const was = this.awakeFor.size > 0;
+    if (on) this.awakeFor.add(who);
+    else this.awakeFor.delete(who);
+    const now = this.awakeFor.size > 0;
+    if (now !== was) void this.platform.host.stayAwake?.(now).catch((e: unknown) => log.warn("could not keep the computer awake:", describe(e)));
+  }
+
   /**
    * A server's books transcribed in the background on this machine, when it
    * has a graphics card and is signed in as the server's admin (#152): the
@@ -2263,6 +2276,7 @@ export class AppController {
     // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
     if (!o?.server || !this.state.speech.model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
     this.transcribingServer = true;
+    this.keepAwake("server", true);
     try {
       while (!this.hearing) {
         // The model as it is now, for each book: one chosen meanwhile hears the next.
@@ -2280,6 +2294,7 @@ export class AppController {
       log.warn("could not transcribe the server's books:", describe(e));
     } finally {
       this.transcribingServer = false;
+      this.keepAwake("server", false);
       this.set({ transcribingForServer: null });
     }
   }

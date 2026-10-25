@@ -97,7 +97,10 @@ benchmark in `src-tauri`).
   WebView2. Stream with events and keep command replies small.
 - **Hidden windows lie about time:** Chromium throttles timers and stops
   `requestAnimationFrame` in a hidden or covered window. Never trust a timing
-  from one; anything waiting on a frame needs a timeout.
+  from one; anything waiting on a frame needs a timeout. WebKit goes further:
+  a few minutes after its window is hidden (a Mac with its screen locked), it
+  suspends the page, answers to commands and all, unless the window's
+  `backgroundThrottling` is `disabled` (#158).
 - **`tauri dev` adds about 3 s** to startup; measure startup on a `tauri build`.
 - **The webview guesses MP3 seeks** (VBR without a Xing header lands minutes
   off), and so does Apple's player on the TV: `frames.rs` indexes frames and

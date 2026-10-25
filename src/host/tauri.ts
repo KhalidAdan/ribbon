@@ -148,6 +148,7 @@ export function tauriHost(): Host {
           speechOpenings: (model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null) => invoke<(string | null)[]>("speech_openings", { model, clips, seconds, language }),
           speechTranscribe: (model: string, clips: { path: string; startMs: number }[], seconds: number, language: string | null, gentle?: boolean) =>
             invoke<({ startMs: number; endMs: number; words: string; wordMs?: number[] }[] | null)[]>("speech_transcribe", { model, clips, seconds, language, gentle: gentle ?? false }),
+          stayAwake: (on: boolean) => invoke<void>("stay_awake", { on }),
         }
       : {}),
     audioPrepare: (paths) => invoke<void>("audio_prepare", { paths }),

@@ -1,5 +1,6 @@
 pub mod ebook;
 pub mod frames;
+pub mod awake;
 pub mod speech;
 mod home;
 mod online;
@@ -106,6 +107,7 @@ pub fn run() {
             online::catalog_search,
             ebook::ebook_open,
             ebook::export::ebook_export,
+            awake::stay_awake,
             speech::speech_openings,
             speech::speech_transcribe,
             frames::audio_prepare,
