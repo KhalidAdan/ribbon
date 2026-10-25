@@ -143,6 +143,11 @@ pub fn run() {
             let _ = app.get_webview_window("main");
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                speech::unload();
+            }
+        });
 }

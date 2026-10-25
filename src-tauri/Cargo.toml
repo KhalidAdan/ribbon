@@ -44,7 +44,7 @@ zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 # The export's tests read the chapters it wrote.
 quick-xml = "0.39.4"
 
-# Speech (whisper.cpp, in a crate of its own so the server can build it alone) on the GPU: Metal on
+# Speech (whisper.cpp, in a crate of its own) on the GPU: Metal on
 # Apple's systems, Vulkan on Windows and Linux. Android runs it on the CPU for now. How it is
 # compiled: tools/with-build-env.mjs.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
