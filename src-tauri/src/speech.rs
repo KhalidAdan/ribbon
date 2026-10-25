@@ -111,6 +111,13 @@ pub async fn speech_openings(model: String, clips: Vec<Clip>, seconds: f32, lang
     tauri::async_runtime::spawn_blocking(move || opening_words(Path::new(&model), &clips, seconds, language.as_deref())).await.map_err(|e| e.to_string())?
 }
 
+/// Let go of the speech model before the app exits. The GPU's own teardown at exit can't free a device
+/// still holding a model, and aborts: every quit after hearing anything crashed. A batch still being
+/// heard is waited for (the model is held while it's heard), which is seconds.
+pub fn unload() {
+    ribbon_speech::unload();
+}
+
 /// The model Ribbon offers to download: whisper small, multilingual, quantised (about 190 MB). Against
 /// base, it hears about a third fewer words wrong, at 29 times real time on an M2's graphics against
 /// base's 45 (#152).
