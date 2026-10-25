@@ -7,7 +7,7 @@ import type { Alignment } from "../../../src/core/reading/align.ts";
 import { BookText } from "../../../src/core/reading/booktext.ts";
 import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows, type Narration } from "../../../src/core/reading/narration.ts";
 import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
-import { BY_SENTENCE, readAlongOf, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
+import { readAlongOf, readsBySentence, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
 import { stretchesOf } from "../../../src/core/reading/transcript.ts";
 import { bookDir, type StoredBook } from "./books.ts";
 import { chaptersWith, correctionsOf, recordRows } from "./chapters.ts";
@@ -48,7 +48,8 @@ export type ReadAlongState = "sentence" | "waiting" | "unpaired" | "flagged";
 /** Where a book stands (ReadAlongState). */
 export function stateOf(s: Standing): ReadAlongState {
   if (s.pairedBy !== "overlay" && s.transcribed.done < s.transcribed.total) return "waiting";
-  if (s.check.placed >= BY_SENTENCE) return "sentence";
+  // By what's felt: no narration unmarked for more than a minute (#163); by the share of sentences placed when nothing says what was heard.
+  if (readsBySentence(s.check)) return "sentence";
   if (s.pairedBy === "proportion") return "unpaired";
   return "flagged";
 }
@@ -135,10 +136,10 @@ export class ReadAlongs {
     // The chapters as a device that downloaded the book has them (chapters.ts).
     const chapters = chaptersWith(stored, await correctionsOf(dir, stored));
     const alignment = pairBook(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
-    const spans = transcriptFromRows(await recordRows(dir, stored, "aligned")).spans;
+    const transcript = transcriptFromRows(await recordRows(dir, stored, "aligned"));
     const stretches = stretchesOf(stored.files);
-    const transcribed = { done: stretches.filter((x) => spans.has(x.startMs)).length, total: stretches.length };
-    const readAlong = readAlongOf(text, alignment, transcribed);
+    const transcribed = { done: stretches.filter((x) => transcript.spans.has(x.startMs)).length, total: stretches.length };
+    const readAlong = readAlongOf(text, alignment, transcribed, transcript.said);
     return { readAlong, text, alignment, json: JSON.stringify(readAlong), standing: { check: readAlong.check, pairedBy: alignment.how, transcribed } };
   }
 
@@ -180,12 +181,14 @@ export async function narrationOf(dir: string, stored: StoredBook, text: BookTex
   };
 }
 
-/** How closely a read-along follows its narration, in words: "0% of the sentences read placed to the sentence, the rest by chapter; …". */
+/** How closely a read-along follows its narration, in words: "no narration unmarked; 99% of the sentences read placed to the sentence; …". */
 export function checked(check: ReadAlongCheck): string {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+  const gaps = check.unmarked;
+  const felt = !gaps ? "" : gaps.totalMs === 0 ? "no narration unmarked; " : `narration unmarked for ${s(gaps.totalMs)} in all, ${s(gaps.longestMs)} at the longest; `;
   const percent = Math.round(check.placed * 100);
-  const placed = `${percent}% of the sentences read placed to the sentence${percent < 100 ? ", the rest by chapter" : ""}`;
+  const placed = `${felt}${percent}% of the sentences read placed to the sentence${percent < 100 ? ", the rest by chapter" : ""}`;
   const heard = check.heldOut;
   if (!heard) return `${placed}; nothing heard inside chapters to check it against`;
-  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
   return `${placed}; ${heard.moments} moments heard, each left out in turn: ${s(heard.medianMs)} off at the median, ${s(heard.worstMs)} at worst`;
 }

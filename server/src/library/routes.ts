@@ -142,7 +142,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       const stored = await readStored(deps.dataDir, b.id);
       const standing = stored ? await deps.readAlongs.standing(b.id, stored) : "It's no longer on the server.";
       if (typeof standing === "string") books.push({ id: b.id, title: b.title, state: "unreadable" as const, error: standing });
-      else books.push({ id: b.id, title: b.title, state: stateOf(standing), placed: standing.check.placed, heldOut: standing.check.heldOut, pairedBy: standing.pairedBy, transcribed: standing.transcribed });
+      else books.push({ id: b.id, title: b.title, state: stateOf(standing), placed: standing.check.placed, heldOut: standing.check.heldOut, unmarked: standing.check.unmarked, pairedBy: standing.pairedBy, transcribed: standing.transcribed });
     }
     books.sort((a, b) => FIRST.indexOf(a.state) - FIRST.indexOf(b.state) || a.title.localeCompare(b.title));
     return { books };

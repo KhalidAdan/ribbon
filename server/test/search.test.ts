@@ -26,7 +26,7 @@ function readAlongOf(chapters: { title: string; paragraphs: string[][] }[]): Rea
       blocks.push({ k: "p", runs: [{ t: text }], sentences: marks });
     }
   }
-  return { format: READ_ALONG_FORMAT, ready: true, transcribed: { done: 1, total: 1 }, contents, blocks, check: { placed: 1, heldOut: null } };
+  return { format: READ_ALONG_FORMAT, ready: true, transcribed: { done: 1, total: 1 }, contents, blocks, check: { placed: 1, heldOut: null, unmarked: null } };
 }
 
 const OZ = readAlongOf([

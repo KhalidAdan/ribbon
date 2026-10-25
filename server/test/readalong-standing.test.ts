@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
+import { stateOf } from "../src/library/readalong.ts";
 import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
 const SENTENCES = ["The waygate hung in the void before them.", "It was a giant circle of wraithbone and old light.", "Eluadhri watched the runes along its rim kindle.", "Jurilan did not answer her at once.", "Then the gate opened, and they stepped through."];
@@ -56,8 +57,8 @@ describe("how the library reads along", () => {
     const send = (said: string) =>
       server.app.inject({ method: "PUT", url: `/api/books/${id}/transcript`, payload: `start_ms,end_ms,words,chars,heard_by,word_ms\n0,50000,,,ggml-small-q5_1,\n${said}`, headers: { authorization: `Bearer ${admin}`, "content-type": "text/csv" } });
 
-    // The narration heard is another book's: nothing in it is found in this one's text.
-    await send("1000,9000,This is Audible. Narrated by somebody else entirely.,,,\n");
+    // The narration heard is another book's, a phrase every five seconds: nothing in it is found in this one's text.
+    await send(Array.from({ length: 9 }, (_, i) => `${1000 + i * 5000},${5500 + i * 5000},"Another book entirely, its part number ${i + 1} read by somebody else",,,`).join("\n") + "\n");
     expect(await listed(server, admin)).toEqual({ books: [expect.objectContaining({ title: "The Waygate", state: "flagged", placed: 0, transcribed: { done: 1, total: 1 } })] });
 
     // A transcript that heard it right, in its place: the book reads along by sentence, without anyone opening it.
@@ -85,4 +86,21 @@ describe("how the library reads along", () => {
     expect(books[0]!.error).toContain("can't be read");
     expect((await server.app.inject({ method: "GET", url: "/api/library/readalong" })).statusCode).toBe(401);
   }, 60_000);
+});
+
+/** Where a book stands by what's felt while listening (#163): the longest stretch of narration with nothing marked. */
+describe("a book's standing, by narration unmarked", () => {
+  const standing = (placed: number, unmarked: { totalMs: number; longestMs: number } | null) => ({ check: { placed, heldOut: null, unmarked: unmarked && { ...unmarked, narrationMs: 731 * 60_000 } }, pairedBy: "chapter" as const, transcribed: { done: 731, total: 731 } });
+
+  it("flags a book with narration unmarked for more than a minute, though most of its sentences are placed", () => {
+    // Plague War before #163: 95.6% of its sentences placed, and its last chapter, 31 minutes, unmarked.
+    expect(stateOf(standing(0.9555, { totalMs: 1_926_000, longestMs: 1_848_000 }))).toBe("flagged");
+    // The share alone called it read along by sentence.
+    expect(stateOf(standing(0.9555, null))).toBe("sentence");
+  });
+
+  it("reads along by sentence with no narration unmarked, however many pages nobody reads pull its share down", () => {
+    expect(stateOf(standing(0.85, { totalMs: 0, longestMs: 0 }))).toBe("sentence");
+    expect(stateOf(standing(0.85, { totalMs: 41_000, longestMs: 41_000 }))).toBe("sentence");
+  });
 });
