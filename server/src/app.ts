@@ -71,7 +71,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   await app.register(fastifyCors, {
     origin: true,
     credentials: false,
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
+    // PUT: a series renamed or reordered, and a book's whole transcript (#152).
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["authorization", "content-type", "if-none-match", "range", "if-range"],
     exposedHeaders: ["etag", "set-auth-token", "content-range", "accept-ranges", "content-length", "last-modified"],
     maxAge: 86_400,

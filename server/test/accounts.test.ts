@@ -127,6 +127,9 @@ describe("the apps' origins", () => {
     expect(preflight.statusCode).toBe(204);
     expect(preflight.headers["access-control-allow-origin"]).toBe("tauri://localhost");
     expect(String(preflight.headers["access-control-allow-headers"])).toContain("if-none-match");
+    // A whole transcript, and a series changed, are sent with PUT.
+    const put = await server.app.inject({ method: "OPTIONS", url: "/api/books/0123456789abcdef/transcript", headers: { origin: "tauri://localhost", "access-control-request-method": "PUT", "access-control-request-headers": "authorization,content-type" } });
+    expect(String(put.headers["access-control-allow-methods"])).toContain("PUT");
     const signIn = await server.app.inject({ method: "POST", url: "/api/auth/sign-in/username", headers: { origin: "tauri://localhost" }, payload: { username: "ann", password: "a long password" } });
     expect(signIn.statusCode).toBe(200);
     expect(String(signIn.headers["access-control-expose-headers"])).toContain("set-auth-token");
