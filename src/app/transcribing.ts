@@ -1,6 +1,6 @@
 import type { Alignment } from "../core/reading/align";
 import type { WordAt } from "../core/reading/anchors";
-import { placeStretch, stretchesOf, type PlacedPhrase, type Said } from "../core/reading/transcript";
+import { looped, placeStretch, stretchesOf, withoutLoops, type PlacedPhrase, type Said } from "../core/reading/transcript";
 
 /**
  * A book's narration transcribed whole (#152): every minute of it, from the
@@ -17,6 +17,10 @@ import { placeStretch, stretchesOf, type PlacedPhrase, type Said } from "../core
 
 /** Minutes heard in one call to the speech model. */
 export const MINUTES_PER_CALL = 8;
+
+/** A minute that loops is heard again in two halves this long: cut there, whisper hears what's said. */
+const HALF_MS = 30_000;
+
 
 /** How long one call may take before it's given up on: its eight minutes take seconds on a graphics card, a few minutes at worst while a book plays. */
 export const HEARING_DEADLINE_MS = 10 * 60_000;
@@ -54,8 +58,8 @@ export interface Transcription {
   index: readonly WordAt[];
   /** The text paired with the audio as it is now: where to look for each minute's words. */
   alignment: () => Alignment;
-  /** Hear clips of the audio, a minute from each start: each one's phrases, or null when it couldn't be heard. */
-  hear: (clips: { path: string; startMs: number }[]) => Promise<(Said[] | null)[]>;
+  /** Hear clips of the audio, `seconds` long (a minute unless said) from each start: each one's phrases, or null when it couldn't be heard. */
+  hear: (clips: { path: string; startMs: number }[], seconds?: number) => Promise<(Said[] | null)[]>;
   /** The model that hears, by its file's name (`ggml-small-q5_1`): kept with each minute. */
   model: string;
   /** Keep what's transcribed so far: called after every few minutes. */
@@ -89,6 +93,18 @@ export async function transcribeWhole(t: Transcription): Promise<"whole" | "stop
       t.hear(batch.map((x) => ({ path: t.files[x.file]!.path, startMs: x.offset }))),
       t.deadlineMs ?? HEARING_DEADLINE_MS,
     );
+    // A minute where whisper heard one line over and over (#165) is heard again in halves; what loops even then is kept once.
+    const again = batch.flatMap((x, i) => (said[i] && looped(said[i]!) ? [i] : []));
+    if (again.length > 0) {
+      const halves = await answerWithin(
+        t.hear(again.flatMap((i) => [0, HALF_MS].map((at) => ({ path: t.files[batch[i]!.file]!.path, startMs: batch[i]!.offset + at }))), HALF_MS / 1000),
+        t.deadlineMs ?? HEARING_DEADLINE_MS,
+      );
+      again.forEach((i, k) => {
+        const [first, second] = [halves[2 * k], halves[2 * k + 1]];
+        said[i] = withoutLoops(first && second ? [...first, ...second] : said[i]!);
+      });
+    }
     const alignment = t.alignment();
     let heard = 0;
     batch.forEach((x, i) => {

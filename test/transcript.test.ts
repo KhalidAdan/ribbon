@@ -126,6 +126,18 @@ describe("the narration, a minute at a time", () => {
     expect(transcriptFromRows(rows).said[0]!.wordMs).toEqual([1000, 1900]);
   });
 
+  it("doesn't count a minute where whisper heard one line over and over, so it's heard again (#165)", () => {
+    const loop = Array.from({ length: 14 }, (_, k) => ({ start_ms: String(70_000 + k * 2000), end_ms: String(72_000 + k * 2000), words: "Do not let your heart be broken!", chars: "" }));
+    const t = transcriptFromRows([
+      { start_ms: "0", end_ms: "60000", words: "", chars: "", heard_by: "ggml-small-q5_1" },
+      { start_ms: "1000", end_ms: "3000", words: "Fire upon anything that comes within range!", chars: "40" },
+      { start_ms: "60000", end_ms: "120000", words: "", chars: "", heard_by: "ggml-small-q5_1" },
+      ...loop,
+    ]);
+    expect([...t.spans.keys()]).toEqual([0]);
+    expect(t.said.map((x) => x.words)).toEqual(["Fire upon anything that comes within range!"]);
+  });
+
   it("is a server's, with only the minutes it hasn't that this device heard: each minute one transcript's, never both", () => {
     const server = { spans: new Map([[0, 60_000]]), heardBy: new Map([[0, "ggml-small-q5_1"]]), said: [{ startMs: 1000, endMs: 2000, words: "Before", chars: 4 }] };
     const here = { spans: new Map([[0, 60_000], [60_000, 120_000]]), heardBy: new Map([[0, "ggml-base-q5_1"], [60_000, "ggml-base-q5_1"]]), said: [{ startMs: 1100, endMs: 2000, words: "Before it", chars: 4 }, { startMs: 61_000, endMs: 62_000, words: "After", chars: 90 }] };
