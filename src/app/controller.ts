@@ -548,9 +548,7 @@ export class AppController {
     const books: ScannedBook[] = [];
     const positions: Record<string, Position | null> = {};
     for (const o of this.openedInOrder()) {
-      // A server's books not on this device yet come after the ones that are.
-      const remote = (o.server?.remote(o.books) ?? []).map((b) => ({ ...b, source: o.source.id }));
-      for (const b of [...o.books, ...remote]) {
+      for (const b of this.booksOf(o)) {
         const id = b.book.id;
         if (seen.has(id)) {
           log.warn("two sources hold the same book id; keeping the first:", id, b.book.title);
@@ -1601,8 +1599,10 @@ export class AppController {
   coverUrl(book: ScannedBook): string | null {
     const o = this.openedOf(book);
     if (!o || !book.book.cover) return null;
-    // A server's book not downloaded yet: its cover once it's fetched.
-    if (book.remote) return book.remote.cover && o.server?.hasCover(book.remote.cover.hash) ? this.platform.fileUrl(o.lib.absPath(book.book.cover)) : null;
+    // A server's book not downloaded yet: a cover chosen here, which is
+    // already in the server's folder on this device, else the server's
+    // once it's fetched.
+    if (book.remote) return book.edits?.cover || (book.remote.cover && o.server?.hasCover(book.remote.cover.hash)) ? this.platform.fileUrl(o.lib.absPath(book.book.cover)) : null;
     const name = LibraryService.mirrorCoverName(book);
     if (name && o.mirrorCoversDir && o.mirrorCovers.has(name)) return this.platform.fileUrl(o.lib.host.join(o.mirrorCoversDir, name));
     if (!o.assetsReady || o.scanning) return null;
@@ -3517,9 +3517,14 @@ export class AppController {
     this.set({ series });
   }
 
-  /** A source's books: for a server's, the ones not on this device yet too. */
+  /**
+   * A source's books: for a server's, the ones not on this device yet too,
+   * after the ones that are. Hand edits are laid over those as well: a book
+   * is edited by the id it keeps once downloaded, so an edit made before
+   * the download still holds after it.
+   */
   private booksOf(o: Opened): ScannedBook[] {
-    return [...o.books, ...(o.server?.remote(o.books) ?? [])];
+    return [...o.books, ...this.stamp(o, o.server?.remote(o.books) ?? [])];
   }
 
   /** After a scan: open the setup for the first series with no record, once per session. */
