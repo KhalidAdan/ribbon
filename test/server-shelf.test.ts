@@ -280,6 +280,44 @@ describe("a server's shelf on this device", () => {
     rmSync(moved, { recursive: true, force: true });
   });
 
+  it("shows an edit to a book not downloaded yet, after a fresh start, and once it's downloaded", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const home = folder();
+    const settings = memorySettings();
+    const sources = memorySources();
+    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources, appSettings: settings, home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    const until = async (ok: () => boolean) => {
+      for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 25));
+    };
+    const bookIn = (app: AppController) => app.getState().books.find((b) => b.book.id === localIdOf(listed));
+
+    const app = new AppController(platform);
+    await app.boot();
+    await app.connectServer(url, "Ann", "the-password");
+    await until(() => !!bookIn(app)?.remote);
+    await app.saveEdits(localIdOf(listed), { title: "The Bluest Book", narrator: "Someone Else" });
+    expect(bookIn(app)).toMatchObject({ book: { title: "The Bluest Book", narrator: "Someone Else" }, original: { title: "The Blue Book" }, remote: { serverId: SERVER_ID } });
+
+    // A cover chosen here shows at once, before the server's is fetched or the book downloaded.
+    await app.setCover(localIdOf(listed), new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "jpg");
+    expect(app.coverUrl(bookIn(app)!)).toMatch(/\.ribbon[\\/]covers[\\/]edited-/);
+
+    // The next start shows the edits before anything is downloaded.
+    const next = new AppController(platform);
+    await next.boot();
+    await until(() => !!bookIn(next)?.remote);
+    expect(bookIn(next)!.book).toMatchObject({ title: "The Bluest Book", narrator: "Someone Else" });
+
+    // Downloaded, the book keeps its id, and so its edits.
+    await next.downloadBook(localIdOf(listed));
+    expect(bookIn(next)?.remote).toBeUndefined();
+    expect(bookIn(next)!.book).toMatchObject({ title: "The Bluest Book", narrator: "Someone Else" });
+    await next.removeSource(next.getState().sources[0]!.id);
+    vi.restoreAllMocks();
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("takes the server's series, its books by their ids here, and finds none itself from a server that keeps none", async () => {
     const root = folder();
     const shelf = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
