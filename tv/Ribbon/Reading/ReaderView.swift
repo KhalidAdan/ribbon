@@ -10,6 +10,7 @@ struct ReaderView: View {
     let session: ReadingSession
     let layout: BookLayout
     let onClose: () -> Void
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
         ZStack {
@@ -62,7 +63,7 @@ struct ReaderView: View {
                 ProgressHairline(fraction: Double(session.listening.positionMs) / Double(max(1, session.listening.durationMs)))
                     .allowsHitTesting(false)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, narrow ? 16 : 32)
             .padding(.top, 4)
             .padding(.bottom, 12)
             .animation(.easeOut(duration: 0.2), value: banner?.title)
@@ -111,7 +112,8 @@ private struct StatusLine: View {
         HStack(alignment: .firstTextBaseline) {
             Text(session.chapter ?? "").font(.ui(24)).foregroundStyle(Color.ink3).lineLimit(1)
             Spacer()
-            Text(status).font(.ui(24)).foregroundStyle(Color.ink3).monospacedDigit()
+            // On one line, however narrow: the chapter gives way.
+            Text(status).font(.ui(24)).foregroundStyle(Color.ink3).monospacedDigit().fixedSize()
         }
     }
 
@@ -126,22 +128,23 @@ private struct StatusLine: View {
 /// What the remote's buttons do, under the iPad's column: Listen from here and Return to narrator either side of
 /// play, as they sit either side of your sentence on the TV, when you're away from the narrator; following it, the
 /// left one listens from the start of the sentence being read, and again a sentence further back. While a
-/// bookmark is made or offered for deleting, its own two buttons instead.
+/// bookmark is made or offered for deleting, its own two buttons instead. A phone's buttons say less.
 private struct ReaderButtons: View {
     let session: ReadingSession
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: narrow ? 10 : 20) {
             if session.marking != nil {
                 Spacer()
                 Button("Cancel") { _ = session.back() }.buttonStyle(RibbonButtonStyle())
-                Button { session.keepBookmark() } label: { Label("Keep bookmark", systemImage: "bookmark.fill") }
+                Button { session.keepBookmark() } label: { Label(narrow ? "Keep" : "Keep bookmark", systemImage: "bookmark.fill") }
                     .buttonStyle(RibbonButtonStyle(kind: .primary))
                 Spacer()
             } else if session.deleting != nil {
                 Spacer()
                 Button("Keep it") { _ = session.back() }.buttonStyle(RibbonButtonStyle())
-                Button(role: .destructive) { session.deleteBookmark() } label: { Label("Delete bookmark", systemImage: "trash") }
+                Button(role: .destructive) { session.deleteBookmark() } label: { Label(narrow ? "Delete" : "Delete bookmark", systemImage: "trash") }
                     .buttonStyle(RibbonButtonStyle(kind: .primary))
                 Spacer()
             } else {
@@ -149,7 +152,7 @@ private struct ReaderButtons: View {
                 HStack {
                     Spacer(minLength: 0)
                     if away {
-                        Button { session.left() } label: { Label("Listen from here", systemImage: "chevron.left") }
+                        Button { session.left() } label: { Label(narrow ? "From here" : "Listen from here", systemImage: "chevron.left").font(.ui(narrow ? 22 : 26, weight: 500)) }
                             .buttonStyle(RibbonButtonStyle())
                     } else if session.readAlong.readsAlong {
                         Button { session.left() } label: { Image(systemName: "gobackward") }
@@ -159,15 +162,16 @@ private struct ReaderButtons: View {
                 }
                 .frame(maxWidth: .infinity)
                 Button { session.playPause() } label: { Image(systemName: session.listening.playing ? "pause.fill" : "play.fill") }
-                    .buttonStyle(RoundButtonStyle(size: 104, primary: true))
+                    .buttonStyle(RoundButtonStyle(size: narrow ? 96 : 104, primary: true))
                     .accessibilityLabel(session.listening.playing ? "Pause" : "Play")
                 HStack {
                     if away {
                         Button { session.returnToNarrator() } label: {
                             HStack(spacing: 8) {
-                                Text("Return to narrator")
+                                Text(narrow ? "To narrator" : "Return to narrator")
                                 Image(systemName: "chevron.right")
                             }
+                            .font(.ui(narrow ? 22 : 26, weight: 500))
                         }
                         .buttonStyle(RibbonButtonStyle())
                     }

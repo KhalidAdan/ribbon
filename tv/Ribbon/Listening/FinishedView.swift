@@ -55,7 +55,7 @@ struct FinishedView: View {
                 }
                 .frame(maxWidth: 1000.scaled, alignment: .leading)
             }
-            .padding(.horizontal, 120.scaled)
+            .screenEdges(horizontal: 120, vertical: 0)
         }
         .defaultFocus($focused, next == nil ? .done : .next)
         #if os(tvOS)

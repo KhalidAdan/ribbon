@@ -3,9 +3,11 @@ import SwiftUI
 /// Who's reading? Everyone signed in on this TV, side by side, and Someone
 /// else last, to sign another person in. The focus starts on whoever read
 /// last here. Holding Select on a person (on the iPad, holding them) offers to
-/// take them off this TV; their places stay on the server.
+/// take them off this TV; their places stay on the server. A phone has two to a
+/// row.
 struct PeopleView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.narrow) private var narrow
     @FocusState private var focused: String?
 
     private static let someoneElse = "someone-else"
@@ -15,22 +17,11 @@ struct PeopleView: View {
             Color.canvas.ignoresSafeArea()
             VStack(spacing: 80.scaled) {
                 Text("Who's reading?").font(.ui(56, weight: 600)).foregroundStyle(Color.ink)
-                HStack(alignment: .top, spacing: 72.scaled) {
-                    ForEach(model.people) { person in
-                        Button { model.choose(person) } label: {
-                            Person(initial: String(person.name.prefix(1)).uppercased(), name: person.name, server: manyServers ? person.url.host() : nil)
-                        }
-                        .buttonStyle(PersonStyle())
-                        .focused($focused, equals: person.id)
-                        .contextMenu {
-                            Button("Take \(person.name) off this \(ThisDevice.kind)", role: .destructive) { model.remove(person) }
-                        }
-                    }
-                    Button { model.addSomeone() } label: {
-                        Person(initial: "+", name: "Someone else", server: nil)
-                    }
-                    .buttonStyle(PersonStyle())
-                    .focused($focused, equals: Self.someoneElse)
+                if narrow {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 240.scaled), spacing: 16, alignment: .top)], spacing: 40) { everyone }
+                        .padding(.horizontal, 20)
+                } else {
+                    HStack(alignment: .top, spacing: 72.scaled) { everyone }
                 }
             }
         }
@@ -38,6 +29,25 @@ struct PeopleView: View {
             let last = model.people.first { $0.id == model.lastPerson }
             focused = last?.id ?? model.people.first?.id ?? Self.someoneElse
         }
+    }
+
+    /// Each person, and Someone else.
+    @ViewBuilder private var everyone: some View {
+        ForEach(model.people) { person in
+            Button { model.choose(person) } label: {
+                Person(initial: String(person.name.prefix(1)).uppercased(), name: person.name, server: manyServers ? person.url.host() : nil)
+            }
+            .buttonStyle(PersonStyle())
+            .focused($focused, equals: person.id)
+            .contextMenu {
+                Button("Take \(person.name) off this \(ThisDevice.kind)", role: .destructive) { model.remove(person) }
+            }
+        }
+        Button { model.addSomeone() } label: {
+            Person(initial: "+", name: "Someone else", server: nil)
+        }
+        .buttonStyle(PersonStyle())
+        .focused($focused, equals: Self.someoneElse)
     }
 
     /// When people here use different servers, each says which.

@@ -27,7 +27,7 @@ struct ChapterCard: View {
                         .frame(maxWidth: 1400.scaled)
                 }
             }
-            .padding(120.scaled)
+            .screenEdges(horizontal: 120, vertical: 120)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
@@ -78,6 +78,8 @@ private struct Wiped: ViewModifier {
 /// answers, and goes no further (Remote). Unanswered, the narration stops at
 /// the end of the sentence a minute later (Dozing). On the iPad, any touch.
 struct StillListening: View {
+    @Environment(\.narrow) private var narrow
+
     var body: some View {
         HStack(spacing: 22.scaled) {
             Image(systemName: "moon.fill").font(.system(size: 30.scaled)).foregroundStyle(Color.place)
@@ -93,6 +95,7 @@ struct StillListening: View {
         .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.raised))
         .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
         .shadow(color: .black.opacity(0.5), radius: 30.scaled, y: 14.scaled)
+        .padding(.horizontal, narrow ? 16 : 0)
         .allowsHitTesting(false)
     }
 

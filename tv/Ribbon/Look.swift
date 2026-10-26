@@ -4,15 +4,16 @@ import UIKit
 
 /// Ribbon's look on the TV (docs/DESIGN.md), seen from a sofa: the dark
 /// tokens, the reader's own face for the book, and Inter for the rest. The
-/// iPad has the same look, nearer.
+/// iPad and the iPhone have the same look, nearer.
 enum Look {
     /// How large the TV's sizes are drawn on this screen. Every size in the screens is the TV's, for a sofa three
     /// metres away; the iPad, held at arm's length, draws them at seven tenths, so the TV's 24-point text is the
-    /// iPad's 17. The faces scale themselves (`Font.ui`, `Font.book`); a length says `.scaled`.
+    /// iPad's 17; the iPhone, in the hand, at 0.65, so the TV's 26-point rows are the phone's 17. The faces scale
+    /// themselves (`Font.ui`, `Font.book`); a length says `.scaled`.
     #if os(tvOS)
     static let scale: CGFloat = 1
     #else
-    static let scale: CGFloat = 0.7
+    static let scale: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 0.65 : 0.7
     #endif
 
     static let canvas = UIColor(rgb: 0x0a0a0a)
@@ -107,7 +108,75 @@ extension BinaryFloatingPoint {
 }
 
 extension EnvironmentValues {
-    /// Whether the screen is taller than it is wide: an iPad held upright, where what the TV sets side by side is
-    /// stacked. Never on a TV.
+    /// Whether the screen is taller than it is wide: an iPad held upright, or an iPhone, where what the TV sets
+    /// side by side is stacked. Never on a TV.
     @Entry var upright = false
+    /// Whether the screen is as narrow as a phone's: what the TV sets in a row wraps or shortens, and the edges
+    /// are a phone's own rather than the TV's, scaled. Never on a TV or a whole iPad screen.
+    @Entry var narrow = false
+}
+
+extension View {
+    /// The room at a screen's edges, given at the TV's size; where the screen is narrow, a phone's.
+    func screenEdges(horizontal: CGFloat, vertical: CGFloat) -> some View {
+        modifier(ScreenEdges(horizontal: horizontal, vertical: vertical))
+    }
+}
+
+extension View {
+    /// A column `width` wide at the TV's size; on a narrow screen, the whole width less its edges.
+    func column(width: CGFloat) -> some View {
+        modifier(Column(width: width, alignment: .center, edges: 20))
+    }
+
+    /// Words beside a card's cover, `width` wide at the TV's size; on a narrow screen, whatever width the card has.
+    func widthUnlessNarrow(_ width: CGFloat) -> some View {
+        modifier(Column(width: width, alignment: .leading, edges: 0))
+    }
+
+    /// A card in a row that scrolls sideways: on a narrow screen, as wide as the row, less the room either side
+    /// that the row leaves for a lifted card (`room`, at the TV's size).
+    func fillsNarrowRow(room: CGFloat) -> some View {
+        modifier(FillsNarrowRow(room: room))
+    }
+}
+
+private struct Column: ViewModifier {
+    let width: CGFloat
+    let alignment: Alignment
+    let edges: CGFloat
+    @Environment(\.narrow) private var narrow
+
+    func body(content: Content) -> some View {
+        if narrow {
+            content.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, edges)
+        } else {
+            content.frame(width: width.scaled, alignment: alignment)
+        }
+    }
+}
+
+private struct FillsNarrowRow: ViewModifier {
+    let room: CGFloat
+    @Environment(\.narrow) private var narrow
+
+    func body(content: Content) -> some View {
+        if narrow {
+            content.containerRelativeFrame(.horizontal) { width, _ in width - 2 * room.scaled }
+        } else {
+            content
+        }
+    }
+}
+
+private struct ScreenEdges: ViewModifier {
+    let horizontal: CGFloat
+    let vertical: CGFloat
+    @Environment(\.narrow) private var narrow
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, narrow ? 20 : horizontal.scaled)
+            .padding(.vertical, narrow ? 16 : vertical.scaled)
+    }
 }

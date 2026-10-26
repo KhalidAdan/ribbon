@@ -165,6 +165,7 @@ struct RibbonButtonStyle: ButtonStyle {
         let kind: Kind
         @Environment(\.isFocused) private var focused
         @Environment(\.isEnabled) private var enabled
+        @Environment(\.narrow) private var narrow
 
         var body: some View {
             let lit = Pressed.inverted(focused: focused, primary: kind == .primary)
@@ -172,7 +173,8 @@ struct RibbonButtonStyle: ButtonStyle {
                 .font(.ui(26, weight: 500))
                 .opacity(enabled ? 1 : 0.45)
                 .foregroundStyle(lit ? Color.canvas : Color.ink)
-                .padding(.horizontal, 28.scaled)
+                // A phone's own room either side of the words.
+                .padding(.horizontal, narrow ? 16 : 28.scaled)
                 .padding(.vertical, 14.scaled)
                 .background(RoundedRectangle(cornerRadius: 12.scaled).fill(lit ? Color.ink : kind == .primary ? Color.lineStrong : Color.raised))
                 .overlay(RoundedRectangle(cornerRadius: 12.scaled).stroke(lit ? Color.clear : Color.line))
@@ -283,8 +285,15 @@ extension View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
-            // What scrolls under it fades away, and a book's wash shows through.
-            .background(LinearGradient(colors: [Color.canvas.opacity(0.9), Color.canvas.opacity(0)], startPoint: .top, endPoint: .bottom).ignoresSafeArea())
+            // What scrolls under it goes under the canvas, solid behind the way back and fading out just below it.
+            .background(alignment: .top) {
+                VStack(spacing: 0) {
+                    Color.canvas
+                    LinearGradient(colors: [Color.canvas, Color.canvas.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                }
+                .padding(.bottom, -16)
+                .ignoresSafeArea(edges: .top)
+            }
         }
         #else
         self

@@ -47,8 +47,7 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: 1100.scaled, alignment: .leading)
                 }
-                .padding(.horizontal, 96.scaled)
-                .padding(.vertical, 72.scaled)
+                .screenEdges(horizontal: 96, vertical: 72)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

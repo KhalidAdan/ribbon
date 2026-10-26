@@ -47,8 +47,7 @@ struct SearchView: View {
                 .padding(-24.scaled)
                 .scrollClipDisabled()
             }
-            .padding(.horizontal, 96.scaled)
-            .padding(.vertical, 72.scaled)
+            .screenEdges(horizontal: 96, vertical: 72)
         }
         .defaultFocus($fieldFocused, true)
         #if os(iOS)

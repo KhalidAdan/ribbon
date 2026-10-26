@@ -33,6 +33,11 @@
 	</dict>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<!-- The iPhone, held upright. -->
+	<key>UISupportedInterfaceOrientations~iphone</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
 	<!-- The iPad, held either way up. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

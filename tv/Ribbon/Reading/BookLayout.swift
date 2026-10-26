@@ -9,20 +9,26 @@ import UIKit
 /// Made off the main thread (TextKit's own objects may be, before anything
 /// draws them), then only read.
 final class BookLayout: @unchecked Sendable {
-    /// The type, for reading from a sofa three metres away: about sixty letters a line. On the iPad, at arm's
-    /// length, the same sixty letters a line, the column narrow enough for an iPad mini held upright, so turning
-    /// the iPad keeps every line as it was.
-    enum Measure {
-        #if os(tvOS)
-        static let width: CGFloat = 1200
-        static let size: CGFloat = 42
-        static let lineHeight: CGFloat = 68
-        #else
-        static let width: CGFloat = 680
-        static let size: CGFloat = 24
-        static let lineHeight: CGFloat = 39
-        #endif
-        static let indent = size * 1.5
+    /// The type: the column's width, the size of its letters and the height of its lines. On the TV, for reading
+    /// from a sofa three metres away, about sixty letters a line. On the iPad, at arm's length, the same sixty
+    /// letters, the column narrow enough for an iPad mini held upright, so turning the iPad keeps every line as it
+    /// was. On the iPhone, in the hand, the screen's width less a margin either side: about forty letters a line.
+    struct Measure: Sendable {
+        let width: CGFloat
+        let size: CGFloat
+        let lineHeight: CGFloat
+        var indent: CGFloat { size * 1.5 }
+
+        /// The measure for the screen the app is on, as a book opens.
+        @MainActor static var forThisScreen: Measure {
+            #if os(tvOS)
+            Measure(width: 1200, size: 42, lineHeight: 68)
+            #else
+            let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.bounds.size }.first ?? .zero
+            let side = min(screen.width, screen.height)
+            return side < 600 ? Measure(width: side - 40, size: 19, lineHeight: 31) : Measure(width: 680, size: 24, lineHeight: 39)
+            #endif
+        }
     }
 
     final class Paragraph {
@@ -35,9 +41,9 @@ final class BookLayout: @unchecked Sendable {
         /// The height of its letters, from the top of the tallest to the bottom of the lowest: what a wash covers.
         private let letters: CGFloat
 
-        init(_ text: NSAttributedString, top: CGFloat, letters: CGFloat) {
+        init(_ text: NSAttributedString, width: CGFloat, top: CGFloat, letters: CGFloat) {
             storage = NSTextStorage(attributedString: text)
-            container = NSTextContainer(size: CGSize(width: Measure.width, height: .greatestFiniteMagnitude))
+            container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
             container.lineFragmentPadding = 0
             manager.addTextContainer(container)
             storage.addLayoutManager(manager)
@@ -76,16 +82,18 @@ final class BookLayout: @unchecked Sendable {
         }
     }
 
+    let measure: Measure
     let paragraphs: [Paragraph]
     let height: CGFloat
 
-    init(_ readAlong: ReadAlong) {
+    init(_ readAlong: ReadAlong, measure: Measure) {
+        self.measure = measure
         var paragraphs: [Paragraph] = []
         var y: CGFloat = 0
         for block in readAlong.blocks {
-            let set = Self.set(block)
+            let set = Self.set(block, measure)
             y += set.before
-            let paragraph = Paragraph(set.text, top: y, letters: set.letters)
+            let paragraph = Paragraph(set.text, width: measure.width, top: y, letters: set.letters)
             paragraphs.append(paragraph)
             y += paragraph.height + set.after
         }
@@ -122,12 +130,12 @@ final class BookLayout: @unchecked Sendable {
     func frame(of sentence: Sentences.Sentence) -> CGRect {
         let paragraph = paragraphs[sentence.block]
         let boxes = paragraph.lineBoxes(sentence.range)
-        guard let first = boxes.first else { return CGRect(x: 0, y: paragraph.top, width: Measure.width, height: paragraph.height) }
+        guard let first = boxes.first else { return CGRect(x: 0, y: paragraph.top, width: measure.width, height: paragraph.height) }
         return boxes.dropFirst().reduce(first) { $0.union($1) }.offsetBy(dx: 0, dy: paragraph.top)
     }
 
     /// A block in type: its text with its faces and paragraph style, the room above and below it, and how tall its letters are.
-    private static func set(_ block: ReadAlong.Block) -> (text: NSAttributedString, before: CGFloat, after: CGFloat, letters: CGFloat) {
+    private static func set(_ block: ReadAlong.Block, _ measure: Measure) -> (text: NSAttributedString, before: CGFloat, after: CGFloat, letters: CGFloat) {
         let style = NSMutableParagraphStyle()
         let lineHeight: CGFloat
         let font: (ReadAlong.Run) -> UIFont
@@ -137,32 +145,32 @@ final class BookLayout: @unchecked Sendable {
         switch block.k {
         case .h:
             let big = (block.level ?? 1) <= 2
-            let size = Measure.size * (big ? 1.4 : 1.15)
+            let size = measure.size * (big ? 1.4 : 1.15)
             lineHeight = round(size * 1.35)
             font = { _ in Faces.text(size: size, weight: 600) }
             style.alignment = .center
-            before = Measure.lineHeight * (big ? 2 : 1.25)
-            after = Measure.lineHeight * 0.5
+            before = measure.lineHeight * (big ? 2 : 1.25)
+            after = measure.lineHeight * 0.5
         case .hr:
-            lineHeight = Measure.lineHeight
-            font = { _ in Faces.text(size: Measure.size) }
+            lineHeight = measure.lineHeight
+            font = { _ in Faces.text(size: measure.size) }
             colour = Look.ink3
             style.alignment = .center
-            before = Measure.lineHeight * 0.5
-            after = Measure.lineHeight * 0.5
+            before = measure.lineHeight * 0.5
+            after = measure.lineHeight * 0.5
         case .p:
-            lineHeight = Measure.lineHeight
-            font = { run in Faces.text(size: Measure.size, weight: run.b == true ? 650 : 400, italic: run.i == true) }
+            lineHeight = measure.lineHeight
+            font = { run in Faces.text(size: measure.size, weight: run.b == true ? 650 : 400, italic: run.i == true) }
             // Justified, with words broken where the language allows, as a book is set.
             style.alignment = block.center == true ? .center : .justified
             style.hyphenationFactor = block.center == true ? 0 : 1
-            style.firstLineHeadIndent = block.indent == true ? Measure.indent : 0
+            style.firstLineHeadIndent = block.indent == true ? measure.indent : 0
             if block.quote == true {
-                style.headIndent += Measure.indent
-                style.firstLineHeadIndent += Measure.indent
-                style.tailIndent = -Measure.indent
+                style.headIndent += measure.indent
+                style.firstLineHeadIndent += measure.indent
+                style.tailIndent = -measure.indent
             }
-            before = block.space == true ? Measure.lineHeight * 0.75 : 0
+            before = block.space == true ? measure.lineHeight * 0.75 : 0
         }
         style.minimumLineHeight = lineHeight
         style.maximumLineHeight = lineHeight

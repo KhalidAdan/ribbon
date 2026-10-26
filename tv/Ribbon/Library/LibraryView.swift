@@ -7,6 +7,7 @@ import SwiftUI
 /// middle of.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.narrow) private var narrow
     @FocusState private var focused: String?
 
     var body: some View {
@@ -53,7 +54,8 @@ struct LibraryView: View {
                                 title: series.isEmpty ? "All books" : "Books",
                                 description: series.isEmpty ? "\(standalone.count) \(standalone.count == 1 ? "book" : "books"), most recently listened first." : "\(standalone.count) \(standalone.count == 1 ? "book" : "books") outside a series."
                             )
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250.scaled, maximum: 270.scaled), spacing: 48.scaled, alignment: .top)], alignment: .leading, spacing: 64.scaled) {
+                            // Two to a row on a phone.
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: BookCard.width(narrow).scaled, maximum: (BookCard.width(narrow) + 20).scaled), spacing: narrow ? 20 : 48.scaled, alignment: .top)], alignment: .leading, spacing: 64.scaled) {
                                 ForEach(standalone) { book in BookCard(book: book) }
                             }
                         }
@@ -62,12 +64,16 @@ struct LibraryView: View {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
                 }
             }
-            .padding(.horizontal, 96.scaled)
-            .padding(.vertical, 56.scaled)
+            .screenEdges(horizontal: 96, vertical: 56)
         }
         .background(Color.canvas.ignoresSafeArea())
         #if os(tvOS)
         .onExitCommand(perform: model.people.count > 1 ? { model.switchReader() } : nil)
+        #else
+        // Scrolled, the shelf goes under the status bar, which stays on the canvas.
+        .overlay(alignment: .top) {
+            Color.canvas.ignoresSafeArea(edges: .top).frame(height: 0).allowsHitTesting(false)
+        }
         #endif
         .task { await model.loadLibrary() }
         .onChange(of: model.library?.loaded) { _, loaded in
@@ -78,51 +84,85 @@ struct LibraryView: View {
 }
 
 /// Ribbon's mark, and where you are: the server, and who's reading, which opens the settings; and the book playing, which
-/// opens the player.
+/// opens the player. A phone's bar is short: the server's name goes, Search and the settings are their glyphs, and the
+/// book playing has a row of its own under them.
 private struct TopBar: View {
     @Environment(AppModel.self) private var model
     @Environment(\.upright) private var upright
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
+        if narrow {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 14.scaled) {
+                    mark
+                    Spacer()
+                    search.labelStyle(.iconOnly)
+                    settings.labelStyle(.iconOnly)
+                }
+                if let listening = model.listening { playing(listening) }
+            }
+        } else {
+            HStack(spacing: 14.scaled) {
+                mark
+                Image(systemName: "chevron.right").font(.system(size: 18.scaled, weight: .semibold)).foregroundStyle(Color.ink3)
+                Text(model.host).font(.ui(28)).foregroundStyle(Color.ink2).lineLimit(1)
+                Spacer()
+                // Each button's words whole: where the bar is short, as on an iPad held upright, the book playing gives way.
+                search
+                    .padding(.trailing, 16.scaled)
+                if let listening = model.listening {
+                    playing(listening)
+                        .padding(.trailing, 16.scaled)
+                }
+                settings
+            }
+            #if os(tvOS)
+            // One place for the focus to go up to from anywhere below: its buttons sit at the far right, outside what's
+            // straight above the cards.
+            .focusSection()
+            #endif
+        }
+    }
+
+    private var mark: some View {
         HStack(spacing: 14.scaled) {
             Image(systemName: "bookmark.fill").font(.system(size: 26.scaled)).foregroundStyle(Color.place)
             Text("Ribbon").font(.ui(30, weight: 600)).foregroundStyle(Color.ink)
-            Image(systemName: "chevron.right").font(.system(size: 18.scaled, weight: .semibold)).foregroundStyle(Color.ink3)
-            Text(model.host).font(.ui(28)).foregroundStyle(Color.ink2).lineLimit(1)
-            Spacer()
-            // Each button's words whole: where the bar is short, as on an iPad held upright, the book playing gives way.
-            Button { model.showSearch() } label: {
-                Label("Search", systemImage: "magnifyingglass").fixedSize()
-            }
-            .buttonStyle(RibbonButtonStyle())
-            .padding(.trailing, 16.scaled)
-            if let listening = model.listening {
-                Button { model.showPlayer() } label: {
-                    HStack(spacing: 14.scaled) {
-                        Image(systemName: listening.playing ? "speaker.wave.2.fill" : "pause.fill").font(.system(size: 20.scaled))
-                        Text(listening.book.title).lineLimit(1)
-                        // Upright, the iPad's bar is short: the book keeps its title, and the time left goes.
-                        if !upright {
-                            Text("\(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left").opacity(0.7).monospacedDigit()
-                        }
-                    }
-                    .frame(maxWidth: 640.scaled)
-                }
-                .buttonStyle(RibbonButtonStyle())
-                .padding(.trailing, 16.scaled)
-            }
-            // Who's reading, which is where their settings are.
-            Button { model.showSettings() } label: {
-                Label(model.server?.account.name ?? "Settings", systemImage: "gearshape").fixedSize()
-            }
-            .buttonStyle(RibbonButtonStyle())
-            .accessibilityLabel("Settings")
         }
-        #if os(tvOS)
-        // One place for the focus to go up to from anywhere below: its buttons sit at the far right, outside what's
-        // straight above the cards.
-        .focusSection()
-        #endif
+    }
+
+    private var search: some View {
+        Button { model.showSearch() } label: {
+            Label("Search", systemImage: "magnifyingglass").fixedSize()
+        }
+        .buttonStyle(RibbonButtonStyle())
+    }
+
+    /// The book playing, and how long is left of it, which opens the player. Upright, an iPad's bar is short: the book
+    /// keeps its title, and the time left goes. A phone gives it the width of the screen.
+    private func playing(_ listening: Listening) -> some View {
+        Button { model.showPlayer() } label: {
+            HStack(spacing: 14.scaled) {
+                Image(systemName: listening.playing ? "speaker.wave.2.fill" : "pause.fill").font(.system(size: 20.scaled))
+                Text(listening.book.title).lineLimit(1)
+                if narrow { Spacer(minLength: 8) }
+                if narrow || !upright {
+                    Text("\(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left").opacity(0.7).monospacedDigit()
+                }
+            }
+            .frame(maxWidth: narrow ? .infinity : 640.scaled)
+        }
+        .buttonStyle(RibbonButtonStyle())
+    }
+
+    /// Who's reading, which is where their settings are.
+    private var settings: some View {
+        Button { model.showSettings() } label: {
+            Label(model.server?.account.name ?? "Settings", systemImage: "gearshape").fixedSize()
+        }
+        .buttonStyle(RibbonButtonStyle())
+        .accessibilityLabel("Settings")
     }
 }
 
@@ -142,13 +182,14 @@ private struct ContinueCard: View {
                     Text(where_).font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit().lineLimit(1)
                     ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8.scaled)
                 }
-                .frame(width: 400.scaled, alignment: .leading)
+                .widthUnlessNarrow(400)
             }
             .padding(22.scaled)
             .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.surface))
             .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
         }
         .buttonStyle(LiftStyle(radius: 20))
+        .fillsNarrowRow(room: 24)
         .task { detail = await model.library?.detail(of: book) }
     }
 
@@ -195,27 +236,34 @@ private struct SeriesCard: View {
                     Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6.scaled)
                     SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16.scaled)
                 }
-                .frame(width: 450.scaled, alignment: .leading)
+                .widthUnlessNarrow(450)
             }
             .padding(24.scaled)
             .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.surface))
             .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
         }
         .buttonStyle(LiftStyle(radius: 20))
+        .fillsNarrowRow(room: 24)
     }
 }
 
 /// A book on the shelf: the cover, the title, the author, and how far along.
 private struct BookCard: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.narrow) private var narrow
     let book: ServerBook
+
+    /// How wide a card is, at the TV's size: a little narrower on a phone, so two fit side by side.
+    static func width(_ narrow: Bool) -> CGFloat {
+        narrow ? 230 : 250
+    }
 
     var body: some View {
         let library = model.library
         let progress = library?.progress(of: book)
         VStack(alignment: .leading, spacing: 6.scaled) {
             Button { model.open(book) } label: {
-                CoverView(book: book, size: 250)
+                CoverView(book: book, size: Self.width(narrow))
                     .overlay(alignment: .topTrailing) {
                         if progress?.finished == true {
                             Image(systemName: "checkmark").font(.system(size: 18.scaled, weight: .bold)).foregroundStyle(Color.ink)
@@ -236,7 +284,7 @@ private struct BookCard: View {
                 ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8.scaled)
             }
         }
-        .frame(width: 250.scaled)
+        .frame(width: Self.width(narrow).scaled)
     }
 }
 
