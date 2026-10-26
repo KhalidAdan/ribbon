@@ -14,7 +14,8 @@ The same app runs on the iPad, with the TV's screens by touch (below). The
 iPad has a web view, so that's a choice, not a need: the TV's read-along is
 the one the owner reads with, and the iPad's bigger screen suits it. Like the
 TV it's a server client only, with no folders of its own and no transcribing;
-Ribbon in Tauri stays the whole app on the iPhone and the desktop (CLAUDE.md).
+Ribbon in Tauri stays the whole app on the desktop, and the iPhone gets this
+app next (docs/NORTHSTAR.md).
 
 ## What it does
 
