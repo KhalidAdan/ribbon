@@ -2,8 +2,11 @@
 
 Ribbon is a home for your books, read or heard: a reader and a player for
 the EPUBs and audiobooks you own, as files, with one place in every book
-and read-along between the two. Tauri 2 (Rust) with a web UI (React 19,
-Tailwind 4). Start with these, in this order:
+and read-along between the two. It is a server and its apps: the server
+(`server/`) is the home of the books, the people and their places; the
+desktop app, Tauri 2 (Rust) with a web UI (React 19, Tailwind 4), manages
+the collection and transcribes; the iPhone, iPad and Apple TV have a thin
+native app (`tv/`). Start with these, in this order:
 
 - [docs/NORTHSTAR.md](docs/NORTHSTAR.md): what Ribbon is and refuses to be. Settles most product questions.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it fits together, in diagrams; where to start reading code.
@@ -27,8 +30,12 @@ Tailwind 4). Start with these, in this order:
   installing waits until Ribbon is closed.
 - **Every check before a release** (`npm run e2e` at 1x and 6x): the 0.12.0
   resize regression shipped because nothing covered resizing.
-- **Phones are coming** (iOS 16.4+ and Android): new work must not depend on
-  anything only Windows has.
+- **Thin where you read, whole where you work** (docs/NORTHSTAR.md). The
+  server is required: people and places live there, and it prepares each
+  book once. The iPhone, iPad and Apple TV apps (and Android's, later) only
+  draw and play what it prepares; what they need worked out goes on the
+  server, never into a client of its own. The desktop runs on Windows and
+  the Mac: new work must not depend on anything only Windows has.
 
 ## Hard rules
 
@@ -37,15 +44,16 @@ Tailwind 4). Start with these, in this order:
   is not. Tests and the e2e checks use a local copy (`.e2e/library`).
 - **This repository is public.** No addresses, hostnames or details of the
   owner's machines or network in it.
-- **No DRM**, no AAX, no stores, no servers (docs/NORTHSTAR.md).
+- **No DRM**, no AAX, no stores, no one else's servers: Ribbon runs on a
+  server of the owner's own (docs/NORTHSTAR.md).
 - **Never Electron.** The UI is the web in a Tauri shell; native work goes in
-  Rust or a Tauri plugin. The one exception is the app in `tv/`, in SwiftUI,
-  agreed with the owner, that only draws and plays what the server prepares:
-  on the Apple TV, which has no web view, and on the iPad, by the owner's
-  choice (2026-10-25), with the TV's screens by touch. On the iPad it stays a
-  server client like the TV: no folders of its own, no transcribing. Tauri
-  remains the whole of Ribbon on the iPhone and the desktop. The ui.sh skills
-  (Tailwind Labs) are for UI work.
+  Rust or a Tauri plugin. The one exception is the thin app in `tv/`, in
+  SwiftUI, agreed with the owner, that only draws and plays what the server
+  prepares: on the Apple TV, which has no web view, and on the iPad and the
+  iPhone, by the owner's choice (2026-10-25 and 26), the TV's screens by
+  touch. It has no folders of its own and never transcribes. Tauri is the
+  whole of Ribbon on the desktop; on the iPhone it retires once the thin app
+  is there. The ui.sh skills (Tailwind Labs) are for UI work.
 - **Culvert** (the owner's npm packages, `@culvert/stream`, `@culvert/csv`)
   is the plumbing for scans and records: Source, Transform, Sink and `pipe()`,
   not ad-hoc streams.
@@ -64,7 +72,7 @@ Tailwind 4). Start with these, in this order:
 | `src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `server/` | The server (server/README.md, docs/SERVER.md). |
-| `tv/` | Ribbon on the Apple TV and the iPad, in Swift: read-along from the server (tv/README.md). |
+| `tv/` | The thin app, in Swift: Ribbon on the Apple TV and the iPad (the iPhone next), read-along from the server (tv/README.md). |
 | `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
 
 ## Commands
