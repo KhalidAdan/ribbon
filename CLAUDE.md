@@ -72,7 +72,7 @@ native app (`tv/`). Start with these, in this order:
 | `src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `server/` | The server (server/README.md, docs/SERVER.md). |
-| `tv/` | The thin app, in Swift: Ribbon on the Apple TV and the iPad (the iPhone next), read-along from the server (tv/README.md). |
+| `tv/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (tv/README.md). |
 | `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
 
 ## Commands

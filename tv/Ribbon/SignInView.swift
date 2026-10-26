@@ -69,7 +69,7 @@ struct SignInView: View {
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .frame(width: 760.scaled)
+            .column(width: 760)
         }
         .onAppear {
             address = model.signInHint.address

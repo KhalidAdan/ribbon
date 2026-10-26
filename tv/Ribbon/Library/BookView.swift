@@ -15,6 +15,7 @@ struct BookView: View {
     @FocusState private var focused: Focus?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.upright) private var upright
+    @Environment(\.narrow) private var narrow
 
     private enum Focus: Hashable {
         case listen, readAlong
@@ -63,7 +64,9 @@ struct BookView: View {
                                 ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480.scaled).padding(.top, 22.scaled)
                             }
 
-                            HStack(spacing: 24.scaled) {
+                            // One above the other on a phone.
+                            let buttons = narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12.scaled)) : AnyLayout(HStackLayout(spacing: 24.scaled))
+                            buttons {
                                 Button { Task { await model.listen(to: book) } } label: {
                                     Label(listenLabel(progress), systemImage: "play.fill")
                                 }
@@ -107,8 +110,7 @@ struct BookView: View {
                         SeriesList(series: series, current: book)
                     }
                 }
-                .padding(.horizontal, 96.scaled)
-                .padding(.vertical, 72.scaled)
+                .screenEdges(horizontal: 96, vertical: 72)
             }
         }
         .defaultFocus($focused, .listen)
@@ -172,14 +174,15 @@ private struct FadesInPlace: ViewModifier {
     }
 }
 
-/// The facts under a hairline: four across, a small muted term over each value.
+/// The facts under a hairline: four across, two on a phone, a small muted term over each value.
 private struct Facts: View {
     let items: [(term: String, value: String)]
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22.scaled) {
             Rectangle().fill(Color.line).frame(height: 1)
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32.scaled, alignment: .leading), count: 4), alignment: .leading, spacing: 22.scaled) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32.scaled, alignment: .leading), count: narrow ? 2 : 4), alignment: .leading, spacing: 22.scaled) {
                 ForEach(items, id: \.term) { fact in
                     VStack(alignment: .leading, spacing: 4.scaled) {
                         Text(fact.term).font(.ui(22)).foregroundStyle(Color.ink3)

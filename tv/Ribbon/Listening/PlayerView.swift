@@ -29,8 +29,7 @@ struct PlayerView: View {
                                 NowPlaying(listening: listening, playFocused: $playFocused)
                                 settings
                             }
-                            .padding(.horizontal, 96.scaled)
-                            .padding(.vertical, 56.scaled)
+                            .screenEdges(horizontal: 96, vertical: 56)
                         }
                     } else {
                         VStack(alignment: .leading, spacing: 48.scaled) {
@@ -45,8 +44,7 @@ struct PlayerView: View {
                                 .scrollClipDisabled()
                             }
                         }
-                        .padding(.horizontal, 96.scaled)
-                        .padding(.vertical, 56.scaled)
+                        .screenEdges(horizontal: 96, vertical: 56)
                     }
                 }
                 .defaultFocus($playFocused, true)
@@ -98,6 +96,7 @@ private struct Header: View {
 private struct NowPlaying: View {
     let listening: Listening
     var playFocused: FocusState<Bool>.Binding
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
         let book = listening.book
@@ -107,7 +106,9 @@ private struct NowPlaying: View {
         let length = chapter.map { $0.endMs - $0.startMs } ?? listening.durationMs
         let inChapter = min(length, max(0, listening.positionMs - start))
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 36.scaled) {
+            // On a phone, the cover above the title.
+            let top = narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 24.scaled)) : AnyLayout(HStackLayout(alignment: .center, spacing: 36.scaled))
+            top {
                 CoverView(book: book, size: 300)
                 VStack(alignment: .leading, spacing: 10.scaled) {
                     Text(book.title).font(.ui(36, weight: 600)).foregroundStyle(Color.ink).lineLimit(3)
@@ -115,6 +116,7 @@ private struct NowPlaying: View {
                 }
                 Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .leading, spacing: 12.scaled) {
                 if let chapter {
                     HStack(alignment: .firstTextBaseline) {
@@ -132,7 +134,7 @@ private struct NowPlaying: View {
                 .font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit()
             }
             .padding(.top, 56.scaled)
-            HStack(spacing: 36.scaled) {
+            HStack(spacing: narrow ? 12 : 36.scaled) {
                 Button { listening.chapter(by: -1) } label: { Image(systemName: "backward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
                 Button { listening.skip(by: -30_000) } label: { Image(systemName: "gobackward.30") }
@@ -164,17 +166,19 @@ private struct NowPlaying: View {
 }
 
 /// Something offered on resuming, once, quietly, as the desktop's (src/ui/ResumeOffer.tsx): a line, the way to take
-/// it, and Keep going, which lets it go. Down from the transport reaches it.
+/// it, and Keep going, which lets it go. Down from the transport reaches it. On a phone, one above the other.
 private struct Offer: View {
     let words: String
     let take: String
     let action: () -> Void
     let dismiss: () -> Void
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
         VStack(spacing: 16.scaled) {
             Text(words).font(.ui(22)).foregroundStyle(Color.ink2).multilineTextAlignment(.center).monospacedDigit()
-            HStack(spacing: 14.scaled) {
+            let choices = narrow ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 14.scaled))
+            choices {
                 Button(take, action: action).buttonStyle(SmallButtonStyle())
                 Button("Keep going", action: dismiss).buttonStyle(SmallButtonStyle())
             }
@@ -208,8 +212,10 @@ private struct ListeningGroup: View {
 }
 
 /// The sleep timer as one row: the choices, or what is left with a way to add time or stop (src/ui/SleepControl.tsx).
+/// On a phone the choices take two rows.
 private struct SleepRow: View {
     let listening: Listening
+    @Environment(\.narrow) private var narrow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18.scaled) {
@@ -224,11 +230,17 @@ private struct SleepRow: View {
                 }
             }
             HStack(spacing: 12.scaled) {
-                if listening.sleep == nil {
-                    ForEach([15, 30, 45, 60], id: \.self) { minutes in
-                        Button("\(minutes) min") { listening.sleep(after: minutes) }.buttonStyle(SmallButtonStyle())
+                if listening.sleep == nil && narrow {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) { minutes([15, 30, 45]) }
+                        HStack(spacing: 8) {
+                            minutes([60])
+                            endOfChapter
+                        }
                     }
-                    Button("End of chapter") { listening.sleepAtChapterEnd() }.buttonStyle(SmallButtonStyle())
+                } else if listening.sleep == nil {
+                    minutes([15, 30, 45, 60])
+                    endOfChapter
                 } else {
                     if case .at = listening.sleep {
                         Button("+15 min") { listening.extendSleep(by: 15) }.buttonStyle(SmallButtonStyle())
@@ -236,12 +248,22 @@ private struct SleepRow: View {
                     Button("Turn off") { listening.sleep(after: nil) }.buttonStyle(SmallButtonStyle())
                 }
             }
-            .padding(.leading, 36.scaled)
+            .padding(.leading, narrow ? 0 : 36.scaled)
         }
         .padding(.horizontal, 22.scaled)
         .padding(.vertical, 18.scaled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 10.scaled).fill(Color.raised))
+    }
+
+    private func minutes(_ choices: [Int]) -> some View {
+        ForEach(choices, id: \.self) { minutes in
+            Button("\(minutes) min") { listening.sleep(after: minutes) }.buttonStyle(SmallButtonStyle())
+        }
+    }
+
+    private var endOfChapter: some View {
+        Button("End of chapter") { listening.sleepAtChapterEnd() }.buttonStyle(SmallButtonStyle())
     }
 
     private var status: String {
@@ -343,7 +365,7 @@ private struct ChapterSheet: View {
             }
             .padding(-24.scaled)
         }
-        .padding(64.scaled)
+        .screenEdges(horizontal: 64, vertical: 64)
         #if os(tvOS)
         .frame(width: 1100)
         #endif
@@ -396,7 +418,7 @@ private struct BookmarkSheet: View {
             }
             .padding(-24.scaled)
         }
-        .padding(64.scaled)
+        .screenEdges(horizontal: 64, vertical: 64)
         #if os(tvOS)
         .frame(width: 1100)
         #endif

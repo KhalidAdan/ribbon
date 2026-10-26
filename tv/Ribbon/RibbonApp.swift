@@ -93,16 +93,22 @@ private struct Screens: View {
 }
 
 #if os(iOS)
-/// Tells every screen whether the iPad is held upright (`upright`), and again as it turns.
+/// Tells every screen whether it's held upright (`upright`) and whether it's as narrow as a phone (`narrow`), and
+/// again as it turns or its window changes.
 private struct SaysWhichWayUp: ViewModifier {
     @State private var upright = false
+    @State private var narrow = false
 
     func body(content: Content) -> some View {
         content
             .environment(\.upright, upright)
+            .environment(\.narrow, narrow)
             .background {
                 GeometryReader { space in
-                    Color.clear.onChange(of: space.size, initial: true) { _, size in upright = size.height > size.width }
+                    Color.clear.onChange(of: space.size, initial: true) { _, size in
+                        upright = size.height > size.width
+                        narrow = size.width < 500
+                    }
                 }
             }
     }
@@ -337,7 +343,8 @@ final class AppModel {
             let listening = try await listening(for: book, at: place?.ms, placedAt: Moment.read(place?.at))
             let text = try await readAlong
             let typeset = ContinuousClock.now
-            let layout = await Task.detached(priority: .userInitiated) { BookLayout(text) }.value
+            let measure = BookLayout.Measure.forThisScreen
+            let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
             log.info("opened \(book.title, privacy: .public): the server answered in \(typeset - asked, privacy: .public), \(layout.paragraphs.count) paragraphs set in \(ContinuousClock.now - typeset, privacy: .public)")
             let session = ReadingSession(listening: listening, readAlong: text, place: place)
             if let sentence { session.show(sentence) }

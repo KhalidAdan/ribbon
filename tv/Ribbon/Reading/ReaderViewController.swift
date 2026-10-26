@@ -132,8 +132,8 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         (view.layer.mask as? CAGradientLayer)?.locations = [fadeTop, fadeTop + 40, fadeBottom - 48, fadeBottom].map { NSNumber(value: Double($0 / max(1, view.bounds.height))) }
         #endif
         let height = view.bounds.height
-        column.frame = CGRect(x: (view.bounds.width - BookLayout.Measure.width) / 2, y: 0, width: BookLayout.Measure.width, height: height)
-        column.contentSize = CGSize(width: BookLayout.Measure.width, height: layout.height)
+        column.frame = CGRect(x: (view.bounds.width - layout.measure.width) / 2, y: 0, width: layout.measure.width, height: height)
+        column.contentSize = CGSize(width: layout.measure.width, height: layout.height)
         // Room above the first sentence and below the last, so either can sit where the eyes are.
         column.contentInset = UIEdgeInsets(top: height * 0.5, left: 0, bottom: height * 0.6, right: 0)
         if lastCursor == nil { marksChanged() }
@@ -305,15 +305,15 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     private func sentence(at point: CGPoint) -> Int? {
         guard let block = layout.paragraph(at: point.y) else { return nil }
         let paragraph = layout.paragraphs[block]
-        let inside = CGPoint(x: min(max(0, point.x), BookLayout.Measure.width), y: point.y - paragraph.top)
+        let inside = CGPoint(x: min(max(0, point.x), layout.measure.width), y: point.y - paragraph.top)
         return session.sentences.at(paragraph.character(at: inside), in: block)
     }
 
     /// The column moved by the finger: the sentence at the eye line is the one you're on. It's the one whose words
     /// end that line, as a sentence brought into view sits with its first line there.
     private func followTheFinger() {
-        let eye = column.contentOffset.y + column.bounds.height * Self.eyeLine + BookLayout.Measure.lineHeight / 2
-        guard let sentence = sentence(at: CGPoint(x: BookLayout.Measure.width, y: eye)), sentence != session.cursor else { return }
+        let eye = column.contentOffset.y + column.bounds.height * Self.eyeLine + layout.measure.lineHeight / 2
+        guard let sentence = sentence(at: CGPoint(x: layout.measure.width, y: eye)), sentence != session.cursor else { return }
         session.show(sentence)
     }
 
@@ -362,7 +362,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         for index in wanted where shown[index] == nil {
             let view = spare.popLast() ?? ParagraphView()
             let paragraph = layout.paragraphs[index]
-            view.frame = CGRect(x: 0, y: paragraph.top, width: BookLayout.Measure.width, height: paragraph.height).insetBy(dx: -ParagraphView.bleed, dy: -ParagraphView.bleed)
+            view.frame = CGRect(x: 0, y: paragraph.top, width: layout.measure.width, height: paragraph.height).insetBy(dx: -ParagraphView.bleed, dy: -ParagraphView.bleed)
             show(index, in: view)
             column.addSubview(view)
             shown[index] = view
@@ -410,7 +410,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
             for button in [listenHere, toNarrator] { button.sizeToFit() }
             let place = {
                 self.listenHere.center = CGPoint(x: -gap - self.listenHere.bounds.width / 2, y: line.midY)
-                self.toNarrator.center = CGPoint(x: BookLayout.Measure.width + gap + self.toNarrator.bounds.width / 2, y: line.midY)
+                self.toNarrator.center = CGPoint(x: self.layout.measure.width + gap + self.toNarrator.bounds.width / 2, y: line.midY)
             }
             // They glide with the sentence once they're showing; they appear where it is.
             if listenHere.alpha > 0 { UIView.animate(withDuration: 0.2, animations: place) } else { place() }

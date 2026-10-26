@@ -1,4 +1,4 @@
-# Ribbon on the Apple TV and the iPad
+# Ribbon on the Apple TV, the iPad and the iPhone
 
 A book from your Ribbon server, its text on the screen and its narration
 playing, the sentence being read marked in amber as it goes: read-along
@@ -10,12 +10,13 @@ build for it: this is a small native app in SwiftUI and UIKit, talking to the
 server's API. It keeps only who has signed in on it; tvOS may clear an app's
 files at any time, so the audio streams and the place lives on the server.
 
-The same app runs on the iPad, with the TV's screens by touch (below). The
-iPad has a web view, so that's a choice, not a need: the TV's read-along is
-the one the owner reads with, and the iPad's bigger screen suits it. Like the
-TV it's a server client only, with no folders of its own and no transcribing;
-Ribbon in Tauri stays the whole app on the desktop, and the iPhone gets this
-app next (docs/NORTHSTAR.md).
+The same app runs on the iPad and the iPhone, with the TV's screens by touch
+(below). They have a web view, so that's a choice, not a need: the TV's
+read-along is the one the owner reads with, and every device you read and
+listen on is a thin client of the server (docs/NORTHSTAR.md). Like the TV it
+has no folders of its own and never transcribes. Ribbon in Tauri stays the
+whole app on the desktop; on the iPhone it retires once this app keeps books
+for listening without a network.
 
 ## What it does
 
@@ -114,14 +115,25 @@ app next (docs/NORTHSTAR.md).
   for the end of a book; Keep listening sessions, below the library, turns
   that off for you on this TV (docs/POSITION-FORMAT.md, section 3.3).
 
-## On the iPad
+## On the iPad and the iPhone
 
 Everything above, with the finger for the remote. Every size is the TV's,
-drawn at seven tenths (`Look.scale`): the TV's 24-point text is the iPad's
+drawn at seven tenths on the iPad and at 0.65 on the iPhone (`Look.scale`):
+the TV's 24-point text is the iPad's 17, and its 26-point rows the phone's
 17. What the TV sets side by side (a book's page, the player, the end of a
-book) stacks when the iPad is upright, and the reader's column is narrow
+book) stacks when the screen is upright. The iPad's reader column is narrow
 enough for an iPad mini held upright, so turning the iPad keeps every line
-where it was.
+where it was; the iPhone's is its screen less 20 points either side, in
+19-point Newsreader, about forty letters a line.
+
+The iPhone is held upright, and on a screen as narrow as a phone's
+(`narrow`, under 500 points: also an iPad sharing its screen) what the TV
+sets in a row wraps or says less. The edges are a phone's 20 points; the
+library's bar is Ribbon's mark with Search and the settings as their glyphs,
+and the book playing has a row of its own under it; the cards in a row are
+as wide as the screen and the shelf is two to a row; a book's buttons stack;
+the player has its cover above its title and the sleep timer's choices on
+two rows; and the reader's buttons say From here and To narrator.
 
 - **Taps** for the focus and Select: the primary button is in inverted ink, as
   the desktop's is, and a press shrinks a button to 97% and a card to 98%
@@ -257,15 +269,27 @@ Devices window, Pair Nearby Device with the PIN the TV shows. Then run the
 iPhone (docs/MAC.md); the paid program signs it for a year and allows
 TestFlight.
 
-### On an iPad
+### On an iPad or an iPhone
 
-Connect it to the Mac and run the `Ribbon` scheme on it, as for the iPhone
-(docs/MAC.md): a free Apple ID signs it for seven days.
+Connect it to the Mac, with Developer Mode on (Xcode 27's Device Hub shows
+it; iPadOS and iOS offer the switch, in Settings → Privacy & Security, only
+once Xcode has reached for the device), and your Apple ID in Xcode's
+Accounts. Then run the `Ribbon` scheme on it, or from the command line:
+
+```bash
+xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -configuration Release -destination 'platform=iOS,id=<udid>' -derivedDataPath build DEVELOPMENT_TEAM=<team> -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+xcrun devicectl device install app --device <device> build/Build/Products/Release-iphoneos/Ribbon.app
+```
+
+The first time, trust the developer on the device (Settings → General → VPN &
+Device Management). A free Apple ID signs it for seven days.
 
 ## Not yet
 
-On the iPad, a window narrower than the reader's column (Split View, or a
-small window beside others) cuts the column's edges. While a book is paused
+On the iPhone, books stream as they do on the iPad and the TV: nothing is
+downloaded for listening without a network yet. On the iPad, a window
+narrower than the reader's column (Split View, or a small window beside
+others) cuts the column's edges. While a book is paused
 in the player or the reader, the iPad's screen stays on for the passages, an
 hour at most, as the TV's does.
 

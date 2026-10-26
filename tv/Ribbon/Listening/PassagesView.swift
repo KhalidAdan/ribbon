@@ -51,8 +51,7 @@ private struct PassageView: View {
         .frame(maxWidth: 1080.scaled, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: place.isMultiple(of: 2) ? .leading : .trailing)
         .offset(y: ([-90, 70, 100, -60][place] + (risen ? -36 : 36)).scaled)
-        .padding(.horizontal, 160.scaled)
-        .padding(.vertical, 140.scaled)
+        .screenEdges(horizontal: 160, vertical: 140)
         .onAppear {
             withAnimation(.linear(duration: PassagesView.each + 2.4)) { risen = true }
         }
