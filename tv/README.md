@@ -150,6 +150,12 @@ two rows; and the reader's buttons say From here and To narrator.
   time). Holding a sentence starts a bookmark, tapping or scrolling takes in
   more, and Keep bookmark or Cancel finish it; holding a bookmark offers to
   delete it. Turning the iPad keeps your sentence where the eyes are.
+- **Aa**, at the far right of the reader's buttons while you follow the
+  narrator, opens a low sheet, as Apple Books does: the words bigger or
+  smaller (eight sizes, the third the device's own) and the lines snug,
+  normal or roomy. The book is set again behind the sheet at each choice, your
+  sentence staying where the eyes are, and the choice is kept on the device,
+  since a small phone reads bigger than an iPad (`TextSettings`).
 - **A keyboard** in the reader: the arrows are the remote's edges and space
   is its Play.
 - **Any touch** answers Still listening? and brings back the screen from the

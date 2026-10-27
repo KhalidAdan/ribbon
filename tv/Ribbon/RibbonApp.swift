@@ -175,6 +175,10 @@ final class AppModel {
     private static let stillFor = Waits.of(5 * 60, quick: 15)
     /// After drifting by this long, they let the TV's own screen saver and sleep have it.
     private static let passagesFor: TimeInterval = 60 * 60
+    #if os(iOS)
+    /// The book being set again at the Aa sheet's newest choice.
+    @ObservationIgnored private var resetting: Task<Void, Never>?
+    #endif
     @ObservationIgnored private var passagesSince: Date?
     @ObservationIgnored private var passagesKnown: (at: Date, passages: [Passage])?
 
@@ -354,6 +358,27 @@ final class AppModel {
             problem = error.localizedDescription
         }
     }
+
+    #if os(iOS)
+    /// The Aa sheet's choice: kept on this device, and the open book set again to it. A whole book takes a moment to
+    /// set, so taps in quick succession set it once, at the last.
+    func setText(_ settings: TextSettings) {
+        settings.keep()
+        guard let session = reading?.session else { return }
+        resetting?.cancel()
+        resetting = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            let text = session.readAlong
+            let measure = BookLayout.Measure.forThisScreen
+            let started = ContinuousClock.now
+            let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
+            log.info("set again at \(measure.size, privacy: .public) pt in \(ContinuousClock.now - started, privacy: .public)")
+            guard !Task.isCancelled, reading?.session === session else { return }
+            reading = Reading(session: session, layout: layout)
+        }
+    }
+    #endif
 
     /// Out of the reader, back to the screen before. The narration plays on.
     func closeReader() {

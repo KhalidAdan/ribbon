@@ -34,7 +34,8 @@ import UIKit
 /// (BookLayout) and wait.
 final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     private let session: ReadingSession
-    private let layout: BookLayout
+    /// The book set in type; on an iPad or an iPhone, set again when the Aa sheet changes its size.
+    private var layout: BookLayout
     private let onClose: () -> Void
 
     private let column = UIScrollView()
@@ -152,6 +153,25 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
     }
 
     #if os(iOS)
+    /// The book set again, bigger or smaller (the Aa sheet): every paragraph is drawn again from the new layout, and
+    /// the sentence you're on is put back where the eyes are.
+    func changeLayout(to layout: BookLayout) {
+        guard layout !== self.layout else { return }
+        column.layer.removeAllAnimations()
+        gliding = false
+        for view in shown.values {
+            view.removeFromSuperview()
+            spare.append(view)
+        }
+        shown = [:]
+        marked = []
+        self.layout = layout
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        bringIntoView(session.cursor, gently: false)
+        marksChanged()
+    }
+
     override var canBecomeFirstResponder: Bool { true }
 
     /// Turned, the iPad keeps the sentence you're on where the eyes are.
