@@ -13,6 +13,8 @@ final class BookLayout: @unchecked Sendable {
     /// from a sofa three metres away, about sixty letters a line. On the iPad, at arm's length, the same sixty
     /// letters, the column narrow enough for an iPad mini held upright, so turning the iPad keeps every line as it
     /// was. On the iPhone, in the hand, the screen's width less a margin either side: about forty letters a line.
+    /// Those are where an iPad or an iPhone starts; its Aa sheet makes the letters bigger or smaller, and the lines
+    /// closer or further apart (TextSettings).
     struct Measure: Sendable {
         let width: CGFloat
         let size: CGFloat
@@ -26,7 +28,11 @@ final class BookLayout: @unchecked Sendable {
             #else
             let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.bounds.size }.first ?? .zero
             let side = min(screen.width, screen.height)
-            return side < 600 ? Measure(width: side - 40, size: 19, lineHeight: 31) : Measure(width: 680, size: 24, lineHeight: 39)
+            let (width, size): (CGFloat, CGFloat) = side < 600 ? (side - 40, 19) : (680, 24)
+            // The size chosen in the Aa sheet scales the device's own; the column stays as wide.
+            let text = TextSettings.onThisDevice
+            let letters = (size * text.scale).rounded()
+            return Measure(width: width, size: letters, lineHeight: (letters * text.spacing.lineHeight).rounded())
             #endif
         }
     }

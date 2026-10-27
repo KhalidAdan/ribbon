@@ -127,11 +127,19 @@ private struct StatusLine: View {
 
 /// What the remote's buttons do, under the iPad's column: Listen from here and Return to narrator either side of
 /// play, as they sit either side of your sentence on the TV, when you're away from the narrator; following it, the
-/// left one listens from the start of the sentence being read, and again a sentence further back. While a
-/// bookmark is made or offered for deleting, its own two buttons instead. A phone's buttons say less.
+/// left one listens from the start of the sentence being read, and again a sentence further back, and at the far
+/// right, Aa sets the words bigger or smaller. While a bookmark is made or offered for deleting, its own two
+/// buttons instead. A phone's buttons say less.
 private struct ReaderButtons: View {
     let session: ReadingSession
     @Environment(\.narrow) private var narrow
+    #if os(iOS)
+    @Environment(AppModel.self) private var model
+    /// Regular on an iPad's whole screen, where Aa's choices are a popover; compact on a phone, where they're a
+    /// sheet. Inside the popover it's compact too, so it's asked here.
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var choosingText = false
+    #endif
 
     var body: some View {
         HStack(spacing: narrow ? 10 : 20) {
@@ -176,13 +184,122 @@ private struct ReaderButtons: View {
                         .buttonStyle(RibbonButtonStyle())
                     }
                     Spacer(minLength: 0)
+                    #if os(iOS)
+                    // Out of the way at the far side; Return to narrator has the room while you're away.
+                    if !away {
+                        Button { choosingText = true } label: { Text("Aa").font(.ui(24, weight: 500)) }
+                            .buttonStyle(RoundButtonStyle(size: 68))
+                            .accessibilityLabel("Text size")
+                    }
+                    #endif
                 }
                 .frame(maxWidth: .infinity)
             }
         }
         .animation(.easeOut(duration: 0.15), value: session.following)
+        #if os(iOS)
+        // On an iPad, a popover from Aa, the column left in view; on a phone, a low sheet, so the words above it can
+        // be seen changing, and can still be scrolled.
+        .popover(isPresented: $choosingText, attachmentAnchor: .point(.trailing), arrowEdge: .bottom) {
+            TextSheet(inPopover: sizeClass == .regular) { model.setText($0) }
+                .presentationCompactAdaptation(.sheet)
+                .presentationDetents([.height(250)])
+                .presentationBackground(Color.surface)
+                .presentationBackgroundInteraction(.enabled)
+                .presentationDragIndicator(.visible)
+        }
+        #endif
     }
 }
+
+#if os(iOS)
+/// The Aa sheet: the words bigger or smaller, and their lines closer or further apart, as Apple Books has them. The
+/// book behind it is set again at each choice, the sentence you're on staying where it was.
+private struct TextSheet: View {
+    /// On an iPad it's a popover; on a phone, a sheet.
+    let inPopover: Bool
+    let onChange: (TextSettings) -> Void
+    @State private var settings = TextSettings.onThisDevice
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24.scaled) {
+            SectionHeader(title: "Text") {
+                Button("Done") { dismiss() }.buttonStyle(RibbonButtonStyle())
+            }
+            HStack(spacing: 20.scaled) {
+                Button { settings.size -= 1 } label: { Text("A").font(.book(24)) }
+                    .buttonStyle(RoundButtonStyle(size: 80))
+                    .opacity(settings.canShrink ? 1 : 0.35)
+                    .disabled(!settings.canShrink)
+                    .accessibilityLabel("Smaller")
+                SizeSteps(chosen: settings.size)
+                Button { settings.size += 1 } label: { Text("A").font(.book(40)) }
+                    .buttonStyle(RoundButtonStyle(size: 80))
+                    .opacity(settings.canGrow ? 1 : 0.35)
+                    .disabled(!settings.canGrow)
+                    .accessibilityLabel("Bigger")
+            }
+            HStack(spacing: 12.scaled) {
+                ForEach(TextSettings.Spacing.allCases, id: \.self) { spacing in
+                    Button { settings.spacing = spacing } label: { SpacingChoice(spacing: spacing, chosen: spacing == settings.spacing) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(spacing.name) lines")
+                        .accessibilityAddTraits(spacing == settings.spacing ? .isSelected : [])
+                }
+            }
+        }
+        .padding(.horizontal, 32.scaled)
+        .padding(.top, 36.scaled)
+        .padding(.bottom, inPopover ? 32.scaled : 0)
+        // The popover as wide as it needs; the sheet as wide as the phone, its choices from the top.
+        .frame(width: inPopover ? 520.scaled : nil)
+        .frame(maxHeight: inPopover ? nil : .infinity, alignment: .top)
+        .onChange(of: settings) { onChange(settings) }
+    }
+}
+
+/// The sizes as a row of marks between the two A's, the one chosen in amber (docs/DESIGN.md: amber is your place).
+private struct SizeSteps: View {
+    let chosen: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(TextSettings.sizes.indices, id: \.self) { step in
+                Circle()
+                    .fill(step == chosen ? Color.place : Color.lineStrong)
+                    .frame(width: (step == chosen ? 12 : 8).scaled, height: (step == chosen ? 12 : 8).scaled)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: chosen)
+    }
+}
+
+/// A choice of spacing: three lines drawn that far apart, and its name; the one chosen raised, with an amber edge.
+private struct SpacingChoice: View {
+    let spacing: TextSettings.Spacing
+    let chosen: Bool
+
+    var body: some View {
+        VStack(spacing: 10.scaled) {
+            VStack(alignment: .leading, spacing: (spacing.lineHeight - 1) * 14.scaled) {
+                ForEach(0..<3, id: \.self) { line in
+                    // The last line of a paragraph, shorter.
+                    Capsule().fill(chosen ? Color.ink : Color.ink2).frame(width: 40.scaled * (line == 2 ? 0.6 : 1), height: 3.scaled)
+                }
+            }
+            .frame(width: 40.scaled, height: 28.scaled)
+            Text(spacing.name).font(.ui(20)).foregroundStyle(chosen ? Color.ink : Color.ink2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14.scaled)
+        .background(RoundedRectangle(cornerRadius: 12.scaled).fill(chosen ? Color.raised : Color.clear))
+        .overlay(RoundedRectangle(cornerRadius: 12.scaled).stroke(chosen ? Color.place : Color.line))
+        .contentShape(Rectangle())
+    }
+}
+#endif
 
 /// A line over the reader: what's happening, and what the remote does about it.
 private struct BannerView: View {
@@ -231,5 +348,9 @@ private struct ReaderColumn: UIViewControllerRepresentable {
         ReaderViewController(session: session, layout: layout, onClose: onClose)
     }
 
-    func updateUIViewController(_ controller: ReaderViewController, context: Context) {}
+    func updateUIViewController(_ controller: ReaderViewController, context: Context) {
+        #if os(iOS)
+        controller.changeLayout(to: layout)
+        #endif
+    }
 }
