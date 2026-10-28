@@ -87,13 +87,14 @@ describe("a server's shelf on this device", () => {
         let body = "";
         req.on("data", (c: Buffer) => (body += c.toString()));
         req.on("end", () => {
-          const asked = body ? (JSON.parse(body) as { name: string; books: { id: string; number?: number; shelved: boolean }[] }) : null;
+          const asked = body ? (JSON.parse(body) as { name: string; books: { id: string; number?: number | null; shelved: boolean }[] }) : null;
           changes.push({ method: req.method!, at, body: asked });
           const id = decodeURIComponent(at.split("/")[3] ?? "");
           if (req.method === "DELETE") series = series!.filter((s) => s.id !== id);
           else {
             const had = series!.find((s) => s.id === id);
-            const books = asked!.books.map((b) => ({ id: b.id, number: b.number ?? had?.books.find((x) => x.id === b.id)?.number ?? null, title: had?.books.find((x) => x.id === b.id)?.title ?? null, shelved: b.shelved }));
+            // As the server does: a number left out keeps the one the book had in this series, and a null clears it.
+            const books = asked!.books.map((b) => ({ id: b.id, number: b.number !== undefined ? b.number : (had?.books.find((x) => x.id === b.id)?.number ?? null), title: had?.books.find((x) => x.id === b.id)?.title ?? null, shelved: b.shelved }));
             series = [...series!.filter((s) => s.id !== id), { id: id || asked!.name.toLowerCase().replace(/\W+/g, "-"), name: asked!.name, books }];
           }
           res.writeHead(req.method === "DELETE" ? 204 : 200, { "content-type": "application/json" }).end(req.method === "DELETE" ? undefined : "{}");
@@ -330,8 +331,9 @@ describe("a server's shelf on this device", () => {
     expect(await shelf.refreshSeries()).toBe(true);
     expect(await shelf.refreshSeries()).toBe(false);
     expect(shelf.seriesOnShelf()).toEqual({
-      groups: [{ key: "blue-books", name: "The Blue Books", bookIds: [localIdOf(listed)], numbers: { [localIdOf(listed)]: 1 }, titles: { [localIdOf(listed)]: "Blue" } }],
-      records: [{ key: "blue-books", name: "The Blue Books", decidedAt: "", choices: [{ bookId: localIdOf(listed), included: true, order: 1 }] }],
+      groups: [{ key: "blue-books", name: "The Blue Books", bookIds: [localIdOf(listed)], titles: { [localIdOf(listed)]: "Blue" } }],
+      // Its number is the record's, where the series editor shows it as a person's.
+      records: [{ key: "blue-books", name: "The Blue Books", decidedAt: "", choices: [{ bookId: localIdOf(listed), included: true, order: 1, number: 1 }] }],
     });
     // Next launch: the series kept in the folder show before the server answers.
     const again = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
@@ -354,15 +356,23 @@ describe("a server's shelf on this device", () => {
     const app = new AppController(platform);
     await app.boot();
     await app.connectServer(url, "Ann", "the-password");
-    await until(() => app.detectedSeries().length > 0);
+    // The record, not only the group: the shelf has the series a moment before the app's state does, while it keeps them in the folder.
+    await until(() => app.getState().series["blue-books"] !== undefined);
     const local = localIdOf(listed);
-    expect(app.detectedSeries()).toEqual([{ key: "blue-books", name: "The Blue Books", bookIds: [local], numbers: { [local]: 1 }, titles: { [local]: "Blue" } }]);
+    expect(app.detectedSeries()).toEqual([{ key: "blue-books", name: "The Blue Books", bookIds: [local], titles: { [local]: "Blue" } }]);
 
-    // Renamed here: the server keeps it, by the book's id there, and the shelf shows what the server says.
+    // Renamed here, from the record the editor starts with: the server keeps it, by the book's id there, its number with it, and the shelf shows what the server says.
+    app.openSeriesSetup("blue-books");
+    await app.saveSeries(app.getState().series["blue-books"]!.choices, { name: "Blue, all of it" });
+    expect(changes).toEqual([{ method: "PUT", at: "/api/series/blue-books", body: { name: "Blue, all of it", books: [{ id: SERVER_ID, shelved: true, number: 1 }] } }]);
+    expect(app.detectedSeries().map((g) => [g.name, g.titles])).toEqual([["Blue, all of it", { [local]: "Blue" }]]);
+
+    // Its number cleared in the editor: cleared on the server, not kept.
     app.openSeriesSetup("blue-books");
     await app.saveSeries([{ bookId: local, included: true, order: 1 }], { name: "Blue, all of it" });
-    expect(changes).toEqual([{ method: "PUT", at: "/api/series/blue-books", body: { name: "Blue, all of it", books: [{ id: SERVER_ID, shelved: true }] } }]);
-    expect(app.detectedSeries().map((g) => [g.name, g.titles])).toEqual([["Blue, all of it", { [local]: "Blue" }]]);
+    expect(changes.at(-1)).toEqual({ method: "PUT", at: "/api/series/blue-books", body: { name: "Blue, all of it", books: [{ id: SERVER_ID, shelved: true, number: null }] } });
+    expect(series![0]!.books[0]!.number).toBeNull();
+    expect(app.getState().series["blue-books"]!.choices).toEqual([{ bookId: local, included: true, order: 1 }]);
 
     // Deleted here: deleted on the server.
     await app.deleteSeries("blue-books");

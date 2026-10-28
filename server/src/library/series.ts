@@ -145,9 +145,14 @@ export class LibrarySeries {
     return out;
   }
 
-  /** A series' books as a person ordered them, each out of the series it was in; a number or title not given keeps the one it had. */
+  /**
+   * A series' books as a person ordered them, each out of the series it was
+   * in. A number or title not given keeps the one it had in this series; a
+   * book brought in from another comes without, since its number there (6 in
+   * Siege of Terra) says nothing of its place here.
+   */
   private fill(id: string, books: readonly SeriesBookChange[]): void {
-    const had = new Map(this.db.prepare("SELECT book_id, number, title FROM series_book").all().map((row) => [String(row.book_id), member(row)]));
+    const had = new Map(this.db.prepare("SELECT book_id, number, title FROM series_book WHERE series_id = ?").all(id).map((row) => [String(row.book_id), member(row)]));
     this.db.prepare("DELETE FROM series_book WHERE series_id = ?").run(id);
     let position = 0;
     for (const book of books) {

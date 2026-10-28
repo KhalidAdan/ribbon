@@ -46,9 +46,12 @@ export interface ServerSeries {
 
 /**
  * A server's series as the shelf takes them (series.ts): each as a group,
- * with its books by their id on this device, each one's number and title as
- * the list shows it; and as a record of what's on the shelf, in the
- * server's order. Books the server doesn't list are left out.
+ * with its books by their id on this device and each one's title as the
+ * list shows it; and as a record of what's on the shelf, in the server's
+ * order, with each book's number. The numbers are the record's, not the
+ * group's, as a number a person set is: the series editor shows them in its
+ * boxes, where they can be changed or cleared. Books the server doesn't
+ * list are left out.
  */
 export function seriesFromServer(series: readonly ServerSeries[], books: readonly ServerBook[]): { groups: SeriesGroup[]; records: SeriesRecord[] } {
   const here = new Map(books.map((b) => [b.id, localIdOf(b)]));
@@ -57,16 +60,15 @@ export function seriesFromServer(series: readonly ServerSeries[], books: readonl
   for (const s of series) {
     const members = s.books.flatMap((b) => (here.has(b.id) ? [{ ...b, local: here.get(b.id)! }] : []));
     if (members.length === 0) continue;
-    const numbered = members.filter((m) => m.number !== null);
     const titled = members.filter((m) => m.title !== null);
     groups.push({
       key: s.id,
       name: s.name,
       bookIds: members.map((m) => m.local),
-      ...(numbered.length > 0 ? { numbers: Object.fromEntries(numbered.map((m) => [m.local, m.number!])) } : {}),
       ...(titled.length > 0 ? { titles: Object.fromEntries(titled.map((m) => [m.local, m.title!])) } : {}),
     });
-    records.push({ key: s.id, name: s.name, decidedAt: "", choices: members.map((m, i) => ({ bookId: m.local, included: m.shelved, order: i + 1 })) });
+    const choices = members.map((m, i) => ({ bookId: m.local, included: m.shelved, order: i + 1, ...(m.number !== null ? { number: m.number } : {}) }));
+    records.push({ key: s.id, name: s.name, decidedAt: "", choices });
   }
   return { groups, records };
 }
