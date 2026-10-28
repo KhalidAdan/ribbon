@@ -109,9 +109,13 @@ describe("adding a folder", () => {
   it("leaves out a book that won't fit on the server's disk, and says so", async () => {
     const dataDir = path.join(dir, "full");
     const db = openDatabase(dataDir);
-    const done = await importFolder({ host: nodeHost(), dataDir, index: new BookIndex(db), addedBy: null, freeBytes: async () => 10 * 1024 ** 2 }, shelf, () => undefined);
+    const asked: string[] = [];
+    const freeBytes = async (folder: string) => (asked.push(folder), 10 * 1024 ** 2);
+    const done = await importFolder({ host: nodeHost(), dataDir, index: new BookIndex(db), addedBy: null, freeBytes }, shelf, () => undefined);
     expect(done).toMatchObject({ found: 2, added: 0, failed: 2 });
     expect(done.notes.every((n) => /there isn't room for it on the server's disk/.test(n))).toBe(true);
+    // The disk asked about is the books folder's, which can be a big drive of its own, never the data folder's above it.
+    expect(new Set(asked)).toEqual(new Set([path.join(dataDir, "books")]));
     expect(existsSync(path.join(dataDir, "books")) ? readdirSync(path.join(dataDir, "books")) : []).toEqual([]);
     db.close();
   });

@@ -4,7 +4,7 @@ import { copyFile, mkdir, rename, rm, stat, statfs, writeFile } from "node:fs/pr
 import path from "node:path";
 import type { Host } from "../../../src/host/host.ts";
 import { ensureChapters, scanLibrary, type ScannedBook } from "../../../src/core/scan/scan.ts";
-import { BookIndex, bookDir, claimsOf, type StoredBook } from "./books.ts";
+import { BookIndex, bookDir, booksDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
 import { analyzeStored, readStored, writeStored } from "./prepare.ts";
 import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
@@ -33,8 +33,8 @@ export interface ImportContext {
   index: BookIndex;
   addedBy: string | null;
   now?: () => number;
-  /** Bytes free on the disk that holds the server's data (statfs); given in tests. */
-  freeBytes?: () => Promise<number>;
+  /** Bytes free on the disk that holds a folder (statfs); given in tests. */
+  freeBytes?: (folder: string) => Promise<number>;
 }
 
 /** Room left on the server's disk after a book is copied in, so it never fills to the last byte. */
@@ -91,8 +91,11 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
   }
 
   // Checked before anything is copied: a book that won't fit is left out, said why, and the import goes on to smaller ones.
+  // Measured where the book goes, the books folder, not the data folder above it: they can be different disks.
   const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0);
-  const free = await (ctx.freeBytes ?? (() => statfs(ctx.dataDir).then((s) => s.bavail * s.bsize)))();
+  const books = booksDir(ctx.dataDir);
+  await mkdir(books, { recursive: true });
+  const free = await (ctx.freeBytes ?? freeBytes)(books);
   if (free < bytes + SPARE_BYTES) throw new Error(`there isn't room for it on the server's disk (${Math.round(bytes / 1024 ** 2)} MB, with ${Math.round(free / 1024 ** 2)} MB free).`);
 
   // Chapters the scan didn't read yet. Saving them beside the books is refused (the folder is read-only to us); they're kept all the same.
@@ -158,6 +161,12 @@ async function fillRecords(ctx: ImportContext, root: string, scanned: ScannedBoo
   const analysis = stored.analysis ?? (await carriedAnalysis(found)) ?? undefined;
   if (records.length === (stored.records ?? []).length && analysis === stored.analysis) return;
   await writeStored(ctx.dataDir, id, { ...stored, ...(records.length > 0 ? { records } : {}), ...(analysis ? { analysis } : {}) });
+}
+
+/** Bytes free on the disk that holds a folder. */
+async function freeBytes(folder: string): Promise<number> {
+  const disk = await statfs(folder);
+  return disk.bavail * disk.bsize;
 }
 
 /** Copy a file into the server, a clone where the disk can make one, and check it all arrived. */

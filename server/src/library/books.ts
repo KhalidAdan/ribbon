@@ -13,7 +13,12 @@ import type { Cover } from "./covers.ts";
  * section 5).
  */
 export function bookDir(dataDir: string, id: string): string {
-  return path.join(dataDir, "books", id);
+  return path.join(booksDir(dataDir), id);
+}
+
+/** The folder of every book, which can be a disk of its own: a big drive mounted there, beside a small one for the rest. */
+export function booksDir(dataDir: string): string {
+  return path.join(dataDir, "books");
 }
 
 /**
