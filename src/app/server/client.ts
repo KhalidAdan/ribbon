@@ -12,10 +12,10 @@ export interface ImportProgress {
   notes: string[];
 }
 
-/** A book of a series as a device sends it: by its server id, with its number when a person set one, and whether it's on the shelf. */
+/** A book of a series as a device sends it: by its server id, with its number (null for none, left out to keep the server's), and whether it's on the shelf. */
 export interface SeriesBookSent {
   id: string;
-  number?: number;
+  number?: number | null;
   shelved: boolean;
 }
 

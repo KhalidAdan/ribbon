@@ -101,6 +101,25 @@ describe("the library's series", () => {
     expect(after.books.map((b) => b.number)).toEqual([1, 2, 3, 4, 5, 6, 8, 8, 8]);
   });
 
+  it("brings a book into a series without the number and title it had in another", () => {
+    for (const title of SHELF) addBook(db, title);
+    series.find(books.list(), 1);
+    const siege = series.get("siege-of-terra-the-horus-heresy")!;
+    const sixth = siege.books.find((b) => b.number === 6)!;
+    expect(sixth.title).not.toBeNull();
+    // Moved into a series a person made, saved with no number for it, as White Scars was.
+    const made = series.create("White Scars", [{ id: "Voidscarred: Warhammer 40,000" }], "admin", 2)!;
+    const moved = series.save(made.id, made.name, [{ id: "Voidscarred: Warhammer 40,000" }, { id: sixth.id }], "admin", 3)!;
+    expect(moved.books.map((b) => [b.id, b.number, b.title])).toEqual([
+      ["Voidscarred: Warhammer 40,000", null, null],
+      [sixth.id, null, null],
+    ]);
+    // Within its own series, a number left out is still kept, and a null clears it.
+    series.save(made.id, made.name, [{ id: sixth.id, number: 2 }, { id: "Voidscarred: Warhammer 40,000" }], "admin", 4);
+    expect(series.save(made.id, made.name, [{ id: sixth.id }, { id: "Voidscarred: Warhammer 40,000" }], "admin", 5)!.books[0]!.number).toBe(2);
+    expect(series.save(made.id, made.name, [{ id: sixth.id, number: null }, { id: "Voidscarred: Warhammer 40,000" }], "admin", 6)!.books[0]!.number).toBeNull();
+  });
+
   it("doesn't find a series again once a person deleted it, and moves a book into a series a person makes", () => {
     for (const title of SHELF) addBook(db, title);
     series.find(books.list(), 1);

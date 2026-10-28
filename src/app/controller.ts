@@ -3472,13 +3472,19 @@ export class AppController {
     }
   }
 
-  /** A series saved on a server, for every device: its books by their ids there, with a number only where a person set one. */
+  /**
+   * A series saved on a server, for every device: its books by their ids
+   * there, each with its number or none. The record holds every number the
+   * server has (seriesFromServer), so a book without one had it cleared,
+   * or dragged to a new place, and is sent as null, else the server would
+   * keep the old.
+   */
   private async writeServerSeries(o: Opened, record: SeriesRecord): Promise<void> {
     const shelf = o.server!;
     const ids = new Map(this.booksOf(o).map((b) => [b.book.id, serverIdOf(b)]));
     const books = normalizeChoices(record.choices.filter((c) => !c.removed)).flatMap((c) => {
       const id = ids.get(c.bookId);
-      return id ? [{ id, shelved: c.included, ...(c.number !== undefined ? { number: c.number } : {}) }] : [];
+      return id ? [{ id, shelved: c.included, number: c.number ?? null }] : [];
     });
     if (shelf.hasSeries(record.key)) await shelf.client.saveSeries(record.key, record.name, books);
     else await shelf.client.createSeries(record.name, books);
