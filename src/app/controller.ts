@@ -289,6 +289,8 @@ interface Opened {
   edits: Map<string, BookEdits>;
   /** For a Ribbon server's source: when the edits this device sent it were made, by book id, so they aren't sent again before its list has them. */
   editsSent: Map<string, string>;
+  /** Work on this source's edits, one piece at a time (inEditsOrder): a save here and the server's edits never write over each other. */
+  editsQueue: Promise<void>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
   /** What came of asking about each book's chapter names; read once, on the first ask. */
@@ -315,6 +317,8 @@ interface Opened {
   serverAdmin: boolean;
   /** A refresh of the server's list waiting to run: books arriving one at a time are fetched a few at once. */
   serverRefreshSoon: ReturnType<typeof setTimeout> | null;
+  /** The ask of the server under way, if any: asks follow one another, and the source waits for the last before it goes. */
+  serverRefresh: Promise<void> | null;
   /**
    * Folders being added to this server, each with its job as last seen. Kept
    * apart from `scanning`: a scan of the downloads underneath never takes
@@ -763,6 +767,7 @@ export class AppController {
       books: [],
       edits: new Map(),
       editsSent: new Map(),
+      editsQueue: Promise.resolve(),
       log: [],
       pendingLog: [],
       names: null,
@@ -784,6 +789,7 @@ export class AppController {
       serverPlaces: null,
       serverAdmin: false,
       serverRefreshSoon: null,
+      serverRefresh: null,
       serverImports: new Map(),
     };
     this.opened.set(source.id, o);
@@ -914,17 +920,19 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const previous = o.edits.get(bookId)?.values ?? {};
-    const values = diffEdits(b.original ?? b.book, form, previous);
-    const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
-    await o.lib.writeEdits(edits);
-    if (Object.keys(values).length === 0) o.edits.delete(bookId);
-    else o.edits.set(bookId, edits);
-    o.books = this.stamp(o, o.books);
-    this.publishBooks();
-    if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
-    log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
-    await this.sendEdits(o, b, previous, edits);
+    return this.inEditsOrder(o, async () => {
+      const previous = o.edits.get(bookId)?.values ?? {};
+      const values = diffEdits(b.original ?? b.book, form, previous);
+      const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
+      await o.lib.writeEdits(edits);
+      if (Object.keys(values).length === 0) o.edits.delete(bookId);
+      else o.edits.set(bookId, edits);
+      o.books = this.stamp(o, o.books);
+      this.publishBooks();
+      if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
+      log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+      await this.sendEdits(o, b, previous, edits);
+    });
   }
 
   /** Filter and sort the shelf, and remember it for next time. */
@@ -956,17 +964,26 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const previous = o.edits.get(bookId)?.values ?? {};
-    const values = { ...previous };
-    if (field) delete values[field];
-    const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
-    await o.lib.writeEdits(edits);
-    if (Object.keys(edits.values).length === 0) o.edits.delete(bookId);
-    else o.edits.set(bookId, edits);
-    o.books = this.stamp(o, o.books);
-    this.publishBooks();
-    if (!field || field === "cover") void this.mirrorCoversFor(o);
-    await this.sendEdits(o, b, previous, edits);
+    return this.inEditsOrder(o, async () => {
+      const previous = o.edits.get(bookId)?.values ?? {};
+      const values = { ...previous };
+      if (field) delete values[field];
+      const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
+      await o.lib.writeEdits(edits);
+      if (Object.keys(edits.values).length === 0) o.edits.delete(bookId);
+      else o.edits.set(bookId, edits);
+      o.books = this.stamp(o, o.books);
+      this.publishBooks();
+      if (!field || field === "cover") void this.mirrorCoversFor(o);
+      await this.sendEdits(o, b, previous, edits);
+    });
+  }
+
+  /** Work on a source's edits after whatever work on them is under way: a save here and the server's edits never write over each other, nor two looks at the server's. */
+  private inEditsOrder(o: Opened, work: () => Promise<void>): Promise<void> {
+    const run = o.editsQueue.catch(() => undefined).then(work);
+    o.editsQueue = run;
+    return run;
   }
 
   /**
@@ -995,7 +1012,12 @@ export class AppController {
    * admin's). The edits beside the books here are read again, not taken
    * from memory, so it doesn't matter whether the scan read them yet.
    */
-  private async takeServerEdits(o: Opened): Promise<void> {
+  private takeServerEdits(o: Opened): Promise<void> {
+    return this.inEditsOrder(o, () => this.matchServerEdits(o));
+  }
+
+  /** One look at the server's edits beside this device's (takeServerEdits). */
+  private async matchServerEdits(o: Opened): Promise<void> {
     const shelf = o.server;
     const mine = shelf && (await o.lib.readAllEdits().catch(() => null));
     if (!shelf || !mine || this.opened.get(o.source.id) !== o || o.server !== shelf) return;
@@ -1012,7 +1034,7 @@ export class AppController {
         else mine.set(localId, taken);
         changed = true;
       } else if (here && o.serverAdmin && o.editsSent.get(localId) !== here.updatedAt && !sameEdits(sharedEdits(here.values), edited?.values ?? {})) {
-        // Noted before it goes, so another look meanwhile (the list, then the answer that this is the admin) doesn't send it twice.
+        // Noted, so the next look before the server's list has it (the list, then the answer that this is the admin) doesn't send it again.
         log.info("sending edits made here to the server:", localId);
         o.editsSent.set(localId, here.updatedAt);
         await shelf.client.saveEdits(serverId, sharedEdits(here.values), here.updatedAt).catch((e: unknown) => {
@@ -1451,11 +1473,18 @@ export class AppController {
     for (const o of this.openedInOrder()) if (o.serverPlaces) void this.syncPlaces(o);
   }
 
-  /** Ask a server what it has now, and fetch the covers the shelf will draw. */
-  private async refreshServer(o: Opened): Promise<void> {
+  /** Ask a server what it has now, and fetch the covers the shelf will draw: one ask at a time, each after the one before. */
+  private refreshServer(o: Opened): Promise<void> {
+    const ask = (o.serverRefresh ?? Promise.resolve()).catch(() => undefined).then(() => this.askServer(o));
+    o.serverRefresh = ask;
+    return ask;
+  }
+
+  /** One ask of a server. Once its source is gone, nothing more is written into its folder, which is going too. */
+  private async askServer(o: Opened): Promise<void> {
     const shelf = o.server;
-    if (!shelf) return;
     const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    if (!shelf || !alive()) return;
     try {
       const books = await shelf.refresh();
       const series = await shelf.refreshSeries();
@@ -1468,6 +1497,7 @@ export class AppController {
       log.warn("could not ask the server for its books:", o.source.name, describe(e));
       if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
     }
+    if (!alive()) return;
     // The covers kept here show even when the server is out of reach.
     const found = await shelf.fetchCovers().catch(() => 0);
     if (found > 0 && alive()) this.publishBooks({ coverVersion: this.state.coverVersion + 1 });
@@ -1620,6 +1650,8 @@ export class AppController {
       o.coverJob?.abort();
       o.lookup?.stop();
       this.opened.delete(id);
+      // An ask of its server still under way finishes before its folder goes: it writes there (the list, covers) until it sees the source is gone.
+      await o.serverRefresh?.catch(() => undefined);
     }
     this.updateCanAddFolders();
     // A server's downloads are Ribbon's own files: they go, and the sign-in with them.
