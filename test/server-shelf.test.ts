@@ -11,7 +11,6 @@ import { LibraryService } from "../src/app/library";
 import { memorySettings, memorySources } from "../src/app/platform";
 import { ServerClient, ServerError, takeEvents } from "../src/app/server/client";
 import { NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
-import { bytesToEdits, type BookEdits } from "../src/core/edits";
 import { scanLibrary } from "../src/core/scan/scan";
 import { localIdOf, type ServerBook, type ServerBookDetail, type ServerSeries } from "../src/core/server-books";
 import { nodeHost } from "../src/host/node";
@@ -19,12 +18,6 @@ import { nodeHost } from "../src/host/node";
 const SERVER_ID = "a1b2c3d4e5f60718";
 const TOKEN = "the-token";
 const COVER = "c0ffee00c0ffee00";
-
-/** A book's edits as kept beside the books here, wherever its server's folder is under the app's. */
-async function readEditsOf(home: string, id: string): Promise<BookEdits> {
-  const file = (await fsp.readdir(home, { recursive: true })).find((f) => f.endsWith(path.join("edits", `${id}.csv`)))!;
-  return bytesToEdits(id, await fsp.readFile(path.join(home, file)));
-}
 
 /**
  * A stand-in for a Ribbon server: the answers the app's shelf asks for
@@ -46,6 +39,8 @@ describe("a server's shelf on this device", () => {
   let role: string | null = null;
   /** The edits its admin made to its book, laid over the list as the server does (server/src/library/books.ts). */
   let bookEdits: { values: Record<string, string>; updatedAt: string } | null = null;
+  /** Counts changes to the edits, for the list's ETag. */
+  let editsVersion = 0;
   /** The book as the server lists it: edited, with what its files say for each listed field edited. */
   const served = (): ServerBook => {
     if (!bookEdits) return listed;
@@ -100,9 +95,15 @@ describe("a server's shelf on this device", () => {
         let body = "";
         req.on("data", (c: Buffer) => (body += c.toString()));
         req.on("end", () => {
-          const asked = JSON.parse(body) as { values: Record<string, string>; updatedAt: string };
+          const asked = JSON.parse(body) as { values: Record<string, string> };
           changes.push({ method: "PUT", at, body: asked });
-          bookEdits = asked;
+          // As the server does: only its admin edits, and the last edits sent stand, none taking them back.
+          if (role !== "admin") {
+            res.writeHead(403, { "content-type": "application/json" }).end(JSON.stringify({ error: "Only the admin can edit the library's books." }));
+            return;
+          }
+          bookEdits = Object.keys(asked.values).length > 0 ? { values: asked.values, updatedAt: new Date().toISOString() } : null;
+          editsVersion++;
           res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ edits: asked }));
         });
         return;
@@ -137,7 +138,7 @@ describe("a server's shelf on this device", () => {
       }
       if (at === "/api/books") {
         const answer = JSON.stringify({ books: [served()] });
-        const etag = `W/"${answer.length}-${bookEdits?.updatedAt ?? ""}"`;
+        const etag = `W/"${answer.length}-${editsVersion}"`;
         if (req.headers["if-none-match"] === etag) res.writeHead(304).end();
         else res.writeHead(200, { "content-type": "application/json", etag }).end(answer);
         return;
@@ -317,45 +318,52 @@ describe("a server's shelf on this device", () => {
     rmSync(moved, { recursive: true, force: true });
   });
 
-  it("shows an edit to a book not downloaded yet, after a fresh start, and once it's downloaded", async () => {
+  it("keeps an edit on the server, shows it on the next start and once downloaded, and a cover chosen here stays here", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
+    role = "admin";
     const home = folder();
-    const settings = memorySettings();
-    const sources = memorySources();
-    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources, appSettings: settings, home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: memorySettings(), home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
     const until = async (ok: () => boolean) => {
       for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 25));
     };
-    const bookIn = (app: AppController) => app.getState().books.find((b) => b.book.id === localIdOf(listed));
+    const id = localIdOf(listed);
+    const bookIn = (app: AppController) => app.getState().books.find((b) => b.book.id === id);
+    changes.length = 0;
 
     const app = new AppController(platform);
     await app.boot();
     await app.connectServer(url, "Ann", "the-password");
     await until(() => !!bookIn(app)?.remote);
-    await app.saveEdits(localIdOf(listed), { title: "The Bluest Book", narrator: "Someone Else" });
+    await app.saveEdits(id, { title: "The Bluest Book", narrator: "Someone Else", author: "Ann Author" });
+    // Only what changed in the form goes, and the shelf shows what the server then lists.
+    expect(changes.at(-1)).toEqual({ method: "PUT", at: `/api/books/${SERVER_ID}/edits`, body: { values: { title: "The Bluest Book", narrator: "Someone Else" } } });
     expect(bookIn(app)).toMatchObject({ book: { title: "The Bluest Book", narrator: "Someone Else" }, original: { title: "The Blue Book" }, remote: { serverId: SERVER_ID } });
 
-    // A cover chosen here shows at once, before the server's is fetched or the book downloaded.
-    await app.setCover(localIdOf(listed), new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "jpg");
+    // A cover chosen here shows at once, and isn't sent.
+    await app.setCover(id, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "jpg");
     expect(app.coverUrl(bookIn(app)!)).toMatch(/\.ribbon[\\/]covers[\\/]edited-/);
+    expect(changes).toHaveLength(1);
 
-    // The next start shows the edits before anything is downloaded.
+    // The next start shows the edits and the cover before anything is downloaded.
     const next = new AppController(platform);
     await next.boot();
     await until(() => !!bookIn(next)?.remote);
     expect(bookIn(next)!.book).toMatchObject({ title: "The Bluest Book", narrator: "Someone Else" });
+    expect(next.coverUrl(bookIn(next)!)).toMatch(/edited-/);
 
-    // Downloaded, the book keeps its id, and so its edits.
-    await next.downloadBook(localIdOf(listed));
+    // Downloaded, the book keeps its id, and so its edits, against what the server's files say.
+    await next.downloadBook(id);
     expect(bookIn(next)?.remote).toBeUndefined();
-    expect(bookIn(next)!.book).toMatchObject({ title: "The Bluest Book", narrator: "Someone Else" });
+    expect(bookIn(next)).toMatchObject({ book: { title: "The Bluest Book", narrator: "Someone Else" }, original: { title: "The Blue Book", narrator: "Nell Narrator" } });
     await next.removeSource(next.getState().sources[0]!.id);
+    role = null;
+    bookEdits = null;
     vi.restoreAllMocks();
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("sends its admin's edits to the server, ones made before it kept them too, and takes another device's", async () => {
+  it("sends a change with the server's edits, the last standing, takes them back, and says so when refused", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const home = folder();
@@ -365,42 +373,42 @@ describe("a server's shelf on this device", () => {
     };
     const id = localIdOf(listed);
     const bookIn = (app: AppController) => app.getState().books.find((b) => b.book.id === id);
-    const sent = () => changes.filter((c) => c.at === `/api/books/${SERVER_ID}/edits`).map((c) => c.body as { values: Record<string, string>; updatedAt: string });
+    const sent = () => changes.filter((c) => c.at === `/api/books/${SERVER_ID}/edits`).map((c) => (c.body as { values: Record<string, string> }).values);
     changes.length = 0;
 
-    // Renamed as someone who isn't the admin, as before the server kept edits: kept on this device only.
+    // Someone who isn't the admin: refused, said so, and nothing changes.
     const app = new AppController(platform);
     await app.boot();
     await app.connectServer(url, "Ann", "the-password");
     await until(() => !!bookIn(app)?.remote);
-    await app.saveEdits(id, { title: "The Bluest Book" });
-    const renamedAt = (await readEditsOf(home, id)).updatedAt;
-    expect(sent()).toEqual([]);
+    await app.saveEdits(id, { title: "Not Mine To Name" });
+    expect(app.getState().error).toMatch(/Couldn't change The Blue Book on the server: Only the admin/);
+    expect(bookIn(app)!.book.title).toBe("The Blue Book");
 
-    // The next start, as the admin: the rename goes to the server, as of when it was made.
+    // The admin: each change goes with the edits the server has, and the last stands.
     role = "admin";
+    await app.saveEdits(id, { title: "Blue, Once" });
+    await app.saveEdits(id, { title: "Blue, Once", narrator: "Another Voice" });
+    expect(sent().slice(-2)).toEqual([{ title: "Blue, Once" }, { title: "Blue, Once", narrator: "Another Voice" }]);
+    expect(bookIn(app)!.book).toMatchObject({ title: "Blue, Once", narrator: "Another Voice" });
+
+    // Edited on another device: the next start shows it.
+    bookEdits = { values: { title: "Blue, Elsewhere" }, updatedAt: new Date().toISOString() };
+    editsVersion++;
     const next = new AppController(platform);
     await next.boot();
-    await until(() => sent().length > 0);
-    expect(sent()).toEqual([{ values: { title: "The Bluest Book" }, updatedAt: renamedAt }]);
+    await until(() => bookIn(next)?.book.title === "Blue, Elsewhere");
+    expect(bookIn(next)).toMatchObject({ book: { title: "Blue, Elsewhere", narrator: "Nell Narrator" }, original: { title: "The Blue Book" } });
 
-    // Edited on another device since: the next start shows that, the files' title kept to take it back to.
-    bookEdits = { values: { title: "Blue, Elsewhere", narrator: "Another Voice" }, updatedAt: new Date(Date.now() + 1000).toISOString() };
-    const third = new AppController(platform);
-    await third.boot();
-    await until(() => bookIn(third)?.book.title === "Blue, Elsewhere");
-    expect(bookIn(third)).toMatchObject({ book: { title: "Blue, Elsewhere", narrator: "Another Voice" }, original: { title: "The Blue Book", narrator: "Nell Narrator" } });
+    // Taken back, one field and then all of them.
+    await next.saveEdits(id, { narrator: "A Third Voice" });
+    await next.resetEdits(id, "narrator");
+    expect(sent().at(-1)).toEqual({ title: "Blue, Elsewhere" });
+    await next.resetEdits(id);
+    expect(sent().at(-1)).toEqual({});
+    expect(bookIn(next)!.book.title).toBe("The Blue Book");
 
-    // Changed here, it goes at once; a cover chosen here stays here; and taken back, it's taken back for everyone.
-    await third.saveEdits(id, { narrator: "Nell Narrator" });
-    expect(sent().at(-1)!.values).toEqual({ title: "Blue, Elsewhere" });
-    await third.setCover(id, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "jpg");
-    expect(sent()).toHaveLength(2);
-    await third.resetEdits(id);
-    expect(sent().at(-1)!.values).toEqual({});
-    expect(bookIn(third)!.book.title).toBe("The Blue Book");
-
-    await third.removeSource(third.getState().sources[0]!.id);
+    await next.removeSource(next.getState().sources[0]!.id);
     role = null;
     bookEdits = null;
     vi.restoreAllMocks();

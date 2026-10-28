@@ -101,13 +101,12 @@ CREATE TABLE IF NOT EXISTS series_book (
 );
 
 -- A book's details as a person corrected them (src/core/edits.ts), laid over
--- what its files say wherever it's listed or served. Taken back, the row stays
--- with no edits, so a device that still has older ones takes that too.
+-- what its files say wherever it's listed or served. Taken back, the row goes.
 CREATE TABLE IF NOT EXISTS book_edit (
   book_id TEXT PRIMARY KEY REFERENCES book (id) ON DELETE CASCADE,
   -- The fields as edited, as JSON: {"title": "War Without End"}.
   edits TEXT NOT NULL,
-  -- When they last changed, ISO, as the device that changed them said: the newer of a device's and the server's wins.
+  -- When the server took them, ISO.
   updated_at TEXT NOT NULL,
   edited_by TEXT
 );

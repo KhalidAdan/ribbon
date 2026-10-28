@@ -99,7 +99,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     return reply.code(204).send();
   });
 
-  // A book's details as the admin corrected them, from the desktop's edit form: every device lists it so (books.ts), and hears it changed.
+  // A book's details as the admin corrected them, from the desktop's edit form, in place of the edits it had: every device lists it so (books.ts), and hears it changed. Two at once: the last one stands.
   app.put<{ Params: { id: string }; Body: unknown }>("/api/books/:id/edits", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
@@ -195,12 +195,12 @@ const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagge
 
 /**
  * A book's edits as a request gives them: its fields as edited, each as
- * the edit form's text, and when they changed (ISO), else now. A cover
- * chosen by hand is a picture on the device that chose it, never sent.
- * Null when they aren't edits.
+ * the edit form's text, kept as of now. A cover chosen by hand is a
+ * picture on the device that chose it, never sent. Null when they aren't
+ * edits.
  */
 function editsAsked(body: unknown): KeptEdits | null {
-  const b = body as { values?: unknown; updatedAt?: unknown } | null;
+  const b = body as { values?: unknown } | null;
   if (typeof b?.values !== "object" || b.values === null || Array.isArray(b.values)) return null;
   const values: EditValues = {};
   for (const [field, value] of Object.entries(b.values)) {
@@ -208,8 +208,7 @@ function editsAsked(body: unknown): KeptEdits | null {
     if (!f || typeof value !== "string" || value.length > 20_000) return null;
     values[f] = value;
   }
-  const at = typeof b.updatedAt === "string" && !Number.isNaN(Date.parse(b.updatedAt)) ? new Date(b.updatedAt).toISOString() : new Date().toISOString();
-  return { values: sharedEdits(values), updatedAt: at };
+  return { values: sharedEdits(values), updatedAt: new Date().toISOString() };
 }
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */
