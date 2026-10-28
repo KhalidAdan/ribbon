@@ -1,4 +1,5 @@
 import { bookId } from "./bookid";
+import { applyEdits, type SharedEdits } from "./edits";
 import type { ScannedBook } from "./scan/scan";
 import type { SeriesGroup, SeriesRecord } from "./series";
 import type { LoudnessMeasurement, SilenceRange } from "./types";
@@ -23,6 +24,8 @@ export interface ServerBook {
   ebookBytes: number | null;
   cover: { hash: string; aspect: number; colour: string } | null;
   addedAt: string;
+  /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */
+  edited?: SharedEdits;
 }
 
 /** A book in full, as the server sends it for a download (server/src/library/books.ts, `StoredBook`). */
@@ -35,6 +38,23 @@ export interface ServerBookDetail {
   records?: string[];
   /** Its loudness and silences, measured once on the server: a device that downloads it never measures it itself. */
   analysis?: { loudness: LoudnessMeasurement | null; silence: { file: number; ranges: SilenceRange[] }[] };
+  /** The edits a person made to it, already laid over `book`; absent when nobody edited it. */
+  edited?: SharedEdits;
+}
+
+/**
+ * A server's book as its files have it: the edits the server laid over it
+ * taken off again. The desktop lays a book's edits over it itself (the
+ * controller's `stamp`), and needs what the files say to take one back.
+ */
+export function filedBook(b: ServerBook): ScannedBook {
+  const remote = remoteBook(b);
+  return b.edited ? { ...remote, book: applyEdits(remote.book, b.edited.original) } : remote;
+}
+
+/** A downloaded book's details as its files have them, for the `metadata.opf` beside it: the edits are laid over it here. */
+export function filedDetails(detail: ServerBookDetail): ServerBookDetail["book"] {
+  return detail.edited ? applyEdits(detail.book, detail.edited.original) : detail.book;
 }
 
 /** A series of a server's library (server/src/library/series.ts, `ServerSeries`): its books in order. */

@@ -4,7 +4,8 @@ import { nodeHost } from "../../../src/host/node.ts";
 import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
-import { removeBookDir, type BookIndex } from "./books.ts";
+import { removeBookDir, type BookIndex, type KeptEdits } from "./books.ts";
+import { EDIT_FIELDS, sharedEdits, type EditValues } from "../../../src/core/edits.ts";
 import { readStored } from "./prepare.ts";
 import { recordRows } from "./records.ts";
 import { transcriptFromRows } from "../../../src/core/reading/narration.ts";
@@ -31,7 +32,8 @@ export function inTranscribingOrder<T extends { done: number; total: number }>(b
 
 /**
  * The admin's side of the library: adding a folder of books, following the
- * job that does it, deleting a book, and making, changing and deleting a
+ * job that does it, deleting a book, editing a book's details for everyone
+ * (`PUT /api/books/:id/edits`, its fields as edited), and making, changing and deleting a
  * series (`POST /api/series`, `PUT` and `DELETE /api/series/:id`, each with
  * its name and its books in order). And how every book reads along
  * (`GET /api/library/readalong`), so a book left by chapter is never found
@@ -95,6 +97,18 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     await removeBookDir(deps.dataDir, id).catch((e: unknown) => request.log.warn({ err: e }, `could not remove the files of deleted book ${id}`));
     deps.events.toEveryone({ type: "books", data: { deleted: id } });
     return reply.code(204).send();
+  });
+
+  // A book's details as the admin corrected them, from the desktop's edit form: every device lists it so (books.ts), and hears it changed.
+  app.put<{ Params: { id: string }; Body: unknown }>("/api/books/:id/edits", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can edit the library's books." });
+    const asked = editsAsked(request.body);
+    if (!asked) return reply.code(400).send({ error: "Give the book's edited fields, each as text, and when they changed." });
+    if (!deps.books.saveEdits(request.params.id, asked, me.id)) return reply.code(404).send({ error: "No such book on this server." });
+    deps.events.toEveryone({ type: "books", data: { edited: request.params.id } });
+    return { edits: asked };
   });
 
   app.post<{ Body: unknown }>("/api/series", async (request, reply) => {
@@ -178,6 +192,25 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
 
 /** The order books are listed in by how they read along: the ones that need a person first. */
 const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagged", "unpaired", "waiting", "sentence"];
+
+/**
+ * A book's edits as a request gives them: its fields as edited, each as
+ * the edit form's text, and when they changed (ISO), else now. A cover
+ * chosen by hand is a picture on the device that chose it, never sent.
+ * Null when they aren't edits.
+ */
+function editsAsked(body: unknown): KeptEdits | null {
+  const b = body as { values?: unknown; updatedAt?: unknown } | null;
+  if (typeof b?.values !== "object" || b.values === null || Array.isArray(b.values)) return null;
+  const values: EditValues = {};
+  for (const [field, value] of Object.entries(b.values)) {
+    const f = EDIT_FIELDS.find((x) => x === field);
+    if (!f || typeof value !== "string" || value.length > 20_000) return null;
+    values[f] = value;
+  }
+  const at = typeof b.updatedAt === "string" && !Number.isNaN(Date.parse(b.updatedAt)) ? new Date(b.updatedAt).toISOString() : new Date().toISOString();
+  return { values: sharedEdits(values), updatedAt: at };
+}
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */
 function seriesAsked(body: unknown): { name: string; books: SeriesBookChange[] } | null {

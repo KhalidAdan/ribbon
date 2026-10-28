@@ -4,9 +4,10 @@ import { splitList } from "./scan/sidefiles";
 
 /**
  * Corrections a listener makes to a book's details, kept beside the books
- * in `.ribbon/edits/<id>.csv`, one row per field. They lay over what the
- * files and side files say, field by field, and each can be taken back
- * on its own. The audio files are never touched.
+ * in `.ribbon/edits/<id>.csv`, one row per field, and for a server's book
+ * on the server too, so every device shows them (SharedEdits). They lay
+ * over what the files and side files say, field by field, and each can be
+ * taken back on its own. The audio files are never touched.
  */
 
 export const EDIT_FIELDS = ["title", "subtitle", "author", "narrator", "series", "seriesIndex", "year", "genres", "publisher", "language", "isbn", "asin", "description", "cover"] as const;
@@ -20,6 +21,36 @@ export interface BookEdits {
   values: EditValues;
   /** ISO time of the last change. */
   updatedAt: string;
+}
+
+/**
+ * A book's edits as a Ribbon server keeps them, for every device
+ * (server/src/library/books.ts): the fields as edited, what the book's files
+ * say for each (what taking an edit back returns to), and when they last
+ * changed, as the device that made the change said. The server lists and
+ * serves its books with the edits laid over them, so the apps that only
+ * show what it sends (the TV, the iPhone, the iPad) show them as edited.
+ */
+export interface SharedEdits {
+  values: EditValues;
+  original: EditValues;
+  updatedAt: string;
+}
+
+/** The edits a server keeps for everyone: all but a cover chosen by hand, which is a picture on the device that chose it. */
+export function sharedEdits(values: EditValues): EditValues {
+  const { cover: _here, ...shared } = values;
+  return shared;
+}
+
+/** Whether two sets of edits say the same. */
+export function sameEdits(a: EditValues, b: EditValues): boolean {
+  return EDIT_FIELDS.every((f) => a[f] === b[f]);
+}
+
+/** What a book's files say for each field the edits change, as the edit form shows it. */
+export function originalOf(book: Book, values: EditValues): EditValues {
+  return Object.fromEntries(EDIT_FIELDS.filter((f) => values[f] !== undefined).map((f) => [f, fieldText(book, f)]));
 }
 
 export const EDIT_HEADERS = ["field", "value", "updated_at"];
@@ -78,10 +109,11 @@ export function fieldText(book: Book, f: EditField): string {
 
 /**
  * The book with the edits laid over it. An edit to an empty string means
- * "this field is empty", which is different from no edit at all.
+ * "this field is empty", which is different from no edit at all. Any part
+ * of a book will do: a server's answer gives some of its fields.
  */
-export function applyEdits(book: Book, values: EditValues): Book {
-  const out: Book = { ...book };
+export function applyEdits<B extends Partial<Book>>(book: B, values: EditValues): B {
+  const out: Partial<Book> = { ...book };
   for (const f of EDIT_FIELDS) {
     const v = values[f];
     if (v === undefined) continue;
@@ -114,7 +146,7 @@ export function applyEdits(book: Book, values: EditValues): Book {
         (out as unknown as Record<string, string>)[f] = t;
     }
   }
-  return out;
+  return out as B;
 }
 
 /**

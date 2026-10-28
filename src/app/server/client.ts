@@ -1,4 +1,5 @@
 import type { DeviceInfo, LogRecord } from "../../core/poslog";
+import type { EditValues } from "../../core/edits";
 import type { ServerBook, ServerBookDetail, ServerSeries } from "../../core/server-books";
 
 /** How a folder being added to a server is going (server/src/library/importer.ts, `ImportProgress`). */
@@ -87,6 +88,11 @@ export class ServerClient {
   /** As the admin: a series' name and its books in order, for everyone. */
   async saveSeries(id: string, name: string, books: readonly SeriesBookSent[]): Promise<void> {
     await this.send(`/api/series/${encodeURIComponent(id)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, books }) });
+  }
+
+  /** As the admin: a book's edits, for everyone, in place of the ones it had (none takes them back), with when they were made. */
+  async saveEdits(serverId: string, values: EditValues, updatedAt: string): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ values, updatedAt }) });
   }
 
   /** As the admin: delete a series, for everyone. Its books stay. */

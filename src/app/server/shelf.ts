@@ -1,6 +1,7 @@
 import type { Host } from "../../host/host";
 import type { ScannedBook } from "../../core/scan/scan";
-import { localIdOf, opfFor, remoteBook, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "../../core/server-books";
+import { filedBook, filedDetails, localIdOf, opfFor, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "../../core/server-books";
+import type { SharedEdits } from "../../core/edits";
 import { RIBBON_DIR } from "../../core/scan/walk";
 import type { SeriesGroup, SeriesRecord } from "../../core/series";
 import { ServerError, type ServerClient } from "./client";
@@ -125,10 +126,15 @@ export class ServerShelf {
     return this.deleted.has(serverId);
   }
 
-  /** The server's books that aren't on this device yet, given the ones that are. */
+  /** The server's books that aren't on this device yet, given the ones that are: as their files have them, for the edits are laid over them here. */
   remote(local: readonly ScannedBook[]): ScannedBook[] {
     const here = new Set(local.map((b) => b.book.id));
-    return this.listed.filter((b) => !here.has(localIdOf(b))).map(remoteBook);
+    return this.listed.filter((b) => !here.has(localIdOf(b))).map(filedBook);
+  }
+
+  /** Every listed book by its ids here and there, with the edits the server keeps for it, if any. */
+  listedEdits(): { serverId: string; localId: string; edited: SharedEdits | undefined }[] {
+    return this.listed.map((b) => ({ serverId: b.id, localId: localIdOf(b), edited: b.edited }));
   }
 
   /**
@@ -167,10 +173,11 @@ export class ServerShelf {
 
   /**
    * Download a book into its folder here, named by its server id: its audio,
-   * its EPUB, a `metadata.opf` so the scanner names it as the server does, and
-   * its cover. The space is checked first; a book that won't fit throws
-   * NotEnoughSpace before anything is downloaded. Returns what the server
-   * measured of it, for the book's records here.
+   * its EPUB, a `metadata.opf` so the scanner names it as the server's files
+   * do (its edits are laid over it here), and its cover. The space is
+   * checked first; a book that won't fit throws NotEnoughSpace before
+   * anything is downloaded. Returns what the server measured of it, for
+   * the book's records here.
    */
   async download(book: ScannedBook, onProgress: (done: number, total: number) => void): Promise<ServerBookDetail["analysis"]> {
     const serverId = book.remote?.serverId;
@@ -191,7 +198,7 @@ export class ServerShelf {
     if (detail.book.ebook && detail.ebookBytes !== undefined) {
       await this.host.serverDownload(this.client.fileUrl(serverId, detail.book.ebook), this.client.token, this.host.join(folder, "book.epub"), detail.ebookBytes, (done) => onProgress(before + done, total));
     }
-    await this.host.writeFile(this.host.join(folder, "metadata.opf"), new TextEncoder().encode(opfFor(detail.book)));
+    await this.host.writeFile(this.host.join(folder, "metadata.opf"), new TextEncoder().encode(opfFor(filedDetails(detail))));
     if (detail.cover) await this.host.writeFile(this.host.join(folder, "cover.jpg"), await this.client.cover(detail.cover.hash, 800));
     // Before the book is first scanned here, so its chapters and read-along come as the server has them.
     await this.keepRecords(detail, book.book.id);
@@ -230,7 +237,7 @@ export class ServerShelf {
     const folder = this.at(detail.book.id);
     if (!SERVER_ID.test(detail.book.id) || !(await this.host.exists(folder))) return;
     const file = this.host.join(folder, "metadata.opf");
-    const opf = opfFor(detail.book);
+    const opf = opfFor(filedDetails(detail));
     const kept = await this.host.readFile(file).then((b) => new TextDecoder().decode(b), () => null);
     if (kept !== opf) await this.host.writeFile(file, new TextEncoder().encode(opf));
   }

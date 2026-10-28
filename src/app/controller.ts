@@ -15,7 +15,7 @@ import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
-import { applyEdits, diffEdits, type BookEdits, type EditField } from "../core/edits";
+import { applyEdits, diffEdits, sameEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "../core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
 import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "../core/poslog";
 import { finishedByRead, openRead } from "../core/stats";
@@ -287,6 +287,8 @@ interface Opened {
   keeper: PositionKeeper;
   /** Hand edits to books' details, by book id. */
   edits: Map<string, BookEdits>;
+  /** For a Ribbon server's source: when the edits this device sent it were made, by book id, so they aren't sent again before its list has them. */
+  editsSent: Map<string, string>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
   /** What came of asking about each book's chapter names; read once, on the first ask. */
@@ -760,6 +762,7 @@ export class AppController {
       lib,
       books: [],
       edits: new Map(),
+      editsSent: new Map(),
       log: [],
       pendingLog: [],
       names: null,
@@ -921,6 +924,7 @@ export class AppController {
     this.publishBooks();
     if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
     log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+    await this.sendEdits(o, b, previous, edits);
   }
 
   /** Filter and sort the shelf, and remember it for next time. */
@@ -952,7 +956,8 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const values = { ...(o.edits.get(bookId)?.values ?? {}) };
+    const previous = o.edits.get(bookId)?.values ?? {};
+    const values = { ...previous };
     if (field) delete values[field];
     const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
     await o.lib.writeEdits(edits);
@@ -961,6 +966,66 @@ export class AppController {
     o.books = this.stamp(o, o.books);
     this.publishBooks();
     if (!field || field === "cover") void this.mirrorCoversFor(o);
+    await this.sendEdits(o, b, previous, edits);
+  }
+
+  /**
+   * A server's book's edits go to the server, for every device, when this
+   * is its admin: other people's edits stay on their own devices. Out of
+   * reach, they go the next time the server is asked (takeServerEdits),
+   * being the newer. A cover chosen by hand stays here (sharedEdits).
+   */
+  private async sendEdits(o: Opened, book: ScannedBook, previous: EditValues, edits: BookEdits): Promise<void> {
+    if (!o.server || !o.serverAdmin || sameEdits(sharedEdits(previous), sharedEdits(edits.values))) return;
+    try {
+      o.editsSent.set(book.book.id, edits.updatedAt);
+      await o.server.client.saveEdits(serverIdOf(book), sharedEdits(edits.values), edits.updatedAt);
+    } catch (e) {
+      o.editsSent.delete(book.book.id);
+      if (e instanceof ServerError && e.status !== 401) this.set({ error: `Couldn't change ${book.book.title} on the server: ${e.message}` });
+      log.warn("could not send a book's edits to the server:", o.source.name, describe(e));
+    }
+  }
+
+  /**
+   * A server's edits to its books, laid over them here, and this device's
+   * sent to it, book by book, the newer of the two winning. So the edits
+   * made on any device show on every one, and edits made here before the
+   * server kept them, or while it was out of reach, go to it (as its
+   * admin's). The edits beside the books here are read again, not taken
+   * from memory, so it doesn't matter whether the scan read them yet.
+   */
+  private async takeServerEdits(o: Opened): Promise<void> {
+    const shelf = o.server;
+    const mine = shelf && (await o.lib.readAllEdits().catch(() => null));
+    if (!shelf || !mine || this.opened.get(o.source.id) !== o || o.server !== shelf) return;
+    let changed = false;
+    for (const { serverId, localId, edited } of shelf.listedEdits()) {
+      const here = mine.get(localId);
+      if (edited && (!here || edited.updatedAt >= here.updatedAt)) {
+        // The server's, with a cover chosen here, which never goes to it.
+        const values = { ...edited.values, ...(here?.values.cover !== undefined ? { cover: here.values.cover } : {}) };
+        if (sameEdits(values, here?.values ?? {})) continue;
+        const taken: BookEdits = { bookId: localId, values, updatedAt: edited.updatedAt };
+        await o.lib.writeEdits(taken);
+        if (Object.keys(values).length === 0) mine.delete(localId);
+        else mine.set(localId, taken);
+        changed = true;
+      } else if (here && o.serverAdmin && o.editsSent.get(localId) !== here.updatedAt && !sameEdits(sharedEdits(here.values), edited?.values ?? {})) {
+        // Noted before it goes, so another look meanwhile (the list, then the answer that this is the admin) doesn't send it twice.
+        log.info("sending edits made here to the server:", localId);
+        o.editsSent.set(localId, here.updatedAt);
+        await shelf.client.saveEdits(serverId, sharedEdits(here.values), here.updatedAt).catch((e: unknown) => {
+          o.editsSent.delete(localId);
+          log.warn("could not send a book's edits to the server:", describe(e));
+        });
+      }
+    }
+    if (this.opened.get(o.source.id) !== o) return;
+    o.edits = mine;
+    if (!changed) return;
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
   }
 
   /** Records read beside one source's books, merged into the shelf. A server that keeps series has its own (takeServerSeries). */
@@ -1205,6 +1270,8 @@ export class AppController {
         o.serverAdmin = me.role === "admin";
         this.updateCanAddFolders();
         void this.transcribeForServer();
+        // Only the admin's edits go to the server, and the list may have come before this answer.
+        if (o.serverAdmin) void this.takeServerEdits(o);
       })
       .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
     // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
@@ -1393,6 +1460,8 @@ export class AppController {
       const books = await shelf.refresh();
       const series = await shelf.refreshSeries();
       if (books && alive()) this.publishBooks();
+      // Every time, not only when the list changed: edits made here may still have to go to it.
+      if (alive()) await this.takeServerEdits(o);
       // A series' books are named by their ids here, which come with the list.
       if ((books || series) && alive()) this.takeServerSeries(o);
     } catch (e) {

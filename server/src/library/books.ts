@@ -2,7 +2,9 @@ import { randomBytes } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
+import { applyEdits, originalOf, type EditValues, type SharedEdits } from "../../../src/core/edits.ts";
 import type { ScannedBook } from "../../../src/core/scan/scan.ts";
+import { remoteBook } from "../../../src/core/server-books.ts";
 import type { LoudnessMeasurement, SilenceRange } from "../../../src/core/types.ts";
 import type { Cover } from "./covers.ts";
 
@@ -149,13 +151,33 @@ export class BookIndex {
 
   /** Every book, oldest added first, as the library answer gives it. */
   list(): ListedBook[] {
-    return this.db.prepare("SELECT * FROM book ORDER BY added_at, id").all().map(listed);
+    return this.db.prepare(`${WITH_EDITS} ORDER BY book.added_at, book.id`).all().map(listed);
   }
 
   /** One book as the library answer gives it, or null when it isn't here. */
   get(id: string): ListedBook | null {
-    const row = this.db.prepare("SELECT * FROM book WHERE id = ?").get(id);
+    const row = this.db.prepare(`${WITH_EDITS} WHERE book.id = ?`).get(id);
     return row ? listed(row) : null;
+  }
+
+  /** A book's edits as a person last saved them, or null when nobody edited it. */
+  edits(id: string): KeptEdits | null {
+    const row = this.db.prepare("SELECT edits, updated_at FROM book_edit WHERE book_id = ?").get(id);
+    return row ? { values: JSON.parse(String(row.edits)) as EditValues, updatedAt: String(row.updated_at) } : null;
+  }
+
+  /**
+   * Keep a person's edits to a book's details, for every device, in place
+   * of the ones it had. No edits takes them back, and is kept as such, so
+   * a device with older edits takes that too. False when there's no such
+   * book.
+   */
+  saveEdits(id: string, edits: KeptEdits, by: string | null): boolean {
+    if (!this.has(id)) return false;
+    this.db
+      .prepare("INSERT INTO book_edit (book_id, edits, updated_at, edited_by) VALUES (?, ?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET edits = excluded.edits, updated_at = excluded.updated_at, edited_by = excluded.edited_by")
+      .run(id, JSON.stringify(edits.values), edits.updatedAt, by);
+    return true;
   }
 
   /** Whether a book is on the server. */
@@ -170,8 +192,49 @@ export class BookIndex {
   }
 }
 
-/** A row of the book table as the library answer gives it. */
+/** A book's edits as the server keeps them: the fields as edited, and when, as the device that edited them said. */
+export interface KeptEdits {
+  values: EditValues;
+  updatedAt: string;
+}
+
+/** The fields of a book the library answer lists, and so the ones whose files' values it gives with the edits. */
+const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex"] as const;
+
+/** The book table with each book's edits, if it has any. */
+const WITH_EDITS = "SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id";
+
+/** A row of the book table as the library answer gives it, with its edits laid over it. */
 function listed(row: Record<string, SQLOutputValue>): ListedBook {
+  const book = filed(row);
+  if (row.edits === null || row.edits === undefined) return book;
+  const values = JSON.parse(String(row.edits)) as EditValues;
+  const files = remoteBook(book).book;
+  const edited = applyEdits(files, values);
+  const shown = Object.fromEntries(LISTED_FIELDS.filter((f) => values[f] !== undefined).map((f) => [f, values[f]!]));
+  return {
+    ...book,
+    title: edited.title,
+    author: edited.author,
+    narrator: edited.narrator,
+    series: edited.series,
+    seriesIndex: edited.seriesIndex,
+    edited: { values, original: originalOf(files, shown), updatedAt: String(row.edited_at) },
+  };
+}
+
+/**
+ * A stored book as a device is given it (`GET /api/books/:id`): its details
+ * as edited, with what its files say for each field edited, so the desktop
+ * can take an edit back.
+ */
+export function editedStored(stored: StoredBook, edits: KeptEdits | null): StoredBook & { edited?: SharedEdits } {
+  if (!edits) return stored;
+  return { ...stored, book: applyEdits(stored.book, edits.values), edited: { ...edits, original: originalOf(stored.book, edits.values) } };
+}
+
+/** A row of the book table as its files have it. */
+function filed(row: Record<string, SQLOutputValue>): ListedBook {
   return {
     id: String(row.id),
     title: String(row.title),
@@ -209,4 +272,6 @@ export interface ListedBook {
   ebookBytes: number | null;
   cover: Cover | null;
   addedAt: string;
+  /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */
+  edited?: SharedEdits;
 }

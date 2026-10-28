@@ -5,7 +5,7 @@ import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
-import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
+import { bookDir, editedStored, type BookIndex, type StoredBook } from "./books.ts";
 import { bytesToRows } from "../../../src/core/csv.ts";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
@@ -32,9 +32,10 @@ const ASK_FIRST = "private, no-cache";
  *
  * - `GET /api/books`: every book, with each cover's shape and colour, and
  *   the ids of the books deleted, which a device that downloaded one takes
- *   off (the admin deletes one in routes.ts).
+ *   off (the admin deletes one in routes.ts). A book a person edited is
+ *   listed as edited, with its edits (the admin edits one in routes.ts).
  * - `GET /api/books/:id`: one book in full: its files, chapters and parts,
- *   the chapters as corrected (chapters.ts).
+ *   the chapters as corrected (chapters.ts), its details as edited.
  * - `GET /api/series`: the library's series, each with its books in order
  *   (series.ts; the admin changes them in routes.ts).
  * - `GET /covers/:hash-:width.jpg`: a cover, at an address that never changes.
@@ -69,7 +70,8 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
   app.get<{ Params: { id: string } }>("/api/books/:id", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     if (!stored) return reply.code(404).send({ error: "No such book on this server." });
-    return sendRevalidated(request, reply, await servedBook(bookDir(deps.dataDir, request.params.id), stored));
+    const served = await servedBook(bookDir(deps.dataDir, request.params.id), stored);
+    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(request.params.id)));
   });
 
   app.get<{ Params: { name: string } }>("/covers/:name", { onRequest: mustSignIn }, async (request, reply) => {
