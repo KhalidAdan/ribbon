@@ -9,7 +9,8 @@ import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 
 // Editing a book's details as the admin: every device lists it and serves
 // it as edited, with what its files say, so the desktop can take an edit
-// back; and taken back, it's listed as its files have it again.
+// back; the last edit sent stands; and taken back, it's listed as its files
+// have it again.
 describe("editing a book on the server", () => {
   let dir: string;
   let server: RibbonServer;
@@ -54,9 +55,8 @@ describe("editing a book on the server", () => {
 
   it("lists and serves the book as edited, for every device, with what its files say", async () => {
     const before = await as(member, "GET", "/api/books");
-    const at = "2026-10-27T10:00:00.000Z";
     // A cover chosen by hand is a picture on the device that chose it: never kept here.
-    const saved = await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: { title: "The Red One", series: "Colours", seriesIndex: "2", description: "Ruby.", cover: "covers/edited.jpg" }, updatedAt: at });
+    const saved = await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: { title: "The Red One", series: "Colours", seriesIndex: "2", description: "Ruby.", cover: "covers/edited.jpg" } });
     expect(saved.statusCode).toBe(200);
     expect(heard).toContainEqual({ type: "books", data: { edited: red.id } });
     expect((await as(member, "GET", "/api/books")).headers.etag).not.toBe(before.headers.etag);
@@ -66,17 +66,24 @@ describe("editing a book on the server", () => {
       series: "Colours",
       seriesIndex: 2,
       author: red.author,
-      edited: { values: { title: "The Red One", series: "Colours", seriesIndex: "2", description: "Ruby." }, original: { title: "Red Book", series: "", seriesIndex: "" }, updatedAt: at },
+      edited: { values: { title: "The Red One", series: "Colours", seriesIndex: "2", description: "Ruby." }, original: { title: "Red Book", series: "", seriesIndex: "" }, updatedAt: expect.any(String) },
     });
     const served = await servedRed();
     expect(served.book).toMatchObject({ title: "The Red One", series: "Colours", seriesIndex: 2, description: "Ruby." });
-    expect(served.edited).toMatchObject({ values: { description: "Ruby." }, original: { title: "Red Book", description: expect.any(String) }, updatedAt: at });
+    expect(served.edited).toMatchObject({ values: { description: "Ruby." }, original: { title: "Red Book", description: expect.any(String) } });
     expect(served.edited!.values.cover).toBeUndefined();
   });
 
-  it("takes edits back, and lists that too, so a device with older ones takes it", async () => {
-    expect((await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: {}, updatedAt: "2026-10-28T10:00:00.000Z" })).statusCode).toBe(200);
-    expect(await listedRed()).toMatchObject({ title: "Red Book", series: "", seriesIndex: null, edited: { values: {}, original: {}, updatedAt: "2026-10-28T10:00:00.000Z" } });
+  it("keeps the last edits sent, in place of the ones it had", async () => {
+    expect((await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: { title: "Red, Again" } })).statusCode).toBe(200);
+    expect(await listedRed()).toMatchObject({ title: "Red, Again", series: "", seriesIndex: null, edited: { values: { title: "Red, Again" } } });
+  });
+
+  it("takes edits back: listed as its files have it, with no edits", async () => {
+    expect((await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: {} })).statusCode).toBe(200);
+    const back = await listedRed();
+    expect(back).toMatchObject({ title: "Red Book", series: "", seriesIndex: null });
+    expect(back.edited).toBeUndefined();
     expect((await servedRed()).book.title).toBe("Red Book");
   });
 });

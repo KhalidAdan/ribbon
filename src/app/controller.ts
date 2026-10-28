@@ -15,7 +15,7 @@ import { PlayerEngine, type EngineState } from "../player/engine";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
-import { applyEdits, diffEdits, sameEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "../core/edits";
+import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "../core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "../core/view";
 import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "../core/poslog";
 import { finishedByRead, openRead } from "../core/stats";
@@ -287,10 +287,6 @@ interface Opened {
   keeper: PositionKeeper;
   /** Hand edits to books' details, by book id. */
   edits: Map<string, BookEdits>;
-  /** For a Ribbon server's source: when the edits this device sent it were made, by book id, so they aren't sent again before its list has them. */
-  editsSent: Map<string, string>;
-  /** Work on this source's edits, one piece at a time (inEditsOrder): a save here and the server's edits never write over each other. */
-  editsQueue: Promise<void>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
   /** What came of asking about each book's chapter names; read once, on the first ask. */
@@ -540,10 +536,12 @@ export class AppController {
   private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
     return books.map((b) => {
       const { original, edits: _was, ...rest } = b;
-      const base = original ?? b.book;
+      // A server's book downloaded here is named as the server lists it, not as its files here say.
+      const filed = original ?? b.book;
+      const base = o.server && !b.remote ? o.server.asListed(filed) : filed;
       const e = o.edits.get(base.id);
       const sourced = { ...rest, source: o.source.id };
-      if (!e) return original || b.source !== o.source.id ? { ...sourced, book: base } : b;
+      if (!e) return original || base !== b.book || b.source !== o.source.id ? { ...sourced, book: base } : b;
       return { ...sourced, book: applyEdits(base, e.values), original: base, edits: e.values };
     });
   }
@@ -766,8 +764,6 @@ export class AppController {
       lib,
       books: [],
       edits: new Map(),
-      editsSent: new Map(),
-      editsQueue: Promise.resolve(),
       log: [],
       pendingLog: [],
       names: null,
@@ -899,40 +895,37 @@ export class AppController {
     if (changed.length > 0) this.publishBooks();
   }
 
-  /** Read a source's hand edits and lay them over its books. */
+  /** Read a source's hand edits and lay them over its books, with a server's own (editsFor). */
   private async takeEdits(o: Opened): Promise<void> {
     const edits = await o.lib.readAllEdits().catch((e: unknown) => {
       log.warn("could not read the edits beside the books:", describe(e));
       return null;
     });
     if (!edits || this.opened.get(o.source.id) !== o) return;
-    o.edits = edits;
+    o.edits = this.editsFor(o, edits);
     o.books = this.stamp(o, o.books);
     this.publishBooks();
   }
 
   /**
-   * Save what the edit form says about a book. Only fields that differ
-   * from the files are kept; a field set back to the files' value stops
+   * Save what the edit form says about a book. A server's book: the fields
+   * changed in the form go to the server, which keeps them for every device
+   * (saveServerEdits). A book in a folder: only fields that differ from the
+   * files are kept beside it; a field set back to the files' value stops
    * being an edit. Nothing in the audio files changes.
    */
   async saveEdits(bookId: string, form: Partial<Record<EditField, string>>): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    return this.inEditsOrder(o, async () => {
-      const previous = o.edits.get(bookId)?.values ?? {};
-      const values = diffEdits(b.original ?? b.book, form, previous);
-      const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
-      await o.lib.writeEdits(edits);
-      if (Object.keys(values).length === 0) o.edits.delete(bookId);
-      else o.edits.set(bookId, edits);
-      o.books = this.stamp(o, o.books);
-      this.publishBooks();
-      if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
-      log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
-      await this.sendEdits(o, b, previous, edits);
-    });
+    if (o.server) return this.saveServerEdits(o, b, form);
+    const previous = o.edits.get(bookId)?.values ?? {};
+    const values = diffEdits(b.original ?? b.book, form, previous);
+    const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(edits);
+    this.keepEdits(o, edits);
+    if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
+    log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
   }
 
   /** Filter and sort the shelf, and remember it for next time. */
@@ -964,90 +957,81 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    return this.inEditsOrder(o, async () => {
-      const previous = o.edits.get(bookId)?.values ?? {};
-      const values = { ...previous };
-      if (field) delete values[field];
-      const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
-      await o.lib.writeEdits(edits);
-      if (Object.keys(edits.values).length === 0) o.edits.delete(bookId);
-      else o.edits.set(bookId, edits);
-      o.books = this.stamp(o, o.books);
-      this.publishBooks();
-      if (!field || field === "cover") void this.mirrorCoversFor(o);
-      await this.sendEdits(o, b, previous, edits);
-    });
-  }
-
-  /** Work on a source's edits after whatever work on them is under way: a save here and the server's edits never write over each other, nor two looks at the server's. */
-  private inEditsOrder(o: Opened, work: () => Promise<void>): Promise<void> {
-    const run = o.editsQueue.catch(() => undefined).then(work);
-    o.editsQueue = run;
-    return run;
+    const previous = o.edits.get(bookId)?.values ?? {};
+    if (o.server) {
+      if (!field || field === "cover") await this.keepCoverHere(o, bookId, undefined);
+      if (field === "cover") return;
+      const kept = sharedEdits(previous);
+      if (field) delete kept[field];
+      await this.sendServerEdits(o, b, field ? kept : {});
+      return;
+    }
+    const values = { ...previous };
+    if (field) delete values[field];
+    const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(edits);
+    this.keepEdits(o, edits);
+    if (!field || field === "cover") void this.mirrorCoversFor(o);
   }
 
   /**
-   * A server's book's edits go to the server, for every device, when this
-   * is its admin: other people's edits stay on their own devices. Out of
-   * reach, they go the next time the server is asked (takeServerEdits),
-   * being the newer. A cover chosen by hand stays here (sharedEdits).
+   * A server's book edited: the fields changed in the form go to the
+   * server, with the edits it already has, and it keeps them for every
+   * device. Nothing is compared with what this device's files say: what
+   * the server lists is the book, here as everywhere. A cover chosen by
+   * hand is a picture on this device, and stays here.
    */
-  private async sendEdits(o: Opened, book: ScannedBook, previous: EditValues, edits: BookEdits): Promise<void> {
-    if (!o.server || !o.serverAdmin || sameEdits(sharedEdits(previous), sharedEdits(edits.values))) return;
+  private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<void> {
+    if (form.cover !== undefined) await this.keepCoverHere(o, b.book.id, form.cover);
+    const changed = changedFields(b.book, form);
+    if (Object.keys(changed).length > 0) await this.sendServerEdits(o, b, { ...sharedEdits(b.edits ?? {}), ...changed });
+  }
+
+  /** A server's book's edits, sent in place of the ones it has, and the shelf as the server then lists it. Refused or out of reach, it says so, and nothing changes. */
+  private async sendServerEdits(o: Opened, b: ScannedBook, values: EditValues): Promise<void> {
     try {
-      o.editsSent.set(book.book.id, edits.updatedAt);
-      await o.server.client.saveEdits(serverIdOf(book), sharedEdits(edits.values), edits.updatedAt);
+      await o.server!.client.saveEdits(serverIdOf(b), values);
     } catch (e) {
-      o.editsSent.delete(book.book.id);
-      if (e instanceof ServerError && e.status !== 401) this.set({ error: `Couldn't change ${book.book.title} on the server: ${e.message}` });
+      this.set({ error: `Couldn't change ${b.book.title} on the server: ${e instanceof ServerError ? e.message : describe(e)}` });
       log.warn("could not send a book's edits to the server:", o.source.name, describe(e));
+      return;
     }
+    log.info("edited on the server:", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+    await this.refreshServer(o);
   }
 
-  /**
-   * A server's edits to its books, laid over them here, and this device's
-   * sent to it, book by book, the newer of the two winning. So the edits
-   * made on any device show on every one, and edits made here before the
-   * server kept them, or while it was out of reach, go to it (as its
-   * admin's). The edits beside the books here are read again, not taken
-   * from memory, so it doesn't matter whether the scan read them yet.
-   */
-  private takeServerEdits(o: Opened): Promise<void> {
-    return this.inEditsOrder(o, () => this.matchServerEdits(o));
+  /** A cover chosen by hand for a server's book, kept beside the books here, or taken back: with the server's edits, if it has any. */
+  private async keepCoverHere(o: Opened, bookId: string, cover: string | undefined): Promise<void> {
+    const here: BookEdits = { bookId, values: cover ? { cover } : {}, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(here);
+    this.keepEdits(o, { ...here, values: { ...sharedEdits(o.edits.get(bookId)?.values ?? {}), ...here.values } });
+    void this.mirrorCoversFor(o);
   }
 
-  /** One look at the server's edits beside this device's (takeServerEdits). */
-  private async matchServerEdits(o: Opened): Promise<void> {
-    const shelf = o.server;
-    const mine = shelf && (await o.lib.readAllEdits().catch(() => null));
-    if (!shelf || !mine || this.opened.get(o.source.id) !== o || o.server !== shelf) return;
-    let changed = false;
-    for (const { serverId, localId, edited } of shelf.listedEdits()) {
-      const here = mine.get(localId);
-      if (edited && (!here || edited.updatedAt >= here.updatedAt)) {
-        // The server's, with a cover chosen here, which never goes to it.
-        const values = { ...edited.values, ...(here?.values.cover !== undefined ? { cover: here.values.cover } : {}) };
-        if (sameEdits(values, here?.values ?? {})) continue;
-        const taken: BookEdits = { bookId: localId, values, updatedAt: edited.updatedAt };
-        await o.lib.writeEdits(taken);
-        if (Object.keys(values).length === 0) mine.delete(localId);
-        else mine.set(localId, taken);
-        changed = true;
-      } else if (here && o.serverAdmin && o.editsSent.get(localId) !== here.updatedAt && !sameEdits(sharedEdits(here.values), edited?.values ?? {})) {
-        // Noted, so the next look before the server's list has it (the list, then the answer that this is the admin) doesn't send it again.
-        log.info("sending edits made here to the server:", localId);
-        o.editsSent.set(localId, here.updatedAt);
-        await shelf.client.saveEdits(serverId, sharedEdits(here.values), here.updatedAt).catch((e: unknown) => {
-          o.editsSent.delete(localId);
-          log.warn("could not send a book's edits to the server:", describe(e));
-        });
-      }
-    }
-    if (this.opened.get(o.source.id) !== o) return;
-    o.edits = mine;
-    if (!changed) return;
+  /** A book's edits laid over it on the shelf. */
+  private keepEdits(o: Opened, edits: BookEdits): void {
+    if (Object.keys(edits.values).length === 0) o.edits.delete(edits.bookId);
+    else o.edits.set(edits.bookId, edits);
     o.books = this.stamp(o, o.books);
     this.publishBooks();
+  }
+
+  /**
+   * The edits laid over a source's books. A server's books carry the edits
+   * the server keeps, as it lists them; the one edit this device keeps of
+   * its own is a cover chosen here, a picture in its folder. A book in a
+   * folder: the edits kept beside it.
+   */
+  private editsFor(o: Opened, here: ReadonlyMap<string, BookEdits>): Map<string, BookEdits> {
+    if (!o.server) return new Map(here);
+    const out = new Map<string, BookEdits>();
+    for (const [id, e] of here) if (e.values.cover !== undefined) out.set(id, { ...e, values: { cover: e.values.cover } });
+    for (const { localId, edited } of o.server.listedEdits()) {
+      if (!edited) continue;
+      const cover = out.get(localId)?.values.cover;
+      out.set(localId, { bookId: localId, values: { ...edited.values, ...(cover !== undefined ? { cover } : {}) }, updatedAt: edited.updatedAt });
+    }
+    return out;
   }
 
   /** Records read beside one source's books, merged into the shelf. A server that keeps series has its own (takeServerSeries). */
@@ -1139,7 +1123,7 @@ export class AppController {
       await positionsReady;
       const edits = await lib.readAllEdits().catch(() => null);
       if (!alive()) return;
-      if (edits) o.edits = edits;
+      if (edits) o.edits = this.editsFor(o, edits);
       o.books = this.stamp(o, books);
       o.scanning = null;
       const elapsed = Date.now() - started;
@@ -1283,6 +1267,7 @@ export class AppController {
     o.serverPlaces = { log: placesLog, soon: null, events: new AbortController() };
     o.server = new ServerShelf(client, this.platform.host, o.source.root);
     await o.server.loadCached();
+    await this.takeEdits(o);
     this.takeServerSeries(o);
     void this.refreshServer(o);
     void client
@@ -1292,8 +1277,6 @@ export class AppController {
         o.serverAdmin = me.role === "admin";
         this.updateCanAddFolders();
         void this.transcribeForServer();
-        // Only the admin's edits go to the server, and the list may have come before this answer.
-        if (o.serverAdmin) void this.takeServerEdits(o);
       })
       .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
     // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
@@ -1489,8 +1472,7 @@ export class AppController {
       const books = await shelf.refresh();
       const series = await shelf.refreshSeries();
       if (books && alive()) this.publishBooks();
-      // Every time, not only when the list changed: edits made here may still have to go to it.
-      if (alive()) await this.takeServerEdits(o);
+      if (books && alive()) await this.takeEdits(o);
       // A series' books are named by their ids here, which come with the list.
       if ((books || series) && alive()) this.takeServerSeries(o);
     } catch (e) {

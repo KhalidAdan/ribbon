@@ -166,14 +166,13 @@ export class BookIndex {
     return row ? { values: JSON.parse(String(row.edits)) as EditValues, updatedAt: String(row.updated_at) } : null;
   }
 
-  /**
-   * Keep a person's edits to a book's details, for every device, in place
-   * of the ones it had. No edits takes them back, and is kept as such, so
-   * a device with older edits takes that too. False when there's no such
-   * book.
-   */
+  /** Keep a person's edits to a book's details, for every device, in place of the ones it had; no edits takes them back. False when there's no such book. */
   saveEdits(id: string, edits: KeptEdits, by: string | null): boolean {
     if (!this.has(id)) return false;
+    if (Object.keys(edits.values).length === 0) {
+      this.db.prepare("DELETE FROM book_edit WHERE book_id = ?").run(id);
+      return true;
+    }
     this.db
       .prepare("INSERT INTO book_edit (book_id, edits, updated_at, edited_by) VALUES (?, ?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET edits = excluded.edits, updated_at = excluded.updated_at, edited_by = excluded.edited_by")
       .run(id, JSON.stringify(edits.values), edits.updatedAt, by);
@@ -192,7 +191,7 @@ export class BookIndex {
   }
 }
 
-/** A book's edits as the server keeps them: the fields as edited, and when, as the device that edited them said. */
+/** A book's edits as the server keeps them: the fields as edited, and when it took them. */
 export interface KeptEdits {
   values: EditValues;
   updatedAt: string;

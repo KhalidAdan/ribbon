@@ -26,10 +26,9 @@ export interface BookEdits {
 /**
  * A book's edits as a Ribbon server keeps them, for every device
  * (server/src/library/books.ts): the fields as edited, what the book's files
- * say for each (what taking an edit back returns to), and when they last
- * changed, as the device that made the change said. The server lists and
- * serves its books with the edits laid over them, so the apps that only
- * show what it sends (the TV, the iPhone, the iPad) show them as edited.
+ * say for each (what taking an edit back returns to), and when the server
+ * took them. The server lists and serves its books with the edits laid over
+ * them, so every device shows them as edited.
  */
 export interface SharedEdits {
   values: EditValues;
@@ -43,10 +42,6 @@ export function sharedEdits(values: EditValues): EditValues {
   return shared;
 }
 
-/** Whether two sets of edits say the same. */
-export function sameEdits(a: EditValues, b: EditValues): boolean {
-  return EDIT_FIELDS.every((f) => a[f] === b[f]);
-}
 
 /** What a book's files say for each field the edits change, as the edit form shows it. */
 export function originalOf(book: Book, values: EditValues): EditValues {
@@ -150,8 +145,22 @@ export function applyEdits<B extends Partial<Book>>(book: B, values: EditValues)
 }
 
 /**
- * The edits a form produces: only fields that differ from what the files
- * say, so a field changed back to the original stops being an edit.
+ * The fields a form changed from the book as it was shown, as the form has
+ * them: what a server's book's edit sends, whatever the files say.
+ */
+export function changedFields(shown: Book, form: Partial<Record<EditField, string>>): EditValues {
+  const out: EditValues = {};
+  for (const f of EDIT_FIELDS) {
+    const v = form[f];
+    if (f !== "cover" && v !== undefined && normalize(f, v) !== normalize(f, fieldText(shown, f))) out[f] = v.trim();
+  }
+  return out;
+}
+
+/**
+ * The edits a form produces for a book in a folder: only fields that differ
+ * from what the files say, so a field changed back to the original stops
+ * being an edit.
  */
 export function diffEdits(original: Book, form: Partial<Record<EditField, string>>, previous: EditValues = {}): EditValues {
   const out: EditValues = {};

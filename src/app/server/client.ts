@@ -90,9 +90,9 @@ export class ServerClient {
     await this.send(`/api/series/${encodeURIComponent(id)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, books }) });
   }
 
-  /** As the admin: a book's edits, for everyone, in place of the ones it had (none takes them back), with when they were made. */
-  async saveEdits(serverId: string, values: EditValues, updatedAt: string): Promise<void> {
-    await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ values, updatedAt }) });
+  /** As the admin: a book's edits, for everyone, in place of the ones it had (none takes them back). */
+  async saveEdits(serverId: string, values: EditValues): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ values }) });
   }
 
   /** As the admin: delete a series, for everyone. Its books stay. */

@@ -1,5 +1,6 @@
 import type { Host } from "../../host/host";
 import type { ScannedBook } from "../../core/scan/scan";
+import type { Book } from "../../core/types";
 import { filedBook, filedDetails, localIdOf, opfFor, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "../../core/server-books";
 import type { SharedEdits } from "../../core/edits";
 import { RIBBON_DIR } from "../../core/scan/walk";
@@ -44,6 +45,8 @@ export class NotEnoughSpace extends Error {
  */
 export class ServerShelf {
   private listed: ServerBook[] = [];
+  /** The listed books by their ids on this device. */
+  private byLocalId = new Map<string, ServerBook>();
   /** The books the server's admin deleted, by server id. Only these are ever taken off this device unasked: never a book merely missing from the list. */
   private deleted = new Set<string>();
   private etag: string | null = null;
@@ -66,7 +69,7 @@ export class ServerShelf {
       .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; books: ServerBook[]; deleted?: string[] })
       .catch(() => null);
     if (cached) {
-      this.listed = cached.books;
+      this.list(cached.books);
       this.deleted = new Set(cached.deleted ?? []);
       this.etag = cached.etag;
     }
@@ -113,7 +116,7 @@ export class ServerShelf {
   async refresh(): Promise<boolean> {
     const answer = await this.client.books(this.etag);
     if (answer === "unchanged") return false;
-    this.listed = answer.books;
+    this.list(answer.books);
     this.deleted = new Set(answer.deleted);
     this.etag = answer.etag;
     await this.host.mkdir(this.at(".ribbon"));
@@ -132,9 +135,23 @@ export class ServerShelf {
     return this.listed.filter((b) => !here.has(localIdOf(b))).map(filedBook);
   }
 
-  /** Every listed book by its ids here and there, with the edits the server keeps for it, if any. */
-  listedEdits(): { serverId: string; localId: string; edited: SharedEdits | undefined }[] {
-    return this.listed.map((b) => ({ serverId: b.id, localId: localIdOf(b), edited: b.edited }));
+  /** Every listed book by its id here, with the edits the server keeps for it, if any. */
+  listedEdits(): { localId: string; edited: SharedEdits | undefined }[] {
+    return this.listed.map((b) => ({ localId: localIdOf(b), edited: b.edited }));
+  }
+
+  /**
+   * A downloaded book named as the server's files name it, whatever its
+   * files here say (an EPUB on its own names itself): so it's the same book
+   * on every device, and an edit to it is an edit to what the server has.
+   * The book as it is when the server doesn't list it.
+   */
+  asListed(book: Book): Book {
+    const listed = this.byLocalId.get(book.id);
+    if (!listed) return book;
+    const filed = filedBook(listed).book;
+    const named = { title: filed.title, rawTitle: filed.rawTitle, author: filed.author, narrator: filed.narrator, series: filed.series, seriesIndex: filed.seriesIndex };
+    return (Object.keys(named) as (keyof typeof named)[]).every((k) => book[k] === named[k]) ? book : { ...book, ...named };
   }
 
   /**
@@ -254,6 +271,11 @@ export class ServerShelf {
     for (const e of await this.host.readDir(this.root)) {
       if (e.isDir && SERVER_ID.test(e.name)) await this.host.remove(this.at(e.name));
     }
+  }
+
+  private list(books: ServerBook[]): void {
+    this.listed = books;
+    this.byLocalId = new Map(books.map((b) => [localIdOf(b), b]));
   }
 
   private at(...parts: string[]): string {
