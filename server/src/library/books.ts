@@ -184,10 +184,27 @@ export class BookIndex {
     return !!this.db.prepare("SELECT 1 FROM book WHERE id = ?").get(id);
   }
 
-  /** The book whose covers are named by this hash, or null. */
+  /** The book whose covers are named by this hash, its own or one chosen for it, or null. */
   byCover(hash: string): string | null {
-    const row = this.db.prepare("SELECT id FROM book WHERE cover_hash = ?").get(hash);
+    const row = this.db.prepare("SELECT id FROM book WHERE cover_hash = ? UNION SELECT book_id FROM book_cover WHERE hash = ?").get(hash, hash);
     return row ? String(row.id) : null;
+  }
+
+  /** The cover a person chose for a book, or null when it has its files'. */
+  chosenCover(id: string): Cover | null {
+    const row = this.db.prepare("SELECT hash, aspect, colour FROM book_cover WHERE book_id = ?").get(id);
+    return row ? { hash: String(row.hash), aspect: Number(row.aspect), colour: String(row.colour) } : null;
+  }
+
+  /** Keep a cover a person chose for a book, made from their picture (covers.ts), in place of the one it had; null goes back to its files'. */
+  chooseCover(id: string, cover: Cover | null, by: string | null, at: string): void {
+    if (!cover) {
+      this.db.prepare("DELETE FROM book_cover WHERE book_id = ?").run(id);
+      return;
+    }
+    this.db
+      .prepare("INSERT INTO book_cover (book_id, hash, aspect, colour, chosen_at, chosen_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET hash = excluded.hash, aspect = excluded.aspect, colour = excluded.colour, chosen_at = excluded.chosen_at, chosen_by = excluded.chosen_by")
+      .run(id, cover.hash, cover.aspect, cover.colour, at, by);
   }
 }
 
@@ -200,14 +217,16 @@ export interface KeptEdits {
 /** The fields of a book the library answer lists, and so the ones whose files' values it gives with the edits. */
 const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex"] as const;
 
-/** The book table with each book's edits, if it has any. */
-const WITH_EDITS = "SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id";
+/** The book table with each book's edits and the cover chosen for it, if it has them. */
+const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at
+  FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id LEFT JOIN book_cover ON book_cover.book_id = book.id`;
 
-/** A row of the book table as the library answer gives it, with its edits laid over it. */
+/** A row of the book table as the library answer gives it, with its edits laid over it and the cover chosen for it. */
 function listed(row: Record<string, SQLOutputValue>): ListedBook {
   const book = filed(row);
-  if (row.edits === null || row.edits === undefined) return book;
-  const values = JSON.parse(String(row.edits)) as EditValues;
+  const chosen = row.chosen_hash === null || row.chosen_hash === undefined ? null : { hash: String(row.chosen_hash), aspect: Number(row.chosen_aspect), colour: String(row.chosen_colour) };
+  if ((row.edits === null || row.edits === undefined) && !chosen) return book;
+  const values = row.edits === null || row.edits === undefined ? {} : (JSON.parse(String(row.edits)) as EditValues);
   const files = remoteBook(book).book;
   const edited = applyEdits(files, values);
   const shown = Object.fromEntries(LISTED_FIELDS.filter((f) => values[f] !== undefined).map((f) => [f, values[f]!]));
@@ -218,18 +237,25 @@ function listed(row: Record<string, SQLOutputValue>): ListedBook {
     narrator: edited.narrator,
     series: edited.series,
     seriesIndex: edited.seriesIndex,
-    edited: { values, original: originalOf(files, shown), updatedAt: String(row.edited_at) },
+    ...(chosen ? { cover: chosen } : {}),
+    edited: { values, original: originalOf(files, shown), updatedAt: String(row.edited_at ?? row.chosen_at), ...(chosen ? { chosenCover: true as const } : {}) },
   };
 }
 
 /**
  * A stored book as a device is given it (`GET /api/books/:id`): its details
  * as edited, with what its files say for each field edited, so the desktop
- * can take an edit back.
+ * can take an edit back, and the cover chosen for it.
  */
-export function editedStored(stored: StoredBook, edits: KeptEdits | null): StoredBook & { edited?: SharedEdits } {
-  if (!edits) return stored;
-  return { ...stored, book: applyEdits(stored.book, edits.values), edited: { ...edits, original: originalOf(stored.book, edits.values) } };
+export function editedStored(stored: StoredBook, edits: KeptEdits | null, chosen: Cover | null): StoredBook & { edited?: SharedEdits } {
+  if (!edits && !chosen) return stored;
+  const values = edits?.values ?? {};
+  return {
+    ...stored,
+    book: applyEdits(stored.book, values),
+    ...(chosen ? { cover: chosen } : {}),
+    edited: { values, original: originalOf(stored.book, values), updatedAt: edits?.updatedAt ?? "", ...(chosen ? { chosenCover: true as const } : {}) },
+  };
 }
 
 /** A row of the book table as its files have it. */

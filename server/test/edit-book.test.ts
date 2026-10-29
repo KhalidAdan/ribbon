@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -85,5 +86,34 @@ describe("editing a book on the server", () => {
     expect(back).toMatchObject({ title: "Red Book", series: "", seriesIndex: null });
     expect(back.edited).toBeUndefined();
     expect((await servedRed()).book.title).toBe("Red Book");
+  });
+
+  it("keeps a picture sent with the edits as the book's cover, for every device, until it's taken back", async () => {
+    const own = red.cover!;
+    // A green picture, as a person might choose: wider than tall.
+    const picture = path.join(dir, "green.png");
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=green:s=300x200:d=1", "-frames:v", "1", picture]);
+    const image = readFileSync(picture).toString("base64");
+
+    expect((await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: { title: "Green Now" }, cover: { image } })).statusCode).toBe(200);
+    const chosen = await listedRed();
+    expect(chosen).toMatchObject({ title: "Green Now", edited: { chosenCover: true } });
+    expect(chosen.cover!.hash).not.toBe(own.hash);
+    expect(chosen.cover!.aspect).toBeCloseTo(1.5, 2);
+    expect((await servedRed()).cover?.hash).toBe(chosen.cover!.hash);
+    // Its sizes are served as a book's own are.
+    expect((await as(member, "GET", `/covers/${chosen.cover!.hash}-200.jpg`)).statusCode).toBe(200);
+
+    // A change that says nothing of the cover leaves it; one that can't be read changes nothing.
+    await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: { title: "Green Still" } });
+    expect((await listedRed()).cover!.hash).toBe(chosen.cover!.hash);
+    expect((await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: {}, cover: { image: Buffer.from("not a picture").toString("base64") } })).statusCode).toBe(400);
+    expect(await listedRed()).toMatchObject({ title: "Green Still", cover: { hash: chosen.cover!.hash } });
+
+    // Taken back: its own cover again, and no edits.
+    expect((await as(admin, "PUT", `/api/books/${red.id}/edits`, { values: {}, cover: null })).statusCode).toBe(200);
+    const back = await listedRed();
+    expect(back.cover).toEqual(own);
+    expect(back.edited).toBeUndefined();
   });
 });

@@ -34,9 +34,11 @@ export interface SharedEdits {
   values: EditValues;
   original: EditValues;
   updatedAt: string;
+  /** A person chose the book's cover: the cover it's listed with is that picture, kept on the server. */
+  chosenCover?: true;
 }
 
-/** The edits a server keeps for everyone: all but a cover chosen by hand, which is a picture on the device that chose it. */
+/** The fields of a book a server keeps as text: all but the cover, which goes to it as a picture. */
 export function sharedEdits(values: EditValues): EditValues {
   const { cover: _here, ...shared } = values;
   return shared;
