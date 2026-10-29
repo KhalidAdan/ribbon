@@ -135,9 +135,9 @@ export class ServerShelf {
     return this.listed.filter((b) => !here.has(localIdOf(b))).map(filedBook);
   }
 
-  /** Every listed book by its id here, with the edits the server keeps for it, if any. */
-  listedEdits(): { localId: string; edited: SharedEdits | undefined }[] {
-    return this.listed.map((b) => ({ localId: localIdOf(b), edited: b.edited }));
+  /** Every listed book by its id here, with the edits the server keeps for it, if any, and the cover it's listed with. */
+  listedEdits(): { localId: string; edited: SharedEdits | undefined; cover: ServerBook["cover"] }[] {
+    return this.listed.map((b) => ({ localId: localIdOf(b), edited: b.edited, cover: b.cover }));
   }
 
   /**

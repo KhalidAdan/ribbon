@@ -1,10 +1,14 @@
 import type { FastifyInstance } from "fastify";
+import { randomBytes } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nodeHost } from "../../../src/host/node.ts";
 import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
-import { removeBookDir, type BookIndex, type KeptEdits } from "./books.ts";
+import { bookDir, removeBookDir, type BookIndex, type KeptEdits } from "./books.ts";
+import { makeCovers, type Cover } from "./covers.ts";
+import type { Host } from "../../../src/host/host.ts";
 import { EDIT_FIELDS, sharedEdits, type EditValues } from "../../../src/core/edits.ts";
 import { readStored } from "./prepare.ts";
 import { recordRows } from "./records.ts";
@@ -33,7 +37,8 @@ export function inTranscribingOrder<T extends { done: number; total: number }>(b
 /**
  * The admin's side of the library: adding a folder of books, following the
  * job that does it, deleting a book, editing a book's details for everyone
- * (`PUT /api/books/:id/edits`, its fields as edited), and making, changing and deleting a
+ * (`PUT /api/books/:id/edits`, its fields as edited and a cover chosen for
+ * it), and making, changing and deleting a
  * series (`POST /api/series`, `PUT` and `DELETE /api/series/:id`, each with
  * its name and its books in order). And how every book reads along
  * (`GET /api/library/readalong`), so a book left by chapter is never found
@@ -99,16 +104,23 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     return reply.code(204).send();
   });
 
-  // A book's details as the admin corrected them, from the desktop's edit form, in place of the edits it had: every device lists it so (books.ts), and hears it changed. Two at once: the last one stands.
-  app.put<{ Params: { id: string }; Body: unknown }>("/api/books/:id/edits", async (request, reply) => {
+  // A book's details as the admin corrected them, from the desktop's edit form, in place of the edits it had, and a cover chosen for it:
+  // every device lists it so (books.ts), and hears it changed. Two at once: the last one stands.
+  app.put<{ Params: { id: string }; Body: unknown }>("/api/books/:id/edits", { bodyLimit: EDIT_BYTES }, async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can edit the library's books." });
     const asked = editsAsked(request.body);
-    if (!asked) return reply.code(400).send({ error: "Give the book's edited fields, each as text, and when they changed." });
-    if (!deps.books.saveEdits(request.params.id, asked, me.id)) return reply.code(404).send({ error: "No such book on this server." });
-    deps.events.toEveryone({ type: "books", data: { edited: request.params.id } });
-    return { edits: asked };
+    if (!asked) return reply.code(400).send({ error: "Give the book's edited fields, each as text, and a cover as a picture, or null for its own." });
+    const id = request.params.id;
+    if (!deps.books.has(id)) return reply.code(404).send({ error: "No such book on this server." });
+    // The picture made into the book's cover sizes, as a cover found on import is; one that can't be read changes nothing.
+    const cover = asked.cover ? await coverFrom(host, deps.dataDir, id, asked.cover) : asked.cover;
+    if (cover === null && asked.cover) return reply.code(400).send({ error: "That picture can't be read: choose a JPEG, PNG or WebP image." });
+    deps.books.saveEdits(id, asked.edits, me.id);
+    if (cover !== undefined) deps.books.chooseCover(id, cover, me.id, asked.edits.updatedAt);
+    deps.events.toEveryone({ type: "books", data: { edited: id } });
+    return { edits: asked.edits, cover: deps.books.chosenCover(id) };
   });
 
   app.post<{ Body: unknown }>("/api/series", async (request, reply) => {
@@ -199,8 +211,8 @@ const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagge
  * picture on the device that chose it, never sent. Null when they aren't
  * edits.
  */
-function editsAsked(body: unknown): KeptEdits | null {
-  const b = body as { values?: unknown } | null;
+function editsAsked(body: unknown): { edits: KeptEdits; cover: Uint8Array | null | undefined } | null {
+  const b = body as { values?: unknown; cover?: unknown } | null;
   if (typeof b?.values !== "object" || b.values === null || Array.isArray(b.values)) return null;
   const values: EditValues = {};
   for (const [field, value] of Object.entries(b.values)) {
@@ -208,7 +220,34 @@ function editsAsked(body: unknown): KeptEdits | null {
     if (!f || typeof value !== "string" || value.length > 20_000) return null;
     values[f] = value;
   }
-  return { values: sharedEdits(values), updatedAt: new Date().toISOString() };
+  let cover: Uint8Array | null | undefined;
+  if (b.cover === null) cover = null;
+  else if (b.cover !== undefined) {
+    const image = (b.cover as { image?: unknown }).image;
+    if (typeof image !== "string") return null;
+    cover = Buffer.from(image, "base64");
+    if (cover.length === 0 || cover.length > PICTURE_BYTES) return null;
+  }
+  return { edits: { values: sharedEdits(values), updatedAt: new Date().toISOString() }, cover };
+}
+
+/** The biggest picture the edit form takes for a cover. */
+const PICTURE_BYTES = 20 * 1024 ** 2;
+
+/** An edit with a picture in it: the picture as base64 is a third bigger. */
+const EDIT_BYTES = 32 * 1024 ** 2;
+
+/** A book's cover made from a person's picture, its sizes beside its own covers; null when the picture can't be read. */
+async function coverFrom(host: Host, dataDir: string, id: string, picture: Uint8Array): Promise<Cover | null> {
+  const dir = path.join(bookDir(dataDir, id), "covers");
+  await mkdir(dir, { recursive: true });
+  const file = path.join(dir, `chosen-${randomBytes(4).toString("hex")}`);
+  await writeFile(file, picture);
+  try {
+    return await makeCovers(host, { image: file }, dir);
+  } finally {
+    await rm(file, { force: true });
+  }
 }
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */

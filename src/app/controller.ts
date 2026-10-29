@@ -8,7 +8,7 @@ import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, 
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf, serverIdOf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
-import type { ServerBookDetail } from "../core/server-books";
+import { serverCoverPath, type ServerBookDetail } from "../core/server-books";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -948,6 +948,8 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
+    // A server's book: the picture goes to the server with its edits, and becomes its cover on every device.
+    if (o.server) return this.sendServerEdits(o, b, sharedEdits(b.edits ?? {}), bytes);
     const path = await o.lib.writeEditedCover(bookId, bytes, ext);
     await this.saveEdits(bookId, { cover: path });
   }
@@ -959,11 +961,10 @@ export class AppController {
     if (!b || !o) return;
     const previous = o.edits.get(bookId)?.values ?? {};
     if (o.server) {
-      if (!field || field === "cover") await this.keepCoverHere(o, bookId, undefined);
-      if (field === "cover") return;
       const kept = sharedEdits(previous);
       if (field) delete kept[field];
-      await this.sendServerEdits(o, b, field ? kept : {});
+      // The files' cover again only when that's asked: taking back a field leaves the cover as it is.
+      await this.sendServerEdits(o, b, field ? kept : {}, !field || field === "cover" ? null : undefined);
       return;
     }
     const values = { ...previous };
@@ -978,19 +979,23 @@ export class AppController {
    * A server's book edited: the fields changed in the form go to the
    * server, with the edits it already has, and it keeps them for every
    * device. Nothing is compared with what this device's files say: what
-   * the server lists is the book, here as everywhere. A cover chosen by
-   * hand is a picture on this device, and stays here.
+   * the server lists is the book, here as everywhere. A cover goes on its
+   * own, as a picture (setCover).
    */
   private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<void> {
-    if (form.cover !== undefined) await this.keepCoverHere(o, b.book.id, form.cover);
     const changed = changedFields(b.book, form);
     if (Object.keys(changed).length > 0) await this.sendServerEdits(o, b, { ...sharedEdits(b.edits ?? {}), ...changed });
   }
 
-  /** A server's book's edits, sent in place of the ones it has, and the shelf as the server then lists it. Refused or out of reach, it says so, and nothing changes. */
-  private async sendServerEdits(o: Opened, b: ScannedBook, values: EditValues): Promise<void> {
+  /**
+   * A server's book's edits, sent in place of the ones it has, with a
+   * picture for its cover or null for its files' (left out, the cover
+   * stays), and the shelf as the server then lists it. Refused or out of
+   * reach, it says so, and nothing changes.
+   */
+  private async sendServerEdits(o: Opened, b: ScannedBook, values: EditValues, cover?: Uint8Array | null): Promise<void> {
     try {
-      await o.server!.client.saveEdits(serverIdOf(b), values);
+      await o.server!.client.saveEdits(serverIdOf(b), values, cover);
     } catch (e) {
       this.set({ error: `Couldn't change ${b.book.title} on the server: ${e instanceof ServerError ? e.message : describe(e)}` });
       log.warn("could not send a book's edits to the server:", o.source.name, describe(e));
@@ -998,14 +1003,6 @@ export class AppController {
     }
     log.info("edited on the server:", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
     await this.refreshServer(o);
-  }
-
-  /** A cover chosen by hand for a server's book, kept beside the books here, or taken back: with the server's edits, if it has any. */
-  private async keepCoverHere(o: Opened, bookId: string, cover: string | undefined): Promise<void> {
-    const here: BookEdits = { bookId, values: cover ? { cover } : {}, updatedAt: new Date().toISOString() };
-    await o.lib.writeEdits(here);
-    this.keepEdits(o, { ...here, values: { ...sharedEdits(o.edits.get(bookId)?.values ?? {}), ...here.values } });
-    void this.mirrorCoversFor(o);
   }
 
   /** A book's edits laid over it on the shelf. */
@@ -1018,18 +1015,18 @@ export class AppController {
 
   /**
    * The edits laid over a source's books. A server's books carry the edits
-   * the server keeps, as it lists them; the one edit this device keeps of
-   * its own is a cover chosen here, a picture in its folder. A book in a
-   * folder: the edits kept beside it.
+   * the server keeps, as it lists them, and nothing of this device's: a
+   * cover chosen for one is the picture the server lists, once it's here. A
+   * book in a folder: the edits kept beside it.
    */
   private editsFor(o: Opened, here: ReadonlyMap<string, BookEdits>): Map<string, BookEdits> {
-    if (!o.server) return new Map(here);
+    const server = o.server;
+    if (!server) return new Map(here);
     const out = new Map<string, BookEdits>();
-    for (const [id, e] of here) if (e.values.cover !== undefined) out.set(id, { ...e, values: { cover: e.values.cover } });
-    for (const { localId, edited } of o.server.listedEdits()) {
+    for (const { localId, edited, cover } of server.listedEdits()) {
       if (!edited) continue;
-      const cover = out.get(localId)?.values.cover;
-      out.set(localId, { bookId: localId, values: { ...edited.values, ...(cover !== undefined ? { cover } : {}) }, updatedAt: edited.updatedAt });
+      const chosen = edited.chosenCover && cover && server.hasCover(cover.hash) ? { cover: serverCoverPath(cover.hash) } : {};
+      out.set(localId, { bookId: localId, values: { ...edited.values, ...chosen }, updatedAt: edited.updatedAt });
     }
     return out;
   }
@@ -1482,6 +1479,8 @@ export class AppController {
     if (!alive()) return;
     // The covers kept here show even when the server is out of reach.
     const found = await shelf.fetchCovers().catch(() => 0);
+    // A cover chosen on the server is laid over its book once its picture is here.
+    if (found > 0 && alive()) await this.takeEdits(o);
     if (found > 0 && alive()) this.publishBooks({ coverVersion: this.state.coverVersion + 1 });
     // Out of reach or not, what it last said was deleted goes.
     if (alive()) await this.dropDeleted(o);

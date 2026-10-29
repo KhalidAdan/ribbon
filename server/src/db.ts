@@ -111,6 +111,17 @@ CREATE TABLE IF NOT EXISTS book_edit (
   edited_by TEXT
 );
 
+-- A cover a person chose for a book, in place of its files' (src/core/edits.ts):
+-- its sizes are in the book's covers folder, as its own are.
+CREATE TABLE IF NOT EXISTS book_cover (
+  book_id TEXT PRIMARY KEY REFERENCES book (id) ON DELETE CASCADE,
+  hash TEXT NOT NULL,
+  aspect REAL NOT NULL,
+  colour TEXT NOT NULL,
+  chosen_at TEXT NOT NULL,
+  chosen_by TEXT
+);
+
 -- What people took apart, so finding series again never puts it back: series
 -- deleted, and books taken out of a series.
 CREATE TABLE IF NOT EXISTS series_dropped (

@@ -71,7 +71,7 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     const stored = await storedBook(deps, request.params.id);
     if (!stored) return reply.code(404).send({ error: "No such book on this server." });
     const served = await servedBook(bookDir(deps.dataDir, request.params.id), stored);
-    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(request.params.id)));
+    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(request.params.id), deps.books.chosenCover(request.params.id)));
   });
 
   app.get<{ Params: { name: string } }>("/covers/:name", { onRequest: mustSignIn }, async (request, reply) => {

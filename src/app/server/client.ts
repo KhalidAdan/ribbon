@@ -90,9 +90,14 @@ export class ServerClient {
     await this.send(`/api/series/${encodeURIComponent(id)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, books }) });
   }
 
-  /** As the admin: a book's edits, for everyone, in place of the ones it had (none takes them back). */
-  async saveEdits(serverId: string, values: EditValues): Promise<void> {
-    await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ values }) });
+  /**
+   * As the admin: a book's edits, for everyone, in place of the ones it had
+   * (none takes them back), with a picture for its cover, or null for its
+   * files' cover; left out, its cover stays as it is.
+   */
+  async saveEdits(serverId: string, values: EditValues, cover?: Uint8Array | null): Promise<void> {
+    const sent = { values, ...(cover === undefined ? {} : { cover: cover && { image: toBase64(cover) } }) };
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(sent) });
   }
 
   /** As the admin: delete a series, for everyone. Its books stay. */
@@ -236,4 +241,11 @@ async function reach(url: string, init: RequestInit): Promise<Response> {
 async function said(r: Response, otherwise: string): Promise<string> {
   const body = (await r.json().catch(() => null)) as { error?: string; message?: string } | null;
   return body?.error ?? body?.message ?? otherwise;
+}
+
+/** Bytes as base64, a piece at a time: a picture is too many bytes to spread into one call. */
+function toBase64(bytes: Uint8Array): string {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
 }

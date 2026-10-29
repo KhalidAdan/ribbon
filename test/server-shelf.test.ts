@@ -18,6 +18,8 @@ import { nodeHost } from "../src/host/node";
 const SERVER_ID = "a1b2c3d4e5f60718";
 const TOKEN = "the-token";
 const COVER = "c0ffee00c0ffee00";
+/** The hash of the cover the admin chooses here, as the server makes it from their picture. */
+const CHOSEN = "c0ffee00c0ffee01";
 
 /**
  * A stand-in for a Ribbon server: the answers the app's shelf asks for
@@ -39,14 +41,17 @@ describe("a server's shelf on this device", () => {
   let role: string | null = null;
   /** The edits its admin made to its book, laid over the list as the server does (server/src/library/books.ts). */
   let bookEdits: { values: Record<string, string>; updatedAt: string } | null = null;
+  /** The picture its admin chose for the book's cover, as it came, or null for the book's own. */
+  let chosenPicture: Buffer | null = null;
   /** Counts changes to the edits, for the list's ETag. */
   let editsVersion = 0;
-  /** The book as the server lists it: edited, with what its files say for each listed field edited. */
+  /** The book as the server lists it: edited, with what its files say for each listed field edited, and the cover chosen for it. */
   const served = (): ServerBook => {
-    if (!bookEdits) return listed;
-    const { values, updatedAt } = bookEdits;
+    if (!bookEdits && !chosenPicture) return listed;
+    const values = bookEdits?.values ?? {};
     const fields = (["title", "author", "narrator"] as const).filter((f) => values[f] !== undefined);
-    return { ...listed, ...Object.fromEntries(fields.map((f) => [f, values[f]])), edited: { values, original: Object.fromEntries(fields.map((f) => [f, listed[f]])), updatedAt } };
+    const chosen = chosenPicture ? { cover: { hash: CHOSEN, aspect: 0.667, colour: "#00fe00" } } : {};
+    return { ...listed, ...Object.fromEntries(fields.map((f) => [f, values[f]])), ...chosen, edited: { values, original: Object.fromEntries(fields.map((f) => [f, listed[f]])), updatedAt: bookEdits?.updatedAt ?? "", ...(chosenPicture ? { chosenCover: true as const } : {}) } };
   };
 
   beforeAll(async () => {
@@ -95,7 +100,7 @@ describe("a server's shelf on this device", () => {
         let body = "";
         req.on("data", (c: Buffer) => (body += c.toString()));
         req.on("end", () => {
-          const asked = JSON.parse(body) as { values: Record<string, string> };
+          const asked = JSON.parse(body) as { values: Record<string, string>; cover?: { image: string } | null };
           changes.push({ method: "PUT", at, body: asked });
           // As the server does: only its admin edits, and the last edits sent stand, none taking them back.
           if (role !== "admin") {
@@ -103,6 +108,7 @@ describe("a server's shelf on this device", () => {
             return;
           }
           bookEdits = Object.keys(asked.values).length > 0 ? { values: asked.values, updatedAt: new Date().toISOString() } : null;
+          if (asked.cover !== undefined) chosenPicture = asked.cover && Buffer.from(asked.cover.image, "base64");
           editsVersion++;
           res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ edits: asked }));
         });
@@ -156,7 +162,7 @@ describe("a server's shelf on this device", () => {
         return;
       }
       const file = at.match(new RegExp(`^/api/books/${SERVER_ID}/files/audio/(0[12]\\.mp3)$`))?.[1];
-      const picture = at.match(new RegExp(`^/covers/${COVER}-(400|800)\\.jpg$`));
+      const picture = at.match(new RegExp(`^/covers/(${COVER}|${CHOSEN})-(400|800)\\.jpg$`));
       if (file || picture) {
         res.writeHead(200).end(readFileSync(path.join(fixtures, file ?? "cover.jpg")));
         return;
@@ -318,7 +324,7 @@ describe("a server's shelf on this device", () => {
     rmSync(moved, { recursive: true, force: true });
   });
 
-  it("keeps an edit on the server, shows it on the next start and once downloaded, and a cover chosen here stays here", async () => {
+  it("keeps an edit and a chosen cover on the server, and shows them on the next start and once downloaded", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     role = "admin";
@@ -340,25 +346,32 @@ describe("a server's shelf on this device", () => {
     expect(changes.at(-1)).toEqual({ method: "PUT", at: `/api/books/${SERVER_ID}/edits`, body: { values: { title: "The Bluest Book", narrator: "Someone Else" } } });
     expect(bookIn(app)).toMatchObject({ book: { title: "The Bluest Book", narrator: "Someone Else" }, original: { title: "The Blue Book" }, remote: { serverId: SERVER_ID } });
 
-    // A cover chosen here shows at once, and isn't sent.
-    await app.setCover(id, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), "jpg");
-    expect(app.coverUrl(bookIn(app)!)).toMatch(/\.ribbon[\\/]covers[\\/]edited-/);
-    expect(changes).toHaveLength(1);
+    // A cover chosen here goes to the server as a picture, with the edits it has, and shows as the server lists it.
+    const picture = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    await app.setCover(id, picture, "jpg");
+    expect(changes.at(-1)!.body).toEqual({ values: { title: "The Bluest Book", narrator: "Someone Else" }, cover: { image: Buffer.from(picture).toString("base64") } });
+    await until(() => bookIn(app)?.edits?.cover !== undefined);
+    expect(app.coverUrl(bookIn(app)!)).toContain(CHOSEN);
 
     // The next start shows the edits and the cover before anything is downloaded.
     const next = new AppController(platform);
     await next.boot();
     await until(() => !!bookIn(next)?.remote);
     expect(bookIn(next)!.book).toMatchObject({ title: "The Bluest Book", narrator: "Someone Else" });
-    expect(next.coverUrl(bookIn(next)!)).toMatch(/edited-/);
+    await until(() => bookIn(next)?.edits?.cover !== undefined);
+    expect(next.coverUrl(bookIn(next)!)).toContain(CHOSEN);
 
     // Downloaded, the book keeps its id, and so its edits, against what the server's files say.
     await next.downloadBook(id);
     expect(bookIn(next)?.remote).toBeUndefined();
     expect(bookIn(next)).toMatchObject({ book: { title: "The Bluest Book", narrator: "Someone Else" }, original: { title: "The Blue Book", narrator: "Nell Narrator" } });
+    // With the cover the server lists, not the one downloaded beside it.
+    await until(() => !!next.coverUrl(bookIn(next)!));
+    expect(next.coverUrl(bookIn(next)!)).toContain(CHOSEN);
     await next.removeSource(next.getState().sources[0]!.id);
     role = null;
     bookEdits = null;
+    chosenPicture = null;
     vi.restoreAllMocks();
     rmSync(home, { recursive: true, force: true });
   });
@@ -400,12 +413,12 @@ describe("a server's shelf on this device", () => {
     await until(() => bookIn(next)?.book.title === "Blue, Elsewhere");
     expect(bookIn(next)).toMatchObject({ book: { title: "Blue, Elsewhere", narrator: "Nell Narrator" }, original: { title: "The Blue Book" } });
 
-    // Taken back, one field and then all of them.
+    // Taken back, one field, leaving the cover as it is, and then all of them, the cover too.
     await next.saveEdits(id, { narrator: "A Third Voice" });
     await next.resetEdits(id, "narrator");
-    expect(sent().at(-1)).toEqual({ title: "Blue, Elsewhere" });
+    expect(changes.at(-1)!.body).toEqual({ values: { title: "Blue, Elsewhere" } });
     await next.resetEdits(id);
-    expect(sent().at(-1)).toEqual({});
+    expect(changes.at(-1)!.body).toEqual({ values: {}, cover: null });
     expect(bookIn(next)!.book.title).toBe("The Blue Book");
 
     await next.removeSource(next.getState().sources[0]!.id);
