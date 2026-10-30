@@ -83,11 +83,12 @@ private struct Header: View {
         }
     }
 
-    /// "Chapter 4 of 37, 12% through, 9h 40m left at 1.25×."
+    /// "Chapter 4, 12% through, 9h 40m left at 1.25×." A chapter by its own name, never its place among the
+    /// markers, which count the credits too.
     private var sentence: String {
         let percent = listening.durationMs > 0 ? listening.positionMs * 100 / listening.durationMs : 0
         let left = Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))
-        let where_ = listening.chapters.count > 1 ? "Chapter \(listening.chapterIndex + 1) of \(listening.chapters.count), " : ""
+        let where_ = listening.chapters.count > 1 ? listening.chapter.map { "\($0.title), " } ?? "" : ""
         return "\(where_)\(percent)% through, \(left) left\(listening.speed != 1 ? " at \(Format.speed(listening.speed))" : "")."
     }
 }
@@ -149,7 +150,7 @@ private struct NowPlaying: View {
             }
             .padding(.top, 40.scaled)
             if let ms = listening.dozedOffer {
-                Offer(words: "You dozed off around \(Format.duration(ms))\(chapterOf(ms).map { ", in chapter \($0 + 1)" } ?? "").", take: "Go back to where you dozed off", action: listening.goBackToDozed, dismiss: listening.dozing.forget)
+                Offer(words: "You dozed off around \(Format.duration(ms))\(chapterOf(ms).map { ", in \(listening.chapters[$0].title)" } ?? "").", take: "Go back to where you dozed off", action: listening.goBackToDozed, dismiss: listening.dozing.forget)
                     .padding(.top, 28.scaled)
             } else if let offer = listening.resumeOffer {
                 Offer(words: "You were away for \(Format.away(offer.awayMs)). Start this chapter over?", take: "Start it over", action: listening.restartChapter, dismiss: listening.dismissResumeOffer)
@@ -287,7 +288,7 @@ private struct ThisBookGroup: View {
         let count = listening.chapters.count
         Rows(label: "This book") {
             Button { chapters = true } label: {
-                Row(title: "Chapters") { Text(count > 1 ? "\(listening.chapterIndex + 1) of \(count)" : String(count)) }
+                Row(title: "Chapters") { Text(count > 1 ? listening.chapter?.title ?? "" : String(count)) }
             }
             .buttonStyle(LiftStyle.row())
             Button { bookmarks = true } label: {

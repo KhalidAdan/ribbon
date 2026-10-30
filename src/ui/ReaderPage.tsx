@@ -101,7 +101,8 @@ export function ReaderPage() {
   const fromServer = !!state.sources.find((s) => s.id === book.source)?.server;
   const remote = book.remote;
   const download = state.download;
-  const where = story ? `story ${storyNow + 1} of ${stories.length}, ${story.title}` : book.chapters.length > 1 ? `chapter ${chapterNow + 1} of ${book.chapters.length}` : null;
+  // A chapter by its own name: counting markers counts the credits and the epigraph too, and "Chapter 16" would read as 18.
+  const where = story ? `story ${storyNow + 1} of ${stories.length}, ${story.title}` : book.chapters.length > 1 ? (book.chapters[chapterNow]?.title ?? null) : null;
   const sentence = hidden.has(book.book.id)
     ? "Left off the shelf for this series. It is still here when you want it."
     : download

@@ -55,7 +55,8 @@ export function PlayerPane() {
   const storyIndex = partAt(book.parts, p.positionMs);
   const story = book.parts[storyIndex] ?? null;
   const percent = p.durationMs > 0 ? Math.floor((p.positionMs / p.durationMs) * 100) : 0;
-  const where = story ? `Story ${storyIndex + 1} of ${book.parts.length}` : chapter && book.chapters.length > 1 ? `Chapter ${p.chapterIndex + 1} of ${book.chapters.length}` : null;
+  // A chapter by its own name, never its place among the markers, which count the credits too.
+  const where = story ? `Story ${storyIndex + 1} of ${book.parts.length}` : chapter && book.chapters.length > 1 ? chapter.title : null;
   const sentence = `${where ? `${where}, ` : ""}${percent}% through, ${formatLeft(bookLeft)} left${p.speed !== 1 ? ` at ${formatSpeed(p.speed)}` : ""}.`;
   const status = p.error ?? (p.reconnecting ? "Reconnecting to the file…" : p.buffering ? "Loading…" : p.skippingGap ? "Shortening a pause" : null);
 
@@ -139,7 +140,7 @@ export function PlayerPane() {
           </Group>
 
           <Group label="This book">
-            <Row title="Chapters" aside={book.chapters.length > 1 && chapter ? `${p.chapterIndex + 1} of ${book.chapters.length}` : String(book.chapters.length)} onClick={() => setDrawer("chapters")} />
+            <Row title="Chapters" aside={book.chapters.length > 1 && chapter ? chapter.title : String(book.chapters.length)} onClick={() => setDrawer("chapters")} />
             <Row title="Bookmarks" aside={String(cur.bookmarks.length)} onClick={() => setDrawer("bookmarks")} />
             <Row title="Add a bookmark" onClick={() => setAdding(true)} />
             {about && (

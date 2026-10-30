@@ -258,7 +258,7 @@ function BookCardView({ book, coverUrl, progress }: { book: ScannedBook; coverUr
 function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook; progress: Progress; coverUrl: string | null; playing: boolean }) {
   const c = useController();
   const ch = book.chapters[chapterAt(book.chapters, progress.posMs)];
-  const where = book.chapters.length > 1 && ch ? `Chapter ${book.chapters.indexOf(ch) + 1} of ${book.chapters.length}` : `${Math.round(progress.fraction * 100)}% in`;
+  const where = book.chapters.length > 1 && ch ? ch.title : `${Math.round(progress.fraction * 100)}% in`;
   const toRead = readerOnly(book.book);
   return (
     <li className={clsx("relative flex items-center gap-3 rounded-[10px] bg-surface p-2 pr-3 ring-1 ring-line hover:ring-line-strong", pressedCardWithButtons)}>
