@@ -147,7 +147,8 @@ struct BookView: View {
         if progress.finished { return "Finished. Listen again any time; your place starts over." }
         let percent = max(1, Int((model.library?.fraction(of: book) ?? 0) * 100))
         let index = chapters.lastIndex { $0.startMs <= progress.ms } ?? 0
-        let where_ = chapters.count > 1 ? ", in chapter \(index + 1) of \(chapters.count)" : ""
+        // The chapter by its own name: counting the markers counts the credits and the epigraph too.
+        let where_ = chapters.count > 1 ? ", in \(chapters[index].title)" : ""
         return "You are \(percent)% through\(where_). \(Format.left(book.durationMs - progress.ms)) left."
     }
 

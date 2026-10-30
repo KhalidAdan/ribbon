@@ -193,7 +193,7 @@ private struct ContinueCard: View {
         .task { detail = await model.library?.detail(of: book) }
     }
 
-    /// "Chapter 4 of 37 · 9h 40m left", or how far in when the book is one chapter.
+    /// "Chapter 4 · 9h 40m left", the chapter by its own name, or how far in when the book is one chapter.
     private var where_: String {
         let ms = model.library?.progress(of: book)?.ms ?? 0
         let left = "\(Format.left(book.durationMs - ms)) left"
@@ -201,7 +201,7 @@ private struct ContinueCard: View {
             return "\(Int(((model.library?.fraction(of: book) ?? 0) * 100).rounded()))% in · \(left)"
         }
         let index = max(0, chapters.lastIndex { $0.startMs <= ms } ?? 0)
-        return "Chapter \(index + 1) of \(chapters.count) · \(left)"
+        return "\(chapters[index].title) · \(left)"
     }
 }
 
