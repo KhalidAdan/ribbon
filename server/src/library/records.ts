@@ -41,28 +41,35 @@ export interface FoundRecords {
 }
 
 /**
- * Find a book's records. They're named by its id in the library they were
- * made in (bookId: its path there and its audio's size), and that library
- * may be the folder being added, one inside it, or one above it: each
- * folder from the book's own up is tried, with the id the book would have
- * had in it.
+ * The libraries a book may have been kept in, nearest first. What Ribbon
+ * kept about it is named by its id in that library (bookId: its path there
+ * and its size), and that library may be the folder being added, one inside
+ * it, or one above it: each folder from the book's own up is one, with the
+ * id the book would have had in it.
  */
-export async function findRecords(root: string, book: ScannedBook): Promise<FoundRecords | null> {
-  if (book.files.length === 0) return null;
-  const audioBytes = book.files.reduce((s, f) => s + f.sizeBytes, 0);
+export function librariesOf(root: string, book: ScannedBook): FoundRecords[] {
+  const bytes = book.files.length > 0 ? book.files.reduce((s, f) => s + f.sizeBytes, 0) : book.book.sizeBytes;
   const full = path.join(root, ...book.book.path.split("/"));
-  const isFile = book.files.length === 1 && book.files[0]!.path === book.book.path;
+  const isFile = book.book.path === book.book.ebook || (book.files.length === 1 && book.files[0]!.path === book.book.path);
+  const libraries: FoundRecords[] = [];
   let dir = isFile ? path.dirname(full) : full;
   const top = path.resolve(root, ...Array<string>(ABOVE).fill(".."));
   for (;;) {
-    const id = bookId(path.relative(dir, full).split(path.sep).join("/"), audioBytes);
-    const ribbon = path.join(dir, ".ribbon");
-    for (const kind of [...CARRIED, "loudness", "silence"]) {
-      if (await exists(path.join(ribbon, kind, `${id}.csv`))) return { dir: ribbon, id };
-    }
-    if (dir === top || path.dirname(dir) === dir) return null;
+    libraries.push({ dir: path.join(dir, ".ribbon"), id: bookId(path.relative(dir, full).split(path.sep).join("/"), bytes) });
+    if (dir === top || path.dirname(dir) === dir) return libraries;
     dir = path.dirname(dir);
   }
+}
+
+/** Find a book's records: the nearest of its libraries that holds any. */
+export async function findRecords(root: string, book: ScannedBook): Promise<FoundRecords | null> {
+  if (book.files.length === 0) return null;
+  for (const library of librariesOf(root, book)) {
+    for (const kind of [...CARRIED, "loudness", "silence"]) {
+      if (await exists(path.join(library.dir, kind, `${library.id}.csv`))) return library;
+    }
+  }
+  return null;
 }
 
 /** Copy the records found into the book's `records/` folder, the kinds it hasn't got yet. The kinds it has now. */

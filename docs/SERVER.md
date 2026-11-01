@@ -412,6 +412,36 @@ and the jobs that follow.
 Folders stay for people without a server, and for anyone who connects to one
 as well: a server is a source beside them. Nothing about them changes.
 
+**Moving to a server.** Someone who used the desktop alone signs in to a
+server of their own, as its admin, and Ribbon offers to move their folders to
+it; "Not now" leaves everything as it was, and each folder's menu in Settings
+asks again. Moving a folder is adding it to the server (section 12), and then:
+
+- **Their place comes with their books.** Adding a folder, the server reads
+  the position logs in its `.ribbon/` (`server/src/library/folder-places.ts`):
+  where they were reading and listening, their bookmarks and highlights, and
+  their listening history, on every device that wrote there. Each record keeps
+  its device and sequence number, so adding a folder twice adds nothing twice
+  and an old place can't get ahead of a newer one. Only the book's name in the
+  record changes, from the folder's id for it to the server's.
+- **The folder leaves the shelf,** so each book has one home. Nothing on disk
+  changes, and a book the server couldn't take keeps the folder on the shelf:
+  adding it again brings only what's missing.
+
+What doesn't come with them, each for a reason:
+
+- **The transcript.** A folder's may hold clips that failed (#152), so read-along
+  comes back as a device with a graphics card transcribes each book whole for
+  the server, as it does for any new book.
+- **A book's hand-edited details, its speed and series decisions.** These stay in
+  the folder's `.ribbon/`.
+- **Places kept only on this device**, because the folder was read-only from it:
+  the server reads the folder, and they were never written there.
+
+The server has to be able to see the folder, since it copies the books in
+itself: on the same machine, or as a share mounted on both (`RIBBON_FOLDERS`).
+When it can't, it says so and the folder stays.
+
 ## 12. Milestones
 
 **1. Everyone listens with their own place.**

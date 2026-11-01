@@ -23,7 +23,9 @@ flowchart LR
 ```
 
 The desktop can use both at once: a server is a source of books beside any
-folders, so each book's place stays with the source it came from.
+folders, so each book's place stays with the source it came from. Signing in
+to a server of your own, the desktop offers to move your folders to it, your
+places included ([SERVER.md](SERVER.md), section 11).
 
 **What the parts share.** The server has no logic of its own for books: it
 runs the desktop's `src/core/` and its Rust crates, which is why they're one

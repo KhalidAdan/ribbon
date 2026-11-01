@@ -4,8 +4,10 @@ import { copyFile, mkdir, rename, rm, stat, statfs, writeFile } from "node:fs/pr
 import path from "node:path";
 import type { Host } from "../../../src/host/host.ts";
 import { ensureChapters, scanLibrary, type ScannedBook } from "../../../src/core/scan/scan.ts";
+import type { Places } from "../places.ts";
 import { BookIndex, bookDir, booksDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
+import { FolderPlaces } from "./folder-places.ts";
 import { analyzeStored, readStored, writeStored } from "./prepare.ts";
 import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
@@ -20,6 +22,8 @@ export interface ImportProgress {
   /** Books already on the server, by their files or by an ISBN or ASIN. */
   skipped: number;
   failed: number;
+  /** Records from the folder's position logs that the server hadn't got yet. */
+  places: number;
   /** The book being copied now, if any. */
   current: string | null;
   /** One line per book skipped or failed, saying which and why. */
@@ -32,6 +36,8 @@ export interface ImportContext {
   dataDir: string;
   index: BookIndex;
   addedBy: string | null;
+  /** Where the folder's places go, as the places of the person adding it; left out, they stay in the folder. */
+  places?: Places;
   now?: () => number;
   /** Bytes free on the disk that holds a folder (statfs); given in tests. */
   freeBytes?: (folder: string) => Promise<number>;
@@ -44,23 +50,27 @@ export const SPARE_BYTES = 1024 ** 3;
  * Add a folder of books to the server (docs/SERVER.md, sections 5 and 12):
  * scan it with Ribbon's own scanner, then for each book it finds, skip it
  * if it's here already, else copy its files in, read its chapters, make
- * its covers, and list it. The folder itself is only ever read.
+ * its covers, and list it. Either way, the person adding the folder's places
+ * in the book come in with it. The folder itself is only ever read.
  */
 export async function importFolder(ctx: ImportContext, folder: string, report: (progress: ImportProgress) => void): Promise<ImportProgress> {
   const root = path.resolve(folder);
-  const progress: ImportProgress = { folder: root, found: 0, added: 0, skipped: 0, failed: 0, current: null, notes: [] };
+  const progress: ImportProgress = { folder: root, found: 0, added: 0, skipped: 0, failed: 0, places: 0, current: null, notes: [] };
   if (!(await stat(root).catch(() => null))?.isDirectory()) throw new Error(`There's no folder at ${root}.`);
   const host = neverWrites(ctx.host, root);
   const scan = await scanLibrary(host, root, { write: false });
   const books = scan.books.filter((b) => !b.pending);
   progress.found = books.length;
   report(progress);
+  const places = ctx.places && ctx.addedBy ? new FolderPlaces(ctx.places, ctx.addedBy) : null;
 
   for (const scanned of books) {
     progress.current = scanned.book.title;
     report(progress);
     try {
       const added = await importBook(ctx, host, root, scanned);
+      const listed = ctx.index.get(added.id);
+      if (places && listed) progress.places += await places.carry(root, scanned, listed);
       if (added.added) progress.added++;
       else {
         progress.skipped++;

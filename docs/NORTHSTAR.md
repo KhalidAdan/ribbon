@@ -79,7 +79,8 @@ away, and it outlives any app or server it passed through.
 else, and alone is not a lesser Ribbon: it is every book, every place and
 read-along, on one computer. A server is what you add for more than that:
 the iPhone, the iPad and the Apple TV, and other people with places of their
-own. Adding one should never mean starting over.
+own. Adding one never means starting over: your books move to it with your
+place, your bookmarks and your listening history.
 
 **One home for each book.** A book lives in a folder or on a server, so there
 is one answer to "where was I?" and never two to reconcile. On a server, each
@@ -174,9 +175,6 @@ thin app ([tv/README.md](../tv/README.md)), which streams from your server,
 your place moving with you.
 
 ## What comes next
-
-**Adding a server without starting over.** Someone who began with the desktop
-alone adds a server, and their books go in with their place and bookmarks.
 
 **Easy to install.** The desktop app, the server and the Apple apps ready to
 install as they are, so trying Ribbon never means building it.

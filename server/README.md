@@ -19,6 +19,11 @@ What it does:
   heard of the narration and how it lines up with the text) comes in with
   it, and adding the folder again fills in what a book already here is
   missing. The folder is only ever read.
+- **Moving in from the desktop.** The position logs in a folder's `.ribbon/`
+  come in with its books, as the places of the person adding it: where they
+  were, their bookmarks and their listening history. Signing in to your own
+  server, the desktop offers to do this for your folders (docs/SERVER.md,
+  section 11).
 - **Filling in what a book came without**, from its own EPUB, after it's
   added: its description, and real names for chapters its files only number
   ("Chapter 1" to "Chapter 37"), from the EPUB's contents. Never over

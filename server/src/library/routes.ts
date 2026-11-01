@@ -6,6 +6,7 @@ import { nodeHost } from "../../../src/host/node.ts";
 import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
+import type { Places } from "../places.ts";
 import { bookDir, removeBookDir, type BookIndex, type KeptEdits } from "./books.ts";
 import { makeCovers, type Cover } from "./covers.ts";
 import type { Host } from "../../../src/host/host.ts";
@@ -44,7 +45,7 @@ export function inTranscribingOrder<T extends { done: number; total: number }>(b
  * (`GET /api/library/readalong`), so a book left by chapter is never found
  * only on the TV. The listing the apps read comes in its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; dataDir: string; folders: string[] }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; places: Places; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; dataDir: string; folders: string[] }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -59,20 +60,22 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       const where = deps.folders.length > 0 ? `in ${deps.folders.join(" or ")}` : "on its machine: give the server the folder your share is mounted at (RIBBON_FOLDERS)";
       return reply.code(400).send({ error: `The server can't find ${picked} ${where}.` });
     }
-    const first: ImportProgress = { folder, found: 0, added: 0, skipped: 0, failed: 0, current: null, notes: [] };
+    const first: ImportProgress = { folder, found: 0, added: 0, skipped: 0, failed: 0, places: 0, current: null, notes: [] };
     const job = deps.jobs.start(
       "import",
       first,
       async (report) => {
         // Every device showing the library hears of each book as it's added, so shelves fill as the import goes.
         let added = 0;
-        const done = await importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id }, folder, (progress) => {
+        const done = await importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id, places: deps.places }, folder, (progress) => {
           report(progress);
           if (progress.added > added) {
             added = progress.added;
             deps.events.toEveryone({ type: "books", data: { added } });
           }
         });
+        // What the folder knew of their places is theirs now, on every device they have.
+        if (done.places > 0) deps.events.toPerson(me.id, { type: "places", data: {} });
         // The new books join the series they belong to, or make new ones.
         if (deps.series.find(deps.books.list(), Date.now()) > 0) deps.events.toEveryone({ type: "series", data: {} });
         // The new books' MP3s are indexed now, so the TV's first play from a moment doesn't wait on reading a whole file;

@@ -14,7 +14,7 @@ be.
 | **Everywhere** | The desktop app and a server, then the Apple app if you want it | The iPhone, iPad and Apple TV, other people with places of their own, and your place in every book on every device. |
 
 Start with the desktop app. A server is something you add when you want more
-than one computer.
+than one computer, and your books move to it with your place in each.
 
 ## Install
 

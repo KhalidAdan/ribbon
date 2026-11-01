@@ -115,6 +115,7 @@ export function SettingsPane() {
                         title={s.name}
                         items={[
                           ...(s.server ? [{ label: "Sign in again…", onSelect: () => setConnecting(true) }] : []),
+                          ...(!s.server && state.canAddFolders && state.sources.some((x) => x.server) ? [{ label: "Move to the server…", onSelect: () => c.offerMove(s.id) }] : []),
                           { label: s.server ? "Disconnect, and remove its downloads" : "Remove from the library", onSelect: () => void c.removeSource(s.id), danger: true },
                         ]}
                       />

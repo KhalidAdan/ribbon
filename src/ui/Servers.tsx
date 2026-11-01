@@ -50,7 +50,7 @@ export function ConnectServer({ open, onClose }: { open: boolean; onClose: () =>
       onClose={close}
       labelId="connect-server-title"
       title="Connect to a server"
-      description="A Ribbon server someone runs for you. Its books join your shelf, and each one downloads before it plays, so it works away from home too."
+      description="A Ribbon server of your own, or one someone runs for you. Its books join your shelf, and each one downloads before it plays, so it works away from home too."
       hint={busy ? "Signing in…" : undefined}
       actions={
         <>
@@ -91,6 +91,59 @@ export function ConnectServer({ open, onClose }: { open: boolean; onClose: () =>
         {/* Enter in any field signs in. */}
         <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
       </form>
+    </Dialog>
+  );
+}
+
+/**
+ * Moving to a server of your own: asked once on signing in as its admin, and
+ * again from a folder's menu in Settings. Nothing on disk changes here; the
+ * server copies the books and the person's places in, and the folders leave
+ * the shelf so each book has one home.
+ */
+export function MoveToServer() {
+  const c = useController();
+  const { live, sources, books } = useAppState((s) => ({ live: s.moveOffer, sources: s.sources, books: s.books }));
+  const [offered, closed] = useKept(live);
+  if (!offered) return null;
+  const folders = sources.filter((s) => offered.includes(s.id));
+  const one = folders.length === 1 ? folders[0] : undefined;
+
+  return (
+    <Dialog
+      open={live !== null}
+      onClose={() => c.dismissMove()}
+      onClosed={closed}
+      labelId="move-to-server-title"
+      title={one ? `Move ${one.name} to this server?` : "Move your folders to this server?"}
+      description={`The server copies in each book with your place, bookmarks and listening history, so every device finds them there. ${one ? "The folder isn’t changed: it only leaves the shelf here." : "The folders aren’t changed: they only leave the shelf here."}`}
+      actions={
+        <>
+          <Button variant="ghost" onClick={() => c.dismissMove()}>
+            Not now
+          </Button>
+          <Button variant="primary" onClick={() => void c.moveFolders()}>
+            {one ? "Move it" : "Move them"}
+          </Button>
+        </>
+      }
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto quiet-scroll px-5 pt-4 pb-5">
+        <ul role="list" className="flex flex-col divide-y divide-line rounded-[10px] ring-1 ring-line">
+          {folders.map((s) => {
+            const count = books.filter((b) => b.source === s.id).length;
+            return (
+              <li key={s.id} className="min-w-0 px-3 py-2.5">
+                <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{s.name}</p>
+                <p className="truncate text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">
+                  {count.toLocaleString()} {count === 1 ? "book" : "books"}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-3 text-sm/5 text-pretty text-ink-2 sm:text-[0.8125rem]/5">Read-along comes back book by book, as each is transcribed for the server.</p>
+      </div>
     </Dialog>
   );
 }
