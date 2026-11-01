@@ -1,15 +1,17 @@
 # The Ribbon server
 
-**The design for Ribbon's server, agreed on 2026-10-22, not built yet.**
-Section 2 lists what was decided; the one question still open is in
-section 13. Code review settles the details.
+**The design for Ribbon's server, agreed on 2026-10-22 and built.** The
+server is optional: the desktop app runs alone from your folders, and you add
+a server for the Apple apps and for other people (NORTHSTAR.md). How to run
+one is in [server/README.md](../server/README.md). Section 2 lists what was
+decided; the one question still open is in section 13.
 
 ## 1. Why a server
 
-Version one kept the library in folders and everything Ribbon learns in
+The desktop keeps the library in folders and everything Ribbon learns in
 `.ribbon/` beside the books, with no account and no service. That works for
 one person on computers that can write to the folder. It stops working on
-the devices that matter next:
+every other device:
 
 - **Phones can't prepare books.** iOS runs no ffmpeg, so a phone can't read
   an audiobook's chapters, and it can't transcribe the narration. It relies
@@ -45,7 +47,7 @@ finished result.
 | Which clients first? | **The desktop app (Windows and Mac) and the iPhone.** |
 | What works first? | **Everyone listens with their own place** (section 12). |
 | The web framework | **Fastify.** |
-| NORTHSTAR | **"Not someone else's service", "Your place is yours", "Folders still work"**, now in [NORTHSTAR.md](NORTHSTAR.md) in place of "Not a server" and "Nothing to sign in to". |
+| NORTHSTAR | **"Not someone else's service", "Your place is yours", "Start alone, add a server when you want one"**, now in [NORTHSTAR.md](NORTHSTAR.md) in place of "Not a server" and "Nothing to sign in to". |
 | Above all | **Fast, with no pop-in or layout shift** (section 7), and HTTP caching used wherever it helps. |
 
 The owner's first server is his old T2 MacBook. Nothing in the design
@@ -407,7 +409,8 @@ and the jobs that follow.
 - **The Apple TV** has a native client on the same API (tv/), which streams and reads along.
 - **The admin pages** are web pages the server serves, in Ribbon's own design.
 
-Folders stay for people without a server; nothing about them changes.
+Folders stay for people without a server, and for anyone who connects to one
+as well: a server is a source beside them. Nothing about them changes.
 
 ## 12. Milestones
 

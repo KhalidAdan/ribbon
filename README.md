@@ -1,97 +1,130 @@
 # Ribbon
 
 A home for your books, read or heard: a reader and a player for the EPUBs
-and audiobooks you own. Local files, one place in every book, nothing to
-sign in to. See [docs/NORTHSTAR.md](docs/NORTHSTAR.md) for what this is
-and refuses to be, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how
-it fits together, in diagrams, [docs/PLAN.md](docs/PLAN.md) for how it is built,
-[docs/READING.md](docs/READING.md) for reading the EPUB beside a book, and
-[docs/TEST-PLAN.md](docs/TEST-PLAN.md) for what "correct" means.
+and audiobooks you own, as files, with one place in every book and
+read-along between the two. No DRM, no store, and nothing in anyone else's
+cloud. [docs/NORTHSTAR.md](docs/NORTHSTAR.md) says what it is and refuses to
+be.
 
-## Run it
+## Two ways to run it
 
-Requirements: Node 20 or newer, Rust stable, and `ffmpeg` plus `ffprobe`
-on the PATH. Building the speech side (whisper.cpp, for read-along) also
-needs CMake. On Windows it needs LLVM (for libclang, expected in
-`C:\Program Files\LLVM`) and the Vulkan SDK with `VULKAN_SDK` set; on a
-Mac, Xcode, and whisper.cpp runs on Metal ([docs/MAC.md](docs/MAC.md)).
-`npm run tauri` and `tauri:dev` set how whisper.cpp is compiled on each
-system (`tools/with-build-env.mjs`). Cargo builds into `target/` at the
-repository's root, because whisper.cpp's shader build is too deep for
-Windows paths under `src-tauri/target/`.
+| | What you install | What you get |
+| --- | --- | --- |
+| **On one computer** | The desktop app | All of Ribbon, from your own folders: reading, listening and read-along. No account, and nothing else to run. |
+| **Everywhere** | The desktop app and a server, then the Apple app if you want it | The iPhone, iPad and Apple TV, other people with places of their own, and your place in every book on every device. |
+
+Start with the desktop app. A server is something you add when you want more
+than one computer.
+
+## Install
+
+**The desktop app**, for Windows x64 and Macs with Apple Silicon: download it
+from [Releases](https://github.com/KhalidAdan/ribbon/releases). Install
+[ffmpeg](https://ffmpeg.org) as well (`brew install ffmpeg` on a Mac): Ribbon
+reads chapters, measures loudness and makes bookmark clips with it, and it
+isn't in the download.
+
+The builds aren't signed yet. The first time you open a new version on a Mac,
+macOS refuses it: open it from System Settings → Privacy & Security → Open
+Anyway. Windows may warn that it doesn't know the publisher. To update, close
+Ribbon and install the new version over it; everything carries over.
+
+**The server** runs on a machine of your own, in Docker or with Node:
+[server/README.md](server/README.md).
+
+**The iPhone, iPad and Apple TV app** needs a server. For now you build it
+with Xcode: [tv/README.md](tv/README.md).
+
+## What's in this repository
+
+```text
+src/            the desktop app's web side
+  core/         pure logic, no files or network: the server runs this too
+  app/          the app's state and actions (AppController)
+  reader/       the reader
+  player/       playback
+  ui/           everything else on screen
+  host/         every file and process operation
+src-tauri/      the desktop app's Rust side
+  ebook/        the EPUB parser: the server runs this too
+  frames/       the MP3 frame index: the server runs this too
+  speech/       transcribing, with whisper.cpp
+server/         the server
+tv/             the iPhone, iPad and Apple TV app, in Swift
+tools/          the command line, fixtures and the end-to-end checks
+test/           the tests for src/
+docs/           how it all works, and why
+```
+
+It's one repository because the server is built from the desktop's own logic:
+a change to how a book is read, or to what the server sends, is one change
+across every part it touches.
+
+## Build it yourself
+
+Node 24 or newer, Rust stable, and `ffmpeg` with `ffprobe` on the PATH.
+Building the speech side (whisper.cpp, for read-along) also needs CMake. On
+Windows it needs LLVM (for libclang, expected in `C:\Program Files\LLVM`) and
+the Vulkan SDK with `VULKAN_SDK` set; on a Mac, Xcode, and whisper.cpp runs on
+Metal ([docs/MAC.md](docs/MAC.md)). `npm run tauri` and `tauri:dev` set how
+whisper.cpp is compiled on each system (`tools/with-build-env.mjs`). Cargo
+builds into `target/` at the repository's root, because whisper.cpp's shader
+build is too deep for Windows paths under `src-tauri/target/`.
 
 ```sh
 npm install
 npm run tauri:dev          # the desktop app
 ```
 
-On first launch, add a folder of books. Ribbon scans it, writes
-its records to `<folder>/.ribbon/`, and opens the library. An EPUB
-goes with its audiobook; an EPUB with no audiobook is a book to read
-([docs/READING.md](docs/READING.md), section 2). Add more
-folders from Settings: the library is every folder together, and the
-books stay where they are. The shelf is on screen from folder names
-before a single tag is read; durations fill in behind it. Launch with a
-folder as the argument, or set `RIBBON_LIBRARY`, to add it without the
-picker. The list of folders lives in the Ribbon folder
-(`%LOCALAPPDATA%\Ribbon\sources.tsv`).
+On first launch, add a folder of books. Ribbon scans it, writes its records to
+`<folder>/.ribbon/`, and opens the library. An EPUB goes with its audiobook;
+an EPUB with no audiobook is a book to read
+([docs/READING.md](docs/READING.md), section 2). Add more folders from
+Settings: the library is every folder together, and the books stay where they
+are. Launch with a folder as the argument, or set `RIBBON_LIBRARY`, to add it
+without the picker.
 
-## Develop in a browser
+### In a browser
 
-The same UI runs in a browser tab against a folder on this machine,
-served by a Vite plugin. It is a development harness, not a server.
+The same UI runs in a browser tab against a folder on this machine, served by
+a Vite plugin. It is a development harness, not a server.
 
 ```sh
 RIBBON_DEV_LIBRARY=path/to/books npm run dev     # defaults to ./books if present
 ```
 
-Then open http://localhost:1420. In dev builds the app controller is
-exposed as `window.__ribbon`.
+Then open http://localhost:1420. In dev builds the app controller is exposed
+as `window.__ribbon`.
 
-## Test
+### Tests
 
 ```sh
 npm test                       # unit and fixture tests; ffmpeg generates fixtures once
-RIBBON_BOOKS=books npm test      # also assert against a real library folder
+RIBBON_BOOKS=books npm test    # also assert against a real library folder
 npm run typecheck
-npm run ribbon -- scan books     # scan from the command line, no app
+npm run test:rust              # the Rust side
+npm run ribbon -- scan books   # scan from the command line, no app
 npm run ribbon -- chapters books "Horus Rising"
 ```
 
-## Layout
+The server has its own: `npm test` and `npm run typecheck` in `server/`. The
+end-to-end checks run the built app: [tools/e2e/README.md](tools/e2e/README.md).
 
-```
-src/core      pure TypeScript decisions, no I/O, exhaustively tested
-src/host      the Host seam: node.ts (tests, CLI), tauri.ts (app), browser.ts (dev)
-src/app       library service, background jobs, controller, media session
-src/player    the two-element gapless engine
-src/ui        React + Tailwind, built with the ui.sh design skill
-src-tauri     Rust shell: scoped fs, ffmpeg via shell plugin, asset protocol
-tools         CLI, fixture generator, Vite dev-library plugin
-test          Vitest suites, one per core module plus scan and library
-```
+## Read more
 
-## What is on disk
+| | |
+| --- | --- |
+| [docs/NORTHSTAR.md](docs/NORTHSTAR.md) | What Ribbon is and refuses to be |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together, in diagrams, and where to start reading code |
+| [docs/SERVER.md](docs/SERVER.md) | The server's design |
+| [docs/READING.md](docs/READING.md) | The reader and read-along |
+| [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md) | The position log, a format anyone can read and write |
+| [docs/DESIGN.md](docs/DESIGN.md) | The look |
+| [docs/RELEASING.md](docs/RELEASING.md) | Cutting a release |
+| [docs/MAC.md](docs/MAC.md) | Developing on a Mac |
+| [docs/TEST-PLAN.md](docs/TEST-PLAN.md) | What "correct" means |
+| [docs/PLAN.md](docs/PLAN.md) | How version one was built |
 
-Everything durable lives beside the books in `.ribbon/`, all CSV:
+## Licence
 
-| File                          | Meaning                                       |
-| ----------------------------- | --------------------------------------------- |
-| `library.csv`, `files.csv`    | Scan cache. Rebuilt any time.                 |
-| `ebooks.csv`                  | What each EPUB's package says, for pairing. Rebuilt any time. |
-| `chapters/<id>.csv`           | Effective chapters.                           |
-| `corrections/<id>.csv`        | Your hand edits to chapters. Sync this.       |
-| `positions/<device>.ndjson`   | Where you are, one log per device. Sync this. See [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md). |
-| `positions/<id>.csv`          | Where you are, as Ribbon 0.4 wrote it. Still kept for older versions. |
-| `edits/<id>.csv`              | Your corrections to a book's details.        |
-| `settings/<id>.csv`           | Per-book speed.                               |
-| `loudness/<id>.csv`           | Measured LUFS and the gain applied.           |
-| `silence/<id>.csv`            | Gaps that get shortened during playback.      |
-| `bookmarks/<id>.csv`, `clips/`| Bookmarks and their thirty-second clips.      |
-| `covers/<id>.jpg`             | Cover art pulled out of the files.            |
-| `pairing/<id>.csv`            | How you paired the EPUB's chapters with the audio's, by hand. Sync this. |
-| `heard/<id>.csv`              | What the narrator says at chapter starts and checkpoints, and where each is in the EPUB, heard on a machine with a speech model. |
-| `aligned/<id>.csv`            | The whole narration transcribed for read-along, phrase by phrase, with where each phrase is in the EPUB, and which minutes were transcribed. |
-
-A book id is the CRC-32 of its library-relative path and total size, so
-the same folder on another machine gets the same id.
+MIT. See [LICENSE](LICENSE).

@@ -6,8 +6,39 @@ How Ribbon is put together, in pictures. For why it is this way, see
 
 ## 1. The big picture
 
+Ribbon runs two ways. The desktop app alone needs nothing else: its folders
+are its library. With a server, the server keeps the books, the people and
+their places, and the Apple apps can join.
+
+```mermaid
+flowchart LR
+  subgraph Alone["The desktop alone"]
+    D1["The desktop app"] --> F1["Your folders<br/>books and .ribbon/"]
+  end
+  subgraph Together["With a server"]
+    F2["Your folders"] -- "Add a folder: copied in" --> S["The server<br/>books, people, places"]
+    D2["The desktop app<br/>the workshop"] <--> S
+    A["iPhone, iPad, Apple TV<br/>thin apps"] <--> S
+  end
+```
+
+The desktop can use both at once: a server is a source of books beside any
+folders, so each book's place stays with the source it came from.
+
+**What the parts share.** The server has no logic of its own for books: it
+runs the desktop's `src/core/` and its Rust crates, which is why they're one
+repository.
+
+| Part | Where | Takes from elsewhere in the repository |
+| --- | --- | --- |
+| The desktop app | `src/`, `src-tauri/` | |
+| The server | `server/` | `src/core/` and `src/host/`; `src-tauri/ebook` and `src-tauri/frames`, built as commands |
+| The Apple apps | `tv/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `src/core/resume.ts`. |
+
+### The desktop app
+
 A Tauri app: a web page (React, TypeScript) in a native window, and Rust
-behind it for the work on files. Your library folder is the database:
+behind it for the work on files. A library folder is the database:
 everything Ribbon learns is a small file in `.ribbon/` beside the books.
 
 ```mermaid
@@ -339,6 +370,10 @@ sequenceDiagram
 
 ## 9. Files
 
+These are the desktop's files. A server's are in its data folder
+([server/README.md](../server/README.md), "Settings"): a book that came from a
+server keeps its download in the Ribbon folder, and its place on the server.
+
 ```text
 Your library folder/                 the database: sync it, back it up
   Some Book/
@@ -364,14 +399,36 @@ Your library folder/                 the database: sync it, back it up
   models/                            a downloaded speech model
 ```
 
-Anything in `.ribbon/` is either rebuilt on demand or yours (positions,
-bookmarks, corrections, pairing); README.md lists which is which.
+Anything in `.ribbon/` is either rebuilt on demand or yours:
+
+| File | Meaning |
+| --- | --- |
+| `library.csv`, `files.csv` | Scan cache. Rebuilt any time. |
+| `ebooks.csv` | What each EPUB's package says, for pairing. Rebuilt any time. |
+| `chapters/<id>.csv` | Effective chapters. |
+| `corrections/<id>.csv` | Your hand edits to chapters. Sync this. |
+| `positions/<device>.ndjson` | Where you are, one log per device. Sync this. See [POSITION-FORMAT.md](POSITION-FORMAT.md). |
+| `positions/<id>.csv` | Where you are, as Ribbon 0.4 wrote it. Still kept for older versions. |
+| `edits/<id>.csv` | Your corrections to a book's details. |
+| `settings/<id>.csv` | Per-book speed. |
+| `loudness/<id>.csv` | Measured LUFS and the gain applied. |
+| `silence/<id>.csv` | Gaps that get shortened during playback. |
+| `bookmarks/<id>.csv`, `clips/` | Bookmarks and their thirty-second clips. |
+| `covers/<id>.jpg` | Cover art pulled out of the files. |
+| `pairing/<id>.csv` | How you paired the EPUB's chapters with the audio's, by hand. Sync this. |
+| `heard/<id>.csv` | What the narrator says at chapter starts and checkpoints, and where each is in the EPUB, heard on a machine with a speech model. |
+| `aligned/<id>.csv` | The whole narration transcribed for read-along, phrase by phrase, with where each phrase is in the EPUB, and which minutes were transcribed. |
+
+A book id is the CRC-32 of its library-relative path and total size, so the
+same folder on another machine gets the same id.
 
 ## 10. Where to start reading code
 
 | To understand | Read |
 | --- | --- |
 | How the app holds together | `app/controller.ts` (state at the top, then actions by area) |
+| How the server holds together | `server/src/app.ts`, `server/src/library/importer.ts`, [SERVER.md](SERVER.md) |
+| A server as the desktop sees it | `app/server/shelf.ts` (its books), `app/server/server-log.ts` (its places) |
 | What a book is | `core/types.ts`, `core/scan/group.ts` |
 | Places in a book | `core/reading/booktext.ts` |
 | Text ↔ time | `core/reading/align.ts` (`alignBook`, `textToMs`, `msToText`) |

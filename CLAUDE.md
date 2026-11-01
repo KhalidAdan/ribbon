@@ -2,11 +2,13 @@
 
 Ribbon is a home for your books, read or heard: a reader and a player for
 the EPUBs and audiobooks you own, as files, with one place in every book
-and read-along between the two. It is a server and its apps: the server
-(`server/`) is the home of the books, the people and their places; the
-desktop app, Tauri 2 (Rust) with a web UI (React 19, Tailwind 4), manages
-the collection and transcribes; the iPhone, iPad and Apple TV have a thin
-native app (`tv/`). Start with these, in this order:
+and read-along between the two. It runs two ways. The desktop app alone,
+Tauri 2 (Rust) with a web UI (React 19, Tailwind 4), is all of Ribbon on one
+computer, from your own folders. Add the server (`server/`) and it becomes
+the home of the books, the people and their places: the desktop manages the
+collection and transcribes, and the iPhone, iPad and Apple TV have a thin
+native app (`tv/`), which always needs a server. Start with these, in this
+order:
 
 - [docs/NORTHSTAR.md](docs/NORTHSTAR.md): what Ribbon is and refuses to be. Settles most product questions.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it fits together, in diagrams; where to start reading code.
@@ -30,10 +32,13 @@ native app (`tv/`). Start with these, in this order:
   installing waits until Ribbon is closed.
 - **Every check before a release** (`npm run e2e` at 1x and 6x): the 0.12.0
   resize regression shipped because nothing covered resizing.
+- **Two ways to run it, both real** (docs/NORTHSTAR.md). The desktop alone
+  needs no server and keeps working without one, so a desktop change is
+  checked both ways. With a server, people and places live there, and it
+  prepares each book once.
 - **Thin where you read, whole where you work** (docs/NORTHSTAR.md). The
-  server is required: people and places live there, and it prepares each
-  book once. The iPhone, iPad and Apple TV apps (and Android's, later) only
-  draw and play what it prepares; what they need worked out goes on the
+  iPhone, iPad and Apple TV apps (and Android's, later) need a server and
+  only draw and play what it prepares; what they need worked out goes on the
   server, never into a client of its own. The desktop runs on Windows and
   the Mac: new work must not depend on anything only Windows has.
 
@@ -44,8 +49,8 @@ native app (`tv/`). Start with these, in this order:
   is not. Tests and the e2e checks use a local copy (`.e2e/library`).
 - **This repository is public.** No addresses, hostnames or details of the
   owner's machines or network in it.
-- **No DRM**, no AAX, no stores, no one else's servers: Ribbon runs on a
-  server of the owner's own (docs/NORTHSTAR.md).
+- **No DRM**, no AAX, no stores, no one else's servers: Ribbon runs on your
+  own computer, or a server of your own (docs/NORTHSTAR.md).
 - **Never Electron.** The UI is the web in a Tauri shell; native work goes in
   Rust or a Tauri plugin. The one exception is the thin app in `tv/`, in
   SwiftUI, agreed with the owner, that only draws and plays what the server

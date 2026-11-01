@@ -14,7 +14,8 @@ The same app runs on the iPad and the iPhone, with the TV's screens by touch
 (below). They have a web view, so that's a choice, not a need: the TV's
 read-along is the one the owner reads with, and every device you read and
 listen on is a thin client of the server (docs/NORTHSTAR.md). Like the TV it
-has no folders of its own and never transcribes. Ribbon in Tauri stays the
+has no folders of its own and never transcribes, so all three need a server;
+only the desktop app runs without one. Ribbon in Tauri stays the
 whole app on the desktop; on the iPhone it retires once this app keeps books
 for listening without a network.
 
