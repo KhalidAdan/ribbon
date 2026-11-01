@@ -48,7 +48,9 @@ export class FolderPlaces {
       for (const record of log.records) {
         const renamed = onServer(record, library.id, here);
         if (!renamed) continue;
-        byDevice.set(record.dev, [...(byDevice.get(record.dev) ?? []), renamed]);
+        const records = byDevice.get(record.dev) ?? [];
+        records.push(renamed);
+        byDevice.set(record.dev, records);
       }
       for (const [device, records] of byDevice) added += this.places.append(this.person, log.devices.get(device) ?? { id: device, name: "" }, records).added;
     }
@@ -70,11 +72,11 @@ async function readLog(dir: string): Promise<FolderLog> {
   const names = await readdir(dir).catch(() => [] as string[]);
   const records: LogRecord[] = [];
   const devices = new Map<string, DeviceInfo>();
+  // Named first and only then opened: the folder also holds a file per book for older versions, and whatever a network drive leaves there.
   for (const name of names) {
-    const text = await readFile(path.join(dir, name), "utf8");
-    if (name.endsWith(LOG_EXT)) records.push(...parseLog(text).records.filter((r) => isDeviceId(r.dev)));
+    if (name.endsWith(LOG_EXT)) records.push(...parseLog(await readFile(path.join(dir, name), "utf8")).records.filter((r) => isDeviceId(r.dev)));
     else if (name.endsWith(".json")) {
-      const device = deviceFrom(text);
+      const device = deviceFrom(await readFile(path.join(dir, name), "utf8"));
       if (device) devices.set(device.id, device);
     }
   }
