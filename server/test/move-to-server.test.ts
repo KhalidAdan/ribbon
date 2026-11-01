@@ -191,6 +191,17 @@ describe("moving to a server", () => {
     expect(snapshot(shelf)).toEqual(before);
   });
 
+  it("reads only the logs in a folder's positions, whatever else has come to be there", async () => {
+    const red = await folderBook(shelf, "Red Book");
+    await writeLog(shelf, MAC, [pos(MAC.id, 0, ribbonClaim(red), 1000)]);
+    // A network drive's own folder of thumbnails, as a Synology leaves in what it indexes.
+    await mkdir(path.join(shelf, ".ribbon", "positions", "@eaDir"));
+
+    const job = (await importAs(server, admin, shelf)).job;
+
+    expect(job.progress).toMatchObject({ failed: 0, places: 1 });
+  });
+
   it("gives the places to the person who added the folder, and nobody else", async () => {
     const red = await folderBook(shelf, "Red Book");
     await writeLog(shelf, MAC, [pos(MAC.id, 0, ribbonClaim(red), 1000)]);
