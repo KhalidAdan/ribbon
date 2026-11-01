@@ -20,7 +20,7 @@ import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
 import { useKept } from "./modal";
-import { SpaceShort } from "./Servers";
+import { MoveToServer, SpaceShort } from "./Servers";
 import { SpeechNudge } from "./SpeechNudge";
 import { StatsPane } from "./StatsPane";
 import { ReadingView } from "../reader/ReadingView";
@@ -147,6 +147,7 @@ function Ready() {
       <NewSeries />
       <EditBookHost />
       <SpaceShort />
+      <MoveToServer />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
       <Tabs
         current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}

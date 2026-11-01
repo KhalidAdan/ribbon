@@ -6,6 +6,11 @@ import { encodeRecord, parseLog, type DeviceInfo, type LogRecord } from "../../s
 /** A device's id, as the position log writes it: a random UUID, never derived from anything (docs/POSITION-FORMAT.md, section 2). */
 const DEVICE_ID = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Whether an id is one a device can have in the log. */
+export function isDeviceId(id: string): boolean {
+  return DEVICE_ID.test(id);
+}
+
 /** The most records one answer carries; a device asks again, from the cursor, for the rest. */
 const PAGE = 2000;
 
@@ -38,7 +43,7 @@ export class Places {
 
   /** Add a device's records. Records that aren't valid, or that another device wrote, are left out and counted; `added` is how many were new. */
   append(personId: string, device: DeviceInfo, records: readonly unknown[], now = Date.now()): { accepted: number; skipped: number; added: number } {
-    if (!DEVICE_ID.test(device.id)) throw new PlacesError("A device's id is a urn:uuid: made once per installation.");
+    if (!isDeviceId(device.id)) throw new PlacesError("A device's id is a urn:uuid: made once per installation.");
     let accepted = 0;
     let skipped = 0;
     let added = 0;

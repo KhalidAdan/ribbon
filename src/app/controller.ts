@@ -169,6 +169,8 @@ export interface AppState {
   readOnlyNotice: string[];
   /** Whether this person adds folders: anyone without a server; with one, only its admin, and into it. */
   canAddFolders: boolean;
+  /** The folders being offered a move to the server, by source id, while the question is open. */
+  moveOffer: string[] | null;
   /** Books downloading from a server now, by id: bytes done of the total (docs/SERVER.md, section 8). */
   downloads: Record<string, { done: number; total: number }>;
   /** A book that won't fit on this device, waiting for the person to choose what to remove, or not to download it. */
@@ -449,6 +451,7 @@ export class AppController {
       sourceStatus: {},
       readOnlyNotice: [],
       canAddFolders: true,
+      moveOffer: null,
       downloads: {},
       spaceShort: null,
       books: [],
@@ -700,7 +703,10 @@ export class AppController {
     const near = server ? lastAdded : (this.state.sources[this.state.sources.length - 1]?.root ?? null);
     const root = await this.platform.pickFolder(near);
     if (!root) return;
-    if (server) return this.addFolderToServer(server, root);
+    if (server) {
+      await this.addFolderToServer(server, root);
+      return;
+    }
     try {
       await this.addSource(root);
     } catch (e) {
@@ -1210,6 +1216,45 @@ export class AppController {
       return;
     }
     await this.addSource(root, server);
+    // Someone signing in to a server of their own has their folders to bring: the books, and their place in each.
+    const me = await client.me().catch(() => null);
+    const o = this.opened.get(sourceId(root));
+    if (!o || me?.role !== "admin") return;
+    o.serverAdmin = true;
+    this.updateCanAddFolders();
+    this.offerMove();
+  }
+
+  /** Ask whether to move a folder to the server, or every folder when none is named. */
+  offerMove(folderId?: string): void {
+    const folders = this.state.sources.filter((s) => !s.server && (!folderId || s.id === folderId));
+    if (folders.length > 0) this.set({ moveOffer: folders.map((s) => s.id) });
+  }
+
+  dismissMove(): void {
+    this.set({ moveOffer: null });
+  }
+
+  /**
+   * Move the folders offered to the server (docs/SERVER.md, section 11). The
+   * server copies each folder's books in and takes the person's places from
+   * its logs, so the book open now is let go first, its place written where
+   * the server will read it. A folder then leaves the shelf, so each book has
+   * one home. One the server couldn't take whole stays: nothing has been lost,
+   * and adding it again only brings what's missing.
+   */
+  async moveFolders(): Promise<void> {
+    const offered = this.state.moveOffer ?? [];
+    this.set({ moveOffer: null });
+    const server = this.openedInOrder().find((o) => o.server && o.serverAdmin);
+    if (!server) return;
+    for (const id of offered) {
+      const folder = this.opened.get(id);
+      if (!folder) continue;
+      if (this.state.current?.book.source === id) await this.letGoOfCurrent();
+      await folder.keeper.flush();
+      if (await this.addFolderToServer(server, folder.source.root)) await this.removeSource(id);
+    }
   }
 
   /** A server's folder: one of Ribbon's own, named by the server and who's signed in. */
@@ -1360,11 +1405,11 @@ export class AppController {
    * scan shows. The server reads the folder itself, at the path it has on
    * this machine, so the folder has to be at that path on the server's
    * machine too (a network share mounted there at the same place, say). The
-   * server only ever reads it.
+   * server only ever reads it. True when every book in it is on the server.
    */
-  private async addFolderToServer(o: Opened, folder: string): Promise<void> {
+  private async addFolderToServer(o: Opened, folder: string): Promise<boolean> {
     const shelf = o.server;
-    if (!shelf) return;
+    if (!shelf) return false;
     const name = sourceName(folder);
     this.appSettings = { ...this.appSettings, lastServerFolder: folder };
     void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
@@ -1384,7 +1429,7 @@ export class AppController {
       let added = 0;
       while (job.state === "waiting" || job.state === "running") {
         await new Promise((r) => setTimeout(r, 1000));
-        if (!alive()) return;
+        if (!alive()) return false;
         job = await shelf.client.job(job.id);
         show(job);
         if (job.progress.added > added) {
@@ -1394,7 +1439,7 @@ export class AppController {
       }
     } catch (e) {
       if (alive()) this.set({ error: `Couldn't add ${name} to the server: ${describe(e)}` });
-      return;
+      return false;
     } finally {
       o.serverImports.delete(key);
       if (alive()) this.publishScanning();
@@ -1409,6 +1454,7 @@ export class AppController {
       const why = p.notes.filter((n) => !n.endsWith("already on the server."));
       this.set({ error: `${p.added} ${p.added === 1 ? "book" : "books"} from ${name} added. ${p.failed} couldn't be: ${why.slice(0, 3).join(" ")}${why.length > 3 ? ` And ${why.length - 3} more.` : ""}` });
     }
+    return job.state === "done" && p.failed === 0;
   }
 
   /** Each import's own number, to keep it by. */
@@ -3453,7 +3499,7 @@ export class AppController {
     }
     this.opened.clear();
     this.jobs.cancelAll();
-    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true });
+    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null });
   }
 
   // Series ----------------------------------------------------------------

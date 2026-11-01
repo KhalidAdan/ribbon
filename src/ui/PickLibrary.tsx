@@ -34,7 +34,7 @@ export function PickLibrary() {
             </Button>
           </div>
           <p className="mt-6 border-t border-line pt-4 text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">
-            Someone runs a Ribbon server for you?{" "}
+            Have a Ribbon server?{" "}
             <button type="button" onClick={() => setConnecting(true)} className="rounded-sm font-medium text-ink underline decoration-line-strong underline-offset-2 focus-ring hover:decoration-ink">
               Connect to it
             </button>

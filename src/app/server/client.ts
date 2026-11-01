@@ -9,6 +9,7 @@ export interface ImportProgress {
   added: number;
   skipped: number;
   failed: number;
+  places: number;
   current: string | null;
   notes: string[];
 }
