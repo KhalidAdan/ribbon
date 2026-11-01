@@ -2441,8 +2441,13 @@ export class AppController {
         const list = await o.server.client.transcripts();
         const next = list.find((b) => b.done < b.total && !this.untranscribable.has(b.id));
         if (!next) return;
-        const book = this.state.books.find((b) => serverIdOf(b) === next.id && this.openedOf(b) === o);
-        const result = book ? await this.transcribeServerBook(o, book, model) : "failed";
+        const onShelf = () => this.state.books.find((b) => serverIdOf(b) === next.id && this.openedOf(b) === o);
+        // A book just added is on the server's list before it's on the shelf, which asks for it a moment later: asked for now.
+        if (!onShelf()) await this.refreshServer(o);
+        const book = onShelf();
+        // Still not there, the server couldn't be asked. There's nothing wrong with the book.
+        if (!book) return this.transcribeForServerLater();
+        const result = await this.transcribeServerBook(o, book, model);
         if (result === "failed") this.untranscribable.add(next.id);
         if (result === "whole") this.serverRetryMs = 0;
         if (result === "retry") return this.transcribeForServerLater();
