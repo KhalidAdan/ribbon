@@ -2,7 +2,7 @@
 
 **A home for your books, read or heard.**
 
-Your files, on your own server. One place in every book. Nothing in anyone else's cloud.
+Your files, on your own computer or your own server. One place in every book. Nothing in anyone else's cloud.
 
 ---
 
@@ -12,17 +12,23 @@ A reader and a player for the books you own, as files: the EPUB and the
 audiobook, alone or side by side. It reads the EPUB on a page as well
 typeset as any reader's, plays the M4B, MP3, Opus and FLAC you already
 have, and keeps your place in every book forever, whether you were reading
-or listening. That place lives on your own server, with your books, and
-every device you read or listen on finds it there; never someone else's
-service.
+or listening. That place is yours, in your folders or on your own server;
+never someone else's service.
 
-Ribbon is a server and its apps. The server is the home: the books, the
-people you share them with, and each person's place. The desktop is the
-workshop, where the collection is made: books come in from your folders,
-their narration is transcribed on the desktop's graphics card, and their
-chapters and covers are put right. The iPhone, the iPad and the Apple TV are
-where you read and listen: small native apps that draw and play what the
-server has prepared, and the phone keeps the books you take with you.
+Ribbon runs two ways, and you choose by what you want from it.
+
+**The desktop app alone** is all of Ribbon on one computer. Point it at a
+folder and it reads, plays, transcribes the narration on your graphics card,
+and reads along. Your place is a small file beside the book. There's no
+account, and nothing else to run.
+
+**The desktop app with a server** is Ribbon everywhere. The server is the
+home: the books, the people you share them with, and each person's place.
+The desktop is the workshop, where the collection is made: books come in from
+your folders, their narration is transcribed on the desktop's graphics card,
+and their chapters and covers are put right. The iPhone, the iPad and the
+Apple TV are where you read and listen: small native apps that draw and play
+what the server has prepared, so they always need one.
 
 Text is a first-class citizen, not a feature bolted onto a player. A book
 you only have as an EPUB is a book like any other. A book you have both
@@ -49,12 +55,12 @@ plays in ffmpeg without a key and the EPUB opens without one, it is yours
 to read and hear here.
 
 **Not a store, not a social network.** No catalogue, no recommendations, no
-friends. The library is your books, on your own server, brought in from your
-folders.
+friends. The library is your books, in your folders or on your own server.
 
-**Not someone else's service.** Your own server, your own people, nothing in
-the cloud. Ribbon runs on a machine you choose, for the people you invite
-([SERVER.md](SERVER.md)). No store, no tracking, no one else's service.
+**Not someone else's service.** Your own computer, or your own server for
+your own people; nothing in the cloud. A server runs on a machine you choose,
+for the people you invite ([SERVER.md](SERVER.md)). No store, no tracking, no
+one else's service.
 
 **Not two apps.** A book you own as audio and as an EPUB is one book with one
 place, and reading it is as much the product as hearing it. Not a reader
@@ -64,23 +70,29 @@ for every format: EPUBs without DRM, the way the audio is files without DRM.
 
 **Your place is yours.** Every book keeps your place in a small log: where
 you were reading, where you were listening, when, on which device. The
-newest wins. Each person's log is kept in the server's database, and comes
-back as a file in the same format whenever they ask for it: readable, theirs
-to take away, and it outlives any app or server it passed through.
+newest wins. Alone, the log is a file beside the book. With a server, each
+person's log is kept in its database, and comes back as a file in the same
+format whenever they ask for it. Either way it's readable, yours to take
+away, and it outlives any app or server it passed through.
 
-**One home.** A server is required: it is where people and places live, so
-there is one answer to "where was I?" and never two to reconcile. It
-prepares each book once (covers, loudness, chapters, the read-along) and
-every device asks it, so no two devices work a book out twice. Your folders
-are where books come from, not where places are kept.
+**Start alone, add a server when you want one.** The desktop needs nothing
+else, and alone is not a lesser Ribbon: it is every book, every place and
+read-along, on one computer. A server is what you add for more than that:
+the iPhone, the iPad and the Apple TV, and other people with places of their
+own. Adding one should never mean starting over.
+
+**One home for each book.** A book lives in a folder or on a server, so there
+is one answer to "where was I?" and never two to reconcile. On a server, each
+book is prepared once (covers, loudness, chapters, the read-along) and every
+device asks it, so no two devices work a book out twice.
 
 **Thin where you read, whole where you work.** The desktop is Ribbon in
-full: a Tauri app that manages the collection and transcribes. The apps you
-read and listen on (the iPhone, the iPad, the Apple TV, and Android when it
-comes) are native and thin: they keep nothing of their own but who has
-signed in and the books downloaded to play without a network. What a thin
-app needs worked out is worked out on the server, once, never again in the
-app ([tv/README.md](../tv/README.md)).
+full: a Tauri app that manages the collection and transcribes, with a server
+or without one. The apps you read and listen on (the iPhone, the iPad, the
+Apple TV, and Android when it comes) are native and thin: they need a server,
+and keep nothing of their own but who has signed in. What a thin app needs
+worked out is worked out on the server, once, never again in the app
+([tv/README.md](../tv/README.md)).
 
 **One place, two editions.** Reading and listening each keep their own exact
 place. Switching maps one onto the other: first by chapter and how far
@@ -146,18 +158,7 @@ One app, one platform (the desktop), one library of folders. Shipped, as of
   any reader that plays Media Overlays.
 - **Position files** beside the books, synced by the existing engine.
 
-## What comes next
-
-**The phone.** The picture of success below has three places in it, and
-version one is one of them. The Apple TV and the iPad have their thin app
-([tv/README.md](../tv/README.md)); the iPhone gets the same app next, with
-the books downloaded to it from your server so they play without a network,
-its place moving with you. The Tauri app on the iPhone retires when it does.
-Android comes later, as a thin app of its own.
-
-**Places move to the server.** Version one kept places beside the books, as
-files. Now the server is the one home, the desktop reads and plays through
-it like every other device, and the position files beside the books retire.
+## Since version one
 
 **The server.** A phone can't prepare a book (no ffmpeg, no transcribing), a
 network share won't always take its writes, the Apple TV needs something to
@@ -166,6 +167,21 @@ Ribbon's own server prepares each book once, keeps each person's place in
 its database, and gives every device the finished book. It runs on a machine
 you choose, for the people you invite. The design is in
 [SERVER.md](SERVER.md).
+
+**The thin apps.** The picture of success below has three places in it, and
+version one is one of them. The Apple TV, the iPad and the iPhone have their
+thin app ([tv/README.md](../tv/README.md)), which streams from your server,
+your place moving with you.
+
+## What comes next
+
+**Adding a server without starting over.** Someone who began with the desktop
+alone adds a server, and their books go in with their place and bookmarks.
+
+**Easy to install.** The desktop app, the server and the Apple apps ready to
+install as they are, so trying Ribbon never means building it.
+
+**Android**, later, as a thin app of its own.
 
 **On the radar, not committed:**
 

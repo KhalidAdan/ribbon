@@ -3,7 +3,11 @@
 The books, and each person's place in them, for the people you invite. The
 design is [docs/SERVER.md](../docs/SERVER.md); this is how to run it.
 
-Built so far:
+You don't need a server to use Ribbon: the desktop app runs alone from your
+folders. Run one when you want the iPhone, iPad and Apple TV app, or people
+with places of their own.
+
+What it does:
 
 - **Accounts.** People sign in with a name and a password (Better Auth), and
   the admin invites them.
@@ -84,10 +88,8 @@ where an Apple M2's graphics hear 29 to 45 times as fast.
 
 ## In Docker
 
-From the repository's root (the image holds the app's own logic the
-server runs, ffmpeg, the EPUB parser and MP3 frame index for read-along, and
-speech with its model, compiled for the processor of the machine that builds
-it, so build it where it runs):
+From the repository's root (the image holds the app's own logic the server
+runs, ffmpeg, and the EPUB parser and MP3 frame index for read-along):
 
 ```bash
 docker build -f server/Dockerfile -t ribbon-server .
