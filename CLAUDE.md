@@ -34,8 +34,10 @@ order:
   resize regression shipped because nothing covered resizing.
 - **Two ways to run it, both real** (docs/NORTHSTAR.md). The desktop alone
   needs no server and keeps working without one, so a desktop change is
-  checked both ways. With a server, people and places live there, and it
-  prepares each book once.
+  checked both ways: the end-to-end checks run on a folder, and what only
+  happens with a server is in `server/test/desktop-on-server.test.ts`, the
+  desktop's own controller against a real server. With a server, people and
+  places live there, and it prepares each book once.
 - **Thin where you read, whole where you work** (docs/NORTHSTAR.md). The
   iPhone, iPad and Apple TV apps (and Android's, later) need a server and
   only draw and play what it prepares; what they need worked out goes on the

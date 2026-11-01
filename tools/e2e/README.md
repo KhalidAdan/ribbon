@@ -24,6 +24,13 @@ non-zero and lists what failed.
 | `readalong` | The narrator's sentence is marked and the mark moves on, the page turns with the narrator, the bar counts down; turning away stops following and offers Go to the narrator, which brings it back. |
 | `scroll` | The wheel scrolls and the place follows; the whole book scrolls through in 10 s without a frame lacking text, ending in its last section. |
 
+They run on a folder of books, and that covers a server's books too: the
+reader and the player never ask where a book came from, and a downloaded book
+is a folder of files like any other. What only happens with a server
+(downloading, a place or a bookmark reaching other devices, transcribing for
+it, moving a folder to it) runs against a real server in
+`server/test/desktop-on-server.test.ts` and `move-to-server.test.ts`.
+
 ## The speed report
 
 ```bash
