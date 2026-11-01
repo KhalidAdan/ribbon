@@ -188,6 +188,10 @@ install as they are, so trying Ribbon never means building it.
   library-wide "where did they say that" search falls out of it.
 - **Reading in the stats.** Time per book, per week, per narrator is kept for
   listening; reading should count too. Local only.
+- **Transcribing as a plug-in.** Narration is transcribed on a computer with a
+  graphics card, the desktop, and that stays as it is. The most Ribbon would
+  do is lift the code that transcribes into a plug-in, so that other people
+  could write their own. Something to think about, not for now.
 
 Nothing above gets added until version one is boringly reliable.
 
