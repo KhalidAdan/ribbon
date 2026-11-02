@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One book's page, as the desktop's (src/ui/ReaderPage.tsx): the cover, the
+/// One book's page, as the desktop's (packages/desktop/src/ui/ReaderPage.tsx): the cover, the
 /// title in the book's own serif, where you are as a sentence, listening and
 /// reading along, the facts, the description, and the rest of its series as
 /// a list. A faint wash of the cover's colour sits behind the top. The focus

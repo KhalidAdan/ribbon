@@ -7,7 +7,7 @@ import { readStored, writeStored } from "./prepare.ts";
  * Descriptions from Audible's catalog, for the books that came with none of
  * their own and have no EPUB that has one: an audiobook folder of MP3s
  * usually says nothing about itself. The same lookup the apps make behind
- * their "Descriptions and chapter names" switch (src-tauri/src/online.rs),
+ * their "Descriptions and chapter names" switch (packages/desktop/src-tauri/src/online.rs),
  * here only when the server's admin turns it on (RIBBON_DESCRIPTIONS,
  * docs/SERVER.md), since it asks someone else's service: only a book's
  * title and author are sent.

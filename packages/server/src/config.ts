@@ -15,9 +15,9 @@ export interface ServerConfig {
   secret: string;
   /** Where Ribbon's apps sign in from, besides the server's own address. The desktop and phone apps' own origins unless given. */
   appOrigins?: string[];
-  /** The `ribbon-ebook` command, which parses EPUBs as the apps do (src-tauri/ebook), or null when there's none: no read-along. */
+  /** The `ribbon-ebook` command, which parses EPUBs as the apps do (packages/desktop/src-tauri/ebook), or null when there's none: no read-along. */
   ebookTool?: string | null;
-  /** The `ribbon-frames` command, which finds a moment's frame in an MP3 as the app does (src-tauri/frames), or null: MP3s go whole. */
+  /** The `ribbon-frames` command, which finds a moment's frame in an MP3 as the app does (packages/desktop/src-tauri/frames), or null: MP3s go whole. */
   framesTool?: string | null;
   /**
    * Where descriptions come from for books with none of their own (library/describe.ts): Audible's catalog, in one of
@@ -57,7 +57,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 
 /**
  * One of Ribbon's commands (`ribbon-ebook`, `ribbon-frames`) as cargo builds
- * it in this repository (`cargo build --manifest-path src-tauri/Cargo.toml -p
+ * it in this repository (`cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p
  * <name>`), a release build before a debug one, or null when it isn't built.
  */
 export function builtTool(name: string): string | null {

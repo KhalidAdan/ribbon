@@ -28,7 +28,7 @@ describe("an MP3 from a moment", () => {
 
   beforeAll(async () => {
     const tool = builtTool("ribbon-frames");
-    expect(tool, "build the frames tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-frames").not.toBeNull();
+    expect(tool, "build the frames tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-frames").not.toBeNull();
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-frames-"));
     vbrMp3(path.join(dir, "library", "Noise", "01.mp3"));
     const made = await serverWithAdmin(dir, { framesTool: tool });

@@ -2,7 +2,7 @@
 //! audio decoded by ffmpeg and transcribed by whisper.cpp, so a chapter's
 //! opening words can be matched against the text, and whole stretches of it
 //! for read-along (#57). Nothing leaves the machine. The hearing itself is
-//! the `ribbon-speech` crate (src-tauri/speech), which the server runs too;
+//! the `ribbon-speech` crate (packages/desktop/src-tauri/speech), which the server runs too;
 //! here are the app's commands over it. The model is a whisper.cpp `ggml`
 //! file the listener chose or downloaded.
 

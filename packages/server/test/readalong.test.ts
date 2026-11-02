@@ -31,7 +31,7 @@ describe("read-along from the server", () => {
 
   beforeAll(async () => {
     const tool = builtTool("ribbon-ebook");
-    expect(tool, "build the EPUB tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
+    expect(tool, "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-readalong-"));
     const library = path.join(dir, "library");
     const folder = path.join(library, "An Author", "Read Along");

@@ -12,7 +12,7 @@ publish = false
 name = "ribbon_speech"
 
 [features]
-# whisper.cpp on the GPU, which the app turns on for each system (src-tauri/Cargo.toml).
+# whisper.cpp on the GPU, which the app turns on for each system (packages/desktop/src-tauri/Cargo.toml).
 # The server's command is built without either and hears on the CPU.
 metal = ["whisper-rs/metal"]
 vulkan = ["whisper-rs/vulkan"]

@@ -6,12 +6,12 @@
 #
 #   docker build -f packages/server/Dockerfile -t ribbon-server .
 
-# The EPUB parser and the MP3 frame index (src-tauri/ebook, src-tauri/frames), built alone: nothing of Tauri is in them.
+# The EPUB parser and the MP3 frame index (packages/desktop/src-tauri/ebook, packages/desktop/src-tauri/frames), built alone: nothing of Tauri is in them.
 FROM rust:1-bookworm AS tools
 WORKDIR /ribbon
 COPY .cargo .cargo
-COPY src-tauri src-tauri
-RUN cargo build --release --locked --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
+COPY packages/desktop/src-tauri packages/desktop/src-tauri
+RUN cargo build --release --locked --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
 
 FROM node:24-bookworm-slim
 
@@ -24,9 +24,12 @@ WORKDIR /ribbon
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/host-node/package.json packages/host-node/
+COPY packages/desktop/package.json packages/desktop/
 COPY packages/server/package.json packages/server/
 RUN npm ci --workspace @ribbon/server --workspace @ribbon/core --workspace @ribbon/host-node --include-workspace-root=false --ignore-scripts
-COPY packages packages
+COPY packages/core packages/core
+COPY packages/host-node packages/host-node
+COPY packages/server packages/server
 COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /usr/local/bin/
 ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames
 

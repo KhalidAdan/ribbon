@@ -89,7 +89,7 @@ Most of what the server needs exists, because Ribbon was layered for it
 - **The Rust side** does the per-file work (tags, MP3 frame indexes, EPUB
   models, whisper). The server calls it as a command-line tool built from
   the same crate, the way the dev harness already runs `ebook_json`. Built
-  for EPUBs: `ribbon-ebook` (src-tauri/ebook), for read-along on the TV.
+  for EPUBs: `ribbon-ebook` (packages/desktop/src-tauri/ebook), for read-along on the TV.
 - **The position log** ([POSITION-FORMAT.md](POSITION-FORMAT.md)) was made
   for devices that are often offline: each device appends to its own log,
   and merging needs no referee. The server keeps one set of logs per person
@@ -305,7 +305,7 @@ offered, and the book says what it's waiting for.
   admin's Mac or PC, signed in as the admin with a speech model, works
   through the books still missing minutes (`GET /api/library/transcripts`),
   one at a time, while Ribbon is open: it downloads a book it hasn't for the
-  while, transcribes it start to end (src/app/transcribing.ts, whisper small
+  while, transcribes it start to end (packages/desktop/src/app/transcribing.ts, whisper small
   with each word's time), and sends it whole (`PUT
   /api/books/:id/transcript`), kept in place of what the book had. One that
   isn't whole is refused, and a piece of one is never taken. It's placed
@@ -398,7 +398,7 @@ and the jobs that follow.
   /api/books`, kept on the device as last seen so a launch draws it at once.
   A server's source keeps no copy of anyone's log as files:
   `LibraryService` keeps its position log in a `ServerLog`
-  (`src/app/server/server-log.ts`), which sends what this device adds,
+  (`packages/desktop/src/app/server/server-log.ts`), which sends what this device adds,
   takes everyone's by cursor, and keeps one small file of the log as last
   read and what's still to send. Offline, places wait on the device and go
   when it's back. Downloaded books are files in Ribbon's own folder, the one

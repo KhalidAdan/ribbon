@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
-import { ServerClient } from "../../../src/app/server/client.ts";
-import { ServerLog } from "../../../src/app/server/server-log.ts";
+import { ServerClient } from "../../desktop/src/app/server/client.ts";
+import { ServerLog } from "../../desktop/src/app/server/server-log.ts";
 import { encodeRecord, logName, mergePlaces, ribbonClaim, type LogRecord } from "@ribbon/core/poslog";
 import { nodeHost } from "@ribbon/host-node/node";
 import { serverWithAdmin } from "./fixture.ts";
@@ -20,7 +20,7 @@ const BOOK = ribbonClaim("red");
 const pos = (dev: string, seq: number, ms: number) => ({ v: 1, dev, seq, t: new Date(1_790_000_000_000 + seq).toISOString(), k: "pos", book: { ids: [BOOK] }, why: "pause", ms }) as LogRecord;
 
 /**
- * The apps' side of places (src/app/server/server-log.ts) against this
+ * The apps' side of places (packages/desktop/src/app/server/server-log.ts) against this
  * server: each device keeps the log as last read in its own folder, and the
  * server holds it.
  */

@@ -36,7 +36,7 @@ describe("how the library reads along", () => {
 
   beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-standing-"));
-    expect(builtTool("ribbon-ebook"), "build the EPUB tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
+    expect(builtTool("ribbon-ebook"), "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
   });
   afterAll(async () => {
     for (const server of servers) {

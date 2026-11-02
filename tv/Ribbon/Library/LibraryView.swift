@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The library, as the desktop's (src/ui/LibraryPane.tsx): what you're in
+/// The library, as the desktop's (packages/desktop/src/ui/LibraryPane.tsx): what you're in
 /// the middle of, then each series as a card that knows where you are in it,
 /// then every book outside a series. Each card is one button, which opens the
 /// book's page, where play is. The focus starts on the book you were in the
@@ -317,7 +317,7 @@ struct CoverView: View {
     }
 
     /// The first letters of the title's first two words, as the desktop's cover does when it has no picture
-    /// (src/ui/Cover.tsx): words that start with a letter, so "07. Legion" reads L, not 0L.
+    /// (packages/desktop/src/ui/Cover.tsx): words that start with a letter, so "07. Legion" reads L, not 0L.
     private var initials: String {
         let words = book.title.split(whereSeparator: \.isWhitespace)
         let lettered = words.filter { $0.first?.isLetter == true }

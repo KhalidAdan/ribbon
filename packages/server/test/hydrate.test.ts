@@ -42,7 +42,7 @@ describe("filling in what a book came without", () => {
   const details = async (title: string) => (await get(`/api/books/${ids[title]}`)).json() as StoredBook;
 
   beforeAll(async () => {
-    expect(config.ebookTool, "build the EPUB tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
+    expect(config.ebookTool, "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-hydrate-"));
     const library = path.join(dir, "library");
     // The publisher's description, HTML escaped inside the XML, as Black Library's EPUBs have it.

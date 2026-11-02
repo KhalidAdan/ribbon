@@ -9,7 +9,7 @@ follows them; a change that breaks one says why in its PR.
 
 ## 1. Ground and surfaces
 
-Four tokens, defined once in `src/index.css` and switched for light and
+Four tokens, defined once in `packages/desktop/src/index.css` and switched for light and
 dark by the operating system. Components use the tokens, never raw
 greys.
 
@@ -109,11 +109,11 @@ greys.
 - What comes in leaves the way it came, a little quicker: a dialog
   shrinks and fades, a drawer goes back down or out to the side, the
   player sinks, each in 150ms, and backdrops fade with them
-  (`src/ui/modal.ts`). A menu grows out of the corner nearest its button
+  (`packages/desktop/src/ui/modal.ts`). A menu grows out of the corner nearest its button
   and goes at once when an item is chosen.
 - A press shows without hover, which a phone has none of: a button
   shrinks to 97% and comes back in 150ms, a card to 98%
-  (`pressed`, `pressedCard` in `src/ui/Button.tsx`).
+  (`pressed`, `pressedCard` in `packages/desktop/src/ui/Button.tsx`).
 - Nothing moves on the way somewhere: panes, tabs, page turns by key
   and the narrator's mark change at once, being seen hundreds of times a
   day.

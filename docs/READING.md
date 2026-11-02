@@ -244,7 +244,7 @@ side:
   use, Readium Locators (`locator`, `fromLocator`) and links by id
   (`fromHref`, `idAt`). It works out where every block begins up front,
   so finding a place is a lookup.
-- **`ChapterSource`** (`src-tauri/ebook/src/source.rs`): a chapter's
+- **`ChapterSource`** (`packages/desktop/src-tauri/ebook/src/source.rs`): a chapter's
   XHTML and where in it each character of the model was read from, so a
   stretch of text can be marked in the book's own file (`bytes`, `wrap`).
   The read-along export wraps every sentence with it.
@@ -334,7 +334,7 @@ under its own title.
 
 **On a phone**, and on any touch screen or window as narrow as one, the
 page is the book's: its title, quietly, at the top, and one control at
-the bottom, the dock (`src/reader/Dock.tsx`).
+the bottom, the dock (`packages/desktop/src/reader/Dock.tsx`).
 - On the left, under the text, the page number: the page in the whole
   book once every chapter is laid out, how far through until then. While
   the narrator reads on another page and the page is not following it,

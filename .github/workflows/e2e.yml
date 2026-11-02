@@ -1,9 +1,9 @@
-# The end-to-end checks (tools/e2e) in the built app: a book opened from cold
+# The end-to-end checks (packages/desktop/tools/e2e) in the built app: a book opened from cold
 # and to the page left, pages swiped, the window resized, the narrator
 # followed, the whole book scrolled. On Windows, where the webview is WebView2
 # and playwright-core drives it over its debugging port, with the public test
 # library: The Wonderful Wizard of Oz, from Project Gutenberg and LibriVox
-# (tools/e2e/fetch-library.ts). At normal speed and with the CPU six times
+# (packages/desktop/tools/e2e/fetch-library.ts). At normal speed and with the CPU six times
 # slower, as before every release (docs/RELEASING.md), side by side: each
 # builds the app on a runner of its own, which costs runner minutes rather than
 # waiting. Then, on main and when run by hand, the speed report at both speeds,
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: .e2e/public-library/The Wonderful Wizard of Oz/*.mp3
-          key: e2e-library-${{ hashFiles('tools/e2e/library.json') }}
+          key: e2e-library-${{ hashFiles('packages/desktop/tools/e2e/library.json') }}
       - run: npm run e2e:library
 
       - if: matrix.part != '6x'
@@ -69,7 +69,7 @@ jobs:
       - if: matrix.part != '1x'
         run: npm run e2e -- ${{ matrix.part == '6x' && '--build' || '' }} --slow 6 --library .e2e/public-library
 
-      # How fast it feels (tools/e2e/speed.ts), beside the last release's numbers
+      # How fast it feels (packages/desktop/tools/e2e/speed.ts), beside the last release's numbers
       # (speed-compare.ts, on the run's summary page). Not a pass or a fail; the
       # numbers are kept with the run, so a release can become the baseline.
       - if: matrix.part == 'speed report'

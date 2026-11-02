@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bytesToRows, rowsToBytes } from "@ribbon/core/csv";
 import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows } from "@ribbon/core/reading/narration";
 import type { ReadAlong } from "@ribbon/core/reading/readalong";
-import { ServerClient } from "../../../src/app/server/client.ts";
+import { ServerClient } from "../../desktop/src/app/server/client.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import { inTranscribingOrder } from "../src/library/routes.ts";
@@ -36,7 +36,7 @@ describe("transcripts on the server", () => {
 
   beforeAll(async () => {
     const ebookTool = builtTool("ribbon-ebook");
-    expect(ebookTool, "build the EPUB tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
+    expect(ebookTool, "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-transcripts-"));
     const library = path.join(dir, "library");
     const folder = path.join(library, "An Author", "The Waygate");

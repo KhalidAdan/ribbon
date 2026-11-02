@@ -167,7 +167,7 @@ two rows; and the reader's buttons say From here and To narrator.
 `GET /api/books/:id/readalong` (packages/server/src/readalong-routes.ts): the book's
 paragraphs, and when each sentence is read. The server makes it once per
 book, with the same code the apps use: the EPUB parsed by `ribbon-ebook`
-(src-tauri/ebook) and paired with the narration by `packages/core/src/reading/`. A
+(packages/desktop/src-tauri/ebook) and paired with the narration by `packages/core/src/reading/`. A
 sentence is marked only where it is placed to the sentence (a transcript or
 a Media Overlay around it); elsewhere the remote still steps through it and
 Play still reads from it. Its `check` says how much of the book is placed

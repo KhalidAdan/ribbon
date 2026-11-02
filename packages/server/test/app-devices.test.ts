@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
-import { AppController, type Platform } from "../../../src/app/controller.ts";
-import { memorySettings, memorySources } from "../../../src/app/platform.ts";
+import { AppController, type Platform } from "../../desktop/src/app/controller.ts";
+import { memorySettings, memorySources } from "../../desktop/src/app/platform.ts";
 import { nodeHost } from "@ribbon/host-node/node";
 import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 

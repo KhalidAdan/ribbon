@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The full player, as the desktop's (src/ui/PlayerPane.tsx), laid out
+/// The full player, as the desktop's (packages/desktop/src/ui/PlayerPane.tsx), laid out
 /// across the TV: where you are as a sentence at the top; the book, the
 /// chapter's progress and the transport on the left; what you can change
 /// about listening, and the book's chapters, on the right. The focus starts
@@ -166,7 +166,7 @@ private struct NowPlaying: View {
     }
 }
 
-/// Something offered on resuming, once, quietly, as the desktop's (src/ui/ResumeOffer.tsx): a line, the way to take
+/// Something offered on resuming, once, quietly, as the desktop's (packages/desktop/src/ui/ResumeOffer.tsx): a line, the way to take
 /// it, and Keep going, which lets it go. Down from the transport reaches it. On a phone, one above the other.
 private struct Offer: View {
     let words: String
@@ -212,7 +212,7 @@ private struct ListeningGroup: View {
     }
 }
 
-/// The sleep timer as one row: the choices, or what is left with a way to add time or stop (src/ui/SleepControl.tsx).
+/// The sleep timer as one row: the choices, or what is left with a way to add time or stop (packages/desktop/src/ui/SleepControl.tsx).
 /// On a phone the choices take two rows.
 private struct SleepRow: View {
     let listening: Listening
@@ -376,7 +376,7 @@ private struct ChapterSheet: View {
 }
 
 /// The book's bookmarks from every device, in the order of the book, as the desktop lists them
-/// (src/ui/BookmarkList.tsx): the words, or the note, with the chapter and the time. Choosing one
+/// (packages/desktop/src/ui/BookmarkList.tsx): the words, or the note, with the chapter and the time. Choosing one
 /// listens from it; holding Select on one offers to delete it.
 private struct BookmarkSheet: View {
     let listening: Listening

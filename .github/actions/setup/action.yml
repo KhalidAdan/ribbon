@@ -37,7 +37,9 @@ runs:
 
     - uses: Swatinem/rust-cache@v2
       with:
-        workspaces: src-tauri -> ../target
+        # Compiled output remembers where its source was: a new key, so a cache from before the desktop moved is never used.
+        prefix-key: v1-rust
+        workspaces: packages/desktop/src-tauri -> ../../../target
         # It joins a workspace's target to the workspace, so C:\t goes in whole.
         cache-directories: ${{ runner.os == 'Windows' && 'C:\t' || '' }}
 

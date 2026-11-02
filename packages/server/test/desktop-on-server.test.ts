@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppController, type Platform } from "../../../src/app/controller.ts";
-import { LibraryService } from "../../../src/app/library.ts";
-import { memorySettings, memorySources } from "../../../src/app/platform.ts";
+import { AppController, type Platform } from "../../desktop/src/app/controller.ts";
+import { LibraryService } from "../../desktop/src/app/library.ts";
+import { memorySettings, memorySources } from "../../desktop/src/app/platform.ts";
 import { ribbonClaim } from "@ribbon/core/poslog";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { endOf, readsOf } from "@ribbon/core/stats";
@@ -268,7 +268,7 @@ describe("the desktop on a server", () => {
    */
   const aHearingDesktop = async () => {
     const tool = builtTool("ribbon-ebook");
-    expect(tool, "build the EPUB tool first: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
+    expect(tool, "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
     const run = promisify(execFile);
     const cache = mkdtempSync(path.join(dir, "ebook-"));
     const heard: number[] = [];

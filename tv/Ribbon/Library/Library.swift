@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// One person's library on the server, as the desktop's shelf shows it
-/// (src/ui/LibraryPane.tsx): what they're in the middle of, then each series,
+/// (packages/desktop/src/ui/LibraryPane.tsx): what they're in the middle of, then each series,
 /// then every book outside one. The series are the server's (`GET
 /// /api/series`), the same on every device. Progress comes from their places
 /// on the server (`GET /api/progress`), never with the library list, which
@@ -130,7 +130,7 @@ final class Library {
         return p.finished ? 1 : min(1, Double(p.ms) / Double(book.durationMs))
     }
 
-    /// What a book's card says under its author: finished, how far and how long is left, or how long it is (src/ui/LibraryPane.tsx, `standing`).
+    /// What a book's card says under its author: finished, how far and how long is left, or how long it is (packages/desktop/src/ui/LibraryPane.tsx, `standing`).
     func standing(of book: ServerBook) -> String {
         guard let p = progress[book.id] else { return Format.left(book.durationMs) }
         if p.finished { return "Finished" }

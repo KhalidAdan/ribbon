@@ -19,7 +19,7 @@ export interface FrameStart {
 /**
  * Exact places in a book's MP3s, for a player that would otherwise seek by
  * guess (Apple's on the TV; docs/SERVER.md, section 8): the frame a moment
- * falls in, found by the `ribbon-frames` command (src-tauri/frames), the
+ * falls in, found by the `ribbon-frames` command (packages/desktop/src-tauri/frames), the
  * code the app plays its own MP3s with. Each file's frame index is made
  * once, reading the file whole, and kept in the book's folder (`frames/`).
  */

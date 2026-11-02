@@ -1,11 +1,11 @@
 /**
  * Runs a command (the Tauri CLI, cargo) with what this machine's compiler
- * needs to build whisper.cpp, the speech side (src-tauri, through
+ * needs to build whisper.cpp, the speech side (packages/desktop/src-tauri, through
  * whisper-rs). `npm run tauri`, `npm run tauri:dev` and `npm run test:rust`
  * go through it; a bare `cargo build` does not, and on Windows builds a
  * whisper.cpp too slow to use.
  *
- *   node tools/with-build-env.mjs tauri build
+ *   node packages/desktop/tools/with-build-env.mjs tauri build
  *
  * On Windows, whisper-rs-sys passes GGML_* and CMAKE_* variables to cmake.
  * Without these, MSVC builds whisper.cpp with no optimisation and no vector
@@ -37,7 +37,7 @@ function buildEnv() {
 
 const [command, ...args] = process.argv.slice(2);
 if (!command) {
-  console.error("Usage: node tools/with-build-env.mjs <command> [args…]");
+  console.error("Usage: node packages/desktop/tools/with-build-env.mjs <command> [args…]");
   process.exit(2);
 }
 const quoted = [command, ...args].map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" ");

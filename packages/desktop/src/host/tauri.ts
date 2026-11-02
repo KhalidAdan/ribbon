@@ -221,7 +221,7 @@ export function envLibrary(): Promise<string | null> {
 
 /**
  * On iOS, folders are chosen with Ribbon's own picker and read only while iOS
- * keeps their access open (src-tauri/plugins/folders): the dialog plugin has
+ * keeps their access open (packages/desktop/src-tauri/plugins/folders): the dialog plugin has
  * no folder picker there.
  */
 export const onIos = (): boolean => platform() === "ios";
@@ -287,7 +287,7 @@ export function appSettingsWrite(settings: Record<string, unknown>): Promise<voi
 }
 
 /**
- * Ribbon's own Quit (Cmd-Q on a Mac, src-tauri/src/quit.rs) asks the page
+ * Ribbon's own Quit (Cmd-Q on a Mac, packages/desktop/src-tauri/src/quit.rs) asks the page
  * first, so quitting while transcribing can be asked about (#158): `asked`
  * runs on each, and resolves to whether to quit. The page says it heard at
  * once; a page that doesn't answer is quit regardless.

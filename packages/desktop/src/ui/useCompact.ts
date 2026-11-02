@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 /**
  * A phone, or a window as narrow as one. The reader keeps its controls to
- * one small capsule there (src/reader/Dock.tsx). A touch screen counts
+ * one small capsule there (packages/desktop/src/reader/Dock.tsx). A touch screen counts
  * whatever its width: a finger swipes and taps, where a mouse has the
  * header's buttons and the page's edges.
  */

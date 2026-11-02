@@ -15,8 +15,8 @@ here. If a behaviour is not in this file, it is not done.
 | Rust           | `cargo test`            | `npm run test:rust` | Tauri commands and path scoping.    |
 | Manual         | Checklist below         | The app             | Audio, keys, lock screen.           |
 
-Fixtures are generated into `test/fixtures/generated/` by
-`tools/make-fixtures.ts` using ffmpeg's `sine` and `anullsrc` sources.
+Fixtures are generated into `packages/desktop/test/fixtures/generated/` by
+`packages/desktop/tools/make-fixtures.ts` using ffmpeg's `sine` and `anullsrc` sources.
 They are deterministic and tiny. They are never committed.
 
 ## Unit cases
@@ -216,7 +216,7 @@ Given files of durations `[1000, 2000, 3000]`:
 
 ## Fixture cases
 
-`tools/make-fixtures.ts` builds these with ffmpeg:
+`packages/desktop/tools/make-fixtures.ts` builds these with ffmpeg:
 
 1. `single-m4b/book.m4b`: one file, three embedded chapters, cover,
    full tags including series.
@@ -247,7 +247,7 @@ Run with `RIBBON_BOOKS=books`. Asserts against the user's folder:
 
 ## Rust cases
 
-Run with `cargo test --release` in `src-tauri`.
+Run with `cargo test --release` in `packages/desktop/src-tauri`.
 
 - The walk skips `.ribbon` and hidden entries and classifies audio and
   image files by extension.

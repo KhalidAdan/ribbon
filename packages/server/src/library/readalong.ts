@@ -68,7 +68,7 @@ export class ReadAlongError extends Error {
 /**
  * Read-along for devices that only draw and play (docs/SERVER.md, section
  * 8: the Apple TV): each book's text, parsed by the code the apps parse it
- * with (the `ribbon-ebook` command, src-tauri/ebook), paired with its
+ * with (the `ribbon-ebook` command, packages/desktop/src-tauri/ebook), paired with its
  * narration by the code the apps pair it with (packages/core/src/reading/narration.ts),
  * with when each sentence is read (packages/core/src/reading/readalong.ts).
  *

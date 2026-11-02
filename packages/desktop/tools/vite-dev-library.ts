@@ -36,8 +36,8 @@ const MIME: Record<string, string> = {
  * asks for every EPUB, and must not wait on a build).
  */
 async function ebookJson(args: string[], builtOnly = false): Promise<{ ok: boolean; text: string }> {
-  const repo = path.resolve(import.meta.dirname, "..");
-  const tauriDir = path.join(repo, "src-tauri");
+  const repo = path.resolve(import.meta.dirname, "..", "..", "..");
+  const tauriDir = path.join(repo, "packages", "desktop", "src-tauri");
   const exe = process.platform === "win32" ? "ebook_json.exe" : "ebook_json";
   const targets = [process.env.CARGO_TARGET_DIR, path.join(repo, "target"), path.join(tauriDir, "target")].filter((t): t is string => !!t);
   let built: string | null = null;

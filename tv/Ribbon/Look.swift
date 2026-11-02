@@ -49,7 +49,7 @@ extension Color {
 }
 
 /// The faces Ribbon brings, from the same WOFF2 files the web reader loads
-/// (src/reader/faces.ts): each a variable font with a weight axis. Core Text
+/// (packages/desktop/src/reader/faces.ts): each a variable font with a weight axis. Core Text
 /// reads WOFF2 itself, so they are bundled as they are.
 enum Faces {
     /// The book's text: Newsreader, with its Latin Extended half behind it for letters the Latin half lacks.

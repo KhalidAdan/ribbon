@@ -40,7 +40,7 @@ npm run e2e -- speed --slow 6
 
 How fast Ribbon feels: opening, page turns by key and click, scrolling, the whole
 book, reading along, playing with the library showing. Each part prints what the
-app measured of itself (`src/app/perf.ts`): React's renders, input to the frame
+app measured of itself (`packages/desktop/src/app/perf.ts`): React's renders, input to the frame
 that showed it, long tasks, chapter layout, time between frames. It is not a pass
 or a fail. Compare it with the last release's numbers:
 
