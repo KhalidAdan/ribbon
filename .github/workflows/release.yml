@@ -13,11 +13,20 @@ on:
         description: "The version tag (vX.Y.Z). Files already on its release are replaced."
         required: true
   # A pull request that changes how the installers are built builds them,
-  # as downloads on the run, without releasing anything.
+  # as downloads on the run, without releasing anything. Otherwise a tag is the
+  # first to find a build that no longer works on the Mac.
   pull_request:
     paths:
       - .github/workflows/release.yml
       - .github/actions/setup/**
+      - .cargo/**
+      - "**/package.json"
+      - package-lock.json
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/tauri.conf.json"
+      - "**/vite.config.ts"
+      - tools/with-build-env.mjs
 
 permissions:
   contents: write

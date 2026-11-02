@@ -84,6 +84,50 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+  # The server's Docker image, built and started as a stranger would: nothing
+  # else sees the Dockerfile, and a deploy is otherwise the first to.
+  server-image:
+    name: Server image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: tools/check-server-image.sh
+
+  # Whether this pull request built the same app as what it's based on. It
+  # always says; with the label `same-app`, for a change meant to change
+  # nothing, a difference fails it (docs/RELEASING.md).
+  same-app:
+    name: Same app
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: git worktree add ../base ${{ github.event.pull_request.base.sha }}
+      - run: npm ci --ignore-scripts
+        working-directory: ../base
+      - run: npm run build
+        working-directory: ../base
+      - name: Compare the two
+        id: compare
+        shell: bash
+        run: |
+          set +e
+          node tools/same-app.mjs ../base . | tee same-app.txt
+          status=${PIPESTATUS[0]}
+          { echo '```'; cat same-app.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+        continue-on-error: ${{ !contains(github.event.pull_request.labels.*.name, 'same-app') }}
+
   # Ribbon on the Apple TV and the iPad (tv/, tv/README.md), built for each
   # simulator so it keeps building. Nothing is signed: the Apple team is the
   # signer's own.

@@ -125,6 +125,24 @@ build is not signed with an Apple Developer ID, so the first time a downloaded
 version opens, macOS refuses: open it from System Settings → Privacy & Security
 → Open Anyway.
 
+## A change meant to change nothing
+
+Moving folders or tidying a build should leave the app exactly as it was, and
+passing tests can't show that: no test notices a style going missing. Vite's
+build is repeatable, so the app itself can be compared, file for file. On every
+pull request the **Same app** check says whether it built the same app as its
+base, and with the label `same-app` a difference fails it. By hand:
+
+```bash
+npm run build
+node tools/same-app.mjs ../other-checkout .
+```
+
+The **Server image** check builds the server's Docker image and starts it as a
+stranger would, adds a folder and lists its book (`tools/check-server-image.sh`,
+which also runs by hand). A pull request that changes how the installers are
+built builds them too, as downloads on its run.
+
 ## Merging a stack of pull requests
 
 When pull requests are stacked (each based on the one before), merge them in
