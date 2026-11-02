@@ -15,7 +15,7 @@ export interface Crumb {
  * global action (check the folders for changes). Pages are tabs below it.
  */
 export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Crumb[]; query: string; onQuery: (q: string) => void; count: number | null; onSubmit: () => void }) {
-  const { scanning, hasBooks } = useAppState((s) => ({ scanning: s.scanning, hasBooks: s.books.length > 0 }));
+  const { scanning, hasBooks, transcribing } = useAppState((s) => ({ scanning: s.scanning, hasBooks: s.books.length > 0, transcribing: s.transcribingForServer }));
   const c = useController();
   const status = scanning
     ? scanning.stage
@@ -46,10 +46,18 @@ export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Cr
           </Fragment>
         ))}
       </nav>
-      {status && (
+      {status ? (
         <p className="truncate text-[0.8125rem]/5 text-ink-3 tabular-nums max-md:hidden" role="status">
           {status}…
         </p>
+      ) : (
+        transcribing && (
+          // At most a third of the bar, whatever the title, so it never runs over where you are. The percentage stays when the title is cut short.
+          <p className="flex max-w-1/3 min-w-0 gap-1 text-[0.8125rem]/5 text-ink-3 tabular-nums max-md:hidden" role="status">
+            <span className="truncate">Transcribing {transcribing.title}…</span>
+            <span className="shrink-0">{Math.floor((100 * transcribing.done) / Math.max(1, transcribing.total))}%</span>
+          </p>
+        )
       )}
       {hasBooks && (
         <div className="w-64 max-sm:hidden">
