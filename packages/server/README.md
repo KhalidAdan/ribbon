@@ -96,9 +96,14 @@ The simplest way: each release publishes an image, and `compose.yaml` here runs
 it. Copy that file into a folder of its own, then:
 
 ```bash
+mkdir ribbon-data
 RIBBON_BOOKS=/path/to/your/books docker compose up -d
 docker compose logs
 ```
+
+Make `ribbon-data` first: the server runs as user 1000, and it can't write to a
+folder Docker makes, which belongs to root. If `id -u` says you aren't user 1000,
+give your own numbers as `RIBBON_UID` and `RIBBON_GID` too.
 
 The first start prints the link that makes the admin account. To update, `docker
 compose pull` and `docker compose up -d`: everything it keeps is in `ribbon-data`.
