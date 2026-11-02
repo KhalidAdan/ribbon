@@ -156,11 +156,12 @@ pub struct Said {
 /// The model kept between calls, reloaded when another is asked for.
 static LISTENER: Mutex<Option<Listener>> = Mutex::new(None);
 
-/// Let go of the model kept loaded, if one is.
-pub fn unload() {
-    if let Ok(mut slot) = LISTENER.lock() {
-        *slot = None;
-    }
+/// Let go of the model kept loaded, if one is. False when it can't be yet: a batch being heard holds
+/// it, and this never waits for one, which lasts as long as hearing 8 minutes of audio does (#184).
+pub fn unload() -> bool {
+    let Ok(mut slot) = LISTENER.try_lock() else { return false };
+    *slot = None;
+    true
 }
 
 /// One clip to hear: an audio file and where in it.
@@ -248,6 +249,14 @@ pub fn is_model(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn never_waits_for_a_batch_to_let_go_of_the_model() {
+        let hearing = LISTENER.lock().unwrap();
+        assert!(!unload());
+        drop(hearing);
+        assert!(unload());
+    }
 
     #[test]
     fn decodes_a_clip_at_sixteen_kilohertz() {

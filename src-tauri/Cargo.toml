@@ -37,6 +37,8 @@ fs4 = "0.13"
 # The EPUB parser and the MP3 frame index, crates of their own so the server can build them alone.
 ribbon-ebook = { path = "ebook" }
 ribbon-frames = { path = "frames" }
+# Leaving without the GPU's teardown (speech.rs); on Apple's systems, a thread's quality-of-service class, transcribing behind playback.
+libc = "0.2"
 # The read-along export writes a copy of the EPUB.
 zip = { version = "4.2.0", default-features = false, features = ["deflate"] }
 
@@ -49,8 +51,6 @@ quick-xml = "0.39.4"
 # compiled: tools/with-build-env.mjs.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 ribbon-speech = { path = "speech", features = ["metal"] }
-# Transcribing behind playback: a thread's quality-of-service class.
-libc = "0.2"
 
 # Keeping the computer awake while it transcribes (awake.rs): an activity on macOS, a thread's request on Windows.
 [target.'cfg(target_os = "macos")'.dependencies]

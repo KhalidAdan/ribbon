@@ -112,10 +112,17 @@ pub async fn speech_openings(model: String, clips: Vec<Clip>, seconds: f32, lang
 }
 
 /// Let go of the speech model before the app exits. The GPU's own teardown at exit can't free a device
-/// still holding a model, and aborts: every quit after hearing anything crashed. A batch still being
-/// heard is waited for (the model is held while it's heard), which is seconds.
+/// still holding a model, and aborts: every quit after hearing anything crashed.
+///
+/// A batch still being heard holds the model, and waiting for it froze the app as it closed (#184). So
+/// Ribbon leaves at once without that teardown. Nothing is lost: places were written before the window
+/// closed, what's been heard was kept after each batch, and this batch is heard again next time.
 pub fn unload() {
-    ribbon_speech::unload();
+    if !ribbon_speech::unload() {
+        log::info!("leaving while a batch is being heard: it's heard again next time");
+        // Not `process::exit`, which runs the teardown that aborts.
+        unsafe { libc::_exit(0) }
+    }
 }
 
 /// The model Ribbon offers to download: whisper small, multilingual, quantised (about 190 MB). Against
