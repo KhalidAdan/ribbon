@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { nodeHost } from "../src/host/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
-import { readsOf } from "../src/core/stats";
+import { endOf, readsOf } from "../src/core/stats";
 import { progressOf } from "../src/ui/progress";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 
@@ -56,6 +56,31 @@ describe("listening history through the app", () => {
     expect(back).toHaveLength(1);
     expect(back[0]!.started).toBe("2025-01-01T12:00:00.000Z");
     expect(progressOf(book, again.getState()).finished).toBe(true);
+  });
+
+  it("leaves a listen-through behind when the book is started again unfinished, and a fresh start sees it the same", async () => {
+    const settings = memorySettings();
+    const c = new AppController(platform(FIXTURE_ROOT, settings));
+    await c.boot();
+    await c.pickLibrary();
+    const id = c.getState().books.find((b) => b.book.path === "single-m4b")!.book.id;
+    const ends = (app: AppController) => {
+      const reads = readsOf(app.getState().history.reads, id);
+      return reads.map((r, i) => endOf(r, reads[i + 1]).how);
+    };
+
+    await c.listenAgain(id);
+    await c.listenAgain(id);
+    expect(ends(c)).toEqual(["left", "going"]);
+
+    const again = new AppController(platform(FIXTURE_ROOT, settings));
+    await again.boot();
+    await again.pickLibrary();
+    expect(ends(again)).toEqual(["left", "going"]);
+
+    // Finishing closes the latest. The one left behind stays left: it was never finished.
+    await again.markFinished(id);
+    expect(ends(again)).toEqual(["left", "finished"]);
   });
 
   it("keeps the device id between starts", async () => {

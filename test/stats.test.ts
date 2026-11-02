@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookIdOf, dayOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, timeBy, totals } from "../src/core/stats";
+import { bookIdOf, dayOf, endOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, timeBy, totals } from "../src/core/stats";
 import { ribbonClaim, type ReadRecord, type SessionRecord } from "../src/core/poslog";
 
 const NOW = Date.parse("2026-10-18T20:00:00.000Z"); // a Sunday
@@ -23,6 +23,16 @@ describe("reads", () => {
     expect(finishedByRead(reads, "dune")).toBe(false);
     expect(finishedByRead(reads, "ego")).toBe(true);
     expect(openRead(reads, "ego")).toBeNull();
+  });
+
+  it("end at their finish, or when the book was started again, and only the latest is still going", () => {
+    const left = read("dune", "r1", "2025-01-01T00:00:00.000Z");
+    const heard = read("dune", "r2", "2025-06-01T00:00:00.000Z", "2025-07-01T00:00:00.000Z");
+    const latest = read("dune", "r3", "2026-10-01T00:00:00.000Z");
+
+    expect(endOf(left, heard)).toEqual({ how: "left", at: "2025-06-01T00:00:00.000Z" });
+    expect(endOf(heard, latest)).toEqual({ how: "finished", at: "2025-07-01T00:00:00.000Z" });
+    expect(endOf(latest, undefined)).toEqual({ how: "going" });
   });
 });
 

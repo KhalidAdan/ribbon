@@ -144,6 +144,12 @@ A `read` with the same `id` written later replaces the earlier one. That
 is how a finish date is added or corrected. `finished` is absent while
 the read is open. `started` and `finished` MAY be edited by hand.
 
+Only a book's latest read, by `started`, can be open. Someone may start a
+book again without finishing it: nothing is written to the read they
+left, and `finished` MUST NOT be written to close it, because `finished`
+says the book was finished. A reader takes an earlier read with no
+`finished` as left unfinished when the next one started.
+
 ### 3.3 `session`: what was listened to
 
 OPTIONAL. Readers MUST NOT depend on sessions. A writer MUST let the
@@ -357,8 +363,9 @@ working. A later version will stop.
   `x["urn:ribbon:audio"]`, the same place in the recording as Ribbon maps
   it: `{"ms": 11106000, "how": "chapter"}`. It is a hint for players, and
   never a place of the audio edition.
-- `read` records start and finish listen-throughs. Sessions are on by
-  default and can be turned off in Settings.
+- `read` records start and finish listen-throughs. Starting a book again
+  before finishing it opens a new one and leaves the last as it was.
+  Sessions are on by default and can be turned off in Settings.
 - Bookmarks are `mark` records with a `motivation` of `bookmarking`.
   Adding one writes a `mark`, editing its note writes it again with a
   later `modified`, and deleting it writes a `del`. The `body` is the

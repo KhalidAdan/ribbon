@@ -10,6 +10,7 @@ import { LibraryService } from "../../src/app/library.ts";
 import { memorySettings, memorySources } from "../../src/app/platform.ts";
 import { ribbonClaim } from "../../src/core/poslog.ts";
 import type { ScannedBook } from "../../src/core/scan/scan.ts";
+import { endOf, readsOf } from "../../src/core/stats.ts";
 import type { Host } from "../../src/host/host.ts";
 import { nodeHost } from "../../src/host/node.ts";
 import type { RibbonServer } from "../src/app.ts";
@@ -185,6 +186,35 @@ describe("the desktop on a server", () => {
     await app.connectServer(url, "admin", PASSWORD);
     await soon(() => app.getState().books.length).toBe(2);
     expect((await app.loadBookmarks(id)).map((b) => b.note)).toEqual(["Before I left"]);
+  }, 30_000);
+
+  it("has one listen-through going, however many devices hear a book and however often it's started again", async () => {
+    await stocked();
+    const { app: desktop } = await aDesktop();
+    const { app: other } = await aDesktop();
+    const red = book(desktop, "Red Book");
+    const id = red.book.id;
+    const serverId = red.remote!.serverId;
+    const fromThePhone = (route: string, payload: object) => server.app.inject({ method: "POST", url: `/api/books/${serverId}/${route}`, headers: { authorization: `Bearer ${admin}` }, payload: { device: { id: PHONE, name: "Ribbon on the phone" }, ...payload } });
+    const ends = (app: AppController) => {
+      const reads = readsOf(app.getState().history.reads, id);
+      return reads.map((r, i) => endOf(r, reads[i + 1]).how);
+    };
+
+    // The thin app opens one with its first stretch of listening, and every device has it.
+    const now = new Date().toISOString();
+    await fromThePhone("listened", { start: now, end: now, fromMs: 0, toMs: 0 });
+    await soon(() => ends(desktop)).toEqual(["going"]);
+
+    // "Start again from the beginning" on the desktop: a new one, and the first is left as it was.
+    await desktop.listenAgain(id);
+    await soon(() => ends(other)).toEqual(["left", "going"]);
+
+    // Played to its end on the thin app, the new one closes. The one left behind was never finished.
+    await fromThePhone("finished", {});
+    await soon(() => ends(other)).toEqual(["left", "finished"]);
+    const { books } = await asked<{ books: Record<string, { finished: boolean }> }>("/api/progress");
+    expect(books[serverId]!.finished).toBe(true);
   }, 30_000);
 
   it("keeps a book's edit on the server, for every device and app", async () => {
