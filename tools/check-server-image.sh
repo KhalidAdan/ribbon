@@ -59,7 +59,7 @@ field() {
 
 docker build -f "${RIBBON_DOCKERFILE:-packages/server/Dockerfile}" -t "$image" .
 
-mkdir -p "$work/server" "$work/media/Test Author/Tone Book"
+mkdir -p "$work/server/ribbon-data" "$work/media/Test Author/Tone Book"
 # The image's own ffmpeg makes the book, so it's checked too.
 docker run --rm --user "$(id -u):$(id -g)" -v "$work/media:/media" --entrypoint ffmpeg "$image" \
   -v error -f lavfi -i sine=frequency=330:duration=5 -c:a libmp3lame -b:a 64k \

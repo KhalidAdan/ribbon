@@ -1,9 +1,12 @@
 # A Ribbon server, from the published image. In a folder of its own:
 #
+#   mkdir ribbon-data
 #   RIBBON_BOOKS=/path/to/your/books docker compose up -d
 #   docker compose logs      # the first start prints the link that makes the admin
 #
-# Its data stays in ./ribbon-data beside this file: back that up. packages/server/README.md
+# Its data stays in ./ribbon-data beside this file: back that up. Make that folder
+# first: the server runs as user 1000, or RIBBON_UID and RIBBON_GID, and it can't
+# write to a folder Docker makes, which belongs to root. packages/server/README.md
 # says how to reach it from elsewhere.
 services:
   ribbon:
