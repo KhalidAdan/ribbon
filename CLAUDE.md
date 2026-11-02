@@ -7,7 +7,7 @@ Tauri 2 (Rust) with a web UI (React 19, Tailwind 4), is all of Ribbon on one
 computer, from your own folders. Add the server (`packages/server/`) and it becomes
 the home of the books, the people and their places: the desktop manages the
 collection and transcribes, and the iPhone, iPad and Apple TV have a thin
-native app (`tv/`), which always needs a server. Start with these, in this
+native app (`packages/apple/`), which always needs a server. Start with these, in this
 order:
 
 - [docs/NORTHSTAR.md](docs/NORTHSTAR.md): what Ribbon is and refuses to be. Settles most product questions.
@@ -55,7 +55,7 @@ order:
 - **No DRM**, no AAX, no stores, no one else's servers: Ribbon runs on your
   own computer, or a server of your own (docs/NORTHSTAR.md).
 - **Never Electron.** The UI is the web in a Tauri shell; native work goes in
-  Rust or a Tauri plugin. The one exception is the thin app in `tv/`, in
+  Rust or a Tauri plugin. The one exception is the thin app in `packages/apple/`, in
   SwiftUI, agreed with the owner, that only draws and plays what the server
   prepares: on the Apple TV, which has no web view, and on the iPad and the
   iPhone, by the owner's choice (2026-10-25 and 26), the TV's screens by
@@ -81,7 +81,7 @@ order:
 | `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). |
-| `tv/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (tv/README.md). |
+| `packages/apple/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (packages/apple/README.md). |
 | `packages/desktop/tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`packages/desktop/tools/e2e`). |
 
 ## Commands
@@ -96,7 +96,7 @@ npm run e2e -- speed --slow 6           # the speed report, as a slow machine
 npm run tauri build                     # the installers
 tools/check-server-image.sh             # the server's Docker image, built and tried
 npm run ribbon -- scan <folder>         # the scan, from the command line
-cd tv && xcodegen generate              # the Apple TV and iPad app's Xcode project (tv/README.md)
+cd tv && xcodegen generate              # the Apple TV and iPad app's Xcode project (packages/apple/README.md)
 ```
 
 `npm run tauri`, `tauri:dev` and `test:rust` go through

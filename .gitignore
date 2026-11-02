@@ -11,6 +11,6 @@ shots/
 # The end-to-end suite's test library and runs (tools/e2e)
 .e2e/
 
-# The Apple TV app: its Xcode project is made from tv/project.yml (tv/README.md)
-tv/RibbonTV.xcodeproj/
-tv/build/
+# The Apple app: its Xcode project is made from packages/apple/project.yml (packages/apple/README.md)
+packages/apple/Ribbon.xcodeproj/
+packages/apple/build/

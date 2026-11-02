@@ -33,7 +33,7 @@ Ribbon and install the new version over it; everything carries over.
 [packages/server/README.md](packages/server/README.md).
 
 **The iPhone, iPad and Apple TV app** needs a server. For now you build it
-with Xcode: [tv/README.md](tv/README.md).
+with Xcode: [packages/apple/README.md](packages/apple/README.md).
 
 ## What's in this repository
 
@@ -47,7 +47,7 @@ packages/
     src-tauri/    its Rust side, and the crates the server builds (ebook/, frames/)
     test/         its tests
     tools/        the command line, fixtures and the end-to-end checks
-tv/             the iPhone, iPad and Apple TV app, in Swift
+  apple/        the iPhone, iPad and Apple TV app, in Swift
 tools/          checks for the whole repository
 docs/           how it all works, and why
 ```

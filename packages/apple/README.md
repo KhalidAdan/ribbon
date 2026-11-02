@@ -218,7 +218,7 @@ fonts (`npm install` at the root).
 ```bash
 cd tv
 xcodegen generate
-open RibbonTV.xcodeproj
+open Ribbon.xcodeproj
 ```
 
 The Xcode project is made from `project.yml` and isn't kept in the
@@ -232,7 +232,7 @@ only, never into this public repository.
 Against a scratch server (packages/server/README.md), never the real one:
 
 ```bash
-xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -sdk appletvsimulator -derivedDataPath build build
+xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -sdk appletvsimulator -derivedDataPath build build
 xcrun simctl install booted build/Build/Products/Debug-appletvsimulator/Ribbon.app
 SIMCTL_CHILD_RIBBON_SERVER=http://localhost:7766 SIMCTL_CHILD_RIBBON_NAME=<name> SIMCTL_CHILD_RIBBON_PASSWORD=<password> xcrun simctl launch booted app.ribbon.tv
 ```
@@ -253,7 +253,7 @@ Apple TV Remote.
 On the iPad simulator, the same, for the iOS simulator:
 
 ```bash
-xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build build
+xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build build
 xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/Ribbon.app
 SIMCTL_CHILD_RIBBON_SERVER=http://localhost:7766 SIMCTL_CHILD_RIBBON_NAME=<name> SIMCTL_CHILD_RIBBON_PASSWORD=<password> xcrun simctl launch booted app.ribbon.tv
 ```
@@ -284,7 +284,7 @@ once Xcode has reached for the device), and your Apple ID in Xcode's
 Accounts. Then run the `Ribbon` scheme on it, or from the command line:
 
 ```bash
-xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -configuration Release -destination 'platform=iOS,id=<udid>' -derivedDataPath build DEVELOPMENT_TEAM=<team> -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -configuration Release -destination 'platform=iOS,id=<udid>' -derivedDataPath build DEVELOPMENT_TEAM=<team> -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 xcrun devicectl device install app --device <device> build/Build/Products/Release-iphoneos/Ribbon.app
 ```
 
@@ -301,7 +301,7 @@ again (`npx vitest run test/api-contract -u`); this app's test then says whether
 it can still read them.
 
 ```bash
-xcodebuild test -project RibbonTV.xcodeproj -scheme Ribbon -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
+xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
 ```
 
 ## Not yet

@@ -39,7 +39,7 @@ What it does:
   server's books join the shelf, and each one downloads before it plays.
   Each person's place follows them between their devices, as soon as it
   moves.
-- **Read-along for the Apple TV** (tv/README.md): each book's text with when
+- **Read-along for the Apple TV** (packages/apple/README.md): each book's text with when
   each sentence is read (`GET /api/books/:id/readalong`), made once with the
   same code as the apps', and the person's place in it as a sentence
   (`GET` and `POST /api/books/:id/place`); their bookmarks, in a book and in

@@ -189,7 +189,7 @@ final class ReaderViewController: UIViewController, UIScrollViewDelegate {
         guard let press = presses.first else { return super.pressesBegan(presses, with: event) }
         #if DEBUG
         // The simulator's remote can't be held, and a keyboard has no Menu: in a debug build, Page Down holds Select
-        // and Delete is Menu (tv/README.md).
+        // and Delete is Menu (packages/apple/README.md).
         #if os(tvOS)
         if press.type == .pageDown { return session.holdSelect() }
         #endif

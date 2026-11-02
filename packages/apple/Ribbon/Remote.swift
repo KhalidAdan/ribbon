@@ -116,7 +116,7 @@ struct WatchTheRemote: UIViewRepresentable {
 /// How long the waits measured in minutes are. In a debug build,
 /// `RIBBON_QUICK_WAITS` makes them seconds, so the simulator can show Still
 /// listening? and the passages without a book playing for an hour
-/// (tv/README.md).
+/// (packages/apple/README.md).
 enum Waits {
     #if DEBUG
     static let quick = ProcessInfo.processInfo.environment["RIBBON_QUICK_WAITS"] != nil
