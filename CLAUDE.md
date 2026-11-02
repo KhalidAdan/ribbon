@@ -96,7 +96,7 @@ npm run e2e -- speed --slow 6           # the speed report, as a slow machine
 npm run tauri build                     # the installers
 tools/check-server-image.sh             # the server's Docker image, built and tried
 npm run ribbon -- scan <folder>         # the scan, from the command line
-cd tv && xcodegen generate              # the Apple TV and iPad app's Xcode project (packages/apple/README.md)
+cd packages/apple && xcodegen generate  # the Apple app's Xcode project (packages/apple/README.md)
 ```
 
 `npm run tauri`, `tauri:dev` and `test:rust` go through
