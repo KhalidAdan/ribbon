@@ -103,6 +103,10 @@ installed lacks `VULKAN_SDK`: set it to the SDK's folder and put its `Bin` on th
 `target/release/bundle/msi` (`.msi`); on a Mac, in `target/release/bundle/dmg`.
 Attach them to the draft with `gh release upload vX.Y.Z <files> --clobber`.
 
+The tag also publishes the server's image, for Intel and ARM machines, as
+`ghcr.io/khalidadan/ribbon-server` at the version and at `latest`
+([server-image.yml](../.github/workflows/server-image.yml)).
+
 ## 5. On GitHub
 
 The notes say what changed for someone using Ribbon, in plain words. They open
