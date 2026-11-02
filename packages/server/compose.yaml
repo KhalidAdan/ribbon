@@ -7,7 +7,8 @@
 # says how to reach it from elsewhere.
 services:
   ribbon:
-    image: ghcr.io/khalidadan/ribbon-server:latest
+    # Another image, such as one version, by RIBBON_IMAGE.
+    image: ${RIBBON_IMAGE:-ghcr.io/khalidadan/ribbon-server:latest}
     restart: unless-stopped
     # On this machine's loopback, where a proxy such as Tailscale Serve or Caddy
     # reaches it, and where it takes passwords. Docker Desktop on a Mac needs its

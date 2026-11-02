@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 # Whether the server's Docker image works: built from this checkout, started as
-# a stranger would start it, the admin made from its first invite, a folder
-# with a book in it added, and the book listed. Nothing else builds or starts
-# the image, so this is the only check that sees the Dockerfile.
+# a stranger would start it, by the steps and the compose file in
+# packages/server/README.md, the admin made from its first invite, a folder with
+# a book in it added, and the book listed. Nothing else builds or starts the
+# image, so this is the only check that sees the Dockerfile or the compose file.
 #
 #   tools/check-server-image.sh
 #
-# Scratch data only, and it cleans up after itself. Needs Docker and Node.
+# Scratch data only, and it cleans up after itself. Needs Docker, Compose and Node.
 set -euo pipefail
 
 image=ribbon-server:check
-name=ribbon-check
+name=
 work=$(mktemp -d)
 token=
 
+# The compose file, run from a folder of its own, as packages/server/README.md says.
+compose() {
+  RIBBON_IMAGE="$image" RIBBON_BOOKS="$work/media" RIBBON_UID="$(id -u)" RIBBON_GID="$(id -g)" \
+    docker compose --project-name ribbon-check --project-directory "$work/server" \
+    --file "$PWD/packages/server/compose.yaml" "$@"
+}
+
 cleanup() {
-  docker rm -f "$name" >/dev/null 2>&1 || true
-  rm -rf "$work"
+  compose down --volumes >/dev/null 2>&1 || true
+  rm -rf "$work" || true
 }
 trap cleanup EXIT
 
@@ -51,15 +59,15 @@ field() {
 
 docker build -f "${RIBBON_DOCKERFILE:-packages/server/Dockerfile}" -t "$image" .
 
-mkdir -p "$work/data" "$work/media/Test Author/Tone Book"
+mkdir -p "$work/server" "$work/media/Test Author/Tone Book"
 # The image's own ffmpeg makes the book, so it's checked too.
 docker run --rm --user "$(id -u):$(id -g)" -v "$work/media:/media" --entrypoint ffmpeg "$image" \
   -v error -f lavfi -i sine=frequency=330:duration=5 -c:a libmp3lame -b:a 64k \
   -metadata title="Tone Book" -metadata album="Tone Book" -metadata artist="Test Author" \
   "/media/Test Author/Tone Book/01.mp3"
 
-docker run -d --name "$name" --user "$(id -u):$(id -g)" -e RIBBON_FOLDERS=/media \
-  -v "$work/data:/data" -v "$work/media:/media:ro" "$image" >/dev/null
+compose up -d
+name=$(compose ps --all --quiet ribbon)
 
 for _ in $(seq 60); do
   api GET /healthz >/dev/null 2>&1 && break
