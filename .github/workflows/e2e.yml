@@ -12,8 +12,8 @@ name: End-to-end
 
 on:
   pull_request:
-    # A change to the docs alone runs nothing here.
-    paths-ignore: ["docs/**", "**/*.md"]
+    # A change to the docs alone runs nothing here, nor one to the server or the Apple app alone: these drive the desktop app.
+    paths-ignore: ["docs/**", "**/*.md", "packages/server/**", "packages/apple/**"]
   push:
     branches: [main]
   # Speed work runs the report on its own branch: gh workflow run e2e.yml --ref <branch>

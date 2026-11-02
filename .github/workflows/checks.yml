@@ -17,8 +17,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # What a pull request can reach, so the slow jobs run only where they could
+  # notice something (tools/what-changed.mjs). main always runs everything.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      desktop: ${{ steps.paths.outputs.desktop }}
+      server: ${{ steps.paths.outputs.server }}
+      image: ${{ steps.paths.outputs.image }}
+      apple: ${{ steps.paths.outputs.apple }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: paths
+        run: node tools/what-changed.mjs >> "$GITHUB_OUTPUT"
+
   checks:
     name: Checks (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +72,8 @@ jobs:
   # past its time limit twice) and where it's first hosted.
   server:
     name: Server
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     defaults:
@@ -85,6 +106,8 @@ jobs:
   # else sees the Dockerfile, and a deploy is otherwise the first to.
   server-image:
     name: Server image
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -98,7 +121,8 @@ jobs:
   # nothing, a difference fails it (docs/RELEASING.md).
   same-app:
     name: Same app
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -133,6 +157,8 @@ jobs:
   # signer's own.
   apple:
     name: Apple app
+    needs: changes
+    if: needs.changes.outputs.apple == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     steps:

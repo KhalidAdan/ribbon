@@ -30,8 +30,8 @@ npm run test:rust
 GitHub runs them at both speeds, side by side, on Windows, for every pull
 request and every push to `main` ([e2e.yml](../.github/workflows/e2e.yml)), with
 the public test library (The Wonderful Wizard of Oz,
-[packages/desktop/tools/e2e](../packages/desktop/tools/e2e/README.md)). A pull request that changes only the docs
-skips them. `main` is ready when its last run passed:
+[packages/desktop/tools/e2e](../packages/desktop/tools/e2e/README.md)). A pull request that changes only the docs,
+the server or the Apple app skips them. `main` is ready when its last run passed:
 
 ```bash
 gh run list --workflow e2e.yml --branch main --limit 1
@@ -60,6 +60,10 @@ where the hardware is real:
 npm run e2e -- speed --json .e2e/speed-1x.json
 npm run e2e -- speed --slow 6 --json .e2e/speed-6x.json
 ```
+
+On a pull request, `tools/what-changed.mjs` runs only the jobs a change could
+affect, and anything it doesn't recognise runs them all. `main` always runs
+everything, which is the check a release goes by.
 
 ## 3. The version, in five files
 
