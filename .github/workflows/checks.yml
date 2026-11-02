@@ -145,3 +145,9 @@ jobs:
         working-directory: tv
       - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
         working-directory: tv
+      # Whether the app can read the server's real answers (server/test/api-contract.test.ts writes them).
+      - name: The app reads the server's answers
+        working-directory: tv
+        run: |
+          phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
+          xcodebuild test -project RibbonTV.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$phone" -derivedDataPath build CODE_SIGNING_ALLOWED=NO

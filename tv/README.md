@@ -291,6 +291,19 @@ xcrun devicectl device install app --device <device> build/Build/Products/Releas
 The first time, trust the developer on the device (Settings → General → VPN &
 Device Management). A free Apple ID signs it for seven days.
 
+## The contract with the server
+
+`RibbonTests/Contract/` holds the server's real answer to everything this app
+asks, written by `server/test/api-contract.test.ts` from a running server, and
+`RibbonTests/ContractTests.swift` decodes each with the app's own types. Change
+what the server answers and the server's test fails until the files are written
+again (`npx vitest run test/api-contract -u`); this app's test then says whether
+it can still read them.
+
+```bash
+xcodebuild test -project RibbonTV.xcodeproj -scheme Ribbon -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
+```
+
 ## Not yet
 
 On the iPhone, books stream as they do on the iPad and the TV: nothing is

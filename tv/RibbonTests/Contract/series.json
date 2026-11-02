@@ -1,0 +1,16 @@
+{
+  "series": [
+    {
+      "id": "the-waygates",
+      "name": "The Waygates",
+      "books": [
+        {
+          "id": "0123456789abcdef",
+          "number": 1000,
+          "title": null,
+          "shelved": true
+        }
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import { copyFile, mkdir, rename, rm, stat, statfs, writeFile } from "node:fs/pr
 import path from "node:path";
 import type { Host } from "@ribbon/core/host";
 import { ensureChapters, scanLibrary, type ScannedBook } from "@ribbon/core/scan/scan";
+import type { ImportProgress } from "@ribbon/core/server-books";
 import type { Places } from "../places.ts";
 import { BookIndex, bookDir, booksDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
@@ -13,22 +14,7 @@ import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
 import { neverWrites } from "./never-writes.ts";
 
-/** How an import is going, as the admin pages show it. */
-export interface ImportProgress {
-  folder: string;
-  /** Books the folder holds, once scanned. */
-  found: number;
-  added: number;
-  /** Books already on the server, by their files or by an ISBN or ASIN. */
-  skipped: number;
-  failed: number;
-  /** Records from the folder's position logs that the server hadn't got yet. */
-  places: number;
-  /** The book being copied now, if any. */
-  current: string | null;
-  /** One line per book skipped or failed, saying which and why. */
-  notes: string[];
-}
+export type { ImportProgress };
 
 export interface ImportContext {
   /** Node's host, for reading the folder and running ffmpeg. */

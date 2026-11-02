@@ -57,6 +57,31 @@ export function filedDetails(detail: ServerBookDetail): ServerBookDetail["book"]
   return detail.edited ? applyEdits(detail.book, detail.edited.original) : detail.book;
 }
 
+/** How a folder being added to a server is going: the server's job reports it, and the desktop shows it. */
+export interface ImportProgress {
+  folder: string;
+  /** Books the folder holds, once scanned. */
+  found: number;
+  added: number;
+  /** Books already on the server, by their files or by an ISBN or ASIN. */
+  skipped: number;
+  failed: number;
+  /** Records from the folder's position logs that the server hadn't got yet. */
+  places: number;
+  /** The book being copied now, if any. */
+  current: string | null;
+  /** One line per book skipped or failed, saying which and why. */
+  notes: string[];
+}
+
+/** A job on the server: adding a folder, for now. */
+export interface ServerJob {
+  id: string;
+  state: "waiting" | "running" | "done" | "failed";
+  progress: ImportProgress;
+  error: string | null;
+}
+
 /** A series of a server's library (server/src/library/series.ts, `ServerSeries`): its books in order. */
 export interface ServerSeries {
   id: string;

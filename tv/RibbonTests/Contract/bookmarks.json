@@ -1,0 +1,13 @@
+{
+  "bookmarks": [
+    {
+      "id": "urn:uuid:00000000-0000-4000-8000-000000000000",
+      "ms": 1000,
+      "note": "",
+      "created": "2026-01-01T00:00:00.000Z",
+      "quote": "Chapter One\n\nThe waygate hung in the void before them.",
+      "first": 1000,
+      "last": 1000
+    }
+  ]
+}
