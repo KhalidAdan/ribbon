@@ -11,7 +11,7 @@ import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
 /** What the server lists is what the apps read: this stops compiling if the two part. */
 export type ListedIsWhatTheAppsRead = ListedBook extends ServerBook ? true : never;
 
-const CONTRACT = path.resolve(import.meta.dirname, "..", "..", "..", "tv", "RibbonTests", "Contract");
+const CONTRACT = path.resolve(import.meta.dirname, "..", "..", "apple", "RibbonTests", "Contract");
 const DEVICE = { id: "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Ribbon on the Apple TV" };
 const SENTENCES = ["The waygate hung in the void before them.", "It was a giant circle of wraithbone and old light.", "Nobody on the ship would look at it for long."];
 /** Where each sentence starts in the text, after the heading's 11 characters. */
@@ -41,7 +41,7 @@ function shapeOf(value: unknown): unknown {
 /**
  * The contract between the server and the Apple app: the server's real
  * answer to everything the app asks, kept as a file, which the app's own types
- * decode in tv/RibbonTests. Change an answer and this fails until the file
+ * decode in packages/apple/RibbonTests. Change an answer and this fails until the file
  * is written again (`npx vitest run test/api-contract -u`), and then the
  * app's test says whether it can still read it.
  */

@@ -127,11 +127,11 @@ jobs:
           exit "$status"
         continue-on-error: ${{ !contains(github.event.pull_request.labels.*.name, 'same-app') }}
 
-  # Ribbon on the Apple TV and the iPad (tv/, tv/README.md), built for each
+  # Ribbon on the Apple TV, the iPad and the iPhone (packages/apple/README.md), built for each
   # simulator so it keeps building. Nothing is signed: the Apple team is the
   # signer's own.
-  tv:
-    name: Apple TV
+  apple:
+    name: Apple app
     runs-on: macos-26
     timeout-minutes: 20
     steps:
@@ -144,14 +144,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: brew install xcodegen
       - run: xcodegen generate
-        working-directory: tv
-      - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=tvOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-        working-directory: tv
-      - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-        working-directory: tv
+        working-directory: packages/apple
+      - run: xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -destination 'generic/platform=tvOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+        working-directory: packages/apple
+      - run: xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+        working-directory: packages/apple
       # Whether the app can read the server's real answers (packages/server/test/api-contract.test.ts writes them).
       - name: The app reads the server's answers
-        working-directory: tv
+        working-directory: packages/apple
         run: |
           phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
-          xcodebuild test -project RibbonTV.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$phone" -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+          xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$phone" -derivedDataPath build CODE_SIGNING_ALLOWED=NO

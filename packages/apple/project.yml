@@ -1,10 +1,10 @@
 # Ribbon on the Apple TV, the iPad and the iPhone: an Xcode project made from
-# this file with XcodeGen (`xcodegen generate` in tv/). The project itself is
+# this file with XcodeGen (`xcodegen generate` in packages/apple/). The project itself is
 # not kept in the repository: it is made again from here, and the signer's
-# Apple team never goes into it (tv/README.md). One app, one set of sources,
+# Apple team never goes into it (packages/apple/README.md). One app, one set of sources,
 # built for each: the iPad and the iPhone draw the TV's screens at their own
 # size, by touch.
-name: RibbonTV
+name: Ribbon
 options:
   bundleIdPrefix: app.ribbon
   deploymentTarget:
@@ -25,15 +25,15 @@ targets:
         excludes: [Info.plist]
       # The reader's own face (packages/desktop/src/reader/faces.ts) and the app's, the same files
       # the web reader loads, from the repository's npm packages.
-      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2
+      - path: ../../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2
         buildPhase: resources
-      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-normal.woff2
+      - path: ../../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-normal.woff2
         buildPhase: resources
-      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-italic.woff2
+      - path: ../../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-italic.woff2
         buildPhase: resources
-      - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-italic.woff2
+      - path: ../../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-ext-wght-italic.woff2
         buildPhase: resources
-      - path: ../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2
+      - path: ../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2
         buildPhase: resources
     settings:
       base:
@@ -45,7 +45,7 @@ targets:
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
         CODE_SIGN_STYLE: Automatic
-        # Ribbon's icon in layers and the Top Shelf pictures on the TV, one picture on the iPad and the iPhone (tv/make-icons.sh).
+        # Ribbon's icon in layers and the Top Shelf pictures on the TV, one picture on the iPad and the iPhone (packages/apple/make-icons.sh).
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=appletv*]": "App Icon & Top Shelf Image"
         "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=iphone*]": "App Icon"
   # The server's real answers, decoded by the app's own types (RibbonTests/ContractTests.swift).

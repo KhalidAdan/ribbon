@@ -68,7 +68,7 @@ flowchart LR
   end
   Desktop["Ribbon on the desktop"] -- HTTPS --> API
   Phone["Ribbon on the iPhone"] -- HTTPS --> API
-  TV["Ribbon on the Apple TV<br/>(native, tv/)"] -- HTTPS --> API
+  TV["Ribbon on the Apple TV<br/>(native, packages/apple/)"] -- HTTPS --> API
   Browser["The admin, in a browser"] --> Admin
   API --> Core & Files & DB
   Jobs --> Core & Tools & Files & DB
@@ -252,7 +252,7 @@ by its average bitrate, minutes off in a long VBR book. It asks for the file
 `?ms=` the moment instead, and the server sends it from that moment's frame
 (`ribbon-frames`, the app's own `frames.rs` index), to play from its own 0.
 
-Built (tv/README.md): the TV can neither parse an EPUB nor pair it with the
+Built (packages/apple/README.md): the TV can neither parse an EPUB nor pair it with the
 narration, so the server does both, once, with the apps' own code (the
 `ribbon-ebook` command and `packages/core/src/reading/`), and hands it the book's
 paragraphs with when each sentence is read. It keeps no position log either:
@@ -406,7 +406,7 @@ and the jobs that follow.
 - **Your place needs no new machinery.** `PositionKeeper` already keeps every
   place on the device first and sends it on when it can; for a server,
   "beside the books" becomes the server's log.
-- **The Apple TV** has a native client on the same API (tv/), which streams and reads along.
+- **The Apple TV** has a native client on the same API (packages/apple/), which streams and reads along.
 - **The admin pages** are web pages the server serves, in Ribbon's own design.
 
 Folders stay for people without a server, and for anyone who connects to one

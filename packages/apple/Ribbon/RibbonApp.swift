@@ -6,7 +6,7 @@ import SwiftUI
 /// the player, and the reader, where the text is on the screen and the
 /// sentence being read is marked as the narration goes. Everything the TV
 /// shows comes from the server (docs/SERVER.md, section 8): it keeps only who
-/// has signed in on it. The iPad runs the same app, by touch (tv/README.md).
+/// has signed in on it. The iPad runs the same app, by touch (packages/apple/README.md).
 @main
 struct RibbonApp: App {
     @State private var model = AppModel()

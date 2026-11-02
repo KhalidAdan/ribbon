@@ -5,12 +5,12 @@
 # layer is the icon's near-black tile; the front is the open book with its
 # ribbon. The iPad takes it whole. Run it again when the icon changes:
 #
-#   sh tv/make-icons.sh
+#   sh packages/apple/make-icons.sh
 #
 # Needs rsvg-convert and ImageMagick (brew install librsvg imagemagick).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-svg="$here/../src-tauri/icons/icon-ios.svg"
+svg="$here/../desktop/src-tauri/icons/icon-ios.svg"
 out="$here/Ribbon/Assets.xcassets/App Icon & Top Shelf Image.brandassets"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

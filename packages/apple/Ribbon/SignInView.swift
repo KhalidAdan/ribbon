@@ -89,7 +89,7 @@ struct SignInView: View {
     }
 
     /// In a debug build, RIBBON_SERVER, RIBBON_NAME and RIBBON_PASSWORD fill the form in:
-    /// the simulator's keyboard is slow, and a scratch server is signed in to often (tv/README.md).
+    /// the simulator's keyboard is slow, and a scratch server is signed in to often (packages/apple/README.md).
     private func fillInForDevelopment() {
         #if DEBUG
         let environment = ProcessInfo.processInfo.environment

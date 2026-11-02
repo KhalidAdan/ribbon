@@ -93,7 +93,7 @@ or without one. The apps you read and listen on (the iPhone, the iPad, the
 Apple TV, and Android when it comes) are native and thin: they need a server,
 and keep nothing of their own but who has signed in. What a thin app needs
 worked out is worked out on the server, once, never again in the app
-([tv/README.md](../tv/README.md)).
+([packages/apple/README.md](../packages/apple/README.md)).
 
 **One place, two editions.** Reading and listening each keep their own exact
 place. Switching maps one onto the other: first by chapter and how far
@@ -171,7 +171,7 @@ you choose, for the people you invite. The design is in
 
 **The thin apps.** The picture of success below has three places in it, and
 version one is one of them. The Apple TV, the iPad and the iPhone have their
-thin app ([tv/README.md](../tv/README.md)), which streams from your server,
+thin app ([packages/apple/README.md](../packages/apple/README.md)), which streams from your server,
 your place moving with you.
 
 ## What comes next

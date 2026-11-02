@@ -38,7 +38,7 @@ point one way: core depends on nothing of Ribbon's, and everything depends on it
 | The shared logic | `packages/core/` | Nothing: it depends on no other part |
 | Node's file access | `packages/host-node/` | `@ribbon/core` |
 | The server | `packages/server/` | `@ribbon/core`, `@ribbon/host-node`; `packages/desktop/src-tauri/ebook` and `packages/desktop/src-tauri/frames`, built as commands |
-| The Apple apps | `tv/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `packages/core/src/resume.ts`. |
+| The Apple apps | `packages/apple/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `packages/core/src/resume.ts`. |
 
 ### The desktop app
 
@@ -442,4 +442,4 @@ same folder on another machine gets the same id.
 | Playback | `player/engine.ts`, `packages/desktop/src-tauri/src/frames.rs` |
 | The EPUB parser | `packages/desktop/src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
 | The export | `core/reading/export.ts`, `packages/desktop/src-tauri/src/ebook/export.rs`, `packages/desktop/src-tauri/ebook/src/source.rs` |
-| Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `packages/server/src/readalong-routes.ts`, `tv/` (tv/README.md) |
+| Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `packages/server/src/readalong-routes.ts`, `packages/apple/` (packages/apple/README.md) |
