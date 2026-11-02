@@ -1,9 +1,10 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/newsreader/opsz.css";
-/* Where Tailwind looks for classes: the app, and nothing else in the repository. Core draws nothing. */
+/* Where Tailwind looks for classes: the app, and nothing else in the repository. Core and the hosts draw nothing. */
 @import "tailwindcss" source(".");
 @source "../index.html";
 @source not "./core";
+@source not "./host";
 
 /*
  * Ribbon's ground, surfaces, lines and inks (docs/DESIGN.md). Components
