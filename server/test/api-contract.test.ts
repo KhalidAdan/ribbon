@@ -33,7 +33,7 @@ function shapeOf(value: unknown): unknown {
     return value;
   }
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [/^[0-9a-f]{8}$/.test(k) ? "00000000" : k, shapeOf(v)]));
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [/^[0-9a-f]{8}([0-9a-f]{8})?$/.test(k) ? "0123456789abcdef" : k, shapeOf(v)]));
   }
   return value;
 }
