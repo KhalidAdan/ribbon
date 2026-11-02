@@ -1,6 +1,6 @@
-import { wordIndex } from "../../../src/core/reading/anchors.ts";
-import { BookText } from "../../../src/core/reading/booktext.ts";
-import { placeTranscript } from "../../../src/core/reading/placing.ts";
+import { wordIndex } from "@ribbon/core/reading/anchors";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { placeTranscript } from "@ribbon/core/reading/placing";
 import type { BookIndex } from "./books.ts";
 import { readStored } from "./prepare.ts";
 import { placeKept, type Placer } from "./records.ts";
@@ -8,7 +8,7 @@ import type { ReadAlongs } from "./readalong.ts";
 
 /**
  * Every book's transcript placed in its text by what was said in it (#163,
- * src/core/reading/placing.ts): a phrase found wherever it is in the book,
+ * packages/core/src/reading/placing.ts): a phrase found wherever it is in the book,
  * not only near where its chapter was thought to be. A transcript is placed
  * as it comes in (`PUT /api/books/:id/transcript`), and each one kept before
  * is placed once, in the background, when the server starts. Devices take

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyView, DEFAULT_VIEW, facetCounts, filterCount, matches, parseView, type BookFacts, type Standing } from "../src/core/view";
-import type { ScannedBook } from "../src/core/scan/scan";
-import type { Book } from "../src/core/types";
+import { applyView, DEFAULT_VIEW, facetCounts, filterCount, matches, parseView, type BookFacts, type Standing } from "@ribbon/core/view";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { Book } from "@ribbon/core/types";
 
 function sb(id: string, extra: Partial<Book> = {}, opts: { chapters?: number; mtime?: number } = {}): ScannedBook {
   const book: Book = { id, path: id, title: id, rawTitle: id, author: "", narrator: "", series: "", seriesIndex: null, year: null, cover: "c.jpg", durationMs: 10 * 3_600_000, sizeBytes: 1, fileCount: 1, ...extra };

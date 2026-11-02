@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dominantHue, toneFor, NEUTRAL_TONE } from "../src/core/tint";
+import { dominantHue, toneFor, NEUTRAL_TONE } from "@ribbon/core/tint";
 
 const px = (...colors: [number, number, number][]) => colors.flatMap(([r, g, b]) => [r, g, b, 255]);
 

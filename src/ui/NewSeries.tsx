@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
-import { fold } from "../core/search";
+import { fold } from "@ribbon/core/search";
 import { lengthOf } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";

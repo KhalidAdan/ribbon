@@ -14,7 +14,7 @@ can never lose a position or produce a conflict. It also lets other
 apps join in without anyone coordinating with anyone.
 
 This document is the specification. Ribbon is one implementation; the
-reference code is `src/core/poslog.ts`. The words MUST, SHOULD and MAY
+reference code is `packages/core/src/poslog.ts`. The words MUST, SHOULD and MAY
 are used as in RFC 2119.
 
 ## 1. Why another format

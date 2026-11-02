@@ -1,11 +1,11 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
-import { generatedTitles } from "../../../src/core/chapternames.ts";
-import type { Ebook } from "../../../src/core/ebook.ts";
-import { BookText } from "../../../src/core/reading/booktext.ts";
-import { chapterNamesFromText } from "../../../src/core/reading/narration.ts";
-import type { Correction } from "../../../src/core/scan/chapters.ts";
-import { xmlText } from "../../../src/core/scan/sidefiles.ts";
+import { generatedTitles } from "@ribbon/core/chapternames";
+import type { Ebook } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { chapterNamesFromText } from "@ribbon/core/reading/narration";
+import type { Correction } from "@ribbon/core/scan/chapters";
+import { xmlText } from "@ribbon/core/scan/sidefiles";
 import { bookDir, type BookIndex, type FilledIn, type StoredBook } from "./books.ts";
 import { chaptersWith, handCorrections, namedByHand } from "./chapters.ts";
 import { readStored, writeStored } from "./prepare.ts";
@@ -20,7 +20,7 @@ import { narrationOf, ReadAlongError, type ReadAlongs } from "./readalong.ts";
  * - **The description** is the EPUB's (`dc:description`), when the book has
  *   none.
  * - **Chapter names** come from the EPUB's contents, by pairing its text
- *   with the audio (src/core/chapternames.ts, `namesFromContents`), when
+ *   with the audio (packages/core/src/chapternames.ts, `namesFromContents`), when
  *   the files only number the chapters.
  *
  * Nothing is asked of anyone else's service (docs/NORTHSTAR.md). Nothing set

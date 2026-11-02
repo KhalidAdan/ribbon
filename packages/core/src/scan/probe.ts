@@ -1,4 +1,4 @@
-import type { Host } from "../../host/host";
+import type { Host } from "../host";
 import type { Chapter } from "../types";
 
 export interface ProbeResult {

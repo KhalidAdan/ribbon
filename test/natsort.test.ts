@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { natcompare, natsort } from "../src/core/natsort";
+import { natcompare, natsort } from "@ribbon/core/natsort";
 
 describe("natcompare", () => {
   it("orders digit runs numerically", () => {

@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { compact, encodeRecord, FUTURE_SLACK_MS, locatorFor, mergeById, mergePlace, mergePlaces, nextSeq, parseLog, ribbonClaim, type LogRecord, type PosRecord, type ReadRecord } from "../src/core/poslog";
+import { compact, encodeRecord, FUTURE_SLACK_MS, locatorFor, mergeById, mergePlace, mergePlaces, nextSeq, parseLog, ribbonClaim, type LogRecord, type PosRecord, type ReadRecord } from "@ribbon/core/poslog";
 import { LibraryService } from "../src/app/library";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 
 const T0 = Date.parse("2026-10-18T12:00:00.000Z");
 const at = (min: number) => new Date(T0 + min * 60_000).toISOString();

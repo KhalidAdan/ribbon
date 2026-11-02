@@ -1,7 +1,7 @@
 import { BackwardIcon, ChevronUpIcon, ForwardIcon, ListBulletIcon, MoonIcon, PauseIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { memo } from "react";
-import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
+import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "@ribbon/core/speed";
 import { useAppState, useController, useCovers } from "./store";
 import { Button, IconButton, pressed } from "./Button";
 import { Cover } from "./Cover";

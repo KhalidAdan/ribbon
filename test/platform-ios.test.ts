@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { reopenedOnIos } from "../src/app/platform";
-import type { SourceEntry } from "../src/core/sources";
+import type { SourceEntry } from "@ribbon/core/sources";
 
 const listed: SourceEntry[] = [
   { root: "/private/var/mobile/Library/LiveFiles/smb/books", addedAt: "2026-10-20T00:00:00.000Z" },

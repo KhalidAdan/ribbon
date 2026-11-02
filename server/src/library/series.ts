@@ -1,7 +1,7 @@
 import type { DatabaseSync, SQLInputValue, SQLOutputValue } from "node:sqlite";
-import { detectSeries, MIN_SERIES_BOOKS, uniqueKey } from "../../../src/core/series.ts";
-import { remoteBook } from "../../../src/core/server-books.ts";
-import type { Book } from "../../../src/core/types.ts";
+import { detectSeries, MIN_SERIES_BOOKS, uniqueKey } from "@ribbon/core/series";
+import { remoteBook } from "@ribbon/core/server-books";
+import type { Book } from "@ribbon/core/types";
 import type { ListedBook } from "./books.ts";
 
 /** A series as devices read it (`GET /api/series`): its books in order. */
@@ -34,7 +34,7 @@ export interface SeriesBookChange {
  * The library's series: rows of the database, the same for every device
  * and every person, rather than something each device works out from tags
  * (docs/SERVER.md, section 7). The server finds them as books arrive, by the
- * rules the desktop has always used (src/core/series.ts): a series tag,
+ * rules the desktop has always used (packages/core/src/series.ts): a series tag,
  * else a series named in the titles ("…, Book 7"). After that a series is
  * what people make of it: renamed, reordered, numbered, books moved in or
  * out or left off the shelf, or deleted; finding series again never undoes

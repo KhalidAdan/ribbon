@@ -1,8 +1,8 @@
 import { pipe, collect, flatMap, from } from "@culvert/stream";
-import type { Host, KnownFile, ScanOutput, ScanProgress, ScannedFile } from "./host";
-import { walk, isAudio, isEbook, type FileEntry } from "../core/scan/walk";
-import { isSideFileName } from "../core/scan/sidefiles";
-import { probe } from "../core/scan/probe";
+import type { Host, KnownFile, ScanOutput, ScanProgress, ScannedFile } from "@ribbon/core/host";
+import { walk, isAudio, isEbook, type FileEntry } from "@ribbon/core/scan/walk";
+import { isSideFileName } from "@ribbon/core/scan/sidefiles";
+import { probe } from "@ribbon/core/scan/probe";
 
 /**
  * The reference implementation of Host.scan, built from the walk source

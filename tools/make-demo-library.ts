@@ -15,11 +15,11 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import { bytesToRows } from "../src/core/csv";
-import { nodeHost } from "../src/host/node";
-import { loadLibrary, scanLibrary } from "../src/core/scan/scan";
-import { serializePosition } from "../src/core/position";
-import { sourceFrom } from "../src/core/sources";
+import { bytesToRows } from "@ribbon/core/csv";
+import { nodeHost } from "@ribbon/host-node/node";
+import { loadLibrary, scanLibrary } from "@ribbon/core/scan/scan";
+import { serializePosition } from "@ribbon/core/position";
+import { sourceFrom } from "@ribbon/core/sources";
 
 interface Row {
   title: string;

@@ -4,9 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppController, type AppState, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
-import { ribbonClaim, type ReadRecord } from "../src/core/poslog";
-import type { ScannedBook } from "../src/core/scan/scan";
-import { nodeHost } from "../src/host/node";
+import { ribbonClaim, type ReadRecord } from "@ribbon/core/poslog";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { nodeHost } from "@ribbon/host-node/node";
 import { ReadHistory } from "../src/ui/ReadHistory";
 import { ControllerContext } from "../src/ui/store";
 

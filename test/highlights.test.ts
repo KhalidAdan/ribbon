@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { EBOOK_FORMAT, blockText, type Ebook } from "../src/core/ebook";
-import { highlightOf, inRange, placeAfter, rangeOf, trimRange } from "../src/core/reading/highlights";
-import { comparePlaces, type TextPlace } from "../src/core/reading/booktext";
-import { BookText } from "../src/core/reading/booktext";
+import { EBOOK_FORMAT, blockText, type Ebook } from "@ribbon/core/ebook";
+import { highlightOf, inRange, placeAfter, rangeOf, trimRange } from "@ribbon/core/reading/highlights";
+import { comparePlaces, type TextPlace } from "@ribbon/core/reading/booktext";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 const ONE = "The waygate hung before them. It was a giant circle of wraithbone!";
 // A soft hyphen inside "wraith­bone", as some EPUBs carry.

@@ -1,5 +1,5 @@
 import type { Platform } from "./controller";
-import type { SourceEntry } from "../core/sources";
+import type { SourceEntry } from "@ribbon/core/sources";
 import { browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 

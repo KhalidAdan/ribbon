@@ -2,9 +2,9 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { bookId } from "../../src/core/bookid.ts";
-import type { ReadAlong } from "../../src/core/reading/readalong.ts";
-import { localIdOf } from "../../src/core/server-books.ts";
+import { bookId } from "@ribbon/core/bookid";
+import type { ReadAlong } from "@ribbon/core/reading/readalong";
+import { localIdOf } from "@ribbon/core/server-books";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import type { ListedBook } from "../src/library/books.ts";

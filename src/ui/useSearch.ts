@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ScannedBook } from "../core/scan/scan";
-import { indexBooks, searchBooks, type BookIndex } from "../core/search";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { indexBooks, searchBooks, type BookIndex } from "@ribbon/core/search";
 
 /** The shelf's search: the index follows the books, the matches follow the query, in rank order. */
 export function useSearch(books: readonly ScannedBook[]): { query: string; setQuery: (q: string) => void; found: ScannedBook[] | null } {

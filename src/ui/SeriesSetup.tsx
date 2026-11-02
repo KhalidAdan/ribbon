@@ -1,10 +1,10 @@
 import { ArrowDownIcon, ArrowUpIcon, Bars2Icon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
-import { defaultChoices, excludeShorterThan, isHandMade, normalizeChoices, sortByNumber, type SeriesChoice } from "../core/series";
-import { fold } from "../core/search";
+import { defaultChoices, excludeShorterThan, isHandMade, normalizeChoices, sortByNumber, type SeriesChoice } from "@ribbon/core/series";
+import { fold } from "@ribbon/core/search";
 import { lengthOf } from "./progress";
-import { readerOnly } from "../core/ebook";
+import { readerOnly } from "@ribbon/core/ebook";
 import { useAppState, useController, useCovers } from "./store";
 import { Button, IconButton } from "./Button";
 import { Dialog } from "./Dialog";

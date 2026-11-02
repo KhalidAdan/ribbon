@@ -1,4 +1,4 @@
-import type { Ebook } from "../core/ebook";
+import type { Ebook } from "@ribbon/core/ebook";
 import * as perf from "../app/perf";
 import { log } from "../app/log";
 import { addFaces } from "./faces";

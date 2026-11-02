@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { bookmarksOf, clipArgs, clipName, clipRange, CLIP_X, highlightId, highlightsOf, highlightText, markFields, markId, parseBookmarks, serializeBookmarks } from "../src/core/bookmarks";
-import { encodeRecord, parseLog, ribbonClaim, type DelRecord, type LogRecord, type MarkRecord } from "../src/core/poslog";
-import type { Bookmark, Highlight, HighlightText } from "../src/core/types";
+import { bookmarksOf, clipArgs, clipName, clipRange, CLIP_X, highlightId, highlightsOf, highlightText, markFields, markId, parseBookmarks, serializeBookmarks } from "@ribbon/core/bookmarks";
+import { encodeRecord, parseLog, ribbonClaim, type DelRecord, type LogRecord, type MarkRecord } from "@ribbon/core/poslog";
+import type { Bookmark, Highlight, HighlightText } from "@ribbon/core/types";
 
 describe("bookmarks", () => {
   it("round-trips hostile notes and sorts by offset", async () => {

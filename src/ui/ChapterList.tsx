@@ -1,11 +1,11 @@
 import { CheckIcon, PencilSquareIcon, ScissorsIcon, XMarkIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useState } from "react";
-import { formatDuration, formatLeft } from "../core/speed";
-import type { Correction } from "../core/scan/chapters";
-import { groupByPart, partAt } from "../core/scan/parts";
-import type { Part } from "../core/types";
-import { fit, REGIONS, titlesAndTimes, titlesOnly, type LookedUp, type Region } from "../core/audnexus";
+import { formatDuration, formatLeft } from "@ribbon/core/speed";
+import type { Correction } from "@ribbon/core/scan/chapters";
+import { groupByPart, partAt } from "@ribbon/core/scan/parts";
+import type { Part } from "@ribbon/core/types";
+import { fit, REGIONS, titlesAndTimes, titlesOnly, type LookedUp, type Region } from "@ribbon/core/audnexus";
 import { useAppState, useController } from "./store";
 import { progressOf } from "./progress";
 import { Button, IconButton } from "./Button";

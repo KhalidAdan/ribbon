@@ -7,8 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
 import { ServerClient } from "../../src/app/server/client.ts";
 import { ServerLog } from "../../src/app/server/server-log.ts";
-import { encodeRecord, logName, mergePlaces, ribbonClaim, type LogRecord } from "../../src/core/poslog.ts";
-import { nodeHost } from "../../src/host/node.ts";
+import { encodeRecord, logName, mergePlaces, ribbonClaim, type LogRecord } from "@ribbon/core/poslog";
+import { nodeHost } from "@ribbon/host-node/node";
 import { serverWithAdmin } from "./fixture.ts";
 
 const PHONE = "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";

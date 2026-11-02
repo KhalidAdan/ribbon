@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { openingMatch, words } from "../src/core/reading/openings";
-import { alignBook } from "../src/core/reading/align";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
-import type { Chapter } from "../src/core/types";
-import { BookText } from "../src/core/reading/booktext";
+import { openingMatch, words } from "@ribbon/core/reading/openings";
+import { alignBook } from "@ribbon/core/reading/align";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
+import type { Chapter } from "@ribbon/core/types";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 describe("the narrator's opening words", () => {
   it("are words: lower case, numbers as digits, apostrophes kept inside words", () => {

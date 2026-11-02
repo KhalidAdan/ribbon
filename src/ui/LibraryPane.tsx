@@ -1,13 +1,13 @@
 import { BookOpenIcon, CheckIcon, FolderOpenIcon, FunnelIcon, MagnifyingGlassIcon, PlayIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { memo, useMemo } from "react";
-import type { ScannedBook } from "../core/scan/scan";
-import { formatLeft } from "../core/speed";
-import { compareBooks } from "../core/order";
-import { chapterAt } from "../core/scan/chapters";
-import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } from "../core/series";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { formatLeft } from "@ribbon/core/speed";
+import { compareBooks } from "@ribbon/core/order";
+import { chapterAt } from "@ribbon/core/scan/chapters";
+import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from "./progress";
-import { readerOnly } from "../core/ebook";
+import { readerOnly } from "@ribbon/core/ebook";
 import { shallowEqual, useAppState, useController, useCovers } from "./store";
 import { Button, pressed, pressedCard, pressedCardWithButtons } from "./Button";
 import { Cover, CoverStack } from "./Cover";
@@ -16,7 +16,7 @@ import { SearchField } from "./SearchField";
 import { EmptyState, Menu, ProgressLine, SectionHeader, SegmentedProgress } from "./kit";
 import { Downloads } from "./Servers";
 import { describeFilter, useShelfFacts, ViewBar } from "./ShelfView";
-import { applyView, filterCount, SORT_LABELS } from "../core/view";
+import { applyView, filterCount, SORT_LABELS } from "@ribbon/core/view";
 import { seriesStanding } from "./SeriesPage";
 
 /**

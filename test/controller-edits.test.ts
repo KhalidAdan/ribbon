@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";

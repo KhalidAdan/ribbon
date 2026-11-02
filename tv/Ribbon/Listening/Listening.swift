@@ -102,7 +102,7 @@ final class Listening {
     private static let fadeMs = 10_000
     /// How long the narration waits on a chapter's card, which wipes in and out either side.
     static let cardHold: Duration = .seconds(2.6)
-    /// The speeds there are, and the step between them, as the desktop's (src/core/speed.ts).
+    /// The speeds there are, and the step between them, as the desktop's (packages/core/src/speed.ts).
     static let slowest = 0.5
     static let fastest = 3.0
     static let speedStep = 0.05

@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
 import { bookDir, editedStored, type BookIndex, type StoredBook } from "./books.ts";
-import { bytesToRows } from "../../../src/core/csv.ts";
+import { bytesToRows } from "@ribbon/core/csv";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
 import type { Mp3Frames } from "./frames.ts";

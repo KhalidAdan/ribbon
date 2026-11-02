@@ -3,12 +3,12 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import { nodeHost } from "../src/host/node";
-import { scanLibrary } from "../src/core/scan/scan";
-import { resolveMetadata, withSideFiles } from "../src/core/scan/metadata";
-import { booksToBytes, bytesToBooks } from "../src/core/scan/records";
-import type { ProbeResult } from "../src/core/scan/probe";
-import type { Book } from "../src/core/types";
+import { nodeHost } from "@ribbon/host-node/node";
+import { scanLibrary } from "@ribbon/core/scan/scan";
+import { resolveMetadata, withSideFiles } from "@ribbon/core/scan/metadata";
+import { booksToBytes, bytesToBooks } from "@ribbon/core/scan/records";
+import type { ProbeResult } from "@ribbon/core/scan/probe";
+import type { Book } from "@ribbon/core/types";
 
 const pr = (tags: Record<string, string>): ProbeResult => ({ durationMs: 0, tags, hasCover: false, chapters: [], codec: "", sampleRate: 0, channels: 0 });
 

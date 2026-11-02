@@ -1,4 +1,4 @@
-import type { Host } from "../host/host";
+import type { Host } from "@ribbon/core/host";
 
 /**
  * A library folder that cannot be written from this device. On the

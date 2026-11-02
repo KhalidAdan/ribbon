@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { hyphenateRuns, insertHyphens, SOFT_HYPHEN, toHyphenated, toModel, wordBreaks, type WordBreaks } from "../src/core/reading/hyphens";
+import { hyphenateRuns, insertHyphens, SOFT_HYPHEN, toHyphenated, toModel, wordBreaks, type WordBreaks } from "@ribbon/core/reading/hyphens";
 import { hyphenatorFor, patternsName } from "../src/reader/hyphenate";
-import { EBOOK_FORMAT, type Ebook, type EbookRun } from "../src/core/ebook";
-import type { Line } from "../src/core/reading/pages";
-import type { Metrics } from "../src/core/reading/typography";
+import { EBOOK_FORMAT, type Ebook, type EbookRun } from "@ribbon/core/ebook";
+import type { Line } from "@ribbon/core/reading/pages";
+import type { Metrics } from "@ribbon/core/reading/typography";
 
 const SHY = SOFT_HYPHEN;
 // Six lower-case Deseret letters: each a surrogate pair.

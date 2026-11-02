@@ -1,13 +1,13 @@
-import type { Host } from "../../host/host";
-import type { ScannedBook } from "../../core/scan/scan";
-import type { Book } from "../../core/types";
-import { filedBook, filedDetails, localIdOf, opfFor, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "../../core/server-books";
-import type { SharedEdits } from "../../core/edits";
-import { RIBBON_DIR } from "../../core/scan/walk";
-import type { SeriesGroup, SeriesRecord } from "../../core/series";
+import type { Host } from "@ribbon/core/host";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { Book } from "@ribbon/core/types";
+import { filedBook, filedDetails, localIdOf, opfFor, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "@ribbon/core/server-books";
+import type { SharedEdits } from "@ribbon/core/edits";
+import { RIBBON_DIR } from "@ribbon/core/scan/walk";
+import type { SeriesGroup, SeriesRecord } from "@ribbon/core/series";
 import { ServerError, type ServerClient } from "./client";
-import { bytesToRows, rowsToBytes } from "../../core/csv";
-import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, withMinutesOf } from "../../core/reading/narration";
+import { bytesToRows, rowsToBytes } from "@ribbon/core/csv";
+import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, withMinutesOf } from "@ribbon/core/reading/narration";
 
 /** The records kept beside a downloaded book here: what it brought from the server, and what was worked out here. */
 const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudness", "silence", "settings"];

@@ -1,5 +1,5 @@
 import type { Source } from "@culvert/stream";
-import type { Host } from "../../host/host";
+import type { Host } from "../host";
 import { normalizePath } from "../bookid";
 
 export interface FileEntry {

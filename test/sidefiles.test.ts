@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { folderMarks, isSideFileName, parseOpf, readSideFiles, splitList, splitPeople, xmlText } from "../src/core/scan/sidefiles";
+import { folderMarks, isSideFileName, parseOpf, readSideFiles, splitList, splitPeople, xmlText } from "@ribbon/core/scan/sidefiles";
 
 const ABS_OPF = `<?xml version="1.0" encoding="UTF-8"?>
 <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId">

@@ -1,8 +1,8 @@
 import { ChartBarIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useMemo } from "react";
-import { splitPeople } from "../core/scan/sidefiles";
-import { bookIdOf, formatSpan, heatmap, timeBy, totals } from "../core/stats";
+import { splitPeople } from "@ribbon/core/scan/sidefiles";
+import { bookIdOf, formatSpan, heatmap, timeBy, totals } from "@ribbon/core/stats";
 import { useAppState, useController, useCovers } from "./store";
 import { Cover } from "./Cover";
 import { EmptyState, SectionHeader } from "./kit";

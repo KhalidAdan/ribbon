@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { overlayAnchors } from "../src/core/reading/overlay";
-import { alignBook, byOverlay, msToText, precise, textToMs } from "../src/core/reading/align";
-import { EBOOK_FORMAT, type Ebook, type EbookSection } from "../src/core/ebook";
-import { BookText } from "../src/core/reading/booktext";
+import { overlayAnchors } from "@ribbon/core/reading/overlay";
+import { alignBook, byOverlay, msToText, precise, textToMs } from "@ribbon/core/reading/align";
+import { EBOOK_FORMAT, type Ebook, type EbookSection } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 /** A chapter of three sentences, each an element with an id, read from `at` in `audio`. */
 function chapter(href: string, audio: string, at: number): EbookSection {

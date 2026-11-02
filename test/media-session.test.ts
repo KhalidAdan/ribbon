@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mediaMetadataFor } from "../src/app/media-session";
-import type { ScannedBook } from "../src/core/scan/scan";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
 
 const book: ScannedBook = {
   book: { id: "a", path: "20. The Primarchs", title: "20. The Primarchs", rawTitle: "20. The Primarchs", author: "Various", narrator: "", series: "The Horus Heresy", seriesIndex: 20, year: null, cover: "", durationMs: 20, sizeBytes: 1, fileCount: 2 },

@@ -1,6 +1,6 @@
-import type { DeviceInfo, LogRecord } from "../../core/poslog";
-import type { EditValues } from "../../core/edits";
-import type { ServerBook, ServerBookDetail, ServerSeries } from "../../core/server-books";
+import type { DeviceInfo, LogRecord } from "@ribbon/core/poslog";
+import type { EditValues } from "@ribbon/core/edits";
+import type { ServerBook, ServerBookDetail, ServerSeries } from "@ribbon/core/server-books";
 
 /** How a folder being added to a server is going (server/src/library/importer.ts, `ImportProgress`). */
 export interface ImportProgress {

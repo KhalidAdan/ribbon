@@ -1,5 +1,5 @@
-import { matchWork, needsLookup, parseSearch, parseWork, searchUrl, workUrl, REQUEST_GAP_MS, type BookAbout } from "../core/about";
-import type { ScannedBook } from "../core/scan/scan";
+import { matchWork, needsLookup, parseSearch, parseWork, searchUrl, workUrl, REQUEST_GAP_MS, type BookAbout } from "@ribbon/core/about";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
 import type { LibraryService } from "./library";
 import { log } from "./log";
 

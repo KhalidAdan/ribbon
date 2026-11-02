@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { promises as fs, createReadStream } from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 
 const MIME: Record<string, string> = {
   mp3: "audio/mpeg",

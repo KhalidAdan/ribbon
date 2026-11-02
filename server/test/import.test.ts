@@ -7,7 +7,7 @@ import { openDatabase } from "../src/db.ts";
 import { BookIndex, type StoredBook } from "../src/library/books.ts";
 import { importFolder } from "../src/library/importer.ts";
 import { booksToPrepare, prepareBooks } from "../src/library/prepare.ts";
-import { nodeHost } from "../../src/host/node.ts";
+import { nodeHost } from "@ribbon/host-node/node";
 import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 
 // Adding folders of books: a book with a cover, a book in two files, and

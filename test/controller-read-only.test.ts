@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
-import type { Host } from "../src/host/host";
+import type { Host } from "@ribbon/core/host";
 
 let root = "";
 

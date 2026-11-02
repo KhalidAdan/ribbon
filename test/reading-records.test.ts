@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { LibraryService } from "../src/app/library";
 
 const dirs: string[] = [];

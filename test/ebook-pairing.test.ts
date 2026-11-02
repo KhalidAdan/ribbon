@@ -3,14 +3,14 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
-import { groupBooks, isReaderOnlyGroup } from "../src/core/scan/group";
-import type { FileEntry } from "../src/core/scan/walk";
-import { nodeHost } from "../src/host/node";
-import { loadLibrary, scanLibrary } from "../src/core/scan/scan";
-import { booksToBytes, bytesToBooks } from "../src/core/scan/records";
-import { openEbook, EBOOK_FORMAT } from "../src/core/ebook";
-import type { Host } from "../src/host/host";
-import type { Book } from "../src/core/types";
+import { groupBooks, isReaderOnlyGroup } from "@ribbon/core/scan/group";
+import type { FileEntry } from "@ribbon/core/scan/walk";
+import { nodeHost } from "@ribbon/host-node/node";
+import { loadLibrary, scanLibrary } from "@ribbon/core/scan/scan";
+import { booksToBytes, bytesToBooks } from "@ribbon/core/scan/records";
+import { openEbook, EBOOK_FORMAT } from "@ribbon/core/ebook";
+import type { Host } from "@ribbon/core/host";
+import type { Book } from "@ribbon/core/types";
 
 const f = (relPath: string): FileEntry => ({ relPath, absPath: `/lib/${relPath}`, name: relPath.slice(relPath.lastIndexOf("/") + 1), sizeBytes: 1, mtimeMs: 0 });
 

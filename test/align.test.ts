@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { alignBook, chapterKey, msToText, textToMs } from "../src/core/reading/align";
-import { EBOOK_FORMAT, type Ebook, type EbookSection } from "../src/core/ebook";
-import type { Chapter } from "../src/core/types";
-import { BookText } from "../src/core/reading/booktext";
+import { alignBook, chapterKey, msToText, textToMs } from "@ribbon/core/reading/align";
+import { EBOOK_FORMAT, type Ebook, type EbookSection } from "@ribbon/core/ebook";
+import type { Chapter } from "@ribbon/core/types";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 const MIN = 60_000;
 /** Characters per millisecond: about 160 words a minute. */

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { sentencesOf } from "../src/core/reading/sentences";
-import { BookText } from "../src/core/reading/booktext";
+import { sentencesOf } from "@ribbon/core/reading/sentences";
+import { BookText } from "@ribbon/core/reading/booktext";
 import { cut, spansIn, type Span } from "../src/reader/marks";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
 
 const para = "The waygate hung before them. It was a giant circle of wraithbone! “Who made it?” asked Jurilan.";
 

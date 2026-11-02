@@ -1,7 +1,7 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Host } from "../../../src/host/host.ts";
-import { analyzeFiles, type BookAnalysis } from "../../../src/core/analysis.ts";
+import type { Host } from "@ribbon/core/host";
+import { analyzeFiles, type BookAnalysis } from "@ribbon/core/analysis";
 import { bookDir, type BookIndex, type StoredAnalysis, type StoredBook } from "./books.ts";
 
 /** A book's loudness and silences as `book.json` keeps them: plain JSON, the silences by the file's place in the book. */

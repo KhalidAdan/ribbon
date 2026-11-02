@@ -1,4 +1,4 @@
-import { parseNumbered } from "../../../src/core/scan/metadata.ts";
+import { parseNumbered } from "@ribbon/core/scan/metadata";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
 import { hydrateStamp } from "./hydrate.ts";
 import { readStored, writeStored } from "./prepare.ts";

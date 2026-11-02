@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { flow, itemsIn, pageOf, paginate, placeAtY, yOfPlace, type LaidBlock, type Line } from "../src/core/reading/pages";
-import { BookText } from "../src/core/reading/booktext";
-import { EBOOK_FORMAT, type Ebook, type EbookBlock } from "../src/core/ebook";
+import { flow, itemsIn, pageOf, paginate, placeAtY, yOfPlace, type LaidBlock, type Line } from "@ribbon/core/reading/pages";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { EBOOK_FORMAT, type Ebook, type EbookBlock } from "@ribbon/core/ebook";
 
 const LH = 10;
 

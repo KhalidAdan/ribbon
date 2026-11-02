@@ -4,11 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppController, type AppState, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
-import { nodeHost } from "../src/host/node";
-import type { ScannedBook } from "../src/core/scan/scan";
-import type { Book, Position } from "../src/core/types";
-import { defaultSettings } from "../src/core/settings";
-import { newSeriesRecord } from "../src/core/series";
+import { nodeHost } from "@ribbon/host-node/node";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { Book, Position } from "@ribbon/core/types";
+import { defaultSettings } from "@ribbon/core/settings";
+import { newSeriesRecord } from "@ribbon/core/series";
 import { Screen } from "../src/ui/App";
 import { ControllerContext, shallowEqual, useAppState } from "../src/ui/store";
 

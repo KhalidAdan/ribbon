@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { LibraryService } from "../src/app/library";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, SHARE_AFTER_MS } from "../src/app/reading";
-import { compact, isTextPos, mergePlaces, mergeTextPlaces, parseLog, textClaimsFor, type LogRecord } from "../src/core/poslog";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
-import { BookText } from "../src/core/reading/booktext";
+import { compact, isTextPos, mergePlaces, mergeTextPlaces, parseLog, textClaimsFor, type LogRecord } from "@ribbon/core/poslog";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 const book: Ebook = {
   format: EBOOK_FORMAT,

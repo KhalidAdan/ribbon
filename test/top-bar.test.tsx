@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppController, type AppState, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { TopBar } from "../src/ui/Shell";
 import { ControllerContext } from "../src/ui/store";
 

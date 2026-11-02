@@ -47,8 +47,8 @@ jobs:
             exit 1
           fi
 
-  # The server (server/, docs/SERVER.md) is its own Node package, with its own
-  # dependencies and tests. It runs on Linux and Mac hosts; it's checked on a
+  # The server (server/, docs/SERVER.md) has its own tests. It runs on Linux and
+  # Mac hosts; it's checked on a
   # Mac, where ffmpeg installs reliably (Ubuntu's mirror stalled the install
   # past its time limit twice) and where it's first hosted.
   server:
@@ -64,12 +64,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            server/package-lock.json
       # Adding books reads them with ffprobe and makes covers with ffmpeg.
       - run: brew install ffmpeg
-      # The server runs src/core/ from the app, which brings its own packages.
       - run: npm ci --ignore-scripts
         working-directory: .
       # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index (src-tauri/ebook, src-tauri/frames), which the tests run.
@@ -80,7 +76,6 @@ jobs:
           workspaces: src-tauri -> ../target
       - run: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
         working-directory: .
-      - run: npm ci
       - run: npm run typecheck
       - run: npm test
 

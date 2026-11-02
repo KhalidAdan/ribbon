@@ -1,6 +1,6 @@
 import { pipe, collect, flatMap, from, channel, tap, type Sink } from "@culvert/stream";
 import { coalesce } from "../stream";
-import type { Host, ScannedFile, ScanProgress } from "../../host/host";
+import type { Host, ScannedFile, ScanProgress } from "../host";
 import type { AudioFile, Book, Chapter, Part } from "../types";
 import { bookId } from "../bookid";
 import { natcompare } from "../natsort";

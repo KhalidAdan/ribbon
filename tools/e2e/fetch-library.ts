@@ -21,7 +21,7 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 
 interface Download {
-  /** Where the file sits in the library: the book id is made from it (src/core/bookid.ts). */
+  /** Where the file sits in the library: the book id is made from it (packages/core/src/bookid.ts). */
   path: string;
   url: string;
   bytes: number;

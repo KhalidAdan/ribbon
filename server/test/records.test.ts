@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
 import type { StoredBook } from "../src/library/books.ts";
-import { bookId } from "../../src/core/bookid.ts";
+import { bookId } from "@ribbon/core/bookid";
 import { importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
 /**

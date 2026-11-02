@@ -1,8 +1,8 @@
 import { ArrowPathIcon, CheckCircleIcon, FolderPlusIcon, PlusIcon, ServerIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
-import { groupProblems } from "../core/problems";
-import { isHandMade } from "../core/series";
+import { groupProblems } from "@ribbon/core/problems";
+import { isHandMade } from "@ribbon/core/series";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";

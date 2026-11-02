@@ -2,13 +2,13 @@ import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { Ebook } from "../../../src/core/ebook.ts";
-import type { Alignment } from "../../../src/core/reading/align.ts";
-import { BookText } from "../../../src/core/reading/booktext.ts";
-import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows, type Narration } from "../../../src/core/reading/narration.ts";
-import { overlayAnchors } from "../../../src/core/reading/overlay.ts";
-import { readAlongOf, readsBySentence, type ReadAlong, type ReadAlongCheck } from "../../../src/core/reading/readalong.ts";
-import { stretchesOf } from "../../../src/core/reading/transcript.ts";
+import type { Ebook } from "@ribbon/core/ebook";
+import type { Alignment } from "@ribbon/core/reading/align";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors, transcriptFromRows, type Narration } from "@ribbon/core/reading/narration";
+import { overlayAnchors } from "@ribbon/core/reading/overlay";
+import { readAlongOf, readsBySentence, type ReadAlong, type ReadAlongCheck } from "@ribbon/core/reading/readalong";
+import { stretchesOf } from "@ribbon/core/reading/transcript";
 import { bookDir, type StoredBook } from "./books.ts";
 import { chaptersWith, correctionsOf, recordRows } from "./chapters.ts";
 import type { SearchIndex } from "./search.ts";
@@ -69,8 +69,8 @@ export class ReadAlongError extends Error {
  * Read-along for devices that only draw and play (docs/SERVER.md, section
  * 8: the Apple TV): each book's text, parsed by the code the apps parse it
  * with (the `ribbon-ebook` command, src-tauri/ebook), paired with its
- * narration by the code the apps pair it with (src/core/reading/narration.ts),
- * with when each sentence is read (src/core/reading/readalong.ts).
+ * narration by the code the apps pair it with (packages/core/src/reading/narration.ts),
+ * with when each sentence is read (packages/core/src/reading/readalong.ts).
  *
  * Made when a device first asks, and again when the book or a record it
  * carries changes: a transcript coming in, a pairing fixed by hand. The
@@ -169,7 +169,7 @@ export class ReadAlongs {
   }
 }
 
-/** What the book's records say about its narration (src/core/reading/narration.ts): pairings set by hand, what was heard of it, its transcript, and its own Media Overlay. */
+/** What the book's records say about its narration (packages/core/src/reading/narration.ts): pairings set by hand, what was heard of it, its transcript, and its own Media Overlay. */
 export async function narrationOf(dir: string, stored: StoredBook, text: BookText): Promise<Narration> {
   const [pairing, heard, aligned] = await Promise.all([recordRows(dir, stored, "pairing"), recordRows(dir, stored, "heard"), recordRows(dir, stored, "aligned")]);
   const said = heardFromRows(heard);

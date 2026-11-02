@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import type { AppState } from "../app/controller";
 import { useAppState } from "./store";
-import type { ScannedBook } from "../core/scan/scan";
-import type { ReadRecord } from "../core/poslog";
-import { readsOf } from "../core/stats";
-import { readerOnly } from "../core/ebook";
-import { formatLeft } from "../core/speed";
-import { standingOf } from "../core/progress";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { ReadRecord } from "@ribbon/core/poslog";
+import { readsOf } from "@ribbon/core/stats";
+import { readerOnly } from "@ribbon/core/ebook";
+import { formatLeft } from "@ribbon/core/speed";
+import { standingOf } from "@ribbon/core/progress";
 
 /** A book that is only its EPUB is finished once its reading place is this far through. */
 export const READ_TO_END = 0.99;

@@ -1,0 +1,15 @@
+{
+  "name": "@ribbon/host-node",
+  "version": "0.0.0",
+  "description": "Ribbon's Host on Node: files and processes, for the server, the tests and the tools.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@culvert/stream": "^0.2.0",
+    "@ribbon/core": "*"
+  }
+}

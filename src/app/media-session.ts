@@ -1,5 +1,5 @@
-import type { ScannedBook } from "../core/scan/scan";
-import type { Part } from "../core/types";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { Part } from "@ribbon/core/types";
 
 export interface MediaSessionHandlers {
   play: () => void;

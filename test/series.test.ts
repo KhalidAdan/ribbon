@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, orderBySeries, parseSeriesTitle, seriesToBytes, slug, uniqueKey } from "../src/core/series";
-import type { Book } from "../src/core/types";
+import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, orderBySeries, parseSeriesTitle, seriesToBytes, slug, uniqueKey } from "@ribbon/core/series";
+import type { Book } from "@ribbon/core/types";
 
 const book = (path: string, extra: Partial<Book> = {}): Book => ({
   id: path,

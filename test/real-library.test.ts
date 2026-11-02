@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
-import { scanLibrary } from "../src/core/scan/scan";
+import { nodeHost } from "@ribbon/host-node/node";
+import { scanLibrary } from "@ribbon/core/scan/scan";
 
 const root = process.env.RIBBON_BOOKS ? path.resolve(process.env.RIBBON_BOOKS) : null;
 

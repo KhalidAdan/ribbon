@@ -1,6 +1,6 @@
-import { EBOOK_FORMAT } from "../core/ebook";
-import type { TextPlace } from "../core/reading/booktext";
-import type { ReadingSettings } from "../core/reading/typography";
+import { EBOOK_FORMAT } from "@ribbon/core/ebook";
+import type { TextPlace } from "@ribbon/core/reading/booktext";
+import type { ReadingSettings } from "@ribbon/core/reading/typography";
 import type { SectionLayout } from "./layout";
 
 declare const __APP_VERSION__: string;

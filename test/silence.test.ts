@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { of, pipe, collect } from "@culvert/stream";
-import { findRange, gapRate, parseSilenceDetect, silenceRanges } from "../src/core/silence";
+import { findRange, gapRate, parseSilenceDetect, silenceRanges } from "@ribbon/core/silence";
 
 const OUT = `
 [silencedetect @ 0x1] silence_start: 2

@@ -1,6 +1,6 @@
 import { BookmarkIcon, BookOpenIcon, PauseIcon, PlayIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { formatDuration } from "../core/speed";
+import { formatDuration } from "@ribbon/core/speed";
 import { useAppState, useController } from "./store";
 import { IconButton } from "./Button";
 import { EmptyState } from "./kit";

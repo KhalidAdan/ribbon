@@ -20,12 +20,13 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ribbon
-# The packages src/core uses (Culvert, Orama), then the server's own.
+# One install for the repository, of the server and the packages it runs, without the app's.
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts
-COPY server/package.json server/package-lock.json server/
-RUN cd server && npm ci
-COPY src src
+COPY packages/core/package.json packages/core/
+COPY packages/host-node/package.json packages/host-node/
+COPY server/package.json server/
+RUN npm ci --workspace @ribbon/server --workspace @ribbon/core --workspace @ribbon/host-node --include-workspace-root=false --ignore-scripts
+COPY packages packages
 COPY server server
 COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /usr/local/bin/
 ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames

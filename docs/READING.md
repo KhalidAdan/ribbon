@@ -237,7 +237,7 @@ a book speaks it: the reader, reading places, highlights, read-along and
 the export. Two objects turn places into everything else, one on each
 side:
 
-- **`BookText`** (`src/core/reading/booktext.ts`), made once when a book
+- **`BookText`** (`packages/core/src/reading/booktext.ts`), made once when a book
   opens: a place's characters in the reading order (`chars`, `place`:
   read-along's timing), its words (`text`, `sentenceAt`), how far through
   the book it is, the contents entry it is under, and the forms others
@@ -305,7 +305,7 @@ question mark. **Fix pairing** puts a choice on each entry (automatic,
 not in the audio, or a chapter of the recording), kept beside the book in
 `.ribbon/pairing/<book>.csv`; the rest re-pairs around it.
 
-**Chapter names from the pairing** (`src/core/chapternames.ts`,
+**Chapter names from the pairing** (`packages/core/src/chapternames.ts`,
 `namesFromContents`). A book whose files only number their chapters
 ("Chapter 1" to "Chapter 37", the opening credits among them, so the
 narrator's chapter one is the file's second) is named from its contents:
@@ -450,7 +450,7 @@ dropped with it, so no minute is two hearings mixed. The book reads along once e
 transcribed, and opens to read only until then.
 
 Once a transcript is whole, it's placed again by what was said in it,
-wherever that is in the book (#163, `src/core/reading/placing.ts`),
+wherever that is in the book (#163, `packages/core/src/reading/placing.ts`),
 because the pairing's guess fails where the book and the recording don't
 line up: a cast list or a preview of another book the narrator never
 reads, an audio chapter named "Chapter 29" for the book's "Chapter

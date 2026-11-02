@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { scanLibrary } from "../src/core/scan/scan";
-import { parseOpf } from "../src/core/scan/sidefiles";
-import { localIdOf, opfFor, remoteBook, serverCoverPath, type ServerBook } from "../src/core/server-books";
-import { nodeHost } from "../src/host/node";
+import { scanLibrary } from "@ribbon/core/scan/scan";
+import { parseOpf } from "@ribbon/core/scan/sidefiles";
+import { localIdOf, opfFor, remoteBook, serverCoverPath, type ServerBook } from "@ribbon/core/server-books";
+import { nodeHost } from "@ribbon/host-node/node";
 
 const SERVER_ID = "0f1e2d3c4b5a6978";
 

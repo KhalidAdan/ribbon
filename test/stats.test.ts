@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bookIdOf, dayOf, endOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, timeBy, totals } from "../src/core/stats";
-import { ribbonClaim, type ReadRecord, type SessionRecord } from "../src/core/poslog";
+import { bookIdOf, dayOf, endOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, timeBy, totals } from "@ribbon/core/stats";
+import { ribbonClaim, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 
 const NOW = Date.parse("2026-10-18T20:00:00.000Z"); // a Sunday
 const H = 3_600_000;

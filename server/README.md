@@ -56,13 +56,12 @@ What it does:
 ## Running it
 
 Node 24 or later, and ffmpeg (with ffprobe) on the `PATH`: adding books reads
-them with ffprobe and makes covers with ffmpeg. The server shares Ribbon's own
-logic (`src/core/`), so install the repository's packages too:
+them with ffprobe and makes covers with ffmpeg. The server runs Ribbon's own
+logic (`@ribbon/core`), and one install at the repository's root brings it all:
 
 ```bash
 npm install
 cd server
-npm install
 npm start
 ```
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { orderKeys, parseNumbered, parseTrack, resolveMetadata } from "../src/core/scan/metadata";
-import type { ProbeResult } from "../src/core/scan/probe";
+import { orderKeys, parseNumbered, parseTrack, resolveMetadata } from "@ribbon/core/scan/metadata";
+import type { ProbeResult } from "@ribbon/core/scan/probe";
 
 const pr = (tags: Record<string, string>): ProbeResult => ({ durationMs: 0, tags, hasCover: false, chapters: [], codec: "", sampleRate: 0, channels: 0 });
 

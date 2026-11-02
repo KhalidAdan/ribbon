@@ -2,10 +2,10 @@ import { randomBytes } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
-import { applyEdits, originalOf, type EditValues, type SharedEdits } from "../../../src/core/edits.ts";
-import type { ScannedBook } from "../../../src/core/scan/scan.ts";
-import { remoteBook } from "../../../src/core/server-books.ts";
-import type { LoudnessMeasurement, SilenceRange } from "../../../src/core/types.ts";
+import { applyEdits, originalOf, type EditValues, type SharedEdits } from "@ribbon/core/edits";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { remoteBook } from "@ribbon/core/server-books";
+import type { LoudnessMeasurement, SilenceRange } from "@ribbon/core/types";
 import type { Cover } from "./covers.ts";
 
 /**

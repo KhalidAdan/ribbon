@@ -6,7 +6,7 @@
  */
 
 import type { Source } from "@culvert/stream";
-import type { Chapter } from "../core/types";
+import type { Chapter } from "./types";
 
 export interface DirEntry {
   name: string;
@@ -181,7 +181,7 @@ export interface Host {
   /** Index a book's MP3s ahead of their first seek, in the background. Optional. */
   audioPrepare?(paths: string[]): Promise<void>;
   /** Make a read-along EPUB from a plan (core/reading/export.ts); resolves to its path. Optional. */
-  exportEbook?(plan: import("../core/reading/export").ExportPlan, onProgress: (done: number, total: number) => void): Promise<string>;
+  exportEbook?(plan: import("./reading/export").ExportPlan, onProgress: (done: number, total: number) => void): Promise<string>;
   /** Download the speech model into the app's own folder; resolves to its path. */
   downloadSpeechModel?(onProgress: (done: number, total: number) => void): Promise<string>;
   /** True when a file looks like a whisper.cpp model. */

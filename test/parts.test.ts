@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildParts, groupByPart, partAt } from "../src/core/scan/parts";
-import type { AudioFile, Chapter } from "../src/core/types";
+import { buildParts, groupByPart, partAt } from "@ribbon/core/scan/parts";
+import type { AudioFile, Chapter } from "@ribbon/core/types";
 
 const file = (path: string, durationMs: number, part = "", partAuthor = ""): AudioFile => ({
   path,

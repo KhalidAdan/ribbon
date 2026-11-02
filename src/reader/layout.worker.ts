@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { clearCache } from "@chenglou/pretext";
-import type { Ebook } from "../core/ebook";
+import type { Ebook } from "@ribbon/core/ebook";
 import { addFaces } from "./faces";
 import { layOutSection, type FromWorker, type ToWorker } from "./layout";
 import { Typesetter } from "./typeset";

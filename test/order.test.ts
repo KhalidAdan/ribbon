@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compareBooks, compareOrderKeys, orderKey } from "../src/core/order";
-import type { Book } from "../src/core/types";
+import { compareBooks, compareOrderKeys, orderKey } from "@ribbon/core/order";
+import type { Book } from "@ribbon/core/types";
 
 const book = (path: string, title = path): Book => ({
   id: path,

@@ -1,6 +1,6 @@
-import type { ScannedBook } from "../core/scan/scan";
-import type { SilenceRange } from "../core/types";
-import { analyzeFiles } from "../core/analysis";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { SilenceRange } from "@ribbon/core/types";
+import { analyzeFiles } from "@ribbon/core/analysis";
 import type { LibraryService } from "./library";
 
 export interface Analysis {

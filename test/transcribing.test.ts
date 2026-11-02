@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { alignBook } from "../src/core/reading/align";
-import { wordIndex } from "../src/core/reading/anchors";
-import { BookText } from "../src/core/reading/booktext";
-import { EBOOK_FORMAT } from "../src/core/ebook";
-import type { Said } from "../src/core/reading/transcript";
+import { alignBook } from "@ribbon/core/reading/align";
+import { wordIndex } from "@ribbon/core/reading/anchors";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { EBOOK_FORMAT } from "@ribbon/core/ebook";
+import type { Said } from "@ribbon/core/reading/transcript";
 import { HearingStalled, modelName, transcribeWhole, type TranscriptSoFar, type Transcription } from "../src/app/transcribing";
-import { looped } from "../src/core/reading/transcript";
+import { looped } from "@ribbon/core/reading/transcript";
 
 const TEXT = "The waygate hung in the void before them. Eluadhri watched the runes along its rim kindle one by one.";
 

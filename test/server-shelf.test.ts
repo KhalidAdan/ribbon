@@ -11,9 +11,9 @@ import { LibraryService } from "../src/app/library";
 import { memorySettings, memorySources } from "../src/app/platform";
 import { ServerClient, ServerError, takeEvents } from "../src/app/server/client";
 import { NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
-import { scanLibrary } from "../src/core/scan/scan";
-import { localIdOf, type ServerBook, type ServerBookDetail, type ServerSeries } from "../src/core/server-books";
-import { nodeHost } from "../src/host/node";
+import { scanLibrary } from "@ribbon/core/scan/scan";
+import { localIdOf, type ServerBook, type ServerBookDetail, type ServerSeries } from "@ribbon/core/server-books";
+import { nodeHost } from "@ribbon/host-node/node";
 
 const SERVER_ID = "a1b2c3d4e5f60718";
 const TOKEN = "the-token";

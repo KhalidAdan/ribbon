@@ -1,9 +1,9 @@
-import type { Host } from "../host/host";
-import type { ScannedBook } from "../core/scan/scan";
-import { chaptersUrl, parseChapters, type Region } from "../core/audnexus";
-import { generatedTitles, parseCatalog, pickProduct, planNames, searchTitle, type Plan } from "../core/chapternames";
-import { splitPeople } from "../core/scan/sidefiles";
-import { bytesToRows, rowsToBytes } from "../core/csv";
+import type { Host } from "@ribbon/core/host";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { chaptersUrl, parseChapters, type Region } from "@ribbon/core/audnexus";
+import { generatedTitles, parseCatalog, pickProduct, planNames, searchTitle, type Plan } from "@ribbon/core/chapternames";
+import { splitPeople } from "@ribbon/core/scan/sidefiles";
+import { bytesToRows, rowsToBytes } from "@ribbon/core/csv";
 
 /**
  * What came of asking about one book's chapter names: kept beside the

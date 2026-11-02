@@ -85,7 +85,7 @@ struct BookPlace: Decodable {
     let at: String?
 }
 
-/// How one listen-through of a book went (src/core/stats.ts, `ListenThrough`): the end of the book tells it.
+/// How one listen-through of a book went (packages/core/src/stats.ts, `ListenThrough`): the end of the book tells it.
 struct ListenThrough: Decodable, Equatable {
     let started: String
     let finished: String?

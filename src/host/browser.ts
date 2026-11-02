@@ -1,4 +1,4 @@
-import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
+import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanProgress, TextFile, Tool } from "@ribbon/core/host";
 
 /**
  * Development-only Host that talks to the Vite plugin in

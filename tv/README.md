@@ -78,7 +78,7 @@ for listening without a network.
   the desktop's do, and the book opens at the newest of your places on any
   device, listening or reading.
 - **Resuming** goes back by as much as the time away asks, as the desktop's
-  does (src/core/resume.ts, mirrored in `Listening/Resume.swift`): two
+  does (packages/core/src/resume.ts, mirrored in `Listening/Resume.swift`): two
   seconds after a short pause, ten after a few minutes, thirty after a night,
   a minute after a week, never into the chapter before, and to the start of a
   sentence where the read-along places it. After a day away the player offers
@@ -167,7 +167,7 @@ two rows; and the reader's buttons say From here and To narrator.
 `GET /api/books/:id/readalong` (server/src/readalong-routes.ts): the book's
 paragraphs, and when each sentence is read. The server makes it once per
 book, with the same code the apps use: the EPUB parsed by `ribbon-ebook`
-(src-tauri/ebook) and paired with the narration by `src/core/reading/`. A
+(src-tauri/ebook) and paired with the narration by `packages/core/src/reading/`. A
 sentence is marked only where it is placed to the sentence (a transcript or
 a Media Overlay around it); elsewhere the remote still steps through it and
 Play still reads from it. Its `check` says how much of the book is placed
@@ -195,7 +195,7 @@ passages.
 | `Library/LibraryView.swift`, `Library/BookView.swift` | The library, and a book's page with its series. |
 | `Remote.swift` | Every press and touch, seen first: when the person last did anything, and the one press that only wakes something. |
 | `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place, resuming, chapter cards, the end. |
-| `Listening/Resume.swift` | How far back resuming goes, as the desktop's `src/core/resume.ts`. |
+| `Listening/Resume.swift` | How far back resuming goes, as the desktop's `packages/core/src/resume.ts`. |
 | `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
 | `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
 | `Library/SearchView.swift` | Find a line, by voice or typing, in every book. |

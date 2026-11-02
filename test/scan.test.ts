@@ -2,12 +2,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
-import { scanLibrary, loadLibrary, ensureChapters, extractMissingCovers, type ScanResult } from "../src/core/scan/scan";
+import { nodeHost } from "@ribbon/host-node/node";
+import { scanLibrary, loadLibrary, ensureChapters, extractMissingCovers, type ScanResult } from "@ribbon/core/scan/scan";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
-import { locate } from "../src/core/timeline";
-import { bytesToFiles, filesToBytes, filesToRows } from "../src/core/scan/records";
-import type { Row } from "../src/core/csv";
+import { locate } from "@ribbon/core/timeline";
+import { bytesToFiles, filesToBytes, filesToRows } from "@ribbon/core/scan/records";
+import type { Row } from "@ribbon/core/csv";
 
 const host = nodeHost();
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aboutToBytes, bytesToAbout, cleanTitle, matchWork, needsLookup, parseSearch, parseWork, searchUrl } from "../src/core/about";
+import { aboutToBytes, bytesToAbout, cleanTitle, matchWork, needsLookup, parseSearch, parseWork, searchUrl } from "@ribbon/core/about";
 
 const search = {
   docs: [

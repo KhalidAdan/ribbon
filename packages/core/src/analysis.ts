@@ -1,5 +1,5 @@
 import { pipe, from, tap, collect } from "@culvert/stream";
-import type { Host } from "../host/host";
+import type { Host } from "./host";
 import type { LoudnessMeasurement, SilenceRange } from "./types";
 import { combineLoudness, ebur128Fold, type FileLoudness } from "./loudness";
 import { silenceRanges, MIN_GAP_MS, NOISE_DB } from "./silence";

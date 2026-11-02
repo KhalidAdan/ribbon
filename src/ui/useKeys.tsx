@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { AppController } from "../app/controller";
-import { SPEED_STEP } from "../core/speed";
+import { SPEED_STEP } from "@ribbon/core/speed";
 
 /** Space, arrows, brackets, plus and minus, B. Ignored while typing. */
 export function useKeys(c: AppController): void {

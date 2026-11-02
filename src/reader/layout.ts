@@ -1,5 +1,5 @@
-import { flow, paginate, type Flow, type LaidBlock, type Page } from "../core/reading/pages";
-import type { Metrics } from "../core/reading/typography";
+import { flow, paginate, type Flow, type LaidBlock, type Page } from "@ribbon/core/reading/pages";
+import type { Metrics } from "@ribbon/core/reading/typography";
 import type { Typesetter } from "./typeset";
 
 /**

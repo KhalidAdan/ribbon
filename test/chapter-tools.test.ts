@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyCorrections, correctionsToRows, fileChapters, patternTitle, rowsToCorrections, type Correction } from "../src/core/scan/chapters";
-import { chaptersUrl, fit, parseChapters, titlesAndTimes, titlesOnly } from "../src/core/audnexus";
-import type { AudioFile, Chapter } from "../src/core/types";
+import { applyCorrections, correctionsToRows, fileChapters, patternTitle, rowsToCorrections, type Correction } from "@ribbon/core/scan/chapters";
+import { chaptersUrl, fit, parseChapters, titlesAndTimes, titlesOnly } from "@ribbon/core/audnexus";
+import type { AudioFile, Chapter } from "@ribbon/core/types";
 
 const MIN = 60_000;
 const chapters: Chapter[] = [0, 10, 20, 30].map((m, i) => ({ startMs: m * MIN, endMs: (m + 10) * MIN, title: `Track ${i + 1}` }));

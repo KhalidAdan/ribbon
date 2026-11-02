@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
-import { BookText } from "../src/core/reading/booktext";
-import { heardFromRows, pairBook, pairingFromRows, transcriptFromRows } from "../src/core/reading/narration";
-import { overlayAnchors } from "../src/core/reading/overlay";
-import { checkReadAlong, READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "../src/core/reading/readalong";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { heardFromRows, pairBook, pairingFromRows, transcriptFromRows } from "@ribbon/core/reading/narration";
+import { overlayAnchors } from "@ribbon/core/reading/overlay";
+import { checkReadAlong, READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
 
 /**
  * A chapter: its heading, a paragraph of three sentences, a picture, a
