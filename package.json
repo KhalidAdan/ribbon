@@ -27,8 +27,7 @@
   "type": "module",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "server"
+    "packages/*"
   ],
   "dependencies": {
     "@chenglou/pretext": "^1.0.0",

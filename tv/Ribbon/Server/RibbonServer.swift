@@ -1,7 +1,7 @@
 import Foundation
 import UIKit
 
-/// A book on the server, as its library lists it (server/src/library/books.ts, `ListedBook`).
+/// A book on the server, as its library lists it (packages/server/src/library/books.ts, `ListedBook`).
 struct ServerBook: Decodable, Identifiable, Hashable {
     struct Cover: Decodable, Hashable {
         let hash: String
@@ -22,7 +22,7 @@ struct ServerBook: Decodable, Identifiable, Hashable {
     let cover: Cover?
 }
 
-/// A series of the library, as the server keeps it (server/src/library/series.ts, `ServerSeries`): its books in order.
+/// A series of the library, as the server keeps it (packages/server/src/library/series.ts, `ServerSeries`): its books in order.
 struct ServerSeries: Decodable {
     struct Book: Decodable {
         let id: String
@@ -64,7 +64,7 @@ struct ServerBookDetail: Decodable {
     let book: About
 }
 
-/// How far someone is through a book (server/src/readalong-routes.ts, `GET /api/progress`).
+/// How far someone is through a book (packages/server/src/readalong-routes.ts, `GET /api/progress`).
 struct BookProgress: Decodable {
     let ms: Int
     /// When, as the position log writes it: ISO 8601, so it sorts as written.
@@ -73,7 +73,7 @@ struct BookProgress: Decodable {
     let finished: Bool
 }
 
-/// Where the person is in a book (server/src/readalong-routes.ts, `BookPlace`).
+/// Where the person is in a book (packages/server/src/readalong-routes.ts, `BookPlace`).
 struct BookPlace: Decodable {
     /// The sentence, counted across the book's read-along.
     let sentence: Int
@@ -93,7 +93,7 @@ struct ListenThrough: Decodable, Equatable {
     let listenedMs: Int
 }
 
-/// A bookmarked passage from any of the person's books (server/src/readalong-routes.ts, `GET /api/bookmarks`), for
+/// A bookmarked passage from any of the person's books (packages/server/src/readalong-routes.ts, `GET /api/bookmarks`), for
 /// the screen they drift by on while a book is paused.
 struct Passage: Decodable, Identifiable {
     struct Book: Decodable {
@@ -110,7 +110,7 @@ struct Passage: Decodable, Identifiable {
 }
 
 /// A bookmark, as the server shows one to a device that only draws and plays
-/// (server/src/readalong-routes.ts, `ShownBookmark`): the same bookmarks the
+/// (packages/server/src/readalong-routes.ts, `ShownBookmark`): the same bookmarks the
 /// desktop and the phone keep, by time or by words.
 struct ServerBookmark: Decodable, Identifiable, Hashable {
     let id: String
@@ -131,7 +131,7 @@ struct ServerBookmark: Decodable, Identifiable, Hashable {
     }
 }
 
-/// A sentence found by a search (server/src/library/search.ts, `Found`): its book, where it is, and its words with the
+/// A sentence found by a search (packages/server/src/library/search.ts, `Found`): its book, where it is, and its words with the
 /// ones searched for marked.
 struct SearchResult: Decodable, Hashable {
     let book: String
@@ -158,7 +158,7 @@ struct ServerError: LocalizedError {
 }
 
 /// A Ribbon server, as the TV talks to it (docs/SERVER.md, section 10, and
-/// server/src/readalong-routes.ts): JSON over HTTP, signed in with a token
+/// packages/server/src/readalong-routes.ts): JSON over HTTP, signed in with a token
 /// in a header. Answers that rarely change (the library, a book, its
 /// read-along) carry ETags, which URLSession's cache revalidates on its own.
 struct RibbonServer {

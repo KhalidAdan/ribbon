@@ -12,7 +12,7 @@ import MediaPlayer
 /// An MP3 is never sought in: Apple's player seeks in one with no seek table
 /// by its average bitrate, minutes off in a long VBR book. It's asked of the
 /// server from the moment instead, which sends it from that moment's own
-/// frame (server/src/library/frames.ts), and played from its own 0.
+/// frame (packages/server/src/library/frames.ts), and played from its own 0.
 @MainActor
 final class BookPlayer {
     struct File {

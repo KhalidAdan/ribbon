@@ -164,7 +164,7 @@ two rows; and the reader's buttons say From here and To narrator.
 
 ## Where the read-along comes from
 
-`GET /api/books/:id/readalong` (server/src/readalong-routes.ts): the book's
+`GET /api/books/:id/readalong` (packages/server/src/readalong-routes.ts): the book's
 paragraphs, and when each sentence is read. The server makes it once per
 book, with the same code the apps use: the EPUB parsed by `ribbon-ebook`
 (src-tauri/ebook) and paired with the narration by `packages/core/src/reading/`. A
@@ -229,7 +229,7 @@ only, never into this public repository.
 
 ### In the simulator
 
-Against a scratch server (server/README.md), never the real one:
+Against a scratch server (packages/server/README.md), never the real one:
 
 ```bash
 xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -sdk appletvsimulator -derivedDataPath build build
@@ -294,7 +294,7 @@ Device Management). A free Apple ID signs it for seven days.
 ## The contract with the server
 
 `RibbonTests/Contract/` holds the server's real answer to everything this app
-asks, written by `server/test/api-contract.test.ts` from a running server, and
+asks, written by `packages/server/test/api-contract.test.ts` from a running server, and
 `RibbonTests/ContractTests.swift` decodes each with the app's own types. Change
 what the server answers and the server's test fails until the files are written
 again (`npx vitest run test/api-contract -u`); this app's test then says whether

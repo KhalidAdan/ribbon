@@ -29,7 +29,7 @@ reader and the player never ask where a book came from, and a downloaded book
 is a folder of files like any other. What only happens with a server
 (downloading, a place or a bookmark reaching other devices, transcribing for
 it, moving a folder to it) runs against a real server in
-`server/test/desktop-on-server.test.ts` and `move-to-server.test.ts`.
+`packages/server/test/desktop-on-server.test.ts` and `move-to-server.test.ts`.
 
 ## The speed report
 

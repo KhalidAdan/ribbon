@@ -61,7 +61,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
  * <name>`), a release build before a debug one, or null when it isn't built.
  */
 export function builtTool(name: string): string | null {
-  const target = path.resolve(import.meta.dirname, "..", "..", "target");
+  const target = path.resolve(import.meta.dirname, "..", "..", "..", "target");
   const exe = process.platform === "win32" ? `${name}.exe` : name;
   return ["release", "debug"].map((profile) => path.join(target, profile, exe)).find((p) => existsSync(p)) ?? null;
 }

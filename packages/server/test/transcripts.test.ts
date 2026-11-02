@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bytesToRows, rowsToBytes } from "@ribbon/core/csv";
 import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows } from "@ribbon/core/reading/narration";
 import type { ReadAlong } from "@ribbon/core/reading/readalong";
-import { ServerClient } from "../../src/app/server/client.ts";
+import { ServerClient } from "../../../src/app/server/client.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import { inTranscribingOrder } from "../src/library/routes.ts";

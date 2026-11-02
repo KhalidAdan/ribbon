@@ -84,7 +84,7 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     if (!listed || !stored) return (await reply.code(404).send({ error: "No such book on this server." }), null);
     // A device that streams plays an MP3 from a moment only as the server sends it from there; without that it would be out of step with the text.
     if (stored.files.some((f) => /\.mp3$/i.test(f.path)) && !deps.frames.available) {
-      return (await reply.code(503).send({ error: "This server can't send an MP3 from a moment: the ribbon-frames command isn't installed (server/README.md)." }), null);
+      return (await reply.code(503).send({ error: "This server can't send an MP3 from a moment: the ribbon-frames command isn't installed (packages/server/README.md)." }), null);
     }
     try {
       const made = await deps.readAlongs.of(id, stored);

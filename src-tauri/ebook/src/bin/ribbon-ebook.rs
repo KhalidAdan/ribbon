@@ -1,4 +1,4 @@
-//! A book's model, for the server (server/src/library/readalong.ts): the
+//! A book's model, for the server (packages/server/src/library/readalong.ts): the
 //! same parse the app makes, so places and transcripts made on any device
 //! point at the same characters.
 //!

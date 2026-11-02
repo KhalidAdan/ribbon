@@ -12,7 +12,7 @@ import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, withMinutesOf } 
 /** The records kept beside a downloaded book here: what it brought from the server, and what was worked out here. */
 const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudness", "silence", "settings"];
 
-/** A book's id on a server, which names its folder here (server/src/library/importer.ts). */
+/** A book's id on a server, which names its folder here (packages/server/src/library/importer.ts). */
 const SERVER_ID = /^[0-9a-f]{16}$/;
 
 /** A server's book's id there: a download's folder here is named by it. */

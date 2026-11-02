@@ -2,7 +2,7 @@ import { buildServer } from "./app.ts";
 import { readConfig } from "./config.ts";
 
 /**
- * Start the server: `npm start` in `server/`. Settings come from the
+ * Start the server: `npm start` in `packages/server/`. Settings come from the
  * environment (config.ts): RIBBON_DATA, RIBBON_HOST, RIBBON_PORT,
  * RIBBON_URL, RIBBON_SECRET.
  */

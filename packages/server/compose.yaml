@@ -3,7 +3,7 @@
 #   RIBBON_BOOKS=/path/to/your/books docker compose up -d
 #   docker compose logs      # the first start prints the link that makes the admin
 #
-# Its data stays in ./ribbon-data beside this file: back that up. server/README.md
+# Its data stays in ./ribbon-data beside this file: back that up. packages/server/README.md
 # says how to reach it from elsewhere.
 services:
   ribbon:

@@ -6,7 +6,7 @@ import type { LoudnessMeasurement, SilenceRange } from "./types";
 
 /**
  * A book on a Ribbon server, as its library answer lists it
- * (server/src/library/books.ts, `ListedBook`).
+ * (packages/server/src/library/books.ts, `ListedBook`).
  */
 export interface ServerBook {
   id: string;
@@ -28,7 +28,7 @@ export interface ServerBook {
   edited?: SharedEdits;
 }
 
-/** A book in full, as the server sends it for a download (server/src/library/books.ts, `StoredBook`). */
+/** A book in full, as the server sends it for a download (packages/server/src/library/books.ts, `StoredBook`). */
 export interface ServerBookDetail {
   book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string };
   files: { path: string; sizeBytes: number }[];
@@ -82,7 +82,7 @@ export interface ServerJob {
   error: string | null;
 }
 
-/** A series of a server's library (server/src/library/series.ts, `ServerSeries`): its books in order. */
+/** A series of a server's library (packages/server/src/library/series.ts, `ServerSeries`): its books in order. */
 export interface ServerSeries {
   id: string;
   name: string;

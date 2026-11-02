@@ -2,7 +2,7 @@ import XCTest
 @testable import Ribbon
 
 /// The server's real answers, decoded by the app's own types. The files in
-/// Contract/ are written by server/test/api-contract.test.ts from a running
+/// Contract/ are written by packages/server/test/api-contract.test.ts from a running
 /// server, so if the server's answers change, that test says so and this one
 /// says whether the app can still read them.
 final class ContractTests: XCTestCase {

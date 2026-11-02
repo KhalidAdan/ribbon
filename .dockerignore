@@ -1,14 +1,13 @@
-# Only what the server's image is built from (server/Dockerfile).
+# Only what the server's image is built from (packages/server/Dockerfile).
 *
 !package.json
 !package-lock.json
 !packages
-!server
 # The EPUB parser, for read-along: its crate and the workspace around it, not the app's iOS project or icons.
 !.cargo
 !src-tauri
 src-tauri/gen
 src-tauri/icons
 **/node_modules
-server/ribbon-data
-server/test
+packages/server/ribbon-data
+packages/server/test

@@ -30,7 +30,7 @@ Anyway. Windows may warn that it doesn't know the publisher. To update, close
 Ribbon and install the new version over it; everything carries over.
 
 **The server** runs on a machine of your own, in Docker or with Node:
-[server/README.md](server/README.md).
+[packages/server/README.md](packages/server/README.md).
 
 **The iPhone, iPad and Apple TV app** needs a server. For now you build it
 with Xcode: [tv/README.md](tv/README.md).
@@ -41,6 +41,7 @@ with Xcode: [tv/README.md](tv/README.md).
 packages/
   core/         @ribbon/core: pure logic, no files or network, for the app and the server
   host-node/    @ribbon/host-node: file and process access on Node
+  server/       @ribbon/server: the server
 src/            the desktop app's web side
   app/          the app's state and actions (AppController)
   reader/       the reader
@@ -51,7 +52,6 @@ src-tauri/      the desktop app's Rust side
   ebook/        the EPUB parser: the server runs this too
   frames/       the MP3 frame index: the server runs this too
   speech/       transcribing, with whisper.cpp
-server/         the server
 tv/             the iPhone, iPad and Apple TV app, in Swift
 tools/          the command line, fixtures and the end-to-end checks
 test/           the tests for src/
@@ -109,7 +109,7 @@ npm run ribbon -- scan books   # scan from the command line, no app
 npm run ribbon -- chapters books "Horus Rising"
 ```
 
-The server has its own: `npm test` and `npm run typecheck` in `server/`. The
+The server has its own: `npm test` and `npm run typecheck` in `packages/server/`. The
 end-to-end checks run the built app: [tools/e2e/README.md](tools/e2e/README.md).
 
 ## Read more

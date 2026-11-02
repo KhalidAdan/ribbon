@@ -4,7 +4,7 @@ import SwiftUI
 /// focus when the screen opens, so holding the remote's microphone button
 /// dictates straight into it (typing works too). On the iPad, the keyboard
 /// is up when the screen opens, with its own microphone. The server searches every
-/// book's sentences (server/src/library/search.ts) and the best matches come
+/// book's sentences (packages/server/src/library/search.ts) and the best matches come
 /// back as the book's own words, the ones that matched lit. Choosing one opens
 /// Read along on that sentence, the narrator where it was: left listens from
 /// it, right goes back.

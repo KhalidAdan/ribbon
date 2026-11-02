@@ -1,4 +1,4 @@
-//! Where a moment of an MP3 starts, for the server (server/src/library/frames.ts):
+//! Where a moment of an MP3 starts, for the server (packages/server/src/library/frames.ts):
 //! the same frame the app would play from, so the TV hears what it shows.
 //!
 //!   ribbon-frames <mp3> <index file> <ms>

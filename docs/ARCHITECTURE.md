@@ -37,7 +37,7 @@ point one way: core depends on nothing of Ribbon's, and everything depends on it
 | The desktop app | `src/`, `src-tauri/` | `@ribbon/core`, and `@ribbon/host-node` for its tests and tools |
 | The shared logic | `packages/core/` | Nothing: it depends on no other part |
 | Node's file access | `packages/host-node/` | `@ribbon/core` |
-| The server | `server/` | `@ribbon/core`, `@ribbon/host-node`; `src-tauri/ebook` and `src-tauri/frames`, built as commands |
+| The server | `packages/server/` | `@ribbon/core`, `@ribbon/host-node`; `src-tauri/ebook` and `src-tauri/frames`, built as commands |
 | The Apple apps | `tv/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `packages/core/src/resume.ts`. |
 
 ### The desktop app
@@ -376,7 +376,7 @@ sequenceDiagram
 ## 9. Files
 
 These are the desktop's files. A server's are in its data folder
-([server/README.md](../server/README.md), "Settings"): a book that came from a
+([packages/server/README.md](../packages/server/README.md), "Settings"): a book that came from a
 server keeps its download in the Ribbon folder, and its place on the server.
 
 ```text
@@ -432,7 +432,7 @@ same folder on another machine gets the same id.
 | To understand | Read |
 | --- | --- |
 | How the app holds together | `app/controller.ts` (state at the top, then actions by area) |
-| How the server holds together | `server/src/app.ts`, `server/src/library/importer.ts`, [SERVER.md](SERVER.md) |
+| How the server holds together | `packages/server/src/app.ts`, `packages/server/src/library/importer.ts`, [SERVER.md](SERVER.md) |
 | A server as the desktop sees it | `app/server/shelf.ts` (its books), `app/server/server-log.ts` (its places) |
 | What a book is | `core/types.ts`, `core/scan/group.ts` |
 | Places in a book | `core/reading/booktext.ts` |
@@ -442,4 +442,4 @@ same folder on another machine gets the same id.
 | Playback | `player/engine.ts`, `src-tauri/src/frames.rs` |
 | The EPUB parser | `src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
 | The export | `core/reading/export.ts`, `src-tauri/src/ebook/export.rs`, `src-tauri/ebook/src/source.rs` |
-| Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `server/src/readalong-routes.ts`, `tv/` (tv/README.md) |
+| Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `packages/server/src/readalong-routes.ts`, `tv/` (tv/README.md) |

@@ -47,7 +47,7 @@ jobs:
             exit 1
           fi
 
-  # The server (server/, docs/SERVER.md) has its own tests. It runs on Linux and
+  # The server (packages/server/, docs/SERVER.md) has its own tests. It runs on Linux and
   # Mac hosts; it's checked on a
   # Mac, where ffmpeg installs reliably (Ubuntu's mirror stalled the install
   # past its time limit twice) and where it's first hosted.
@@ -57,7 +57,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: server
+        working-directory: packages/server
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v7
       - run: tools/check-server-image.sh
       - name: The compose file is valid
-        run: RIBBON_BOOKS=/tmp docker compose -f server/compose.yaml config --quiet
+        run: RIBBON_BOOKS=/tmp docker compose -f packages/server/compose.yaml config --quiet
 
   # Whether this pull request built the same app as what it's based on. It
   # always says; with the label `same-app`, for a change meant to change
@@ -147,7 +147,7 @@ jobs:
         working-directory: tv
       - run: xcodebuild -project RibbonTV.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
         working-directory: tv
-      # Whether the app can read the server's real answers (server/test/api-contract.test.ts writes them).
+      # Whether the app can read the server's real answers (packages/server/test/api-contract.test.ts writes them).
       - name: The app reads the server's answers
         working-directory: tv
         run: |
