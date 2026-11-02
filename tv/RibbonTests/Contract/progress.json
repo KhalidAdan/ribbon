@@ -1,0 +1,11 @@
+{
+  "books": {
+    "0123456789abcdef": {
+      "ms": 1000,
+      "at": "2026-01-01T00:00:00.000Z",
+      "started": true,
+      "finished": true,
+      "fraction": 1000
+    }
+  }
+}

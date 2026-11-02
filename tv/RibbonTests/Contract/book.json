@@ -1,0 +1,64 @@
+{
+  "book": {
+    "id": "0123456789abcdef",
+    "path": "",
+    "title": "The Waygate",
+    "rawTitle": "The Waygate",
+    "author": "An Author",
+    "narrator": "",
+    "series": "",
+    "seriesIndex": null,
+    "year": null,
+    "cover": "covers/d6de69e6fb216279",
+    "ebook": "book.epub",
+    "durationMs": 1000,
+    "sizeBytes": 1000,
+    "fileCount": 1000
+  },
+  "files": [
+    {
+      "path": "audio/01.mp3",
+      "order": 1000,
+      "durationMs": 1000,
+      "sizeBytes": 1000,
+      "mtimeMs": 1000,
+      "title": "The Waygate",
+      "part": "",
+      "partAuthor": "",
+      "disc": 1000,
+      "track": 1000,
+      "hasCover": true,
+      "coverFile": "",
+      "chapters": [],
+      "chaptersProbed": true
+    }
+  ],
+  "chapters": [
+    {
+      "startMs": 1000,
+      "endMs": 1000,
+      "title": "The Waygate"
+    }
+  ],
+  "parts": [],
+  "cover": {
+    "hash": "0123456789abcdef",
+    "aspect": 0.5,
+    "colour": "#fe0100"
+  },
+  "ebookBytes": 1000,
+  "analysis": {
+    "loudness": {
+      "integratedLufs": 1000,
+      "truePeakDbtp": 0.5
+    },
+    "silence": []
+  },
+  "filled": {
+    "from": "1|1:1"
+  },
+  "placed": 1000,
+  "records": [
+    "aligned"
+  ]
+}

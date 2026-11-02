@@ -1,0 +1,24 @@
+{
+  "books": [
+    {
+      "id": "0123456789abcdef",
+      "title": "The Waygate",
+      "author": "An Author",
+      "narrator": "",
+      "series": "",
+      "seriesIndex": null,
+      "durationMs": 1000,
+      "sizeBytes": 1000,
+      "audio": true,
+      "ebook": true,
+      "ebookBytes": 1000,
+      "cover": {
+        "hash": "0123456789abcdef",
+        "aspect": 0.5,
+        "colour": "#fe0100"
+      },
+      "addedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "deleted": []
+}

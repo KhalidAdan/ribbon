@@ -1,0 +1,68 @@
+{
+  "format": "ribbon-readalong/1",
+  "ready": true,
+  "transcribed": {
+    "done": 1000,
+    "total": 1000
+  },
+  "contents": [
+    {
+      "title": "Chapter One",
+      "block": 1000
+    }
+  ],
+  "blocks": [
+    {
+      "k": "h",
+      "level": 1000,
+      "runs": [
+        {
+          "t": "Chapter One"
+        }
+      ],
+      "sentences": [
+        {
+          "start": 1000,
+          "end": 1000,
+          "ms": 1000,
+          "endMs": 1000,
+          "exact": false
+        }
+      ]
+    },
+    {
+      "k": "p",
+      "runs": [
+        {
+          "t": "The waygate hung in the void before them. It was a giant circle of wraithbone and old light. Nobody on the ship would look at it for long."
+        }
+      ],
+      "space": true,
+      "sentences": [
+        {
+          "start": 1000,
+          "end": 1000,
+          "ms": 1000,
+          "endMs": 1000,
+          "exact": false
+        },
+        {
+          "start": 1000,
+          "end": 1000,
+          "ms": 1000,
+          "endMs": 1000,
+          "exact": false
+        }
+      ]
+    }
+  ],
+  "check": {
+    "placed": 1000,
+    "heldOut": null,
+    "unmarked": {
+      "totalMs": 1000,
+      "longestMs": 1000,
+      "narrationMs": 1000
+    }
+  }
+}

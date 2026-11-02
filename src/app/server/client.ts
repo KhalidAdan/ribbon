@@ -1,32 +1,14 @@
 import type { DeviceInfo, LogRecord } from "@ribbon/core/poslog";
 import type { EditValues } from "@ribbon/core/edits";
-import type { ServerBook, ServerBookDetail, ServerSeries } from "@ribbon/core/server-books";
+import type { ServerBook, ServerBookDetail, ServerJob, ServerSeries } from "@ribbon/core/server-books";
 
-/** How a folder being added to a server is going (server/src/library/importer.ts, `ImportProgress`). */
-export interface ImportProgress {
-  folder: string;
-  found: number;
-  added: number;
-  skipped: number;
-  failed: number;
-  places: number;
-  current: string | null;
-  notes: string[];
-}
+export type { ImportProgress, ServerJob } from "@ribbon/core/server-books";
 
 /** A book of a series as a device sends it: by its server id, with its number (null for none, left out to keep the server's), and whether it's on the shelf. */
 export interface SeriesBookSent {
   id: string;
   number?: number | null;
   shelved: boolean;
-}
-
-/** A job on the server: adding a folder, for now. */
-export interface ServerJob {
-  id: string;
-  state: "waiting" | "running" | "done" | "failed";
-  progress: ImportProgress;
-  error: string | null;
 }
 
 /** Something a server said no to, or couldn't be asked, in words to show. */
