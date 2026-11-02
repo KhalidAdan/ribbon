@@ -1,7 +1,7 @@
 import type { AppController } from "../app/controller";
-import type { BookText, TextPlace } from "../core/reading/booktext";
-import { chapterAt } from "../core/scan/chapters";
-import { formatLeft } from "../core/speed";
+import type { BookText, TextPlace } from "@ribbon/core/reading/booktext";
+import { chapterAt } from "@ribbon/core/scan/chapters";
+import { formatLeft } from "@ribbon/core/speed";
 import { useAppState } from "../ui/store";
 
 /** What the reader shows: from the first character on screen to the last. */

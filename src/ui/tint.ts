@@ -1,4 +1,4 @@
-import { dominantHue, toneFor, type Tone } from "../core/tint";
+import { dominantHue, toneFor, type Tone } from "@ribbon/core/tint";
 
 const cache = new Map<string, Promise<Tone | null>>();
 

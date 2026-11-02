@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseProbe, ProbeError } from "../src/core/scan/probe";
+import { parseProbe, ProbeError } from "@ribbon/core/scan/probe";
 
 const sample = JSON.stringify({
   streams: [

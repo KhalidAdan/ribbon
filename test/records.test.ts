@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, isStale } from "../src/core/scan/records";
-import type { AudioFile, Book } from "../src/core/types";
+import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBytes, filesToBytes, filesToRows, isStale } from "@ribbon/core/scan/records";
+import type { AudioFile, Book } from "@ribbon/core/types";
 
 const book: Book = {
   id: "0badf00d",

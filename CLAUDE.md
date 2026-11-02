@@ -69,7 +69,8 @@ order:
 
 | | |
 | --- | --- |
-| `src/core/` | Pure TypeScript, no DOM or Tauri; everything decided here is unit-tested (`test/`). |
+| `packages/core/` | `@ribbon/core`: pure TypeScript, no DOM or Tauri, which the desktop and the server both run; everything decided here is unit-tested (`test/`). It holds the `Host` interface too. |
+| `packages/host-node/` | `@ribbon/host-node`: the `Host` on Node, for the server, the tests and the tools. The app's own hosts are in `src/host/`. |
 | `src/app/controller.ts` | `AppController`: the app's state and every action; its doc comment is the map. |
 | `src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
 | `src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |

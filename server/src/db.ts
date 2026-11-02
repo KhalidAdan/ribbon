@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS series_book (
   PRIMARY KEY (series_id, book_id)
 );
 
--- A book's details as a person corrected them (src/core/edits.ts), laid over
+-- A book's details as a person corrected them (packages/core/src/edits.ts), laid over
 -- what its files say wherever it's listed or served. Taken back, the row goes.
 CREATE TABLE IF NOT EXISTS book_edit (
   book_id TEXT PRIMARY KEY REFERENCES book (id) ON DELETE CASCADE,
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS book_edit (
   edited_by TEXT
 );
 
--- A cover a person chose for a book, in place of its files' (src/core/edits.ts):
+-- A cover a person chose for a book, in place of its files' (packages/core/src/edits.ts):
 -- its sizes are in the book's covers folder, as its own are.
 CREATE TABLE IF NOT EXISTS book_cover (
   book_id TEXT PRIMARY KEY REFERENCES book (id) ON DELETE CASCADE,

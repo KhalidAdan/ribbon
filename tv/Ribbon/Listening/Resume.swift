@@ -1,5 +1,5 @@
 /// The moment you press play after a pause, as the desktop takes it
-/// (src/core/resume.ts, tested in test/resume.test.ts), so the TV and the
+/// (packages/core/src/resume.ts, tested in test/resume.test.ts), so the TV and the
 /// desktop go back by the same amount: the rewind scales with how long you
 /// were gone, never crosses the chapter's start, and after a day away the
 /// start of the chapter is offered.

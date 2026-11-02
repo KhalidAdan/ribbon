@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyCorrections, buildChapters, chapterAt, correctionsToRows, normalize, rowsToCorrections, type Correction } from "../src/core/scan/chapters";
-import type { AudioFile } from "../src/core/types";
+import { applyCorrections, buildChapters, chapterAt, correctionsToRows, normalize, rowsToCorrections, type Correction } from "@ribbon/core/scan/chapters";
+import type { AudioFile } from "@ribbon/core/types";
 
 const file = (path: string, durationMs: number, over: Partial<AudioFile> = {}): AudioFile => ({
   path,

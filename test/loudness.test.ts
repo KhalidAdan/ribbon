@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineLoudness, dbToLinear, gainDb, parseEbur128 } from "../src/core/loudness";
+import { combineLoudness, dbToLinear, gainDb, parseEbur128 } from "@ribbon/core/loudness";
 
 const SUMMARY = `
 [Parsed_ebur128_0 @ 000001] Summary:

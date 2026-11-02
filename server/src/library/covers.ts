@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
-import type { Host } from "../../../src/host/host.ts";
+import type { Host } from "@ribbon/core/host";
 
 /**
  * The widths covers are made at, once, on the server: the apps draw a

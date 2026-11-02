@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { exportPath, exportPlan } from "../src/core/reading/export";
-import { overlayAnchors } from "../src/core/reading/overlay";
-import { alignBook } from "../src/core/reading/align";
-import { groupBooks } from "../src/core/scan/group";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
-import type { FileEntry } from "../src/core/scan/walk";
-import { BookText } from "../src/core/reading/booktext";
+import { exportPath, exportPlan } from "@ribbon/core/reading/export";
+import { overlayAnchors } from "@ribbon/core/reading/overlay";
+import { alignBook } from "@ribbon/core/reading/align";
+import { groupBooks } from "@ribbon/core/scan/group";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
+import type { FileEntry } from "@ribbon/core/scan/walk";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 const ONE = ["The waygate hung before them. It was a giant circle of wraithbone.", "Eluadhri said nothing. Then she laughed."];
 const TWO = ["Somewhere beyond, the webway waited.", "Older than any of them, it was patient as stone."];

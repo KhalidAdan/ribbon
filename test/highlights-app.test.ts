@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
-import type { Host } from "../src/host/host";
-import { EBOOK_FORMAT } from "../src/core/ebook";
+import { nodeHost } from "@ribbon/host-node/node";
+import type { Host } from "@ribbon/core/host";
+import { EBOOK_FORMAT } from "@ribbon/core/ebook";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
-import { parseLog, type LogRecord, type MarkRecord } from "../src/core/poslog";
+import { parseLog, type LogRecord, type MarkRecord } from "@ribbon/core/poslog";
 
 const ONE = "Section zero has exactly forty letters in.";
 const TWO = "The waygate hung before them, a giant circle of wraithbone.";

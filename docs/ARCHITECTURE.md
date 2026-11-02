@@ -28,14 +28,17 @@ to a server of your own, the desktop offers to move your folders to it, your
 places included ([SERVER.md](SERVER.md), section 11).
 
 **What the parts share.** The server has no logic of its own for books: it
-runs the desktop's `src/core/` and its Rust crates, which is why they're one
-repository.
+runs `@ribbon/core`, the same code as the desktop, and the desktop's Rust crates,
+which is why they're one repository, with npm workspaces. Dependencies only
+point one way: core depends on nothing of Ribbon's, and everything depends on it.
 
 | Part | Where | Takes from elsewhere in the repository |
 | --- | --- | --- |
-| The desktop app | `src/`, `src-tauri/` | |
-| The server | `server/` | `src/core/` and `src/host/`; `src-tauri/ebook` and `src-tauri/frames`, built as commands |
-| The Apple apps | `tv/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `src/core/resume.ts`. |
+| The desktop app | `src/`, `src-tauri/` | `@ribbon/core`, and `@ribbon/host-node` for its tests and tools |
+| The shared logic | `packages/core/` | Nothing: it depends on no other part |
+| Node's file access | `packages/host-node/` | `@ribbon/core` |
+| The server | `server/` | `@ribbon/core`, `@ribbon/host-node`; `src-tauri/ebook` and `src-tauri/frames`, built as commands |
+| The Apple apps | `tv/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `packages/core/src/resume.ts`. |
 
 ### The desktop app
 
@@ -79,13 +82,13 @@ flowchart LR
 
 | Layer | May | May not |
 | --- | --- | --- |
-| `core/` | compute: pairing, mapping, parsing records, search | touch files, the network, React or the controller |
+| `packages/core` | compute: pairing, mapping, parsing records, search | touch files, the network, React or the controller |
 | `app/` | own the state, run actions, read and write records through `Host` | draw |
-| `host/` | do IO: `tauri.ts` in the app, `browser.ts` for the web build, `node.ts` for tests and tools | decide anything |
+| hosts | do IO: `src/host/tauri.ts` in the app, `src/host/browser.ts` for the web build, `@ribbon/host-node` for the server, tests and tools | decide anything |
 | `ui/`, `reader/` | draw the state, call controller actions | change state directly |
 | Rust | the per-file heavy work: walking, probing, parsing EPUBs, speech, frames, exports | hold the app's state |
 
-So most of Ribbon's logic is in `core/` and runs in the tests with no app at all.
+So most of Ribbon's logic is in `packages/core` and runs in the tests with no app at all.
 
 ## 2. Six ways of naming a spot in a book
 

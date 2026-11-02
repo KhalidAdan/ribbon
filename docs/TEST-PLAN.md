@@ -2,14 +2,14 @@
 
 The North Star says the difference between "fine" and "I would never
 switch" lives in a dozen small behaviours. Every one of those
-behaviours is a pure function in `src/core` with a table of cases
+behaviours is a pure function in `packages/core` with a table of cases
 here. If a behaviour is not in this file, it is not done.
 
 ## Layers
 
 | Layer          | Tool                    | Runs where          | What it proves                      |
 | -------------- | ----------------------- | ------------------- | ----------------------------------- |
-| Unit           | Vitest                  | `npm test`          | Every decision in `src/core`.       |
+| Unit           | Vitest                  | `npm test`          | Every decision in `packages/core`.       |
 | Fixture        | Vitest + ffmpeg         | `npm test`          | Scan and probe against real codecs. |
 | Real library   | Vitest, opt-in          | `RIBBON_BOOKS=books npm test` | The user's actual files.    |
 | Rust           | `cargo test`            | `npm run test:rust` | Tauri commands and path scoping.    |

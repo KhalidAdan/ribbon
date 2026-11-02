@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { wordIndex } from "../src/core/reading/anchors";
-import { matchTranscript, narrationLanguage, placeStretch, stretchesOf } from "../src/core/reading/transcript";
-import { mergeTranscripts, transcriptFromRows, transcriptRows, withMinutesOf } from "../src/core/reading/narration";
-import { alignBook } from "../src/core/reading/align";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
-import { BookText } from "../src/core/reading/booktext";
+import { wordIndex } from "@ribbon/core/reading/anchors";
+import { matchTranscript, narrationLanguage, placeStretch, stretchesOf } from "@ribbon/core/reading/transcript";
+import { mergeTranscripts, transcriptFromRows, transcriptRows, withMinutesOf } from "@ribbon/core/reading/narration";
+import { alignBook } from "@ribbon/core/reading/align";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
 
 const paras = [
   "The waygate hung in the void before them. It was a giant circle of wraithbone, and at fully forty feet across it dwarfed the Aeldari who stood before it.",

@@ -488,7 +488,7 @@ final class AppModel {
     }
 }
 
-/// How near its end a book counts as finished, as the desktop counts it (src/core/progress.ts, `FINISHED_WITHIN_MS`).
+/// How near its end a book counts as finished, as the desktop counts it (packages/core/src/progress.ts, `FINISHED_WITHIN_MS`).
 enum FinishedWithin {
     static let ms = 60_000
 }

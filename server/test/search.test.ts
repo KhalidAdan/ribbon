@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { READ_ALONG_FORMAT, type ReadAlong } from "../../src/core/reading/readalong.ts";
+import { READ_ALONG_FORMAT, type ReadAlong } from "@ribbon/core/reading/readalong";
 import { openDatabase } from "../src/db.ts";
 import { SearchIndex } from "../src/library/search.ts";
 

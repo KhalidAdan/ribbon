@@ -1,10 +1,10 @@
-import type { AudioFile, Chapter, SilenceRange } from "../core/types";
-import { fileStarts, locate, totalDuration } from "../core/timeline";
-import { chapterAt } from "../core/scan/chapters";
-import { clampSpeed } from "../core/speed";
-import { findRange, gapRate } from "../core/silence";
-import { dbToLinear } from "../core/loudness";
-import { recoveryDelayMs, STALL_MS } from "../core/recovery";
+import type { AudioFile, Chapter, SilenceRange } from "@ribbon/core/types";
+import { fileStarts, locate, totalDuration } from "@ribbon/core/timeline";
+import { chapterAt } from "@ribbon/core/scan/chapters";
+import { clampSpeed } from "@ribbon/core/speed";
+import { findRange, gapRate } from "@ribbon/core/silence";
+import { dbToLinear } from "@ribbon/core/loudness";
+import { recoveryDelayMs, STALL_MS } from "@ribbon/core/recovery";
 
 /** How often the position clock, the gap check and the watchdog run. */
 const TICK_MS = 200;

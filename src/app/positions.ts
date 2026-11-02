@@ -1,5 +1,5 @@
-import type { Position } from "../core/types";
-import { comparePositions } from "../core/position";
+import type { Position } from "@ribbon/core/types";
+import { comparePositions } from "@ribbon/core/position";
 import { isReadOnly } from "./read-only";
 
 /** Where a source's positions are kept. */

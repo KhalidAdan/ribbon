@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytesToProblems, groupProblems, problemsToBytes } from "../src/core/problems";
+import { bytesToProblems, groupProblems, problemsToBytes } from "@ribbon/core/problems";
 
 describe("problems record", () => {
   it("round-trips through CSV", async () => {

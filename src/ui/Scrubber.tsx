@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { Chapter } from "../core/types";
-import { formatDuration } from "../core/speed";
+import type { Chapter } from "@ribbon/core/types";
+import { formatDuration } from "@ribbon/core/speed";
 
 interface Props {
   positionMs: number;

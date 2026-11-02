@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { LibraryService } from "../src/app/library";
 import { memorySettings, memorySources } from "../src/app/platform";
-import { markId } from "../src/core/bookmarks";
-import { parseLog, type LogRecord } from "../src/core/poslog";
+import { markId } from "@ribbon/core/bookmarks";
+import { parseLog, type LogRecord } from "@ribbon/core/poslog";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 
 function platform(root: string, settings = memorySettings()): Platform {

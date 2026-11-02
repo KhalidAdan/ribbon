@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { joinPath } from "../src/host/paths";
+import { joinPath } from "@ribbon/core/paths";
 
 describe("joinPath", () => {
   it("joins drive paths with backslashes", () => {

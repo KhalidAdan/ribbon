@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumePosition, rewindFor } from "../src/core/resume";
+import { resumePosition, rewindFor } from "@ribbon/core/resume";
 
 describe("rewindFor", () => {
   it.each([

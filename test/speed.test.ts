@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampSpeed, formatDuration, formatLeft, formatSpeed, remainingAtSpeed, snapSpeed } from "../src/core/speed";
+import { clampSpeed, formatDuration, formatLeft, formatSpeed, remainingAtSpeed, snapSpeed } from "@ribbon/core/speed";
 
 describe("speed", () => {
   it("computes remaining wall time", () => {

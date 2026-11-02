@@ -38,13 +38,15 @@ with Xcode: [tv/README.md](tv/README.md).
 ## What's in this repository
 
 ```text
+packages/
+  core/         @ribbon/core: pure logic, no files or network, for the app and the server
+  host-node/    @ribbon/host-node: file and process access on Node
 src/            the desktop app's web side
-  core/         pure logic, no files or network: the server runs this too
   app/          the app's state and actions (AppController)
   reader/       the reader
   player/       playback
   ui/           everything else on screen
-  host/         every file and process operation
+  host/         file and process access in the app
 src-tauri/      the desktop app's Rust side
   ebook/        the EPUB parser: the server runs this too
   frames/       the MP3 frame index: the server runs this too
@@ -56,9 +58,9 @@ test/           the tests for src/
 docs/           how it all works, and why
 ```
 
-It's one repository because the server is built from the desktop's own logic:
-a change to how a book is read, or to what the server sends, is one change
-across every part it touches.
+It's one repository, with npm workspaces, because the server and the desktop
+share their logic: a change to how a book is read, or to what the server sends,
+is one change across every part it touches.
 
 ## Build it yourself
 

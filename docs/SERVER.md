@@ -61,7 +61,7 @@ flowchart LR
     API["HTTP API<br/>books · files · covers · places · accounts"]
     Admin["Admin pages<br/>invite people · add a folder · jobs"]
     Jobs["Jobs<br/>import · chapters · covers · transcribe<br/>(later: read-along EPUB)"]
-    Core["src/core/<br/>the same logic the apps run"]
+    Core["packages/core/src/<br/>the same logic the apps run"]
     Tools["Rust tools<br/>scan · frames · EPUB · whisper"]
     Files[("Files<br/>books · each person's places")]
     DB[("SQLite<br/>accounts · sessions · invites<br/>book index · jobs")]
@@ -80,11 +80,11 @@ flowchart LR
 Most of what the server needs exists, because Ribbon was layered for it
 ([ARCHITECTURE.md](ARCHITECTURE.md), section 1):
 
-- **`src/core/`** is pure TypeScript with no files or app in it. Scanning
+- **`packages/core/src/`** is pure TypeScript with no files or app in it. Scanning
   books into a library, chapters, the position log and its merge, pairing
   text with audio, read-along's alignment: the server runs the same code the
   apps do, so a book is prepared the same way everywhere.
-- **`src/host/node.ts`** is a `Host` for Node already: the tests and the
+- **`packages/host-node/src/node.ts`** is a `Host` for Node already: the tests and the
   command line (`npm run ribbon -- scan`) run the scanner on it today.
 - **The Rust side** does the per-file work (tags, MP3 frame indexes, EPUB
   models, whisper). The server calls it as a command-line tool built from
@@ -97,7 +97,7 @@ Most of what the server needs exists, because Ribbon was layered for it
   what it appended when it's back; nothing can conflict.
 
 So the server is **a Node package in this repository** (`server/`), on
-**Fastify**, sharing `src/core/` with the apps. Speed comes from where the
+**Fastify**, sharing `packages/core/src/` with the apps. Speed comes from where the
 work runs as much as from the framework: answering requests and sending
 files is quick in Node, and anything heavy (probing, indexing, transcribing)
 runs in the Rust tools as a job, never while someone waits on a request.
@@ -254,7 +254,7 @@ by its average bitrate, minutes off in a long VBR book. It asks for the file
 
 Built (tv/README.md): the TV can neither parse an EPUB nor pair it with the
 narration, so the server does both, once, with the apps' own code (the
-`ribbon-ebook` command and `src/core/reading/`), and hands it the book's
+`ribbon-ebook` command and `packages/core/src/reading/`), and hands it the book's
 paragraphs with when each sentence is read. It keeps no position log either:
 it asks the server where the person is in a book, as a sentence, and tells it
 where it is as it plays; the server writes that into the TV's log as any app
@@ -338,7 +338,7 @@ offered, and the book says what it's waiting for.
   minute, as it's felt while listening (#163): a stretch with nothing
   marked counts only where the transcript shows the narrator speaking, so
   credits, music and pages nobody reads don't (`readsBySentence`,
-  src/core/reading/readalong.ts). Otherwise the TV says how long it drops
+  packages/core/src/reading/readalong.ts). Otherwise the TV says how long it drops
   out for as the book opens. Without a transcript, it's the share of
   sentences placed, at least 90% (`BY_SENTENCE`).
   The server keeps where each book stands as it makes its read-along, and
@@ -361,16 +361,16 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `POST /api/invites` | (Admin) Makes an invite: a one-time code and its link. |
 | `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, size, whether there's audio and an EPUB, each cover's hash, aspect ratio and colour, and the ids of books the admin deleted. A book a person edited is listed as edited, with its edits (`edited`: the fields as edited, what its files say for each listed one, and when the server took them). No places or progress in it, so its ETag holds for days. Chapters come with a book's details. |
 | `GET /api/books/:id` | One book: its files, chapters, parts and records, and its details as edited, with `edited` as in the list (what its files say for every field edited). |
-| `GET /api/series` | The library's series, each with its books in order: a book's number in it, its title as the list shows it ("The Solar War", not "The Solar War: Siege of Terra: The Horus Heresy, Book 1"), and whether it's on the shelf. Series are rows of the server's database (`series`, `series_book`), the same for every device and person. The server finds them when books arrive, by the desktop's rules (`src/core/series.ts`: a series tag, else a series named in the titles); after that they're what people make of them. The desktop and the iPhone show a server's series as it keeps them, cached beside its books (`server-series.json`), and never find their own for it; a server from before series answers 404 and they do. Revalidated by ETag. |
+| `GET /api/series` | The library's series, each with its books in order: a book's number in it, its title as the list shows it ("The Solar War", not "The Solar War: Siege of Terra: The Horus Heresy, Book 1"), and whether it's on the shelf. Series are rows of the server's database (`series`, `series_book`), the same for every device and person. The server finds them when books arrive, by the desktop's rules (`packages/core/src/series.ts`: a series tag, else a series named in the titles); after that they're what people make of them. The desktop and the iPhone show a server's series as it keeps them, cached beside its books (`server-series.json`), and never find their own for it; a server from before series answers 404 and they do. Revalidated by ETag. |
 | `POST /api/series`, `PUT /api/series/:id`, `DELETE /api/series/:id` | (Admin) Makes, changes or deletes a series: its name and its books in order, each with its number, title and whether it's on the shelf. A book taken out of a series, and a series deleted, are never found again; a book put in a series leaves the one it was in, and comes without the number and title it had there; a number or title left out keeps the one the book has in this series, and null clears it. The desktop's and the iPhone's series editing saves here for a server's books. Every device hears of it (`series` event). |
-| `PUT /api/books/:id/edits` | (Admin) A book's details as corrected in the desktop's edit form (`src/core/edits.ts`): its edited fields, each as the form's text, kept in place of the ones it had (`book_edit`); none takes them back. The desktop sends the fields changed in the form with the ones the server already has, and compares nothing with what its own files say: a server's book is what the server lists, downloaded or not. Two at once: the last stands. A cover chosen by hand comes in the same request, as a picture (`cover: {image}`, base64, up to 20 MB): the server makes its sizes as it does a book's own (`covers.ts`) and lists it as the book's cover (`book_cover`); `cover: null` goes back to the book's own, and leaving `cover` out leaves it as it is. Every device lists and shows the book as edited, the TV, iPhone and iPad included, and hears of it (`books` event). |
+| `PUT /api/books/:id/edits` | (Admin) A book's details as corrected in the desktop's edit form (`packages/core/src/edits.ts`): its edited fields, each as the form's text, kept in place of the ones it had (`book_edit`); none takes them back. The desktop sends the fields changed in the form with the ones the server already has, and compares nothing with what its own files say: a server's book is what the server lists, downloaded or not. Two at once: the last stands. A cover chosen by hand comes in the same request, as a picture (`cover: {image}`, base64, up to 20 MB): the server makes its sizes as it does a book's own (`covers.ts`) and lists it as the book's cover (`book_cover`); `cover: null` goes back to the book's own, and leaving `cover` out leaves it as it is. Every device lists and shows the book as edited, the TV, iPhone and iPad included, and hears of it (`books` event). |
 | `DELETE /api/books/:id` | (Admin) Deletes a book: its files go from the server, and each device that downloaded it takes it off when it next hears from the server (the deleted ids in `GET /api/books`, never a book merely missing from the list). Everyone's places in it are kept, so a book added again carries on where each person was; the folder it was added from is never touched. Adding it again brings it back. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
 | `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads and the TV's streaming. An MP3 with `?ms=` comes from the frame where that moment falls. |
 | `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
 | `GET /api/places/export` | Your whole log as a file in the position-log format. |
-| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`src/core/reading/readalong.ts`), for the TV, with how closely it follows the narration (`check`, also logged as it's made). Revalidated by ETag. |
+| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`packages/core/src/reading/readalong.ts`), for the TV, with how closely it follows the narration (`check`, also logged as it's made). Revalidated by ETag. |
 | `GET /api/books/:id/place` | Where you are in the book: the newest of your listening and reading places, as a sentence of the read-along and a moment. Never cached. |
 | `POST /api/books/:id/place` | This device is at this moment: written into its log with the book's claims, for a device that keeps no log. |
 | `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search: the words as a line first, then all of them in any order, then any of them, each ranked by SQLite (bm25). |
@@ -382,7 +382,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |
 | `GET /api/bookmarks` | Your bookmarks in every book, newest first, each with its book's title and author: the TV's passages. Never cached. |
 | `POST /api/books/:id/listened` | A stretch of listening, for a device that keeps no log: a listen-through (`read`) opens with it when none is open (after a finished one, only when it says `again`), and it's a `session` when it's thirty seconds or more and the person keeps sessions (`keep`). |
-| `POST /api/books/:id/finished` | The book played to its end: the open listen-through closes, as the desktop's does, and the answer says when it started and finished and the time spent listening in it on every device (`src/core/stats.ts`, `listenThrough`). |
+| `POST /api/books/:id/finished` | The book played to its end: the open listen-through closes, as the desktop's does, and the answer says when it started and finished and the time spent listening in it on every device (`packages/core/src/stats.ts`, `listenThrough`). |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added or deleted. |
 
 The admin pages have their own: invites, people, devices, adding a folder,

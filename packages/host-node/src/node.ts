@@ -1,13 +1,13 @@
 import { promises as fs } from "node:fs";
-import { catalogUrl } from "../core/chapternames";
-import type { Region } from "../core/audnexus";
-import { renameWithRetry } from "./retry";
+import { catalogUrl } from "@ribbon/core/chapternames";
+import type { Region } from "@ribbon/core/audnexus";
+import { renameWithRetry } from "@ribbon/core/retry";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { Source } from "@culvert/stream";
-import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "./host";
+import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "@ribbon/core/host";
 import { scanWithFfprobe } from "./scan-with-ffprobe";
 
 /**

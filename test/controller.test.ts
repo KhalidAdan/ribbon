@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, libraryRootOf, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
-import { sourceId } from "../src/core/sources";
+import { sourceId } from "@ribbon/core/sources";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 
 /** The controller against real fixtures, with no window and no audio. */

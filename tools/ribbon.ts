@@ -5,9 +5,9 @@
  *   npm run ribbon -- chapters <folder> <book-id-or-title>
  */
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
-import { scanLibrary, loadLibrary, extractMissingCovers } from "../src/core/scan/scan";
-import { formatDuration } from "../src/core/speed";
+import { nodeHost } from "@ribbon/host-node/node";
+import { scanLibrary, loadLibrary, extractMissingCovers } from "@ribbon/core/scan/scan";
+import { formatDuration } from "@ribbon/core/speed";
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, folder, arg] = argv;

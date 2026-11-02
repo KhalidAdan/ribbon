@@ -59,7 +59,7 @@ final class ReadingSession {
     /// The last moment heard, and when.
     @ObservationIgnored private var lastHeard: (at: Date, ms: Int)?
 
-    /// Listening from a sentence starts this long before it, so its first word isn't clipped (src/core/reading/align.ts, `LEAD_IN_MS`).
+    /// Listening from a sentence starts this long before it, so its first word isn't clipped (packages/core/src/reading/align.ts, `LEAD_IN_MS`).
     static let leadInMs = 250
     /// Left again within this long goes back another sentence.
     private static let againWithin: TimeInterval = 0.6
@@ -346,7 +346,7 @@ final class ReadingSession {
     }
 
     /// The moment the text follows: the player's, except in the lead-in before a sentence listened from,
-    /// when the page waits at that sentence (src/core/reading/align.ts, `followedMs`).
+    /// when the page waits at that sentence (packages/core/src/reading/align.ts, `followedMs`).
     private func followed(_ ms: Int) -> Int {
         guard let from = listenedFrom else { return ms }
         if ms >= from - 2 * Self.leadInMs && ms < from { return from }

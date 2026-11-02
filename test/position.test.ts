@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { comparePositions, mergePositions, nowIso, parsePositions, serializePosition } from "../src/core/position";
-import type { Position } from "../src/core/types";
+import { comparePositions, mergePositions, nowIso, parsePositions, serializePosition } from "@ribbon/core/position";
+import type { Position } from "@ribbon/core/types";
 
 const p = (over: Partial<Position> = {}): Position => ({
   bookId: "abcd1234",

@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
 import type { ListedBook, StoredBook } from "../src/library/books.ts";
-import type { SharedEdits } from "../../src/core/edits.ts";
+import type { SharedEdits } from "@ribbon/core/edits";
 import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 
 // Editing a book's details as the admin: every device lists it and serves

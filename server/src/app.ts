@@ -12,7 +12,7 @@ import { invitePage } from "./invite-page.ts";
 import { Invites, type Role } from "./invites.ts";
 import { Events } from "./events.ts";
 import { Jobs } from "./jobs.ts";
-import { nodeHost } from "../../src/host/node.ts";
+import { nodeHost } from "@ribbon/host-node/node";
 import { BookIndex } from "./library/books.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { audibleCatalog, booksToDescribe, describeBooks, type DescribeProgress } from "./library/describe.ts";

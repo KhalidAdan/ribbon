@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type AppState, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
 

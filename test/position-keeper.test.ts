@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PositionKeeper } from "../src/app/positions";
-import type { Position } from "../src/core/types";
+import type { Position } from "@ribbon/core/types";
 
 function pos(bookId: string, offsetMs: number, at: string, device = "here"): Position {
   return { bookId, offsetMs, updatedAt: new Date(at).toISOString(), device };

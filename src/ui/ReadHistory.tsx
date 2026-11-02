@@ -1,8 +1,8 @@
 import { PencilSquareIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { useMemo, useState } from "react";
-import type { ScannedBook } from "../core/scan/scan";
-import type { ReadRecord } from "../core/poslog";
-import { bookIdOf, endOf, formatSpan, readsOf, type ReadEnd } from "../core/stats";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { ReadRecord } from "@ribbon/core/poslog";
+import { bookIdOf, endOf, formatSpan, readsOf, type ReadEnd } from "@ribbon/core/stats";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { SectionHeader } from "./kit";

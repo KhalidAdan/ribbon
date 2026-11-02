@@ -1,4 +1,4 @@
-import { SOFT_HYPHEN, type WordBreaks } from "../core/reading/hyphens";
+import { SOFT_HYPHEN, type WordBreaks } from "@ribbon/core/reading/hyphens";
 
 /**
  * Liang's hyphenation patterns, from the `hyphen` package, for the book's

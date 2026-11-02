@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameRoot, sourceFrom, sourceId, sourceName } from "../src/core/sources";
+import { sameRoot, sourceFrom, sourceId, sourceName } from "@ribbon/core/sources";
 
 describe("sourceId", () => {
   it("is FNV-1a 64 of the normalised path, matching the host's mirror key", () => {

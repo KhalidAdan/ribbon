@@ -1,11 +1,11 @@
 import { BookOpenIcon, CheckIcon, PauseIcon, PlayIcon, RectangleStackIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { ScannedBook } from "../core/scan/scan";
-import { splitPeople } from "../core/scan/sidefiles";
-import { hiddenBookIds, orderBySeries, seriesNumber, type SeriesGroup, type SeriesRecord } from "../core/series";
-import { formatLeft } from "../core/speed";
-import { readerOnly } from "../core/ebook";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { splitPeople } from "@ribbon/core/scan/sidefiles";
+import { hiddenBookIds, orderBySeries, seriesNumber, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
+import { formatLeft } from "@ribbon/core/speed";
+import { readerOnly } from "@ribbon/core/ebook";
 import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";

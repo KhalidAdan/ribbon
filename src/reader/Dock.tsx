@@ -2,7 +2,7 @@ import { ChevronLeftIcon, ChevronRightIcon, ListBulletIcon } from "@heroicons/re
 import { clsx } from "clsx";
 import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type SVGProps } from "react";
 import type { AppController } from "../app/controller";
-import type { BookText, TextPlace } from "../core/reading/booktext";
+import type { BookText, TextPlace } from "@ribbon/core/reading/booktext";
 import { IconButton } from "../ui/Button";
 import { Menu, type MenuItem } from "../ui/kit";
 import { PlayButton } from "../ui/PlayerBar";

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import type { RibbonServer } from "../src/app.ts";
-import { deviceFileName, logName, parseLog } from "../../src/core/poslog.ts";
+import { deviceFileName, logName, parseLog } from "@ribbon/core/poslog";
 import { serverWithAdmin } from "./fixture.ts";
 
 const PHONE = "urn:uuid:11111111-1111-4111-8111-111111111111";

@@ -1,9 +1,9 @@
 import { layoutNextRichInlineLineRange, materializeRichInlineLineRange, prepareRichInline, type PreparedRichInline, type RichInlineCursor } from "@chenglou/pretext/rich-inline";
 import { clearCache, setLocale } from "@chenglou/pretext";
-import type { Ebook, EbookBlock, EbookRun } from "../core/ebook";
-import type { LaidBlock, Line, LineFrag } from "../core/reading/pages";
-import type { Metrics } from "../core/reading/typography";
-import { hyphenateRuns, insertHyphens, toModel, type WordBreaks } from "../core/reading/hyphens";
+import type { Ebook, EbookBlock, EbookRun } from "@ribbon/core/ebook";
+import type { LaidBlock, Line, LineFrag } from "@ribbon/core/reading/pages";
+import type { Metrics } from "@ribbon/core/reading/typography";
+import { hyphenateRuns, insertHyphens, toModel, type WordBreaks } from "@ribbon/core/reading/hyphens";
 import { hyphenatorFor } from "./hyphenate";
 import { addFaces } from "./faces";
 

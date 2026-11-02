@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fold, indexBooks, searchBooks } from "../src/core/search";
-import type { Book, Part } from "../src/core/types";
+import { fold, indexBooks, searchBooks } from "@ribbon/core/search";
+import type { Book, Part } from "@ribbon/core/types";
 
 const book = (id: string, title: string, author: string, series = "", narrator = "", parts: Part[] = []): { book: Book; parts: Part[] } => ({
   book: {

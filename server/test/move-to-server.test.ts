@@ -6,9 +6,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppController, type Platform } from "../../src/app/controller.ts";
 import { memorySettings, memorySources } from "../../src/app/platform.ts";
-import { deviceFileName, encodeRecord, logName, mergePlaces, mergeTextPlaces, ribbonClaim, textClaim, type DeviceInfo, type LogRecord } from "../../src/core/poslog.ts";
-import { localIdOf, type ServerBook } from "../../src/core/server-books.ts";
-import { nodeHost } from "../../src/host/node.ts";
+import { deviceFileName, encodeRecord, logName, mergePlaces, mergeTextPlaces, ribbonClaim, textClaim, type DeviceInfo, type LogRecord } from "@ribbon/core/poslog";
+import { localIdOf, type ServerBook } from "@ribbon/core/server-books";
+import { nodeHost } from "@ribbon/host-node/node";
 import type { RibbonServer } from "../src/app.ts";
 import { epub, importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
 

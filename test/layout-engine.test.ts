@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Ebook } from "../src/core/ebook";
+import type { Ebook } from "@ribbon/core/ebook";
 import type { FromWorker, LayoutSpec, SectionLayout, ToWorker } from "../src/reader/layout";
 import { LayoutEngine } from "../src/reader/layout-engine";
 

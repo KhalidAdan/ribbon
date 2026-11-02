@@ -1,6 +1,6 @@
-import type { Host } from "../../host/host";
-import { logName, parseLog, type DeviceInfo, type LogRecord } from "../../core/poslog";
-import { RIBBON_DIR } from "../../core/scan/walk";
+import type { Host } from "@ribbon/core/host";
+import { logName, parseLog, type DeviceInfo, type LogRecord } from "@ribbon/core/poslog";
+import { RIBBON_DIR } from "@ribbon/core/scan/walk";
 import type { ServerClient } from "./client";
 
 /** How many records go up in one request: a first sync of a long-used device sends its whole log. */

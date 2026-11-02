@@ -1,8 +1,8 @@
 import { ArrowUturnLeftIcon, PhotoIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
-import type { ScannedBook } from "../core/scan/scan";
-import { EDIT_FIELDS, fieldText, type EditField } from "../core/edits";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { EDIT_FIELDS, fieldText, type EditField } from "@ribbon/core/edits";
 import { useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";

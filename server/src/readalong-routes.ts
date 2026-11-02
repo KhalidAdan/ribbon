@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { nowIso } from "../../src/core/position.ts";
-import { bookmarksOf, highlightId, highlightsOf, markFields } from "../../src/core/bookmarks.ts";
-import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "../../src/core/poslog.ts";
-import { standingOf } from "../../src/core/progress.ts";
-import { bookIdOf, listenThrough, readsOf } from "../../src/core/stats.ts";
-import type { BookText } from "../../src/core/reading/booktext.ts";
-import { highlightOf, placeAfter, trimRange } from "../../src/core/reading/highlights.ts";
-import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "../../src/core/reading/readalong.ts";
-import { localIdOf } from "../../src/core/server-books.ts";
-import type { Bookmark, Highlight } from "../../src/core/types.ts";
+import { nowIso } from "@ribbon/core/position";
+import { bookmarksOf, highlightId, highlightsOf, markFields } from "@ribbon/core/bookmarks";
+import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
+import { standingOf } from "@ribbon/core/progress";
+import { bookIdOf, listenThrough, readsOf } from "@ribbon/core/stats";
+import type { BookText } from "@ribbon/core/reading/booktext";
+import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
+import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
+import { localIdOf } from "@ribbon/core/server-books";
+import type { Bookmark, Highlight } from "@ribbon/core/types";
 import { signedIn, type Auth } from "./auth.ts";
 import type { Events } from "./events.ts";
 import { sendRevalidated, storedBook } from "./library/api.ts";
@@ -42,7 +42,7 @@ export interface BookPlace {
  * plays, and keeps nothing (docs/SERVER.md, section 8: the Apple TV):
  *
  * - `GET /api/books/:id/readalong`: the book's text with when each
- *   sentence is read (src/core/reading/readalong.ts). Revalidated by ETag,
+ *   sentence is read (packages/core/src/reading/readalong.ts). Revalidated by ETag,
  *   like the library: it changes only when the book's records do.
  * - `GET /api/books/:id/place`: where the person is in the book: the newest
  *   of their listening and reading places, from all their devices, as a
@@ -66,13 +66,13 @@ export interface BookPlace {
  * - `POST /api/books/:id/finished`: the book played to its end. The
  *   listen-through closes, as the desktop closes one, and the answer says
  *   how it went: when it started and finished, and the time spent in it on
- *   every device (src/core/stats.ts, `listenThrough`).
+ *   every device (packages/core/src/stats.ts, `listenThrough`).
  * - `GET /api/search?q=&book=`: the sentences that best match words someone
  *   remembers, or says, in one book or every one, each named by its book and
  *   its sentence of the read-along, so a device can go straight to it.
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
- *   it's finished, as the apps' shelves work it out (src/core/progress.ts).
+ *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts).
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */

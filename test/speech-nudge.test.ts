@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 
 let root = "";
 

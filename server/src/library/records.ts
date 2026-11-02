@@ -1,11 +1,11 @@
 import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { bookId } from "../../../src/core/bookid.ts";
-import { bytesToRows, int, num, rowsToBytes, type Row } from "../../../src/core/csv.ts";
-import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "../../../src/core/reading/narration.ts";
-import { untranscribed } from "../../../src/core/reading/transcript.ts";
-import type { ScannedBook } from "../../../src/core/scan/scan.ts";
-import type { SilenceRange } from "../../../src/core/types.ts";
+import { bookId } from "@ribbon/core/bookid";
+import { bytesToRows, int, num, rowsToBytes, type Row } from "@ribbon/core/csv";
+import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "@ribbon/core/reading/narration";
+import { untranscribed } from "@ribbon/core/reading/transcript";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import type { SilenceRange } from "@ribbon/core/types";
 import { bookDir, type StoredAnalysis } from "./books.ts";
 import { readStored, writeStored } from "./prepare.ts";
 

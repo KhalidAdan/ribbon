@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { bytesToRows, rowsToBytes, type Row } from "../../../src/core/csv.ts";
-import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../../../src/core/scan/chapters.ts";
-import type { Chapter } from "../../../src/core/types.ts";
+import { bytesToRows, rowsToBytes, type Row } from "@ribbon/core/csv";
+import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "@ribbon/core/scan/chapters";
+import type { Chapter } from "@ribbon/core/types";
 import type { StoredBook } from "./books.ts";
 
 /**

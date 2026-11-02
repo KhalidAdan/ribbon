@@ -1,13 +1,13 @@
 import { readDir, stat, exists, readFile, writeFile, mkdir, remove, rename } from "@tauri-apps/plugin-fs";
-import { renameWithRetry } from "./retry";
+import { renameWithRetry } from "@ribbon/core/retry";
 import { Command } from "@tauri-apps/plugin-shell";
 import { hostname, platform } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { channel, type Source } from "@culvert/stream";
-import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "./host";
-import { joinPath } from "./paths";
-import type { SourceEntry } from "../core/sources";
+import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "@ribbon/core/host";
+import { joinPath } from "@ribbon/core/paths";
+import type { SourceEntry } from "@ribbon/core/sources";
 import { log } from "../app/log";
 
 const BATCH_EVENT = "ribbon://scan-batch";

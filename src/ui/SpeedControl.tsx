@@ -1,6 +1,6 @@
 import { MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { SPEED_STEP, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
+import { SPEED_STEP, formatLeft, formatSpeed, remainingAtSpeed } from "@ribbon/core/speed";
 import { useAppState, useController } from "./store";
 import { IconButton } from "./Button";
 import { Group, Row, Toggle } from "./kit";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ribbonClaim, type ReadRecord } from "../src/core/poslog";
-import { standingOf } from "../src/core/progress";
+import { ribbonClaim, type ReadRecord } from "@ribbon/core/poslog";
+import { standingOf } from "@ribbon/core/progress";
 
 const HOUR = 3_600_000;
 const read = (finished?: string): ReadRecord => ({ v: 1, k: "read", dev: "d", seq: 1, t: "2026-10-23T00:00:00.000Z", book: { ids: [ribbonClaim("b1")] }, id: "r1", started: "2026-10-22T00:00:00.000Z", ...(finished ? { finished } : {}) });

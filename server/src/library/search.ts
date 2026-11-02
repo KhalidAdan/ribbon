@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ReadAlong } from "../../../src/core/reading/readalong.ts";
+import type { ReadAlong } from "@ribbon/core/reading/readalong";
 import type { BookIndex } from "./books.ts";
 import { readStored } from "./prepare.ts";
 import type { ReadAlongs } from "./readalong.ts";
@@ -8,7 +8,7 @@ import type { ReadAlongs } from "./readalong.ts";
 export interface Found {
   /** The book's id on this server. */
   book: string;
-  /** The sentence, counted across the book's read-along: how a device names a place (src/core/reading/readalong.ts). */
+  /** The sentence, counted across the book's read-along: how a device names a place (packages/core/src/reading/readalong.ts). */
   sentence: number;
   /** When the narrator reads it. */
   ms: number;

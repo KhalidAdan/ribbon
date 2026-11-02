@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Host } from "../src/host/host";
+import type { Host } from "@ribbon/core/host";
 import { guardWrites, isReadOnly, ReadOnlyFolder } from "../src/app/read-only";
 import { PositionKeeper } from "../src/app/positions";
 import { ReadingKeeper } from "../src/app/reading";
-import { EBOOK_FORMAT, type Ebook } from "../src/core/ebook";
-import { BookText } from "../src/core/reading/booktext";
-import type { Position } from "../src/core/types";
+import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
+import type { Position } from "@ribbon/core/types";
 
 // What the iPhone's Files app answers for a share it reaches read-only (seen on the SE).
 const EROFS = "failed to open file at path: /share/books/.ribbon/positions/a.csv with error: Read-only file system (os error 30)";

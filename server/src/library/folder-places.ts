@@ -1,8 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { LOG_EXT, parseLog, ribbonClaim, textClaim, type DeviceInfo, type LogRecord } from "../../../src/core/poslog.ts";
-import type { ScannedBook } from "../../../src/core/scan/scan.ts";
-import { localIdOf } from "../../../src/core/server-books.ts";
+import { LOG_EXT, parseLog, ribbonClaim, textClaim, type DeviceInfo, type LogRecord } from "@ribbon/core/poslog";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { localIdOf } from "@ribbon/core/server-books";
 import { isDeviceId, type Places } from "../places.ts";
 import type { ListedBook } from "./books.ts";
 import { librariesOf } from "./records.ts";

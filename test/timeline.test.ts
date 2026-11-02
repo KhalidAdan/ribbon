@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileStarts, locate, toBookOffset, totalDuration } from "../src/core/timeline";
+import { fileStarts, locate, toBookOffset, totalDuration } from "@ribbon/core/timeline";
 
 const D = [1000, 2000, 3000];
 

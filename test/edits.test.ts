@@ -2,11 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { applyEdits, bytesToEdits, diffEdits, editsToBytes, fieldText } from "../src/core/edits";
+import { applyEdits, bytesToEdits, diffEdits, editsToBytes, fieldText } from "@ribbon/core/edits";
 import { LibraryService } from "../src/app/library";
-import { nodeHost } from "../src/host/node";
-import type { Book } from "../src/core/types";
-import type { ScannedBook } from "../src/core/scan/scan";
+import { nodeHost } from "@ribbon/host-node/node";
+import type { Book } from "@ribbon/core/types";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
 
 const files: Book = {
   id: "b1",

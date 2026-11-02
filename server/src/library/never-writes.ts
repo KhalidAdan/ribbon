@@ -1,4 +1,4 @@
-import type { Host } from "../../../src/host/host.ts";
+import type { Host } from "@ribbon/core/host";
 
 /**
  * The host as an import sees a folder it copies from: anything inside the

@@ -1,9 +1,9 @@
 import { ArrowsUpDownIcon, FunnelIcon, XMarkIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useMemo, useState } from "react";
-import type { ScannedBook } from "../core/scan/scan";
-import { facetCounts, filterCount, missing, SORT_LABELS, SORTS, type BookFacts, type FacetKind, type LibraryFilter, type LibraryView, type Missing, type SortKey, type Standing } from "../core/view";
-import { fold } from "../core/search";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { facetCounts, filterCount, missing, SORT_LABELS, SORTS, type BookFacts, type FacetKind, type LibraryFilter, type LibraryView, type Missing, type SortKey, type Standing } from "@ribbon/core/view";
+import { fold } from "@ribbon/core/search";
 import { useAppState, useController } from "./store";
 import { progressOf, useShelfProgress } from "./progress";
 import { Button, IconButton } from "./Button";

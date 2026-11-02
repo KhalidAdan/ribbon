@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { bookId } from "../../src/core/bookid.ts";
+import { bookId } from "@ribbon/core/bookid";
 import { buildServer, type RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import type { StoredBook } from "../src/library/books.ts";

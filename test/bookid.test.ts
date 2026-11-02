@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bookId, normalizePath } from "../src/core/bookid";
+import { bookId, normalizePath } from "@ribbon/core/bookid";
 
 describe("bookId", () => {
   it("is eight lowercase hex characters", () => {

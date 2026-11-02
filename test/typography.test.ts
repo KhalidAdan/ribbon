@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_READING, justifies, metricsFor, parseReading } from "../src/core/reading/typography";
-import { bookPage } from "../src/core/reading/pages";
+import { DEFAULT_READING, justifies, metricsFor, parseReading } from "@ribbon/core/reading/typography";
+import { bookPage } from "@ribbon/core/reading/pages";
 
 const phone = { width: 375, height: 560 };
 

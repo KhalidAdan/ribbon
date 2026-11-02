@@ -1,9 +1,9 @@
 import { ChevronDownIcon, MinusIcon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useState } from "react";
-import { SPEED_STEP, formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "../core/speed";
-import { chapterAt } from "../core/scan/chapters";
-import { partAt } from "../core/scan/parts";
+import { SPEED_STEP, formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "@ribbon/core/speed";
+import { chapterAt } from "@ribbon/core/scan/chapters";
+import { partAt } from "@ribbon/core/scan/parts";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { Cover } from "./Cover";

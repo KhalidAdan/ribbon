@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { alignBook } from "../src/core/reading/align";
-import { wordIndex } from "../src/core/reading/anchors";
-import { BookText } from "../src/core/reading/booktext";
-import { EBOOK_FORMAT, type Ebook, type EbookSection } from "../src/core/ebook";
-import { backbone, placeTranscript } from "../src/core/reading/placing";
-import { placeStretch, type Said } from "../src/core/reading/transcript";
+import { alignBook } from "@ribbon/core/reading/align";
+import { wordIndex } from "@ribbon/core/reading/anchors";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { EBOOK_FORMAT, type Ebook, type EbookSection } from "@ribbon/core/ebook";
+import { backbone, placeTranscript } from "@ribbon/core/reading/placing";
+import { placeStretch, type Said } from "@ribbon/core/reading/transcript";
 
 /** Made-up words, the same every run: a book whose runs of five words are each in it once. */
 function sentences(count: number, seed: number): string[] {

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Times and speeds written as the desktop writes them (src/core/speed.ts),
+/// Times and speeds written as the desktop writes them (packages/core/src/speed.ts),
 /// so the TV and the desktop say the same thing the same way.
 enum Format {
     /// A moment or a length on a clock: "4:05", "1:02:03".

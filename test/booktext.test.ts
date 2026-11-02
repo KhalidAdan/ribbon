@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BookText, comparePlaces } from "../src/core/reading/booktext";
-import { EBOOK_FORMAT, type Ebook, type EbookSection } from "../src/core/ebook";
+import { BookText, comparePlaces } from "@ribbon/core/reading/booktext";
+import { EBOOK_FORMAT, type Ebook, type EbookSection } from "@ribbon/core/ebook";
 
 /** A section of paragraphs, each given as its text. */
 function section(href: string, paras: string[], linear = true): EbookSection {

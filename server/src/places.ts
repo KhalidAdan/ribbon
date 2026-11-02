@@ -1,7 +1,7 @@
 import { readdir, readFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { encodeRecord, parseLog, type DeviceInfo, type LogRecord } from "../../src/core/poslog.ts";
+import { encodeRecord, parseLog, type DeviceInfo, type LogRecord } from "@ribbon/core/poslog";
 
 /** A device's id, as the position log writes it: a random UUID, never derived from anything (docs/POSITION-FORMAT.md, section 2). */
 const DEVICE_ID = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,7 +31,7 @@ export interface NewPlaces {
  * per device saying who it is. A device sends what it appended; a record
  * sent twice, by a retry, is kept once, by its device and sequence number.
  * The server never changes a record, and merging stays the apps' own
- * (`src/core/poslog.ts`).
+ * (`packages/core/src/poslog.ts`).
  *
  * Reading is by cursor, the last row a device has read: only newer records
  * come back, and nothing when nothing's new. The whole log also comes back

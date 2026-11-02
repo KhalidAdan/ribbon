@@ -1,7 +1,7 @@
 import Foundation
 
 /// A book's text with when each of its sentences is read, as the server
-/// makes it (src/core/reading/readalong.ts, `ReadAlong`): the TV can't
+/// makes it (packages/core/src/reading/readalong.ts, `ReadAlong`): the TV can't
 /// parse an EPUB or pair it with the narration, so the server does both,
 /// with the same code the apps use.
 struct ReadAlong: Decodable {
@@ -44,7 +44,7 @@ struct ReadAlong: Decodable {
     }
 
     /// How closely the read-along follows the narration, measured when the server made it
-    /// (src/core/reading/readalong.ts, `ReadAlongCheck`). Missing from a server older than the check.
+    /// (packages/core/src/reading/readalong.ts, `ReadAlongCheck`). Missing from a server older than the check.
     struct Check: Decodable {
         /// Of the sentences read, the share placed to the sentence; the rest are placed by how far through their
         /// chapter they are.
@@ -134,7 +134,7 @@ struct Sentences {
     subscript(index: Int) -> Sentence { all[index] }
 
     /// The sentence being read at a moment of the recording: the last narrated one started by then
-    /// (src/core/reading/readalong.ts, `sentenceReadAt`).
+    /// (packages/core/src/reading/readalong.ts, `sentenceReadAt`).
     func read(at ms: Int) -> Int {
         // Sentences start in the order they're read, so the last one started is found by halves.
         var low = 0

@@ -1,0 +1,17 @@
+{
+  "name": "@ribbon/core",
+  "version": "0.0.0",
+  "description": "Ribbon's logic: no files, no network, no DOM. The desktop and the server both run it.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@culvert/crc32": "^0.1.3",
+    "@culvert/csv": "^0.1.0",
+    "@culvert/stream": "^0.2.0",
+    "@orama/orama": "^3.1.18"
+  }
+}

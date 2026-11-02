@@ -1,10 +1,10 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
-import { endOf, readsOf } from "../src/core/stats";
+import { endOf, readsOf } from "@ribbon/core/stats";
 import { progressOf } from "../src/ui/progress";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
 

@@ -1,13 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { nodeHost } from "../src/host/node";
+import { nodeHost } from "@ribbon/host-node/node";
 import { LibraryService } from "../src/app/library";
 import { analyzeBook } from "../src/app/jobs";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
-import type { ScannedBook } from "../src/core/scan/scan";
-import { TARGET_LUFS } from "../src/core/loudness";
-import { markId } from "../src/core/bookmarks";
+import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { TARGET_LUFS } from "@ribbon/core/loudness";
+import { markId } from "@ribbon/core/bookmarks";
 
 const lib = new LibraryService(nodeHost(), FIXTURE_ROOT);
 let books: ScannedBook[];

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { groupBooks } from "../src/core/scan/group";
-import type { FileEntry } from "../src/core/scan/walk";
+import { groupBooks } from "@ribbon/core/scan/group";
+import type { FileEntry } from "@ribbon/core/scan/walk";
 
 const f = (relPath: string): FileEntry => ({
   relPath,

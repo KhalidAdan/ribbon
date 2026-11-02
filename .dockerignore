@@ -2,13 +2,13 @@
 *
 !package.json
 !package-lock.json
-!src
+!packages
 !server
 # The EPUB parser, for read-along: its crate and the workspace around it, not the app's iOS project or icons.
 !.cargo
 !src-tauri
 src-tauri/gen
 src-tauri/icons
-server/node_modules
+**/node_modules
 server/ribbon-data
 server/test

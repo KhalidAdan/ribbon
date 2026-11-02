@@ -1,6 +1,6 @@
-import type { Alignment } from "../core/reading/align";
-import type { WordAt } from "../core/reading/anchors";
-import { looped, placeStretch, stretchesOf, withoutLoops, type PlacedPhrase, type Said } from "../core/reading/transcript";
+import type { Alignment } from "@ribbon/core/reading/align";
+import type { WordAt } from "@ribbon/core/reading/anchors";
+import { looped, placeStretch, stretchesOf, withoutLoops, type PlacedPhrase, type Said } from "@ribbon/core/reading/transcript";
 
 /**
  * A book's narration transcribed whole (#152): every minute of it, from the

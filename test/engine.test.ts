@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlayerEngine, type EngineState } from "../src/player/engine";
 import { FakeMedia } from "./support/fake-media";
-import { STALL_MS, recoveryDelayMs } from "../src/core/recovery";
-import type { AudioFile } from "../src/core/types";
+import { STALL_MS, recoveryDelayMs } from "@ribbon/core/recovery";
+import type { AudioFile } from "@ribbon/core/types";
 
 const MIN = 60_000;
 

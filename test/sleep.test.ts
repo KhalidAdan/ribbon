@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FADE_MS, IDLE, cancel, extend, pause, resume, start, tick, type SleepTick } from "../src/core/sleep";
+import { FADE_MS, IDLE, cancel, extend, pause, resume, start, tick, type SleepTick } from "@ribbon/core/sleep";
 
 const base: SleepTick = { nowMs: 0, positionMs: 0, chapterEndMs: null, speed: 1, playing: true };
 

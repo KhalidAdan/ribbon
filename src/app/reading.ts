@@ -1,8 +1,8 @@
-import type { Ebook } from "../core/ebook";
-import type { Alignment } from "../core/reading/align";
-import type { Highlight } from "../core/types";
-import type { Locator, Why } from "../core/poslog";
-import type { BookText, TextPlace } from "../core/reading/booktext";
+import type { Ebook } from "@ribbon/core/ebook";
+import type { Alignment } from "@ribbon/core/reading/align";
+import type { Highlight } from "@ribbon/core/types";
+import type { Locator, Why } from "@ribbon/core/poslog";
+import type { BookText, TextPlace } from "@ribbon/core/reading/booktext";
 import { log } from "./log";
 import { isReadOnly } from "./read-only";
 

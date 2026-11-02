@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { followedMs, LEAD_IN_MS } from "../src/core/reading/align";
+import { followedMs, LEAD_IN_MS } from "@ribbon/core/reading/align";
 
 describe("listening from a sentence, a moment early", () => {
   const from = 60_000;

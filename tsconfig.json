@@ -16,11 +16,7 @@
     "noEmit": true,
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
-    "types": ["node", "vite/client"],
-    "paths": {
-      "@core/*": ["./src/core/*"],
-      "@host/*": ["./src/host/*"]
-    }
+    "types": ["node", "vite/client"]
   },
-  "include": ["src", "test", "tools", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "packages", "test", "tools", "vite.config.ts", "vitest.config.ts"]
 }

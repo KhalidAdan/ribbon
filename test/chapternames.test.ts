@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { catalogUrl, generatedTitles, numbersChapter, parseCatalog, pickProduct, planNames, searchTitle } from "../src/core/chapternames";
-import { parseChapters } from "../src/core/audnexus";
-import { EBOOK_FORMAT, type Ebook, type EbookSection } from "../src/core/ebook";
-import { BookText } from "../src/core/reading/booktext";
-import { chapterNamesFromText, type Narration } from "../src/core/reading/narration";
-import { applyCorrections } from "../src/core/scan/chapters";
-import type { Chapter } from "../src/core/types";
+import { catalogUrl, generatedTitles, numbersChapter, parseCatalog, pickProduct, planNames, searchTitle } from "@ribbon/core/chapternames";
+import { parseChapters } from "@ribbon/core/audnexus";
+import { EBOOK_FORMAT, type Ebook, type EbookSection } from "@ribbon/core/ebook";
+import { BookText } from "@ribbon/core/reading/booktext";
+import { chapterNamesFromText, type Narration } from "@ribbon/core/reading/narration";
+import { applyCorrections } from "@ribbon/core/scan/chapters";
+import type { Chapter } from "@ribbon/core/types";
 
 const t = (titles: string[]) => titles.map((title) => ({ title }));
 

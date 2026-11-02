@@ -1,24 +1,24 @@
-import type { Host } from "../host/host";
-import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "../core/types";
-import { RIBBON_DIR, LEGACY_DIR } from "../core/scan/walk";
-import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "../core/scan/scan";
-import { nowIso, parsePositions, serializePosition, serializePositions } from "../core/position";
-import { claimsFor, compact, COMPACT_BYTES, deviceFileName, encodeRecord, FORMAT, fromLegacy, locatorFor, LOG_EXT, logName, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, toPosition, type DeviceInfo, type Locator, type LogRecord, type TextPosRecord, type Why } from "../core/poslog";
-import { defaultSettings, parseSettings, serializeSettings } from "../core/settings";
-import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "../core/bookmarks";
-import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "../core/scan/chapters";
-import { bytesToRows, rowsToBytes, num, int } from "../core/csv";
-import { LOUDNESS_HEADERS, gainDb } from "../core/loudness";
-import { bytesToProblems, problemsToBytes, type Problem } from "../core/problems";
-import { bytesToSeries, seriesToBytes, type SeriesRecord } from "../core/series";
-import { aboutToBytes, bytesToAbout, type BookAbout } from "../core/about";
-import { locate } from "../core/timeline";
-import { bytesToEdits, editsToBytes, type BookEdits } from "../core/edits";
+import type { Host } from "@ribbon/core/host";
+import type { Bookmark, BookSettings, Position, SilenceRange, LoudnessMeasurement } from "@ribbon/core/types";
+import { RIBBON_DIR, LEGACY_DIR } from "@ribbon/core/scan/walk";
+import { scanLibrary, loadLibrary, ensureChapters, type ScannedBook, type ScanOptions, type ScanResult } from "@ribbon/core/scan/scan";
+import { nowIso, parsePositions, serializePosition, serializePositions } from "@ribbon/core/position";
+import { claimsFor, compact, COMPACT_BYTES, deviceFileName, encodeRecord, FORMAT, fromLegacy, locatorFor, LOG_EXT, logName, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, toPosition, type DeviceInfo, type Locator, type LogRecord, type TextPosRecord, type Why } from "@ribbon/core/poslog";
+import { defaultSettings, parseSettings, serializeSettings } from "@ribbon/core/settings";
+import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "@ribbon/core/bookmarks";
+import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "@ribbon/core/scan/chapters";
+import { bytesToRows, rowsToBytes, num, int } from "@ribbon/core/csv";
+import { LOUDNESS_HEADERS, gainDb } from "@ribbon/core/loudness";
+import { bytesToProblems, problemsToBytes, type Problem } from "@ribbon/core/problems";
+import { bytesToSeries, seriesToBytes, type SeriesRecord } from "@ribbon/core/series";
+import { aboutToBytes, bytesToAbout, type BookAbout } from "@ribbon/core/about";
+import { locate } from "@ribbon/core/timeline";
+import { bytesToEdits, editsToBytes, type BookEdits } from "@ribbon/core/edits";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
 import { guardWrites } from "./read-only";
-import type { PairingFix } from "../core/reading/align";
-import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, mergeTranscripts, pairingFromRows, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "../core/reading/narration";
-import type { PlacedPhrase } from "../core/reading/transcript";
+import type { PairingFix } from "@ribbon/core/reading/align";
+import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, mergeTranscripts, pairingFromRows, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "@ribbon/core/reading/narration";
+import type { PlacedPhrase } from "@ribbon/core/reading/transcript";
 
 /** A position log kept somewhere other than the folder's `.ribbon/positions/`: a Ribbon server's (server/server-log.ts). */
 export interface RemoteLog {
@@ -528,7 +528,7 @@ export class LibraryService {
     await this.host.writeFile(this.dir("corrections", `${book.book.id}.csv`), await rowsToBytes(correctionsToRows(corrections), CORRECTION_HEADERS));
     const base = buildChapters(book.files);
     const chapters = applyCorrections(base, corrections, book.book.durationMs, book.files).chapters;
-    const { chaptersToBytes } = await import("../core/scan/records");
+    const { chaptersToBytes } = await import("@ribbon/core/scan/records");
     await this.host.mkdir(this.dir("chapters"));
     await this.host.writeFile(this.dir("chapters", `${book.book.id}.csv`), await chaptersToBytes(chapters));
     return { ...book, chapters };
