@@ -88,6 +88,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: tools/check-server-image.sh
+      - name: The compose file is valid
+        run: RIBBON_BOOKS=/tmp docker compose -f server/compose.yaml config --quiet
 
   # Whether this pull request built the same app as what it's based on. It
   # always says; with the label `same-app`, for a change meant to change

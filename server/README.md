@@ -92,8 +92,19 @@ where an Apple M2's graphics hear 29 to 45 times as fast.
 
 ## In Docker
 
-From the repository's root (the image holds the app's own logic the server
-runs, ffmpeg, and the EPUB parser and MP3 frame index for read-along):
+The simplest way: each release publishes an image, and `compose.yaml` here runs
+it. Copy that file into a folder of its own, then:
+
+```bash
+RIBBON_BOOKS=/path/to/your/books docker compose up -d
+docker compose logs
+```
+
+The first start prints the link that makes the admin account. To update, `docker
+compose pull` and `docker compose up -d`: everything it keeps is in `ribbon-data`.
+
+To build the image yourself, from the repository's root (it holds the shared
+logic, ffmpeg, and the EPUB parser and MP3 frame index for read-along):
 
 ```bash
 docker build -f server/Dockerfile -t ribbon-server .
