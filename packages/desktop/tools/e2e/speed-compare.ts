@@ -102,7 +102,7 @@ function compare(baseline: Baseline | null, reports: SpeedReport[]): string {
   out.push(
     baseline
       ? `Beside the baseline: Ribbon ${baseline.version} (${baseline.commit}), measured ${baseline.measured} on ${baseline.where}, with ${baseline.library}. Marked: moved by more than a quarter and more than 2 ms (p50, else p95). A shared runner is noisy; a mark is a question, not a verdict.`
-      : "No baseline yet (tools/e2e/speed-baseline.json): the numbers alone.",
+      : "No baseline yet (packages/desktop/tools/e2e/speed-baseline.json): the numbers alone.",
   );
   if (baseline && now && (now.where !== baseline.where || now.library !== baseline.library)) {
     out.push(`**Measured elsewhere than the baseline**, so the numbers do not compare: ${now.where} with ${now.library}, against ${baseline.where} with ${baseline.library}.`);

@@ -1,6 +1,6 @@
 /**
  * Laid-out text into pages, or into one long column for scrolling
- * (docs/READING.md, section 1). Pure: the typesetter (src/reader) has
+ * (docs/READING.md, section 1). Pure: the typesetter (packages/desktop/src/reader) has
  * already broken every block into lines of known height; this decides
  * where each line goes. Pages and scrolling share everything but the cut.
  */

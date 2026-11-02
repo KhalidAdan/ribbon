@@ -22,7 +22,7 @@ import { PlacesError, type Places } from "./places.ts";
 /** Why a device that only draws and plays says it's at a moment: what any app writes, but `remote` and `import`, which it never does. */
 const WHYS: readonly Why[] = ["open", "pause", "seek", "periodic", "end", "close"];
 
-/** A stretch of listening shorter than this is no session, as the desktop keeps them (src/app/controller.ts, `endListening`). */
+/** A stretch of listening shorter than this is no session, as the desktop keeps them (packages/desktop/src/app/controller.ts, `endListening`). */
 const SESSION_MIN_MS = 30_000;
 
 /** Where a person is in a book, as a device that only draws and plays is told it. */

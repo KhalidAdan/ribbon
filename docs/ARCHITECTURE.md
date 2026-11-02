@@ -34,10 +34,10 @@ point one way: core depends on nothing of Ribbon's, and everything depends on it
 
 | Part | Where | Takes from elsewhere in the repository |
 | --- | --- | --- |
-| The desktop app | `src/`, `src-tauri/` | `@ribbon/core`, and `@ribbon/host-node` for its tests and tools |
+| The desktop app | `packages/desktop/src/`, `packages/desktop/src-tauri/` | `@ribbon/core`, and `@ribbon/host-node` for its tests and tools |
 | The shared logic | `packages/core/` | Nothing: it depends on no other part |
 | Node's file access | `packages/host-node/` | `@ribbon/core` |
-| The server | `packages/server/` | `@ribbon/core`, `@ribbon/host-node`; `src-tauri/ebook` and `src-tauri/frames`, built as commands |
+| The server | `packages/server/` | `@ribbon/core`, `@ribbon/host-node`; `packages/desktop/src-tauri/ebook` and `packages/desktop/src-tauri/frames`, built as commands |
 | The Apple apps | `tv/` | Only the fonts in the root `node_modules`. They reach the server over HTTP, and `Listening/Resume.swift` mirrors `packages/core/src/resume.ts`. |
 
 ### The desktop app
@@ -56,7 +56,7 @@ flowchart LR
     Lib["app/library.ts<br/>LibraryService: one per library folder"]
     Host["host/host.ts<br/>Host: every file and process operation"]
   end
-  subgraph Rust["Rust side (src-tauri)"]
+  subgraph Rust["Rust side (packages/desktop/src-tauri)"]
     Scan["scan.rs<br/>walk and probe a library"]
     Ebook["ebook/<br/>EPUB → block model, the export"]
     Speech["speech.rs<br/>whisper.cpp on the GPU"]
@@ -84,7 +84,7 @@ flowchart LR
 | --- | --- | --- |
 | `packages/core` | compute: pairing, mapping, parsing records, search | touch files, the network, React or the controller |
 | `app/` | own the state, run actions, read and write records through `Host` | draw |
-| hosts | do IO: `src/host/tauri.ts` in the app, `src/host/browser.ts` for the web build, `@ribbon/host-node` for the server, tests and tools | decide anything |
+| hosts | do IO: `packages/desktop/src/host/tauri.ts` in the app, `packages/desktop/src/host/browser.ts` for the web build, `@ribbon/host-node` for the server, tests and tools | decide anything |
 | `ui/`, `reader/` | draw the state, call controller actions | change state directly |
 | Rust | the per-file heavy work: walking, probing, parsing EPUBs, speech, frames, exports | hold the app's state |
 
@@ -119,7 +119,7 @@ flowchart LR
   text side: made once per opened book.
 - **`Alignment`** (`core/reading/align.ts`) is the only bridge between text
   and time. Everything read-along does is about making it precise.
-- **`ChapterSource`** (`src-tauri/ebook/src/source.rs`) is how a place
+- **`ChapterSource`** (`packages/desktop/src-tauri/ebook/src/source.rs`) is how a place
   becomes bytes of the book's own files, for the export.
 
 ## 3. The reading model
@@ -190,7 +190,7 @@ classDiagram
   Alignment *-- Pair
 ```
 
-The `Ebook` comes from Rust (the `ribbon-ebook` crate, `src-tauri/ebook`, parses the EPUB once and caches
+The `Ebook` comes from Rust (the `ribbon-ebook` crate, `packages/desktop/src-tauri/ebook`, parses the EPUB once and caches
 the model in the Ribbon folder). Offsets are UTF-16 code units, as
 JavaScript strings count them, so a `TextPlace` indexes a block's text
 directly.
@@ -437,9 +437,9 @@ same folder on another machine gets the same id.
 | What a book is | `core/types.ts`, `core/scan/group.ts` |
 | Places in a book | `core/reading/booktext.ts` |
 | Text ↔ time | `core/reading/align.ts` (`alignBook`, `textToMs`, `msToText`) |
-| Read-along's transcript | `core/reading/transcript.ts`, `src-tauri/src/speech.rs` |
+| Read-along's transcript | `core/reading/transcript.ts`, `packages/desktop/src-tauri/src/speech.rs` |
 | The reader on screen | `reader/ReadingView.tsx`, `core/reading/pages.ts`, `reader/typeset.ts`, `reader/layout-engine.ts` |
-| Playback | `player/engine.ts`, `src-tauri/src/frames.rs` |
-| The EPUB parser | `src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
-| The export | `core/reading/export.ts`, `src-tauri/src/ebook/export.rs`, `src-tauri/ebook/src/source.rs` |
+| Playback | `player/engine.ts`, `packages/desktop/src-tauri/src/frames.rs` |
+| The EPUB parser | `packages/desktop/src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
+| The export | `core/reading/export.ts`, `packages/desktop/src-tauri/src/ebook/export.rs`, `packages/desktop/src-tauri/ebook/src/source.rs` |
 | Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `packages/server/src/readalong-routes.ts`, `tv/` (tv/README.md) |

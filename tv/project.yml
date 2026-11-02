@@ -23,7 +23,7 @@ targets:
     sources:
       - path: Ribbon
         excludes: [Info.plist]
-      # The reader's own face (src/reader/faces.ts) and the app's, the same files
+      # The reader's own face (packages/desktop/src/reader/faces.ts) and the app's, the same files
       # the web reader loads, from the repository's npm packages.
       - path: ../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2
         buildPhase: resources

@@ -71,18 +71,18 @@ order:
 | | |
 | --- | --- |
 | `packages/core/` | `@ribbon/core`: pure TypeScript, no DOM or Tauri, which the desktop and the server both run; everything decided here is unit-tested (`packages/core/test/`). It holds the `Host` interface too. |
-| `packages/host-node/` | `@ribbon/host-node`: the `Host` on Node, for the server, the tests and the tools. The app's own hosts are in `src/host/`. |
-| `src/app/controller.ts` | `AppController`: the app's state and every action; its doc comment is the map. |
-| `src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
-| `src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
-| `src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
-| `src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
-| `src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
-| `src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
-| `src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
+| `packages/host-node/` | `@ribbon/host-node`: the `Host` on Node, for the server, the tests and the tools. The app's own hosts are in `packages/desktop/src/host/`. |
+| `packages/desktop/src/app/controller.ts` | `AppController`: the app's state and every action; its doc comment is the map. |
+| `packages/desktop/src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
+| `packages/desktop/src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
+| `packages/desktop/src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
+| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
+| `packages/desktop/src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
+| `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
+| `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). |
 | `tv/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (tv/README.md). |
-| `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
+| `packages/desktop/tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`packages/desktop/tools/e2e`). |
 
 ## Commands
 
@@ -91,7 +91,7 @@ npm install
 npm run tauri:dev                       # the desktop app, from source
 npm test && npm run typecheck           # unit tests and types
 npm run test:rust                       # the Rust side
-npm run e2e -- --build                  # the end-to-end checks (Windows; tools/e2e/README.md)
+npm run e2e -- --build                  # the end-to-end checks (Windows; packages/desktop/tools/e2e/README.md)
 npm run e2e -- speed --slow 6           # the speed report, as a slow machine
 npm run tauri build                     # the installers
 tools/check-server-image.sh             # the server's Docker image, built and tried
@@ -100,7 +100,7 @@ cd tv && xcodegen generate              # the Apple TV and iPad app's Xcode proj
 ```
 
 `npm run tauri`, `tauri:dev` and `test:rust` go through
-`tools/with-build-env.mjs`, which sets how whisper.cpp is compiled on each
+`packages/desktop/tools/with-build-env.mjs`, which sets how whisper.cpp is compiled on each
 system; a bare `cargo build` on Windows makes a speech side too slow to use.
 
 Environment: `RIBBON_LIBRARY` (a folder to open, or the first argument),
@@ -108,7 +108,7 @@ Environment: `RIBBON_LIBRARY` (a folder to open, or the first argument),
 `RIBBON_PROFILE=1` (the measurement build: React's profiler and
 `window.__ribbon`), `RIBBON_DEV_LIBRARY` (the browser harness's folder),
 `RIBBON_E2E_LIBRARY`, `RIBBON_SCAN_PATH` and `RIBBON_MIN_READ` (the scan
-benchmark in `src-tauri`).
+benchmark in `packages/desktop/src-tauri`).
 
 ## Lessons that cost hours
 

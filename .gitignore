@@ -1,12 +1,11 @@
 node_modules/
 dist/
-src-tauri/target/
 /target/
 books/
 .ribbon/
 *.log
 .DS_Store
-test/fixtures/generated/
+packages/desktop/test/fixtures/generated/
 *.local
 shots/
 # The end-to-end suite's test library and runs (tools/e2e)

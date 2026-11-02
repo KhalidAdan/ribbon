@@ -19,9 +19,9 @@ import type { AppController } from "../../src/app/controller";
 /** What the measurement build (RIBBON_PROFILE=1) puts on the page for the suite. */
 declare global {
   interface Window {
-    /** The app's controller (src/ui/App.tsx). */
+    /** The app's controller (packages/desktop/src/ui/App.tsx). */
     __ribbon: AppController;
-    /** Speed measurements (src/app/perf.ts). */
+    /** Speed measurements (packages/desktop/src/app/perf.ts). */
     __ribbonPerf: { summary(): Record<string, { n: number; p50: number; p95: number; max: number }>; reset(): void };
     /** Where the suite sends the audio instead of the speakers. */
     __sink?: MediaStreamAudioDestinationNode;
@@ -54,8 +54,8 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
   let child: ChildProcess | null = null;
   if (!o.attach) {
     if (process.platform !== "win32") throw new Error("The suite drives WebView2 over CDP, which only Windows has; see docs/MAC.md.");
-    if (!existsSync(o.exe)) throw new Error(`No built app at ${o.exe}: run with --build, or build it with RIBBON_PROFILE=1 (tools/e2e/README.md).`);
-    if (!existsSync(o.library)) throw new Error(`No test library at ${o.library}: see tools/e2e/README.md.`);
+    if (!existsSync(o.exe)) throw new Error(`No built app at ${o.exe}: run with --build, or build it with RIBBON_PROFILE=1 (packages/desktop/tools/e2e/README.md).`);
+    if (!existsSync(o.library)) throw new Error(`No test library at ${o.library}: see packages/desktop/tools/e2e/README.md.`);
     await fs.rm(o.work, { recursive: true, force: true });
     await fs.mkdir(o.work, { recursive: true });
     child = spawn(o.exe, [], {

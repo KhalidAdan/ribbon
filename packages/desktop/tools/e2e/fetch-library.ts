@@ -29,7 +29,7 @@ interface Download {
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, "..", "..");
+const root = path.resolve(here, "..", "..", "..", "..");
 const manifestPath = path.join(here, "library.json");
 
 const args = process.argv.slice(2);

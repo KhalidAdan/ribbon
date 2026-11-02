@@ -2,7 +2,7 @@ import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScanOutput, ScanPr
 
 /**
  * Development-only Host that talks to the Vite plugin in
- * tools/vite-dev-library.ts. Lets the whole app, including real audio,
+ * packages/desktop/tools/vite-dev-library.ts. Lets the whole app, including real audio,
  * run in a plain browser tab against a library folder on this machine.
  * Never shipped: the Tauri build has no server behind it.
  */

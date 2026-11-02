@@ -172,7 +172,7 @@ struct RibbonServer {
         return URLSession(configuration: config)
     }()
 
-    /// Sign in with a name and a password, as the apps do (src/app/server/client.ts).
+    /// Sign in with a name and a password, as the apps do (packages/desktop/src/app/server/client.ts).
     static func signIn(address: String, name: String, password: String) async throws -> Account {
         guard let url = serverURL(address) else { throw ServerError(message: "That doesn't look like a server's address.") }
         var request = URLRequest(url: url.appending(path: "api/auth/sign-in/username"))

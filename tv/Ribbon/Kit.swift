@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The few shapes every screen is built from, as the desktop's are
-/// (src/ui/kit.tsx, docs/DESIGN.md), at the TV's size: a section header,
+/// (packages/desktop/src/ui/kit.tsx, docs/DESIGN.md), at the TV's size: a section header,
 /// grouped inset rows, buttons, and the progress marks in the place colour.
 /// Whatever has the focus lifts a little and lights up, the way tvOS shows it.
 /// The iPad has no focus to show: there the primary button is in inverted ink

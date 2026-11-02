@@ -1,10 +1,10 @@
-# Build output at the repository root (target/, not src-tauri/target/), and
+# Build output at the repository root (target/, not packages/desktop/src-tauri/target/), and
 # this file at the root so cargo finds it from either folder:
 # whisper.cpp's Vulkan shader generator builds deep inside it, and MSBuild's
 # file tracker fails on paths over 260 characters even with long paths on.
 #
 # How whisper.cpp is compiled on each system (the variables MSVC needs on
-# Windows) is set by tools/with-build-env.mjs, which npm run tauri, tauri:dev
+# Windows) is set by packages/desktop/tools/with-build-env.mjs, which npm run tauri, tauri:dev
 # and test:rust go through: cargo's [env] cannot differ by platform.
 [build]
 target-dir = "target"

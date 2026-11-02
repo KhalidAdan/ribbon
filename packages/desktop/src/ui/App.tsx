@@ -43,7 +43,7 @@ export function App() {
       await attachTauriLog();
       log.info("web side up");
       created = new AppController(platform);
-      // For the browser harness and tools, and the end-to-end suite in the measurement build (tools/e2e).
+      // For the browser harness and tools, and the end-to-end suite in the measurement build (packages/desktop/tools/e2e).
       if (import.meta.env.DEV || __RIBBON_MEASURE__) (window as unknown as { __ribbon: AppController }).__ribbon = created;
       setController(created);
       void created.boot();

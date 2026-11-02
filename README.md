@@ -42,19 +42,13 @@ packages/
   core/         @ribbon/core: pure logic, no files or network, for the app and the server
   host-node/    @ribbon/host-node: file and process access on Node
   server/       @ribbon/server: the server
-src/            the desktop app's web side
-  app/          the app's state and actions (AppController)
-  reader/       the reader
-  player/       playback
-  ui/           everything else on screen
-  host/         file and process access in the app
-src-tauri/      the desktop app's Rust side
-  ebook/        the EPUB parser: the server runs this too
-  frames/       the MP3 frame index: the server runs this too
-  speech/       transcribing, with whisper.cpp
+  desktop/      @ribbon/desktop: the desktop app
+    src/          its web side: app/ (state and actions), reader/, player/, ui/, host/
+    src-tauri/    its Rust side, and the crates the server builds (ebook/, frames/)
+    test/         its tests
+    tools/        the command line, fixtures and the end-to-end checks
 tv/             the iPhone, iPad and Apple TV app, in Swift
-tools/          the command line, fixtures and the end-to-end checks
-test/           the tests for src/
+tools/          checks for the whole repository
 docs/           how it all works, and why
 ```
 
@@ -69,9 +63,9 @@ Building the speech side (whisper.cpp, for read-along) also needs CMake. On
 Windows it needs LLVM (for libclang, expected in `C:\Program Files\LLVM`) and
 the Vulkan SDK with `VULKAN_SDK` set; on a Mac, Xcode, and whisper.cpp runs on
 Metal ([docs/MAC.md](docs/MAC.md)). `npm run tauri` and `tauri:dev` set how
-whisper.cpp is compiled on each system (`tools/with-build-env.mjs`). Cargo
+whisper.cpp is compiled on each system (`packages/desktop/tools/with-build-env.mjs`). Cargo
 builds into `target/` at the repository's root, because whisper.cpp's shader
-build is too deep for Windows paths under `src-tauri/target/`.
+build is too deep for Windows paths under `packages/desktop/src-tauri/target/`.
 
 ```sh
 npm install
@@ -110,7 +104,7 @@ npm run ribbon -- chapters books "Horus Rising"
 ```
 
 The server has its own: `npm test` and `npm run typecheck` in `packages/server/`. The
-end-to-end checks run the built app: [tools/e2e/README.md](tools/e2e/README.md).
+end-to-end checks run the built app: [packages/desktop/tools/e2e/README.md](packages/desktop/tools/e2e/README.md).
 
 ## Read more
 

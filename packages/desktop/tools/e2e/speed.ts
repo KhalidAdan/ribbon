@@ -4,7 +4,7 @@ import { closeReader, reading, silence, type Ribbon } from "./app";
 /** One part of the report: what the app measured of itself while it ran, and what the script saw. */
 export interface SpeedPart {
   title: string;
-  /** Each measurement (src/app/perf.ts): how many, the median, the 95th percentile and the worst, in ms. */
+  /** Each measurement (packages/desktop/src/app/perf.ts): how many, the median, the 95th percentile and the worst, in ms. */
   stats: Record<string, Stat>;
   /** What the script counted itself, such as frames drawn without text. */
   facts?: Record<string, number | boolean>;
@@ -27,7 +27,7 @@ export interface SpeedReport {
  * How fast Ribbon feels, measured with real input through the webview:
  * opening a book, turning pages by key and click, scrolling, the whole
  * book scrolled through, reading along, and playing with the library
- * showing. Each part prints what the app measured of itself (src/app/perf.ts):
+ * showing. Each part prints what the app measured of itself (packages/desktop/src/app/perf.ts):
  * React's renders, input to the frame that showed it, long tasks, layout,
  * time between frames, and the report returns it all (`--json` writes it).
  * Not a pass or a fail: compare it with the last release's numbers

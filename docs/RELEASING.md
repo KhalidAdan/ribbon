@@ -30,7 +30,7 @@ npm run test:rust
 GitHub runs them at both speeds, side by side, on Windows, for every pull
 request and every push to `main` ([e2e.yml](../.github/workflows/e2e.yml)), with
 the public test library (The Wonderful Wizard of Oz,
-[tools/e2e](../tools/e2e/README.md)). A pull request that changes only the docs
+[packages/desktop/tools/e2e](../packages/desktop/tools/e2e/README.md)). A pull request that changes only the docs
 skips them. `main` is ready when its last run passed:
 
 ```bash
@@ -49,7 +49,7 @@ Every check passes at both speeds.
 
 On `main`, and when run by hand (`gh workflow run e2e.yml --ref <branch>`, for
 speed work on a branch), a third job takes the speed report at both speeds and
-sets it beside the last release's numbers (`tools/e2e/speed-baseline.json`) on the run's summary page,
+sets it beside the last release's numbers (`packages/desktop/tools/e2e/speed-baseline.json`) on the run's summary page,
 marking what moved by more than a quarter and more than 2 ms. A shared runner
 is noisy, so a mark is a question rather than a verdict, but a number that got
 worse is a question to answer before the release, not after. When a release
@@ -63,9 +63,9 @@ npm run e2e -- speed --slow 6 --json .e2e/speed-6x.json
 
 ## 3. The version, in five files
 
-`package.json` and `package-lock.json` (`npm version X.Y.Z --no-git-tag-version`
-does both), and `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` (the `ribbon`
-package) and `src-tauri/tauri.conf.json`. Commit them as "Release X.Y.Z" on
+`packages/desktop/package.json` and `package-lock.json` (`npm version X.Y.Z
+--no-git-tag-version -w @ribbon/desktop` does both), and `packages/desktop/src-tauri/Cargo.toml`, `packages/desktop/src-tauri/Cargo.lock` (the `ribbon`
+package) and `packages/desktop/src-tauri/tauri.conf.json`. Commit them as "Release X.Y.Z" on
 `main` and push.
 
 ## 4. The installers

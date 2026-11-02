@@ -1,6 +1,6 @@
 #!/bin/sh
 # Ribbon's icon for the Apple TV and the iPad, made from the app's own
-# (src-tauri/icons/icon-ios.svg): tvOS wants it in layers, so the focus can
+# (packages/desktop/src-tauri/icons/icon-ios.svg): tvOS wants it in layers, so the focus can
 # tilt it, at its own sizes, and a wide Top Shelf picture besides. The back
 # layer is the icon's near-black tile; the front is the open book with its
 # ribbon. The iPad takes it whole. Run it again when the icon changes:

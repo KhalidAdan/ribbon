@@ -28,7 +28,7 @@ enum Format {
         return "\(text)×"
     }
 
-    /// How long someone was away, as the desktop's resume offer says it (src/ui/ResumeOffer.tsx, `describeAway`):
+    /// How long someone was away, as the desktop's resume offer says it (packages/desktop/src/ui/ResumeOffer.tsx, `describeAway`):
     /// "a day", "3 days", "2 weeks".
     static func away(_ ms: Int) -> String {
         let days = ms / 86_400_000

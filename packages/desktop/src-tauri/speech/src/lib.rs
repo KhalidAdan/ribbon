@@ -1,7 +1,7 @@
 //! The narrator's words (#65, #57): stretches of a book's audio decoded by
 //! ffmpeg and heard by whisper.cpp, as one line or phrase by phrase with when
 //! each phrase and word is said. The app hears with it on a machine with a
-//! graphics card (src-tauri/src/speech.rs), for its own books and for a
+//! graphics card (packages/desktop/src-tauri/src/speech.rs), for its own books and for a
 //! server's (#152). The model is a whisper.cpp `ggml` file.
 
 use std::io::Read;

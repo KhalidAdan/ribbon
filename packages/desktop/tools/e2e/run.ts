@@ -36,7 +36,7 @@ export interface Check {
 
 const CHECKS: Check[] = [openCheck, swipeCheck, resizeCheck, readAlongCheck, scrollCheck];
 
-const root = path.resolve(import.meta.dirname, "../..");
+const root = path.resolve(import.meta.dirname, "../../../..");
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
 const option = (name: string): string | undefined => {
@@ -77,7 +77,7 @@ try {
     const report = await speedReport(r, slow);
     const json = option("json");
     if (json) {
-      const version = (JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8")) as { version: string }).version;
+      const version = (JSON.parse(await fs.readFile(path.join(root, "packages/desktop/package.json"), "utf8")) as { version: string }).version;
       const commit = process.env.GITHUB_SHA?.slice(0, 7) ?? spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root }).stdout?.toString().trim();
       const where = process.env.GITHUB_ACTIONS ? `GitHub Actions (${process.env.ImageOS ?? process.env.RUNNER_OS})` : `by hand (${process.platform})`;
       const measured = new Date().toISOString().slice(0, 10);

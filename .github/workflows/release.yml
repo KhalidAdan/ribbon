@@ -26,7 +26,7 @@ on:
       - "**/Cargo.lock"
       - "**/tauri.conf.json"
       - "**/vite.config.ts"
-      - tools/with-build-env.mjs
+      - packages/desktop/tools/with-build-env.mjs
 
 permissions:
   contents: write
@@ -47,12 +47,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-      - name: The tag is the version in package.json
+      - name: The tag is the desktop's version
         shell: bash
         run: |
-          version="v$(node -p "require('./package.json').version")"
+          version="v$(node -p "require('./packages/desktop/package.json').version")"
           if [ "$TAG" != "$version" ]; then
-            echo "::error::$TAG is not the version in package.json ($version)"
+            echo "::error::$TAG is not the version in packages/desktop/package.json ($version)"
             exit 1
           fi
       - name: A draft release for the tag, unless it has one

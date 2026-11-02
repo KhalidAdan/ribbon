@@ -42,8 +42,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          if grep -qE 'DEVELOPMENT_TEAM = "?[A-Z0-9]' src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj; then
-            echo "::error::src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj names an Apple development team: leave it out of the commit"
+          if grep -qE 'DEVELOPMENT_TEAM = "?[A-Z0-9]' packages/desktop/src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj; then
+            echo "::error::packages/desktop/src-tauri/gen/apple/ribbon.xcodeproj/project.pbxproj names an Apple development team: leave it out of the commit"
             exit 1
           fi
 
@@ -68,13 +68,15 @@ jobs:
       - run: brew install ffmpeg
       - run: npm ci --ignore-scripts
         working-directory: .
-      # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index (src-tauri/ebook, src-tauri/frames), which the tests run.
+      # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index (packages/desktop/src-tauri/ebook, packages/desktop/src-tauri/frames), which the tests run.
       - name: Rust (stable)
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> ../target
-      - run: cargo build --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
+          # Compiled output remembers where its source was: a new key, so a cache from before the desktop moved is never used.
+          prefix-key: v1-rust
+          workspaces: packages/desktop/src-tauri -> ../../../target
+      - run: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
         working-directory: .
       - run: npm run typecheck
       - run: npm test

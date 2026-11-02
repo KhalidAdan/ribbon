@@ -73,12 +73,12 @@ No one can sign in yet. Open http://localhost:7766/invite/… to make the admin 
 ```
 
 Read-along needs two of Ribbon's own commands, built with Rust: `ribbon-ebook`
-(src-tauri/ebook), to read EPUBs as the apps do, and `ribbon-frames`
-(src-tauri/frames), to send an MP3 from the exact moment a streaming player
+(packages/desktop/src-tauri/ebook), to read EPUBs as the apps do, and `ribbon-frames`
+(packages/desktop/src-tauri/frames), to send an MP3 from the exact moment a streaming player
 asks for, rather than leave it to seek by guess:
 
 ```bash
-cargo build --release --manifest-path src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
+cargo build --release --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
 ```
 
 The server finds them in the repository's `target/` folder, or wherever

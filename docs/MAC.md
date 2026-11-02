@@ -46,7 +46,7 @@ The code is ready for the Mac on paper; nothing has run there. Check these
 first, roughly in this order:
 
 - **The build.** `Cargo.toml` builds whisper.cpp with Metal on Apple's systems
-  and Vulkan elsewhere, and `tools/with-build-env.mjs` sets compiler flags on
+  and Vulkan elsewhere, and `packages/desktop/tools/with-build-env.mjs` sets compiler flags on
   Windows only. If whisper-rs fails to build, that is the place to look.
 - **ffmpeg from the Dock.** An app opened from the Dock gets only the system's
   PATH; `lib.rs` adds Homebrew's folders (`/opt/homebrew/bin`, `/usr/local/bin`)
@@ -77,7 +77,7 @@ Tauri 2 builds for iOS and Android from the same code. Ribbon targets
 **iOS 16.4 and later** (the first with OffscreenCanvas, which the layout
 worker needs) and Android after it.
 
-The Xcode project is in `src-tauri/gen/apple`, made by `npm run tauri ios init`
+The Xcode project is in `packages/desktop/src-tauri/gen/apple`, made by `npm run tauri ios init`
 from `tauri.conf.json` (`bundle.iOS`: the minimum version, and Accelerate,
 which whisper.cpp needs and Xcode only links when the project lists it).
 
@@ -85,7 +85,7 @@ which whisper.cpp needs and Xcode only links when the project lists it).
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 npm run tauri ios build -- --target aarch64-sim --debug          # the simulator
 APPLE_DEVELOPMENT_TEAM=<team> npm run tauri ios build -- --debug   # a phone: Ribbon.ipa
-xcrun devicectl device install app --device <phone> src-tauri/gen/apple/build/arm64/Ribbon.ipa
+xcrun devicectl device install app --device <phone> packages/desktop/src-tauri/gen/apple/build/arm64/Ribbon.ipa
 ```
 
 A phone needs Developer Mode (Settings → Privacy & Security, once it has been
@@ -95,7 +95,7 @@ for your own iPhone, but the app has to be installed again every seven days;
 TestFlight and the App Store need the paid program. The team is the signer's:
 **a device build writes it into `project.pbxproj`, and it never goes into this
 public repository** (the macOS checks fail on it). Leave that change out of
-commits, or `xcodegen generate` in `src-tauri/gen/apple` drops it.
+commits, or `xcodegen generate` in `packages/desktop/src-tauri/gen/apple` drops it.
 
 The library is a folder you choose, on the phone as everywhere: Ribbon never
 makes a folder of books of its own. Choosing one on iOS needs a native folder
@@ -103,7 +103,7 @@ picker (the dialog plugin has none on mobile), with access that lasts beyond the
 picker. A share the Files app reaches can be read-only from the phone, even signed
 in as a user who can write from elsewhere: every write beside the books fails
 with "Read-only file system (os error 30)". Ribbon then stops writing to that
-folder until it is opened again (`src/app/read-only.ts`), keeps the places in
+folder until it is opened again (`packages/desktop/src/app/read-only.ts`), keeps the places in
 its books on the phone, and says so once at the top of the library and beside
 the folder in Settings. The other devices don't see the phone's places until
 the folder can be written. Samba's Apple settings (`vfs objects = catia fruit
@@ -117,7 +117,7 @@ the `safe-area` padding).
 1. **Background audio through the webview.** The North Star makes lock
    screen controls and background audio table stakes. **Answered for the
    audio itself:** with the `audio` background mode
-   (`src-tauri/Info.ios.plist`, which Tauri merges into the app's
+   (`packages/desktop/src-tauri/Info.ios.plist`, which Tauri merges into the app's
    Info.plist), a book on the iPhone SE played on through a night with the
    screen locked, Web Audio's gain node (Ribbon's loudness) included, with no
    native audio session of Ribbon's own. Still open: lock-screen controls
