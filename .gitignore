@@ -8,7 +8,7 @@ books/
 packages/desktop/test/fixtures/generated/
 *.local
 shots/
-# The end-to-end suite's test library and runs (tools/e2e)
+# The end-to-end suite's test library and runs (packages/desktop/tools/e2e)
 .e2e/
 
 # The Apple app: its Xcode project is made from packages/apple/project.yml (packages/apple/README.md)
