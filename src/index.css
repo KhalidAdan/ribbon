@@ -1,6 +1,8 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/newsreader/opsz.css";
-@import "tailwindcss";
+/* Where Tailwind looks for classes: the app, and nothing else in the repository. */
+@import "tailwindcss" source(".");
+@source "../index.html";
 
 /*
  * Ribbon's ground, surfaces, lines and inks (docs/DESIGN.md). Components
