@@ -1,10 +1,10 @@
 # The Ribbon server in a container: Node, ffmpeg for reading, measuring and
 # picturing books, and Ribbon's EPUB parser and MP3 frame index for read-along
-# (server/README.md, "In Docker"). The narration isn't transcribed here: a
+# (packages/server/README.md, "In Docker"). The narration isn't transcribed here: a
 # device with a graphics card transcribes each book and sends it. Built from
 # the repository's root, which holds the app's own logic the server runs:
 #
-#   docker build -f server/Dockerfile -t ribbon-server .
+#   docker build -f packages/server/Dockerfile -t ribbon-server .
 
 # The EPUB parser and the MP3 frame index (src-tauri/ebook, src-tauri/frames), built alone: nothing of Tauri is in them.
 FROM rust:1-bookworm AS tools
@@ -24,14 +24,13 @@ WORKDIR /ribbon
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/host-node/package.json packages/host-node/
-COPY server/package.json server/
+COPY packages/server/package.json packages/server/
 RUN npm ci --workspace @ribbon/server --workspace @ribbon/core --workspace @ribbon/host-node --include-workspace-root=false --ignore-scripts
 COPY packages packages
-COPY server server
 COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /usr/local/bin/
 ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames
 
-WORKDIR /ribbon/server
+WORKDIR /ribbon/packages/server
 # Its data folder: the database, each person's settings, and (often a bind mount of its own) the books.
 ENV RIBBON_DATA=/data
 VOLUME /data

@@ -3,7 +3,7 @@
 **The design for Ribbon's server, agreed on 2026-10-22 and built.** The
 server is optional: the desktop app runs alone from your folders, and you add
 a server for the Apple apps and for other people (NORTHSTAR.md). How to run
-one is in [server/README.md](../server/README.md). Section 2 lists what was
+one is in [packages/server/README.md](../packages/server/README.md). Section 2 lists what was
 decided; the one question still open is in section 13.
 
 ## 1. Why a server
@@ -96,7 +96,7 @@ Most of what the server needs exists, because Ribbon was layered for it
   and merges them with the same code. A phone that listened on a plane sends
   what it appended when it's back; nothing can conflict.
 
-So the server is **a Node package in this repository** (`server/`), on
+So the server is **a Node package in this repository** (`packages/server/`), on
 **Fastify**, sharing `packages/core/src/` with the apps. Speed comes from where the
 work runs as much as from the framework: answering requests and sending
 files is quick in Node, and anything heavy (probing, indexing, transcribing)
@@ -311,7 +311,7 @@ offered, and the book says what it's waiting for.
   isn't whole is refused, and a piece of one is never taken. It's placed
   in the book's text by what was said in it as it comes in, and each one
   kept before is placed once when the server starts
-  (`server/src/library/place.ts`, READING.md, #163). Each minute
+  (`packages/server/src/library/place.ts`, READING.md, #163). Each minute
   says which model heard it, and only those count: one from before that
   was heard the old way, perhaps by the server's processor, perhaps a clip
   that failed (#152), so it's heard again. A transcript in a
@@ -319,7 +319,7 @@ offered, and the book says what it's waiting for.
   still comes from devices (`POST /api/books/:id/records/heard`), merged.
 - **What a book came without is filled in** from its own files, as a job
   after it's added, and when the server starts for books added before
-  (`server/src/library/hydrate.ts`). Its description is its EPUB's
+  (`packages/server/src/library/hydrate.ts`). Its description is its EPUB's
   (`dc:description`), when it has none. Chapters its files only number
   ("Chapter 1" to "Chapter 37", the credits counted among them) are named
   from the EPUB's contents by the pairing (READING.md, section 6), and
@@ -344,7 +344,7 @@ offered, and the book says what it's waiting for.
   The server keeps where each book stands as it makes its read-along, and
   lists every book for the admin, the ones that need a person first
   (`GET /api/library/readalong`, `stateOf` in
-  server/src/library/readalong.ts):
+  packages/server/src/library/readalong.ts):
   - flagged: transcribed whole, and still not to the sentence;
   - unpaired: its chapters didn't pair, so nothing heard can be placed;
   - unreadable: its EPUB can't be read;
@@ -418,7 +418,7 @@ it; "Not now" leaves everything as it was, and each folder's menu in Settings
 asks again. Moving a folder is adding it to the server (section 12), and then:
 
 - **Their place comes with their books.** Adding a folder, the server reads
-  the position logs in its `.ribbon/` (`server/src/library/folder-places.ts`):
+  the position logs in its `.ribbon/` (`packages/server/src/library/folder-places.ts`):
   where they were reading and listening, their bookmarks and highlights, and
   their listening history, on every device that wrote there. Each record keeps
   its device and sequence number, so adding a folder twice adds nothing twice

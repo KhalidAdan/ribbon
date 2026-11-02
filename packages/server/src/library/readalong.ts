@@ -115,7 +115,7 @@ export class ReadAlongs {
 
   /** A book's read-along as it stands, or null when it has no text, or no audio to read it along with. */
   async of(id: string, stored: StoredBook): Promise<MadeReadAlong | null> {
-    if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (server/README.md).", 503);
+    if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (packages/server/README.md).", 503);
     if (!stored.book.ebook || stored.files.length === 0) return null;
     const dir = bookDir(this.dataDir, id);
     const stamp = await this.stamp(id, stored);
@@ -145,7 +145,7 @@ export class ReadAlongs {
 
   /** A book's EPUB as `ribbon-ebook` reads it: its text and what its package says. */
   async ebook(id: string, stored: StoredBook): Promise<Ebook> {
-    if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (server/README.md).", 503);
+    if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (packages/server/README.md).", 503);
     return this.parse(bookDir(this.dataDir, id), stored);
   }
 

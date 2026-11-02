@@ -107,7 +107,7 @@ To build the image yourself, from the repository's root (it holds the shared
 logic, ffmpeg, and the EPUB parser and MP3 frame index for read-along):
 
 ```bash
-docker build -f server/Dockerfile -t ribbon-server .
+docker build -f packages/server/Dockerfile -t ribbon-server .
 docker run -d --name ribbon-server --restart unless-stopped --network host \
   --user "$(id -u):$(id -g)" -e RIBBON_URL=https://your-server.example \
   -v ~/ribbon-data:/data ribbon-server

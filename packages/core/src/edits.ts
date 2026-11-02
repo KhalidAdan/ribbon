@@ -25,7 +25,7 @@ export interface BookEdits {
 
 /**
  * A book's edits as a Ribbon server keeps them, for every device
- * (server/src/library/books.ts): the fields as edited, what the book's files
+ * (packages/server/src/library/books.ts): the fields as edited, what the book's files
  * say for each (what taking an edit back returns to), and when the server
  * took them. The server lists and serves its books with the edits laid over
  * them, so every device shows them as edited.

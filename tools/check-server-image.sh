@@ -49,7 +49,7 @@ field() {
   node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let v=JSON.parse(s);for(const k of process.argv[1].split("."))v=v?.[k];console.log(v??"")})' "$1"
 }
 
-docker build -f "${RIBBON_DOCKERFILE:-server/Dockerfile}" -t "$image" .
+docker build -f "${RIBBON_DOCKERFILE:-packages/server/Dockerfile}" -t "$image" .
 
 mkdir -p "$work/data" "$work/media/Test Author/Tone Book"
 # The image's own ffmpeg makes the book, so it's checked too.

@@ -23,7 +23,7 @@ const CHOSEN = "c0ffee00c0ffee01";
 
 /**
  * A stand-in for a Ribbon server: the answers the app's shelf asks for
- * (server/src/library/api.ts), from files made here, signed in with one
+ * (packages/server/src/library/api.ts), from files made here, signed in with one
  * token, and its series, which the admin changes (routes.ts).
  */
 describe("a server's shelf on this device", () => {
@@ -39,7 +39,7 @@ describe("a server's shelf on this device", () => {
   const changes: { method: string; at: string; body: unknown }[] = [];
   /** Who the one person signed in is; null answers as a server that doesn't say, so the app isn't its admin. */
   let role: string | null = null;
-  /** The edits its admin made to its book, laid over the list as the server does (server/src/library/books.ts). */
+  /** The edits its admin made to its book, laid over the list as the server does (packages/server/src/library/books.ts). */
   let bookEdits: { values: Record<string, string>; updatedAt: string } | null = null;
   /** The picture its admin chose for the book's cover, as it came, or null for the book's own. */
   let chosenPicture: Buffer | null = null;

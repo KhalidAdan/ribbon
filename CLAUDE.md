@@ -4,7 +4,7 @@ Ribbon is a home for your books, read or heard: a reader and a player for
 the EPUBs and audiobooks you own, as files, with one place in every book
 and read-along between the two. It runs two ways. The desktop app alone,
 Tauri 2 (Rust) with a web UI (React 19, Tailwind 4), is all of Ribbon on one
-computer, from your own folders. Add the server (`server/`) and it becomes
+computer, from your own folders. Add the server (`packages/server/`) and it becomes
 the home of the books, the people and their places: the desktop manages the
 collection and transcribes, and the iPhone, iPad and Apple TV have a thin
 native app (`tv/`), which always needs a server. Start with these, in this
@@ -35,7 +35,7 @@ order:
 - **Two ways to run it, both real** (docs/NORTHSTAR.md). The desktop alone
   needs no server and keeps working without one, so a desktop change is
   checked both ways: the end-to-end checks run on a folder, and what only
-  happens with a server is in `server/test/desktop-on-server.test.ts`, the
+  happens with a server is in `packages/server/test/desktop-on-server.test.ts`, the
   desktop's own controller against a real server. With a server, people and
   places live there, and it prepares each book once.
 - **Dependencies point one way.** `@ribbon/core` depends on nothing of Ribbon's; `@ribbon/host-node` on core; the server and the desktop on those. Core has no DOM and no Node, and `npm run typecheck` says so if it does.
@@ -80,7 +80,7 @@ order:
 | `src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
 | `src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
-| `server/` | The server (server/README.md, docs/SERVER.md). |
+| `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). |
 | `tv/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (tv/README.md). |
 | `tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`tools/e2e`). |
 
