@@ -48,6 +48,21 @@ export function finishedByRead(reads: readonly ReadRecord[], bookId: string): bo
   return !!last?.finished;
 }
 
+/** How a listen-through ended, if it has. */
+export type ReadEnd = { how: "finished"; at: string } | { how: "left"; at: string } | { how: "going" };
+
+/**
+ * How a listen-through ended, told by the one after it, or by nothing for
+ * the book's latest. Only the latest can still be going, as `openRead` has
+ * it. An earlier one with no finish was left: the book was started again
+ * without finishing it, so it ended when the next began, and it never
+ * counts as finished (docs/POSITION-FORMAT.md, section 3.2).
+ */
+export function endOf(read: Pick<ReadRecord, "finished">, next: Pick<ReadRecord, "started"> | undefined): ReadEnd {
+  if (read.finished) return { how: "finished", at: read.finished };
+  return next ? { how: "left", at: next.started } : { how: "going" };
+}
+
 /** How one listen-through of a book went, as the end of the book tells it. */
 export interface ListenThrough {
   started: string;

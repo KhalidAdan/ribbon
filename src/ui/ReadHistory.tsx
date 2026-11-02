@@ -2,7 +2,7 @@ import { PencilSquareIcon, TrashIcon } from "@heroicons/react/16/solid";
 import { useMemo, useState } from "react";
 import type { ScannedBook } from "../core/scan/scan";
 import type { ReadRecord } from "../core/poslog";
-import { bookIdOf, formatSpan, readsOf } from "../core/stats";
+import { bookIdOf, endOf, formatSpan, readsOf, type ReadEnd } from "../core/stats";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { SectionHeader } from "./kit";
@@ -26,9 +26,9 @@ function fromDateValue(v: string): string {
 }
 
 /**
- * Every time you have listened to this book, from the start to the end
- * or to now, with the time spent. Dates can be corrected; a listen-through
- * can be deleted.
+ * Every time you have listened to this book: from the start to the
+ * finish, to when you started it again without finishing, or to now, with
+ * the time spent. Dates can be corrected; a listen-through can be deleted.
  */
 export function ReadHistory({ book }: { book: ScannedBook }) {
   const history = useAppState((s) => s.history);
@@ -43,18 +43,13 @@ export function ReadHistory({ book }: { book: ScannedBook }) {
         description={listened > 0 ? `${formatSpan(listened)} listened${reads.length > 1 ? `, over ${reads.length} listen-throughs` : ""}.` : undefined}
       />
       <ol role="list" className="flex flex-col border-t border-line">
-        {reads
-          .slice()
-          .reverse()
-          .map((r, i) => (
-            <ReadRow key={r.id} book={book} read={r} number={reads.length - i} />
-          ))}
+        {reads.map((r, i) => <ReadRow key={r.id} book={book} read={r} end={endOf(r, reads[i + 1])} number={i + 1} />).reverse()}
       </ol>
     </section>
   );
 }
 
-function ReadRow({ book, read, number }: { book: ScannedBook; read: ReadRecord; number: number }) {
+function ReadRow({ book, read, end, number }: { book: ScannedBook; read: ReadRecord; end: ReadEnd; number: number }) {
   const c = useController();
   const [editing, setEditing] = useState(false);
   const [started, setStarted] = useState(dateValue(read.started));
@@ -90,7 +85,7 @@ function ReadRow({ book, read, number }: { book: ScannedBook; read: ReadRecord; 
               Cancel
             </Button>
           </div>
-          <p className="basis-full text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Leave the finish empty if you are still listening.</p>
+          <p className="basis-full text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">{end.how === "left" ? "Leave the finish empty if you never finished it." : "Leave the finish empty if you are still listening."}</p>
         </form>
       </li>
     );
@@ -101,7 +96,8 @@ function ReadRow({ book, read, number }: { book: ScannedBook; read: ReadRecord; 
       <p className="min-w-0 flex-1 text-base/6 text-ink tabular-nums sm:text-sm/5">
         {day(read.started)}
         <span className="text-ink-3"> to </span>
-        {read.finished ? day(read.finished) : <span className="text-ink-2">now</span>}
+        {end.how === "going" ? <span className="text-ink-2">now</span> : day(end.at)}
+        {end.how === "left" && <span className="text-ink-3"> · not finished</span>}
         {days !== null && <span className="text-ink-3"> · {days === 1 ? "a day" : `${days} days`}</span>}
       </p>
       <div className="flex shrink-0 pointer-fine:opacity-0 pointer-fine:group-hover/row:opacity-100 pointer-fine:group-focus-within/row:opacity-100">
