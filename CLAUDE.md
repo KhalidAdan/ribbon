@@ -38,6 +38,7 @@ order:
   happens with a server is in `server/test/desktop-on-server.test.ts`, the
   desktop's own controller against a real server. With a server, people and
   places live there, and it prepares each book once.
+- **Dependencies point one way.** `@ribbon/core` depends on nothing of Ribbon's; `@ribbon/host-node` on core; the server and the desktop on those. Core has no DOM and no Node, and `npm run typecheck` says so if it does.
 - **Thin where you read, whole where you work** (docs/NORTHSTAR.md). The
   iPhone, iPad and Apple TV apps (and Android's, later) need a server and
   only draw and play what it prepares; what they need worked out goes on the
@@ -69,7 +70,7 @@ order:
 
 | | |
 | --- | --- |
-| `packages/core/` | `@ribbon/core`: pure TypeScript, no DOM or Tauri, which the desktop and the server both run; everything decided here is unit-tested (`test/`). It holds the `Host` interface too. |
+| `packages/core/` | `@ribbon/core`: pure TypeScript, no DOM or Tauri, which the desktop and the server both run; everything decided here is unit-tested (`packages/core/test/`). It holds the `Host` interface too. |
 | `packages/host-node/` | `@ribbon/host-node`: the `Host` on Node, for the server, the tests and the tools. The app's own hosts are in `src/host/`. |
 | `src/app/controller.ts` | `AppController`: the app's state and every action; its doc comment is the map. |
 | `src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
