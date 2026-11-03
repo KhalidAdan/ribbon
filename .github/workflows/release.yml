@@ -6,23 +6,14 @@ name: Release
 on:
   push:
     tags: ["v*"]
-    # Every push to main builds them too, as downloads on the run, so a tag
-    # finds Rust's build already in the cache: a tag can read only main's
-    # caches, and without one it compiled Tauri and whisper.cpp from nothing
-    # (7 minutes rather than 2). Paths are not looked at for a tag.
+    # On main they're built too, as downloads on the run, when what they're
+    # built from changes, as every version's commit does: so a tag finds Rust's
+    # build in main's cache, the only one a tag can read, rather than compiling
+    # Tauri and whisper.cpp from nothing (7 minutes rather than 2). Not on every
+    # push: GitHub's Macs are scarce, and each run takes one. Paths are not
+    # looked at for a tag.
     branches: [main]
-    paths-ignore: ["docs/**", "**/*.md"]
-  # Build a tag's installers again: a run failed, or its release is missing one.
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "The version tag (vX.Y.Z). Files already on its release are replaced."
-        required: true
-  # A pull request that changes how the installers are built builds them,
-  # as downloads on the run, without releasing anything. Otherwise a tag is the
-  # first to find a build that no longer works on the Mac.
-  pull_request:
-    paths:
+    paths: &builds-the-installers
       - .github/workflows/release.yml
       - .github/actions/setup/**
       - .cargo/**
@@ -33,6 +24,17 @@ on:
       - "**/tauri.conf.json"
       - "**/vite.config.ts"
       - packages/desktop/tools/with-build-env.mjs
+  # Build a tag's installers again: a run failed, or its release is missing one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The version tag (vX.Y.Z). Files already on its release are replaced."
+        required: true
+  # A pull request that changes how the installers are built builds them,
+  # as downloads on the run, without releasing anything. Otherwise a tag is the
+  # first to find a build that no longer works on the Mac.
+  pull_request:
+    paths: *builds-the-installers
 
 permissions:
   contents: write
