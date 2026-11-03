@@ -234,6 +234,8 @@ export interface AppState {
   view: LibraryView;
   /** Listen-throughs and listening sessions from every device's log. */
   history: { reads: ReadRecord[]; sessions: SessionRecord[]; recording: boolean };
+  /** A book that has just played to its end, while its card shows (ui/TheEnd.tsx), by id. */
+  theEnd: string | null;
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
   /** The book open in the reader, over everything but the player bar. */
@@ -500,6 +502,7 @@ export class AppController {
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], recording: true },
+      theEnd: null,
       namedChapters: {},
       reading: null,
       readingSettings: parseReading(undefined),
@@ -3088,10 +3091,14 @@ export class AppController {
     if (this.state.current) await this.persistPosition("close");
   }
 
+  /** The book played to its end: finished, and its card says how it went and what's next (ui/TheEnd.tsx). */
   private onBookEnded(): void {
     this.pausedAt = Date.now();
     const id = this.state.current?.book.book.id;
-    if (id) void this.markFinished(id);
+    if (id) {
+      void this.markFinished(id);
+      this.set({ theEnd: id });
+    }
     void this.persistPosition("end");
   }
 
@@ -3448,6 +3455,11 @@ export class AppController {
     } catch (e) {
       log.warn("could not write history beside the books:", describe(e));
     }
+  }
+
+  /** Away from the end of a book's card. */
+  closeTheEnd(): void {
+    this.set({ theEnd: null });
   }
 
   /** Mark a book finished: the listen-through in progress closes now, or one is recorded that does. */
