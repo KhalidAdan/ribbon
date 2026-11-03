@@ -262,19 +262,23 @@ describe("the desktop on a server", () => {
     return reader;
   };
 
+  /** A machine that opens EPUBs, with the tool the app's own Rust is. */
+  const readsEpubs = (): Host => {
+    const tool = builtTool("ribbon-ebook");
+    expect(tool, "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
+    const run = promisify(execFile);
+    const cache = mkdtempSync(path.join(dir, "ebook-"));
+    return { ...nodeHost(), openEbook: async (file) => (await run(tool!, [file, cache], { maxBuffer: 1 << 26 })).stdout };
+  };
+
   /**
    * A machine that hears. Whisper is the one thing not here, since it needs a
    * graphics card: everything around it is the app's own.
    */
   const aHearingDesktop = async () => {
-    const tool = builtTool("ribbon-ebook");
-    expect(tool, "build the EPUB tool first: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook").not.toBeNull();
-    const run = promisify(execFile);
-    const cache = mkdtempSync(path.join(dir, "ebook-"));
     const heard: number[] = [];
     const host: Host = {
-      ...nodeHost(),
-      openEbook: async (file) => (await run(tool!, [file, cache], { maxBuffer: 1 << 26 })).stdout,
+      ...readsEpubs(),
       speechTranscribe: async (_model, clips, seconds) =>
         clips.map((clip) => {
           heard.push(clip.startMs);
@@ -317,4 +321,39 @@ describe("the desktop on a server", () => {
 
     await soon(transcribed).toEqual([expect.objectContaining({ title: "Arrived Later", done: 3, total: 3 })]);
   }, 60_000);
+
+  it("finds a line in a server's books, as the Apple app does, and opens the reader on it", async () => {
+    // A line from The Lion searched on the desktop found thirty books by their titles and no line: the desktop never
+    // asked the server, which finds it at once for the Apple app.
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    const { app } = await aDesktop("admin", { host: readsEpubs() });
+    const told = book(app, "Told Book");
+    expect(told.remote).toBeTruthy();
+
+    const lines = await app.findLines("a giant circle of wraithbone");
+    expect(lines[0]).toMatchObject({ bookId: told.book.id, sentence: 2, chapter: "Chapter One", text: SENTENCES[1], matches: [[7, 28]] });
+
+    // Still on the server: downloaded, then opened on the line, marked.
+    await app.readLine(lines[0]!);
+    expect(book(app, "Told Book").remote).toBeUndefined();
+    const r = app.getState().reading!;
+    expect(r).toMatchObject({ bookId: told.book.id, status: "ready" });
+    expect(r.text!.text(r.found!)).toBe(SENTENCES[1]);
+    expect(r.place).toEqual(r.found!.from);
+
+    // Reading on takes the mark away.
+    app.moveReading({ ...r.place!, offset: 0 }, "seek");
+    expect(app.getState().reading!.found).toBeUndefined();
+    await app.closeReading();
+  }, 60_000);
+
+  it("finds no lines on a server out of reach, and says nothing", async () => {
+    await stocked();
+    const { app } = await aDesktop();
+    await server.app.close();
+
+    expect(await app.findLines("a giant circle of wraithbone")).toEqual([]);
+    expect(app.getState().error).toBeNull();
+  }, 30_000);
 });

@@ -71,6 +71,33 @@ describe("book search", () => {
     expect(await searchBooks(index, "kyme")).toEqual(["primarchs"]);
   });
 
+  it("finds a book only when every word is in it, in any of its fields", async () => {
+    const index = await indexBooks(shelf);
+    expect(await searchBooks(index, "abnett rising")).toEqual(["horus"]);
+    expect((await searchBooks(index, "abnett heresy")).sort()).toEqual(["horus", "legion"]);
+    expect(await searchBooks(index, "salvatore homeland")).toEqual(["drizzt"]);
+    expect(await searchBooks(index, "abnett drizzt")).toEqual([]);
+  });
+
+  it("brings back no books for a line from inside one", async () => {
+    // A line from The Lion searched on the owner's shelf brought back thirty books, "Know No Fear" and "Old Earth"
+    // first: Orama found any book with any of its words. Lines are found in the books' text (the server's search).
+    const heresy = [
+      book("lion", "The Lion: Son of the Forest: Warhammer 40,000", "Mike Brooks", "", "Jonathan Keeble"),
+      book("fear", "19. Know No Fear", "Dan Abnett", "The Horus Heresy"),
+      book("tread", "21. Fear to Tread", "James Swallow", "The Horus Heresy"),
+      book("old", "47. Old Earth", "Nick Kyme", "The Horus Heresy"),
+      book("galaxy", "03. Galaxy in Flames", "Ben Counter", "The Horus Heresy"),
+      book("sons", "12. A Thousand Sons", "Graham McNeill", "The Horus Heresy"),
+    ];
+    const index = await indexBooks(heresy);
+    expect(await searchBooks(index, "There is no malady at work here, my lord. You simply got old.")).toEqual([]);
+    expect(await searchBooks(index, "his mind is like a blade")).toEqual([]);
+    // Its title and its author still find it, together or apart.
+    expect(await searchBooks(index, "son of the forest")).toEqual(["lion"]);
+    expect(await searchBooks(index, "brooks lion")).toEqual(["lion"]);
+  });
+
   it("returns nothing for a blank query", async () => {
     const index = await indexBooks(shelf);
     expect(await searchBooks(index, "   ")).toEqual([]);

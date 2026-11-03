@@ -134,6 +134,7 @@ export function ReadingView() {
           listen={listen}
           alignment={loadedHere && r.readsAlong ? r.alignment : undefined}
           highlights={r.highlights ?? NO_HIGHLIGHTS}
+          found={r.found}
           compact={compact}
           title={title}
           menu={menu}
@@ -474,7 +475,7 @@ function neighbour(ebook: Ebook, section: number, step: 1 | -1): number | null {
   return null;
 }
 
-function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, compact, title, menu, onContents, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; compact: boolean; title: string; menu: MenuItem[]; onContents: () => void; onJustified: (on: boolean) => void; c: AppController }) {
+function Text({ bookId, text, place, settings, bar, listen, alignment, highlights, found, compact, title, menu, onContents, onJustified, c }: { bookId: string; text: BookText; place: TextPlace; settings: ReadingSettings; bar: boolean; listen: boolean; alignment: Alignment | undefined; highlights: Highlight[]; found: TextRange | undefined; compact: boolean; title: string; menu: MenuItem[]; onContents: () => void; onJustified: (on: boolean) => void; c: AppController }) {
   const [visible, setVisible] = useState<Visible | null>(null);
   const onVisible = useCallback((v: Visible) => setVisible((old) => (old && same(old.from, v.from) && same(old.to, v.to) ? old : v)), []);
   const box = useRef<HTMLDivElement>(null);
@@ -629,9 +630,15 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
   // The river (river.ts): the narration playing on with the page following it and its sentence marked, nothing tapped or selected.
   const river = useRiver(!!readMark && playing && following && !tap && !chosen);
   const mark = tap?.mark ?? readMark;
+  // A line found by a search is marked as a sentence is, until the page moves on or another sentence is tapped.
+  const foundShown = tap ? undefined : found;
   const marks = useMemo<Marked[]>(
-    () => [...saved.map((r) => ({ from: r.from, to: r.to, tone: "saved" as const })), ...(mark ? [{ from: { section: mark.section, block: mark.block, offset: mark.start }, to: { section: mark.section, block: mark.block, offset: mark.end }, tone: "sentence" as const }] : [])],
-    [saved, mark],
+    () => [
+      ...saved.map((r) => ({ from: r.from, to: r.to, tone: "saved" as const })),
+      ...(mark ? [{ from: { section: mark.section, block: mark.block, offset: mark.start }, to: { section: mark.section, block: mark.block, offset: mark.end }, tone: "sentence" as const }] : []),
+      ...(foundShown ? [{ ...foundShown, tone: "sentence" as const }] : []),
+    ],
+    [saved, mark, foundShown],
   );
   const dropTap = useCallback(() => setTap((t) => (t ? null : t)), []);
 

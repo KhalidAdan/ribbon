@@ -28,6 +28,21 @@ export interface ServerBook {
   edited?: SharedEdits;
 }
 
+/**
+ * A sentence a server's search found (packages/server/src/library/search.ts,
+ * `Found`): the book, which sentence of its read-along it is, when it's read,
+ * the contents entry it's under, and its words, the ones searched for marked
+ * as [start, length] in `text` (UTF-16).
+ */
+export interface FoundSentence {
+  book: string;
+  sentence: number;
+  ms: number;
+  chapter: string | null;
+  text: string;
+  matches: [number, number][];
+}
+
 /** A book in full, as the server sends it for a download (packages/server/src/library/books.ts, `StoredBook`). */
 export interface ServerBookDetail {
   book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string };

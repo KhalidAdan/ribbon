@@ -2,7 +2,7 @@ import type { Ebook } from "@ribbon/core/ebook";
 import type { Alignment } from "@ribbon/core/reading/align";
 import type { Highlight } from "@ribbon/core/types";
 import type { Locator, Why } from "@ribbon/core/poslog";
-import type { BookText, TextPlace } from "@ribbon/core/reading/booktext";
+import type { BookText, TextPlace, TextRange } from "@ribbon/core/reading/booktext";
 import { log } from "./log";
 import { isReadOnly } from "./read-only";
 
@@ -33,6 +33,8 @@ export interface ReadingState {
   finding?: boolean;
   /** Bookmarks made from highlights in this book, drawn in its text. */
   highlights?: Highlight[];
+  /** A line a search found, marked as the sentence it opened on until the reader moves on. */
+  found?: TextRange;
 }
 
 /** The reading places this machine keeps, from the app's settings, by book id. */

@@ -8,7 +8,7 @@ import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, 
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf, serverIdOf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
-import { serverCoverPath, type ServerBookDetail } from "@ribbon/core/server-books";
+import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@ribbon/core/server-books";
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
@@ -48,6 +48,7 @@ import { HearingStalled, modelName, transcribeWhole } from "./transcribing";
 import { locate as locate_ } from "@ribbon/core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "@ribbon/core/reading/anchors";
 import { placeTranscript } from "@ribbon/core/reading/placing";
+import { foundSentence } from "@ribbon/core/reading/readalong";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
 const HEAR_SECONDS = 8;
@@ -124,6 +125,11 @@ export interface Platform {
     /** Asks first. Resolves true when the reset happened. */
     reset(): Promise<boolean>;
   };
+}
+
+/** A sentence a server's search found, with the id of its book on this machine's shelf. */
+export interface FoundLine extends FoundSentence {
+  bookId: string;
 }
 
 export interface CurrentBook {
@@ -2749,7 +2755,8 @@ export class AppController {
     const p = r.place;
     if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
     this.readingKeeper.move(place, why);
-    const { following, ...rest } = r;
+    // A line found by a search is marked until the reader moves on.
+    const { following, found: _found, ...rest } = r;
     this.set({ reading: { ...rest, place, ...(following && by !== "hand" ? { following } : {}) } });
     // Reading on into chapters not yet checked: hear them, when nothing else is being heard.
     if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
@@ -2763,6 +2770,45 @@ export class AppController {
     if (this.state.reading) this.set({ reading: null });
     if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
     this.rd = emptyReading();
+  }
+
+  /**
+   * The sentences that best match words someone remembers, in the books of
+   * every server this machine is signed in to, best first: the search the
+   * Apple app's Find a line makes (packages/server/src/library/search.ts).
+   * A folder's books aren't searched for lines yet; a server out of reach
+   * finds nothing.
+   */
+  async findLines(words: string): Promise<FoundLine[]> {
+    const asked = words.trim();
+    if (!asked) return [];
+    const found = await Promise.all(
+      this.openedInOrder().map(async (o) => {
+        if (!o.server) return [];
+        const sentences = await o.server.client.search(asked).catch((e: unknown) => {
+          log.warn(`could not search ${o.source.name} for a line:`, describe(e));
+          return [];
+        });
+        const books = this.state.books.filter((b) => this.openedOf(b) === o);
+        return sentences.flatMap((s) => {
+          const book = books.find((b) => serverIdOf(b) === s.book);
+          return book ? [{ ...s, bookId: book.book.id }] : [];
+        });
+      }),
+    );
+    return found.flat();
+  }
+
+  /** Open the reader on a line a search found, marked, downloading the book first when it's still on the server. */
+  async readLine(line: FoundLine): Promise<void> {
+    if (this.state.reading?.bookId !== line.bookId || this.state.reading.status !== "ready") await this.openReading(line.bookId);
+    const r = this.state.reading;
+    if (r?.bookId !== line.bookId || r.status !== "ready" || !r.text) return;
+    const found = foundSentence(r.text, line.sentence, line.text);
+    if (!found) return;
+    this.moveReading(found.from, "seek");
+    const now = this.state.reading;
+    if (now?.bookId === line.bookId) this.set({ reading: { ...now, found } });
   }
 
   /** A URL for an image in the open book's text, when it was kept on this machine. */

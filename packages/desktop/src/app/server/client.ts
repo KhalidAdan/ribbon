@@ -1,6 +1,6 @@
 import type { DeviceInfo, LogRecord } from "@ribbon/core/poslog";
 import type { EditValues } from "@ribbon/core/edits";
-import type { ServerBook, ServerBookDetail, ServerJob, ServerSeries } from "@ribbon/core/server-books";
+import type { FoundSentence, ServerBook, ServerBookDetail, ServerJob, ServerSeries } from "@ribbon/core/server-books";
 
 export type { ImportProgress, ServerJob } from "@ribbon/core/server-books";
 
@@ -95,6 +95,11 @@ export class ServerClient {
 
   async book(serverId: string): Promise<ServerBookDetail> {
     return (await (await this.get(`/api/books/${encodeURIComponent(serverId)}`)).json()) as ServerBookDetail;
+  }
+
+  /** The sentences of every book on the server that best match words someone remembers, best first: what the Apple app's Find a line shows. */
+  async search(words: string): Promise<FoundSentence[]> {
+    return ((await (await this.get(`/api/search?q=${encodeURIComponent(words)}`)).json()) as { results: FoundSentence[] }).results;
   }
 
   /** A file of a book, for the host to download. */
