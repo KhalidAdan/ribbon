@@ -36,6 +36,11 @@ for listening without a network.
   title as the series lists it. A card is one button, which opens the
   book's page; play is there. While a book plays, its title at the top opens the
   player. Menu goes back to Who's reading, when there's more than one person.
+- **Stats**, at the top of the library, as the desktop's Stats has them:
+  this week as a sentence, a day lately, the streak and the books finished
+  this year; a square for each day of the last year; the books, authors and
+  narrators listened to most; and the books finished lately. The server
+  counts them from every device's listening sessions (`GET /api/stats`).
 - **Settings**, from your name at the top of the library: Keep listening
   sessions (as the desktop's Settings has it, docs/POSITION-FORMAT.md,
   section 3.3: off, the end of a book won't count the time spent on this TV),
@@ -245,6 +250,7 @@ passages.
 | `Listening/Loudness.swift` | Every book at the same loudness, as the desktop's `packages/core/src/loudness.ts`: the gain, and the tap that makes it. |
 | `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
 | `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
+| `Library/StatsView.swift` | What you've been listening to, as the desktop's Stats. |
 | `Library/SearchView.swift` | Search, by voice or typing: a book by its title, author or narrator, or a line in every book. |
 | `Listening/Bookmarks.swift` | A book's bookmarks from every device: made of whole sentences here, words or moments elsewhere. |
 | `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |

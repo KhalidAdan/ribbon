@@ -133,6 +133,46 @@ struct Listen: Decodable, Hashable {
     let ended: Ended
 }
 
+/// What the person has been listening to, counted from every device's sessions as the desktop's Stats counts it
+/// (packages/server/src/readalong-routes.ts, `GET /api/stats`).
+struct ListeningStats: Decodable {
+    struct Totals: Decodable {
+        let todayMs: Int
+        let weekMs: Int
+        /// Over the last thirty days, a day: a fraction of a millisecond, as the server divides it.
+        let dailyAverageMs: Double
+        let streakDays: Int
+        let longestStreakDays: Int
+        let finishedThisYear: Int
+        let totalMs: Int
+        let sessions: Int
+    }
+
+    struct BookTime: Decodable {
+        let book: String
+        let ms: Int
+    }
+
+    struct PersonTime: Decodable {
+        let name: String
+        let ms: Int
+    }
+
+    struct Finished: Decodable {
+        let book: String
+        let finished: String
+    }
+
+    let totals: Totals
+    /// The last year, a week a column, each day 0 (nothing) to 4 (the most).
+    let days: [[Int]]
+    let books: [BookTime]
+    let authors: [PersonTime]
+    let narrators: [PersonTime]
+    let finished: [Finished]
+    let finishedInAll: Int
+}
+
 /// A bookmarked passage from any of the person's books (packages/server/src/readalong-routes.ts, `GET /api/bookmarks`), for
 /// the screen they drift by on while a book is paused.
 struct Passage: Decodable, Identifiable {
@@ -285,6 +325,12 @@ struct RibbonServer {
     func unfinished(_ id: String) async throws -> ListenThrough {
         struct Answer: Decodable { let read: ListenThrough }
         return try await send("POST", "api/books/\(id)/unfinished", [:], answer: Answer.self).read
+    }
+
+    /// What the person has been listening to, on this device's days.
+    func stats() async throws -> ListeningStats {
+        let offset = -TimeZone.current.secondsFromGMT() / 60
+        return try await get(ListeningStats.self, "api/stats", query: [URLQueryItem(name: "tz", value: String(offset))])
     }
 
     /// Every listen-through of a book, oldest first.

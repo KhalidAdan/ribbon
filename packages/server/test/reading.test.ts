@@ -107,4 +107,17 @@ describe("reading on a device that keeps no log", () => {
     const progress = ((await get("/api/progress")).json() as { books: Record<string, { speed?: number; speedAt?: string }> }).books[narrated.id];
     expect(progress).toMatchObject({ speed: 1.5, speedAt: "2026-11-02T20:05:00.000Z" });
   });
+
+
+  it("counts the listening as the desktop's Stats counts it, on the device's own days", async () => {
+    const r = await get("/api/stats?tz=300");
+    expect(r.statusCode).toBe(200);
+    const stats = r.json() as { totals: { totalMs: number; sessions: number }; days: number[][]; books: { book: string; ms: number }[]; authors: { name: string; ms: number }[]; finished: unknown[] };
+    // The five minutes at 1.5x kept a moment ago.
+    expect(stats.totals).toMatchObject({ totalMs: 300_000, sessions: 1 });
+    expect(stats.days.length).toBe(53);
+    expect(stats.books).toEqual([{ book: narrated.id, ms: 300_000 }]);
+    expect(stats.authors).toEqual([{ name: "An Author", ms: 300_000 }]);
+    expect((await server.app.inject({ method: "GET", url: "/api/stats" })).statusCode).toBe(401);
+  });
 });

@@ -98,6 +98,7 @@ private struct TopBar: View {
                     mark
                     Spacer()
                     search.labelStyle(.iconOnly)
+                    stats.labelStyle(.iconOnly)
                     settings.labelStyle(.iconOnly)
                 }
                 if let listening = model.listening { playing(listening) }
@@ -110,6 +111,8 @@ private struct TopBar: View {
                 Spacer()
                 // Each button's words whole: where the bar is short, as on an iPad held upright, the book playing gives way.
                 search
+                    .padding(.trailing, 16.scaled)
+                stats
                     .padding(.trailing, 16.scaled)
                 if let listening = model.listening {
                     playing(listening)
@@ -152,6 +155,14 @@ private struct TopBar: View {
                 }
             }
             .frame(maxWidth: narrow ? .infinity : 640.scaled)
+        }
+        .buttonStyle(RibbonButtonStyle())
+    }
+
+    /// What you've been listening to.
+    private var stats: some View {
+        Button { model.showStats() } label: {
+            Label("Stats", systemImage: "chart.bar").fixedSize()
         }
         .buttonStyle(RibbonButtonStyle())
     }
