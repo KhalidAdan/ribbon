@@ -105,6 +105,12 @@ jobs:
       - uses: ./.ci/.github/actions/setup
         with:
           ffmpeg: false
+      # The cache can bring an earlier build's installers with it (on Windows it
+      # keeps the whole of C:\t), and the steps below take every installer they
+      # find: 0.26.1's draft got main's 0.26.0 beside its own.
+      - name: No installers from an earlier build
+        shell: bash
+        run: rm -rf "$BUNDLES"
       # The plain build: no RIBBON_PROFILE. On the Mac, GitHub's CI=true makes
       # the disk image without scripting Finder.
       - run: npm run tauri build
