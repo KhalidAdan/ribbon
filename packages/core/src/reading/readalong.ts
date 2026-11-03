@@ -134,10 +134,12 @@ function* shownBlocks(text: BookText): Generator<{ section: number; block: numbe
 /**
  * A book's read-along, from its text, the text paired with its audio, how
  * much of the narration is transcribed, and what was heard in it (when each
- * phrase starts, and its words), to tell narration from quiet.
+ * phrase starts, and its words), to tell narration from quiet. A book that
+ * is only its text has no pairing: its sentences are never read (they start
+ * and end at 0), and it doesn't read along.
  */
-export function readAlongOf(text: BookText, alignment: Alignment, transcribed: { done: number; total: number }, said: readonly { startMs: number; words: string }[] = []): ReadAlong {
-  const ready = alignment.how === "overlay" || transcribed.done >= transcribed.total;
+export function readAlongOf(text: BookText, alignment: Alignment | null, transcribed: { done: number; total: number }, said: readonly { startMs: number; words: string }[] = []): ReadAlong {
+  const ready = alignment !== null && (alignment.how === "overlay" || transcribed.done >= transcribed.total);
   const blocks: ReadAlongBlock[] = [];
   const where: { section: number; block: number }[] = [];
   for (const { section, block, source } of shownBlocks(text)) {
@@ -146,11 +148,11 @@ export function readAlongOf(text: BookText, alignment: Alignment, transcribed: {
       blocks.push({ k: "hr" });
       continue;
     }
-    const at = (offset: number) => textToMs(alignment, text.chars({ section, block, offset }));
+    const at = (offset: number) => (alignment ? textToMs(alignment, text.chars({ section, block, offset })) : 0);
     const sentences = text.sentences(section, block).map((s) => {
       const ms = at(s.start);
       const endMs = at(s.end);
-      return { start: s.start, end: s.end, ms, endMs, exact: ready && endMs > ms && precise(alignment, ms) };
+      return { start: s.start, end: s.end, ms, endMs, exact: alignment !== null && ready && endMs > ms && precise(alignment, ms) };
     });
     blocks.push({
       k: source.k === "h" ? "h" : "p",
@@ -169,7 +171,8 @@ export function readAlongOf(text: BookText, alignment: Alignment, transcribed: {
     const block = where.findIndex((w) => w.section > entry.section || (w.section === entry.section && w.block >= entry.block));
     if (block >= 0 && contents.at(-1)?.block !== block) contents.push({ title: entry.label, block });
   }
-  return { format: READ_ALONG_FORMAT, ready, transcribed, contents, blocks, check: checkReadAlong(alignment, blocks, said) };
+  const check = alignment ? checkReadAlong(alignment, blocks, said) : { placed: 0, heldOut: null, unmarked: null };
+  return { format: READ_ALONG_FORMAT, ready, transcribed, contents, blocks, check };
 }
 
 /** A read-along's sentences checked against what was heard of its narration (`ReadAlongCheck`). */

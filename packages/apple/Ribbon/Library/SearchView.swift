@@ -186,8 +186,9 @@ private struct ResultRow: View {
         return out
     }
 
-    /// "The Wonderful Wizard of Oz · Chapter XVI The Magic Art of the Great Humbug · 3:12:40".
+    /// "The Wonderful Wizard of Oz · Chapter XVI The Magic Art of the Great Humbug · 3:12:40"; no time in a book that is
+    /// only its text.
     private var place: String {
-        [book.title, result.chapter, Format.duration(result.ms)].compactMap { $0 }.joined(separator: " · ")
+        [book.title, result.chapter, book.audio ? Format.duration(result.ms) : nil].compactMap { $0 }.joined(separator: " · ")
     }
 }

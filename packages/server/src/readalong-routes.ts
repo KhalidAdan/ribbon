@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "@ribbon/core/position";
 import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
-import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
-import { standingOf } from "@ribbon/core/progress";
+import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
+import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 import { bookIdOf, endOf, listenThrough, readsOf } from "@ribbon/core/stats";
 import type { BookText } from "@ribbon/core/reading/booktext";
 import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
@@ -52,9 +52,12 @@ export interface BookPlace {
  *   of their listening and reading places, from all their devices, as a
  *   sentence and a moment. Never cached.
  * - `POST /api/books/:id/place`: this device is at this moment of the
- *   recording. Written into the device's position log as any app writes it
- *   (docs/POSITION-FORMAT.md), with the claims the apps give the book, so
- *   the other devices find it and the device needs no log of its own.
+ *   recording, or reading at this sentence of the read-along. Written into
+ *   the device's position log as any app writes it (docs/POSITION-FORMAT.md):
+ *   a moment as a listening place, with the claims the apps give the book; a
+ *   sentence as a reading place in the book's text, where the desktop's
+ *   reader writes one, so the other devices find it and the device needs no
+ *   log of its own.
  * - `GET`, `POST /api/books/:id/bookmarks`, `PUT` and `DELETE …/bookmarks/:mark`:
  *   the person's bookmarks in the book, from every device; bookmarking whole
  *   sentences, as the desktop bookmarks words selected in its reader (the same
@@ -89,7 +92,8 @@ export interface BookPlace {
  *   share its words.
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
- *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts).
+ *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts);
+ *   for a book that is only its text, how far through its text (`fraction`).
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */
@@ -120,12 +124,20 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     reply.header("cache-control", "no-store");
     const records = parseLog(deps.places.export(me.id)).records;
     const places = mergePlaces(records);
+    const reading = mergeTextPlaces(records);
     const reads = mergeById<ReadRecord>(records, "read");
-    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean }> = {};
+    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean; fraction?: number }> = {};
     for (const listed of deps.books.list()) {
       const id = localIdOf(listed);
-      const place = places.get(id);
       const theirs = readsOf(reads, id);
+      if (!listed.audio) {
+        // Only its text: as far as its reading place, as the desktop's shelf has it.
+        const read = reading.get(id);
+        if (!read && theirs.length === 0) continue;
+        books[listed.id] = { ms: 0, at: read?.t ?? theirs.at(-1)!.started, ...readingStandingOf(read?.loc.locations?.totalProgression ?? 0, theirs) };
+        continue;
+      }
+      const place = places.get(id);
       if (!place && theirs.length === 0) continue;
       const ms = place?.ms ?? 0;
       books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs) };
@@ -171,13 +183,28 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return { place };
   });
 
-  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; ms?: unknown; why?: unknown } }>("/api/books/:id/place", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; ms?: unknown; sentence?: unknown; why?: unknown } }>("/api/books/:id/place", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
-    const { device, ms, why } = request.body ?? {};
+    const { device, ms, sentence, why } = request.body ?? {};
     const who = deviceOf(device);
+    if (who && sentence !== undefined && WHYS.includes(why as Why)) {
+      if (!Number.isInteger(sentence) || (sentence as number) < 0) return reply.code(400).send({ error: "Send the sentence, counted across the read-along." });
+      const book = await readAlongOf(request.params.id, reply);
+      if (!book) return reply;
+      const { readAlong, text } = book.made;
+      const range = sentencesRange(text, sentence as number, sentence as number);
+      if (!range) return reply.code(400).send({ error: "That sentence isn't in this book's read-along." });
+      // A reading place, as the desktop's reader writes one (ReadingKeeper): the place in the text, under the claims of
+      // the book's text, with where it is in the recording, when there is one, as a hint for players.
+      const at = book.listed.audio ? nthSentence(readAlong, sentence as number) : null;
+      const hint = at ? { x: { "urn:ribbon:audio": { ms: at.ms, how: at.exact ? "sentence" : "chapter" } } } : {};
+      const claims = textClaimsFor(localIdOf(book.listed), text.ebook.meta.identifiers);
+      const added = writeAs(reply, me.id, who, claims, { k: "pos", why, loc: text.locator(range.from), ...hint });
+      return added === null ? reply : { added };
+    }
     if (!who || typeof ms !== "number" || !Number.isFinite(ms) || ms < 0 || !WHYS.includes(why as Why)) {
-      return reply.code(400).send({ error: "Send the device ({ id, name }), the moment (ms) and why (pause, seek, periodic, …)." });
+      return reply.code(400).send({ error: "Send the device ({ id, name }), the moment (ms) or the sentence, and why (pause, seek, periodic, …)." });
     }
     const listed = deps.books.get(request.params.id);
     const stored = listed && (await storedBook(deps, request.params.id));
@@ -234,7 +261,8 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     // first sentence is read: the same words bookmarked on any device are one bookmark. A device that only plays keeps no clip.
     const bookId = localIdOf(book.listed);
     const words = highlightOf(text, bookId, range);
-    const highlight: Highlight = { id: highlightId(bookId, words.start, words.quote), bookId, offsetMs: nthSentence(readAlong, first as number)?.ms ?? null, createdAt: nowIso(Date.now()), note: said, clip: "", text: words };
+    const offsetMs = book.listed.audio ? (nthSentence(readAlong, first as number)?.ms ?? null) : null;
+    const highlight: Highlight = { id: highlightId(bookId, words.start, words.quote), bookId, offsetMs, createdAt: nowIso(Date.now()), note: said, clip: "", text: words };
     const added = write(reply, me.id, who, book.listed, book.stored, markFields(highlight));
     return added === null ? reply : { bookmark: shownBookmark(highlight, text) };
   });
@@ -388,10 +416,19 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
    * new, or null when the answer has already said why they couldn't be kept.
    */
   function write(reply: FastifyReply, personId: string, device: DeviceInfo, listed: ListedBook, stored: StoredBook, ...fields: Record<string, unknown>[]): number | null {
+    const book = { ids: claimsFor({ id: localIdOf(listed), isbn: stored.book.isbn, asin: stored.book.asin }), dur_ms: stored.book.durationMs };
+    return writeFor(reply, personId, device, book, fields);
+  }
+
+  /** The same, for a book's text, under its own claims: a reading place. */
+  function writeAs(reply: FastifyReply, personId: string, device: DeviceInfo, claims: string[], ...fields: Record<string, unknown>[]): number | null {
+    return writeFor(reply, personId, device, { ids: claims }, fields);
+  }
+
+  function writeFor(reply: FastifyReply, personId: string, device: DeviceInfo, book: { ids: string[]; dur_ms?: number }, fields: Record<string, unknown>[]): number | null {
     if (fields.length === 0) return 0;
     const now = Date.now();
     let seq = deps.places.lastSeq(personId, device.id);
-    const book = { ids: claimsFor({ id: localIdOf(listed), isbn: stored.book.isbn, asin: stored.book.asin }), dur_ms: stored.book.durationMs };
     const records = fields.map((f) => ({ v: 1, dev: device.id, seq: (seq = nextSeq(seq, now)), t: nowIso(now), book, ...f }));
     try {
       const done = deps.places.append(personId, device, records);

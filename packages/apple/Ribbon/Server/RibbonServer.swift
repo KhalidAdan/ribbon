@@ -89,6 +89,8 @@ struct BookProgress: Decodable {
     let at: String
     let started: Bool
     let finished: Bool
+    /// How far through its text, 0 to 1, for a book that is only its text; nil for one with a recording.
+    var fraction: Double? = nil
 }
 
 /// Where the person is in a book (packages/server/src/readalong-routes.ts, `BookPlace`).
@@ -223,10 +225,11 @@ struct RibbonServer {
         return Account(url: url, name: name, token: token, cookieName: cookie.name, cookieValue: cookie.value)
     }
 
-    /// The books with a narration: the ones there are to listen to, and, with their text, to read along with.
+    /// Every book: the ones with a narration, to listen to, and to read along with when they have their text too; and
+    /// the ones that are only their text, to read.
     func books() async throws -> [ServerBook] {
         struct Answer: Decodable { let books: [ServerBook] }
-        return try await get(Answer.self, "api/books").books.filter(\.audio)
+        return try await get(Answer.self, "api/books").books.filter { $0.audio || $0.ebook }
     }
 
     /// The library's series, each with its books in order.
@@ -291,6 +294,13 @@ struct RibbonServer {
     func passages() async throws -> [Passage] {
         struct Answer: Decodable { let bookmarks: [Passage] }
         return try await get(Answer.self, "api/bookmarks").bookmarks
+    }
+
+    /// Say where this device is reading in a book, as a sentence of its read-along: the server keeps it as a reading
+    /// place, as the desktop's reader keeps one, for every other device.
+    func tell(sentence: Int, why: Why, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        _ = try await send("POST", "api/books/\(id)/place", ["sentence": sentence, "why": why.rawValue], answer: Answer.self)
     }
 
     /// The sentences that best match words someone remembers, or says, in every book or in one; and, in every book,

@@ -6,10 +6,7 @@ import type { ReadRecord } from "@ribbon/core/poslog";
 import { readsOf } from "@ribbon/core/stats";
 import { readerOnly } from "@ribbon/core/ebook";
 import { formatLeft } from "@ribbon/core/speed";
-import { standingOf } from "@ribbon/core/progress";
-
-/** A book that is only its EPUB is finished once its reading place is this far through. */
-export const READ_TO_END = 0.99;
+import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 
 export interface Progress {
   /** Position in the book, live for the open book, saved for the rest. */
@@ -54,11 +51,7 @@ export function useShelfProgress(): ProgressState {
  */
 export function progressOf(book: ScannedBook, state: ProgressState, reading?: (bookId: string) => number | null): Progress {
   const reads = state.history ? readsOf(state.history.reads, book.book.id) : [];
-  const last = reads[reads.length - 1];
-  if (readerOnly(book.book)) {
-    const fraction = Math.min(1, Math.max(0, reading?.(book.book.id) ?? 0));
-    return { posMs: 0, started: fraction > 0 || reads.length > 0, finished: last ? !!last.finished : fraction >= READ_TO_END, fraction };
-  }
+  if (readerOnly(book.book)) return { posMs: 0, ...readingStandingOf(reading?.(book.book.id) ?? 0, reads) };
   const active = state.current?.book.book.id === book.book.id;
   const posMs = active ? state.player.positionMs : (state.positions[book.book.id]?.offsetMs ?? 0);
   return { posMs, ...standingOf(posMs, book.book.durationMs, reads) };

@@ -66,7 +66,17 @@ for listening without a network.
   words not being read step back (the river); moving off the narrator, or
   pausing, brings them back at once (a tenth of a second). A book whose
   read-along is by chapter says so for a few seconds as it opens: the words
-  can be up to a minute from the voice.
+  can be up to a minute from the voice. Reading on away from the narrator
+  while it's paused is reading, as it is on the desktop: once you rest on a
+  sentence for five seconds, and as you leave the book, it goes to the
+  server as your reading place, so every device opens there and Continue
+  listening carries on from it. On the iPad and the iPhone, the contents
+  (the list beside Aa) go to a chapter's first sentence.
+- **Books that are only their text** are on the shelf as on the desktop,
+  "EPUB" where a recording would say how long it is, and "42% read" once
+  started. Their page reads them (Read, Continue reading), in the same column
+  with nothing to play: where you are is the sentence you're on, kept as your
+  reading place, and the server finds lines in them too.
 - **The Siri Remote**: up and down step a sentence, a swipe on the touch
   surface glides through several. Left listens from the sentence you're on,
   and right returns to the narrator; away from the narrator, Listen from here
@@ -346,7 +356,9 @@ others) cuts the column's edges. While a book is paused
 in the player or the reader, the iPad's screen stays on for the passages, an
 hour at most, as the TV's does.
 
-Pages, trimming silences, and books without a narration. A bookmark made
+Pages, and trimming silences. The contents on the TV: the player's chapter
+list moves the narrator instead, and a book that is only its text has no
+player, so on the TV it's read with up, down and swipes. A bookmark made
 here keeps no thirty-second clip, as the desktop's do: the desktop plays a
 bookmark's lead-in from the book itself anyway.
 

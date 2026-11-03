@@ -22,7 +22,8 @@ const KEPT = 8;
 export interface MadeReadAlong {
   readAlong: ReadAlong;
   text: BookText;
-  alignment: Alignment;
+  /** How the text pairs with the narration; null for a book that is only its text. */
+  alignment: Alignment | null;
   /** The read-along as it's sent. */
   json: string;
   /** How it reads along, as it was made. */
@@ -32,7 +33,8 @@ export interface MadeReadAlong {
 /** How a book reads along: how closely it follows the narration, how it was paired, and how much of the narration is transcribed (minutes of it). */
 export interface Standing {
   check: ReadAlongCheck;
-  pairedBy: Alignment["how"];
+  /** Null for a book that is only its text. */
+  pairedBy: Alignment["how"] | null;
   transcribed: { done: number; total: number };
 }
 
@@ -113,10 +115,10 @@ export class ReadAlongs {
     return this.tool !== null;
   }
 
-  /** A book's read-along as it stands, or null when it has no text, or no audio to read it along with. */
+  /** A book's read-along as it stands, or null when it has no text. A book with no audio has its text alone, to read. */
   async of(id: string, stored: StoredBook): Promise<MadeReadAlong | null> {
     if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (packages/server/README.md).", 503);
-    if (!stored.book.ebook || stored.files.length === 0) return null;
+    if (!stored.book.ebook) return null;
     const dir = bookDir(this.dataDir, id);
     const stamp = await this.stamp(id, stored);
     const kept = this.made.get(id);
@@ -133,6 +135,11 @@ export class ReadAlongs {
 
   private async make(dir: string, stored: StoredBook): Promise<MadeReadAlong> {
     const text = new BookText(await this.parse(dir, stored));
+    if (stored.files.length === 0) {
+      // Only its text: nothing to pair, nothing read, nothing to transcribe.
+      const readAlong = readAlongOf(text, null, { done: 0, total: 0 });
+      return { readAlong, text, alignment: null, json: JSON.stringify(readAlong), standing: { check: readAlong.check, pairedBy: null, transcribed: { done: 0, total: 0 } } };
+    }
     // The chapters as a device that downloaded the book has them (chapters.ts).
     const chapters = chaptersWith(stored, await correctionsOf(dir, stored));
     const alignment = pairBook(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
