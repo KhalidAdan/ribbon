@@ -13,14 +13,25 @@ permissions:
   packages: write
 
 jobs:
-  publish:
-    name: Publish
-    runs-on: ubuntu-latest
-    # The Rust tools are built for arm64 through emulation, which is slow.
-    timeout-minutes: 90
+  # Each kind of machine builds the image for itself: the Rust tools took 13
+  # minutes for ARM under emulation, and 2 on Intel. Each is pushed by its digest
+  # alone, without a tag, for the next job to join.
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v3
+      # An image's name is in lower case, and the owner's name need not be.
+      - name: The image's name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ribbon-server" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -30,18 +41,69 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/ribbon-server
+          images: ${{ env.IMAGE }}
+      # No build cache: a tag's cache can't be read by the next tag, and each
+      # version changes the Rust stage anyway. The repository's caches share
+      # 10 GB, which the checks need.
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: The digest, for the next job
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.runner }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # The two as one image under the version's tags: Docker pulls the one that
+  # suits the machine.
+  publish:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: The image's name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ribbon-server" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v7
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
             type=ref,event=branch
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: packages/server/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: The two under the tags
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "$IMAGE@sha256:%s " *)
+      - name: Both are there
+        run: |
+          tag=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools inspect "$tag" | tee inspect.txt
+          for platform in linux/amd64 linux/arm64; do
+            grep -qE "Platform: +$platform\$" inspect.txt || { echo "::error::$tag has no $platform image"; exit 1; }
+          done

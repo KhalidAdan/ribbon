@@ -85,7 +85,10 @@ The release workflow checks that the tag is the version in `package.json`,
 makes a draft release, "Ribbon X.Y.Z", and builds on Windows and on a Mac
 (Apple Silicon), without `RIBBON_PROFILE`: the installers are the plain build.
 It attaches `Ribbon_X.Y.Z_x64-setup.exe`, `Ribbon_X.Y.Z_x64_en-US.msi` and
-`Ribbon_X.Y.Z_aarch64.dmg` to the draft. Follow it with `gh run watch`.
+`Ribbon_X.Y.Z_aarch64.dmg` to the draft. Follow it with `gh run watch`. `main`
+builds the installers too, as downloads on its run, whenever what they're built
+from changes, as the version's commit does, so the tag's build finds Rust's work
+in the cache: a tag can read only `main`'s caches.
 
 To build the installers for a tag again (a run failed, or a release is missing
 one), run the workflow by hand; files already attached are replaced:
@@ -109,7 +112,8 @@ Attach them to the draft with `gh release upload vX.Y.Z <files> --clobber`.
 
 The tag also publishes the server's image, for Intel and ARM machines, as
 `ghcr.io/khalidadan/ribbon-server` at the version and at `latest`
-([server-image.yml](../.github/workflows/server-image.yml)).
+([server-image.yml](../.github/workflows/server-image.yml)). Each kind is built
+on a machine of its own kind, then the two are joined as one image.
 
 ## 5. On GitHub
 
