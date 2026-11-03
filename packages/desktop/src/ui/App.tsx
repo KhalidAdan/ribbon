@@ -102,7 +102,12 @@ function Ready() {
   const c = useController();
   useKeys(c);
   useEffect(() => c.installLifecycle(), [c]);
-  const { query, setQuery, found } = useSearch(state.books);
+  const { query, setQuery, found, lines } = useSearch(state.books);
+  // The lines found for the words as they stand, not for words since changed.
+  const foundLines = lines && lines.for === query.trim() ? lines.found : null;
+  const matchCount = found || foundLines ? (found?.length ?? 0) + (foundLines?.length ?? 0) : null;
+  // Enter opens the first book that matches, or else the first line found.
+  const openFirst = () => (found?.[0] ? c.openReader(found[0].book.id) : foundLines?.[0] && void c.readLine(foundLines[0]));
 
   if (state.phase === "boot") return null;
   if (state.phase === "pick") return <PickLibrary />;
@@ -148,7 +153,7 @@ function Ready() {
       <EditBookHost />
       <SpaceShort />
       <MoveToServer />
-      <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
+      <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={matchCount} onSubmit={openFirst} />
       <Tabs
         current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}
         onSelect={(t) => (t === "settings" ? c.showSettings() : t === "stats" ? c.showStats() : c.showLibrary())}
@@ -166,7 +171,7 @@ function Ready() {
         ) : state.pane === "series" ? (
           <SeriesPage />
         ) : (
-          <LibraryPane query={query} onQuery={onQuery} found={found} />
+          <LibraryPane query={query} onQuery={onQuery} found={found} lines={foundLines} count={matchCount} onSubmit={openFirst} />
         )}
       </div>
       <PlayerBar />

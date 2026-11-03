@@ -3,7 +3,7 @@ import { EBOOK_FORMAT, type Ebook } from "@ribbon/core/ebook";
 import { BookText } from "@ribbon/core/reading/booktext";
 import { heardFromRows, pairBook, pairingFromRows, transcriptFromRows } from "@ribbon/core/reading/narration";
 import { overlayAnchors } from "@ribbon/core/reading/overlay";
-import { checkReadAlong, READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
+import { checkReadAlong, foundSentence, READ_ALONG_FORMAT, readAlongOf, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
 
 /**
  * A chapter: its heading, a paragraph of three sentences, a picture, a
@@ -109,6 +109,20 @@ describe("a read-along", () => {
     expect(sentencesIn(text, sentencesRange(text, 2, 2)!)).toEqual({ first: 2, last: 2 });
     expect(sentencesIn(text, { from: { section: 0, block: 1, offset: 3 }, to: { section: 0, block: 1, offset: 9 } })).toEqual({ first: 1, last: 1 });
     expect(sentencesRange(text, 4, 5)).toBeNull();
+  });
+
+  it("finds a sentence a search found by its count, and by its words when the count is off", () => {
+    const { text } = paired(true);
+    expect(text.text(foundSentence(text, 2, "Second one follows.")!)).toBe("Second one follows.");
+    // Split a little differently on the server, so its count is one off: the words say which.
+    expect(text.text(foundSentence(text, 3, "Second one follows.")!)).toBe("Second one follows.");
+    expect(text.text(foundSentence(text, 0, "After the break.")!)).toBe("After the break.");
+    // Two sentences as one on the server, or one as two: the sentence here its words share.
+    expect(text.text(foundSentence(text, 2, "First sentence here. Second one follows.")!)).toBe("Second one follows.");
+    expect(text.text(foundSentence(text, 4, "Third ends")!)).toBe("Third ends it.");
+    // Words this text hasn't: the sentence of that count, or nothing past the end.
+    expect(text.text(foundSentence(text, 3, "Not in this book.")!)).toBe("Third ends it.");
+    expect(foundSentence(text, 9, "Not in this book.")).toBeNull();
   });
 
   it("finds the sentence being read at a moment of the recording", () => {

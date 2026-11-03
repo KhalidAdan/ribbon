@@ -1,6 +1,7 @@
 import { blockText, type EbookBlock } from "../ebook";
 import { precise, textToMs, type Alignment } from "./align";
 import type { BookText, TextPlace, TextRange } from "./booktext";
+import { SOFT_HYPHEN } from "./hyphens";
 
 /**
  * A book's text with when each of its sentences is read: all a device
@@ -267,6 +268,32 @@ export function sentencesRange(text: BookText, first: number, last: number): Tex
     }
   }
   return null;
+}
+
+/**
+ * Where a sentence a server's search found is in this device's copy of the
+ * text: the sentence nearest its count that has its words, or whose words
+ * it has, should this device split the text into sentences a little
+ * differently from the server (another version of Intl's rules); else the
+ * sentence of that count. Null past the end.
+ */
+export function foundSentence(text: BookText, n: number, words: string): TextRange | null {
+  const plain = (s: string) => s.replaceAll(SOFT_HYPHEN, "").replace(/\s+/g, " ").trim();
+  const wanted = plain(words);
+  const shares = (sentence: string) => !!wanted && !!sentence && (sentence.includes(wanted) || wanted.includes(sentence));
+  let best: { range: TextRange; off: number } | null = null;
+  let count = 0;
+  for (const { section, block } of shownBlocks(text)) {
+    const blockText = text.blockText(section, block);
+    for (const s of text.sentences(section, block)) {
+      const off = Math.abs(count++ - n);
+      if ((!best || off < best.off) && shares(plain(blockText.slice(s.start, s.end)))) {
+        best = { range: { from: { section, block, offset: s.start }, to: { section, block, offset: s.end } }, off };
+        if (off === 0) return best.range;
+      }
+    }
+  }
+  return best?.range ?? sentencesRange(text, n, n);
 }
 
 /** The sentences words in the text are in, first and last: how a highlight is shown on a device that marks whole sentences. */

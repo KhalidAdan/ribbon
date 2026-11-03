@@ -2,13 +2,14 @@ import { BookOpenIcon, CheckIcon, FolderOpenIcon, FunnelIcon, MagnifyingGlassIco
 import { clsx } from "clsx";
 import { memo, useMemo } from "react";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
-import { formatLeft } from "@ribbon/core/speed";
+import { formatDuration, formatLeft } from "@ribbon/core/speed";
 import { compareBooks } from "@ribbon/core/order";
 import { chapterAt } from "@ribbon/core/scan/chapters";
 import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from "./progress";
 import { readerOnly } from "@ribbon/core/ebook";
 import { shallowEqual, useAppState, useController, useCovers } from "./store";
+import type { FoundLine } from "../app/controller";
 import { Button, pressed, pressedCard, pressedCardWithButtons } from "./Button";
 import { Cover, CoverStack } from "./Cover";
 import { ScanProgress } from "./ScanProgress";
@@ -22,9 +23,11 @@ import { seriesStanding } from "./SeriesPage";
 /**
  * The library: what you are in the middle of, then each series as a card
  * that knows where you are in it, then every book outside a series.
- * A search replaces all of it with the matches, in rank order.
+ * A search replaces all of it with the matches, in rank order: the books
+ * whose details have every word, then the lines in the books that have
+ * them (`lines`, null while they're still being asked for).
  */
-export function LibraryPane({ query, onQuery, found }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null }) {
+export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null; lines: FoundLine[] | null; count: number | null; onSubmit: () => void }) {
   // Not the player's place: the shelf follows it by the minute (useShelfProgress).
   const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null, canAddFolders: s.canAddFolders }));
   useCovers();
@@ -67,6 +70,14 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
   const shown = useMemo(() => (viewing && !found ? applyView(byShelf, view, facts) : null), [viewing, found, byShelf, view, facts]);
   const empty = state.books.length === 0;
   const folder = state.sources.length === 1 ? "this folder" : "these folders";
+  // Lines are found by a server's search; without a server there are none to wait for.
+  const findsLines = state.sources.some((s) => s.server);
+  const shownLines = findsLines ? lines : [];
+  const clear = (
+    <Button size="sm" variant="ghost" onClick={() => onQuery("")}>
+      Clear search
+    </Button>
+  );
 
   return (
     <section className="h-full overflow-y-auto quiet-scroll" aria-label="Library">
@@ -75,7 +86,7 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
         <Downloads />
         {!empty && (
           <div className="sm:hidden">
-            <SearchField value={query} onChange={onQuery} count={found ? found.length : null} onSubmit={() => found?.[0] && c.openReader(found[0].book.id)} />
+            <SearchField value={query} onChange={onQuery} count={count} onSubmit={onSubmit} />
           </div>
         )}
 
@@ -94,27 +105,35 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
             </EmptyState>
           )
         ) : results ? (
-          <section aria-labelledby="results-title" className="flex flex-col gap-5">
-            <SectionHeader
-              id="results-title"
-              title={results.length === 0 ? "No matches" : `${results.length} ${results.length === 1 ? "book matches" : "books match"} “${query.trim()}”`}
-              description={results.length === 0 ? (filterCount(view.filter) > 0 ? "Nothing matches with the filters on. Try clearing them." : "Try part of a title, an author, a narrator or a series.") : filterCount(view.filter) > 0 ? `${describeFilter(view.filter)}.` : undefined}
-              actions={
-                <Button size="sm" variant="ghost" onClick={() => onQuery("")}>
-                  Clear search
-                </Button>
-              }
-            />
-            {results.length === 0 ? (
-              <EmptyState icon={MagnifyingGlassIcon} title={`Nothing matches “${query.trim()}”`} />
-            ) : (
-              <BookGrid>
-                {results.map((b) => (
-                  <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, progress, reading)} />
-                ))}
-              </BookGrid>
-            )}
-          </section>
+          <>
+            {results.length > 0 ? (
+              <section aria-labelledby="results-title" className="flex flex-col gap-5">
+                <SectionHeader
+                  id="results-title"
+                  title={`${results.length} ${results.length === 1 ? "book matches" : "books match"} “${query.trim()}”`}
+                  description={filterCount(view.filter) > 0 ? `${describeFilter(view.filter)}.` : undefined}
+                  actions={clear}
+                />
+                <BookGrid>
+                  {results.map((b) => (
+                    <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, progress, reading)} />
+                  ))}
+                </BookGrid>
+              </section>
+            ) : shownLines?.length === 0 ? (
+              <section aria-labelledby="results-title" className="flex flex-col gap-5">
+                <SectionHeader
+                  id="results-title"
+                  title="No matches"
+                  description={filterCount(view.filter) > 0 ? "Nothing matches with the filters on. Try clearing them." : findsLines ? "Try part of a title, an author, a narrator or a series, or words from a line in a book." : "Try part of a title, an author, a narrator or a series."}
+                  actions={clear}
+                />
+                <EmptyState icon={MagnifyingGlassIcon} title={`Nothing matches “${query.trim()}”`} />
+              </section>
+            ) : null}
+            {shownLines === null && results.length === 0 && <SectionHeader title="Searching your books…" actions={clear} />}
+            {shownLines && shownLines.length > 0 && <FoundLines lines={shownLines} actions={results.length === 0 ? clear : undefined} />}
+          </>
         ) : shown ? (
           <section aria-labelledby="view-title" className="flex flex-col gap-5">
             <SectionHeader
@@ -186,6 +205,62 @@ export function LibraryPane({ query, onQuery, found }: { query: string; onQuery:
       </div>
     </section>
   );
+}
+
+/**
+ * Lines found in the books' text, as the Apple app's Find a line shows them:
+ * the sentence with the words searched for in full ink, and the book, the
+ * chapter and when it's read. Choosing one opens the reader on it, after
+ * downloading the book when it's still on the server.
+ */
+function FoundLines({ lines, actions }: { lines: FoundLine[]; actions?: React.ReactNode }) {
+  const c = useController();
+  useCovers();
+  const books = useAppState((s) => s.books);
+  const downloads = useAppState((s) => s.downloads);
+  const byId = useMemo(() => new Map(books.map((b) => [b.book.id, b])), [books]);
+  return (
+    <section aria-labelledby="lines-title" className="flex max-w-3xl flex-col gap-4">
+      <SectionHeader id="lines-title" title={`${lines.length} ${lines.length === 1 ? "line" : "lines"} in your books`} description="The closest first. Choose one to read from it." actions={actions} />
+      <ul role="list" className="-mx-2 flex flex-col">
+        {lines.map((line) => {
+          const book = byId.get(line.bookId);
+          if (!book) return null;
+          const downloading = downloads[line.bookId];
+          const where = downloading ? `Downloading… ${Math.round((downloading.done / Math.max(1, downloading.total)) * 100)}%` : [book.book.title, line.chapter, formatDuration(line.ms)].filter(Boolean).join(" · ");
+          return (
+            <li key={`${line.bookId}/${line.sentence}`}>
+              <button type="button" onClick={() => void c.readLine(line)} className={clsx("flex w-full items-start gap-3 rounded-md p-2 text-left focus-ring hover:bg-raised", pressed)}>
+                <Cover url={c.coverUrl(book)} title={book.book.title} className="w-10 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="line-clamp-3 text-base/6 text-pretty text-ink-2 sm:text-sm/5">{lit(line)}</span>
+                  <span className="mt-1 block truncate text-sm/5 text-ink-3 tabular-nums sm:text-[0.8125rem]/5">{where}</span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** A found line's words, the ones that matched in full ink. */
+function lit(line: FoundLine): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let at = 0;
+  for (const [start, length] of line.matches) {
+    if (start < at) continue;
+    if (start > at) out.push(line.text.slice(at, start));
+    out.push(
+      <span key={start} className="font-medium text-ink">
+        {line.text.slice(start, start + length)}
+      </span>,
+    );
+    at = start + length;
+  }
+  out.push(line.text.slice(at));
+  return out;
 }
 
 /**
