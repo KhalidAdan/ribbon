@@ -167,6 +167,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # A runner's simulator takes about four minutes to start the first time,
+      # so the iPhone's is started first, to boot while the app builds.
+      - name: Start an iPhone simulator
+        run: |
+          phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
+          echo "PHONE=$phone" >> "$GITHUB_ENV"
+          nohup xcrun simctl bootstatus "$phone" -b > "$RUNNER_TEMP/boot.log" 2>&1 &
       # The app bundles the reader's own faces from the npm packages.
       - run: npm ci --ignore-scripts
       - run: brew install xcodegen
@@ -180,5 +187,5 @@ jobs:
       - name: The app reads the server's answers
         working-directory: packages/apple
         run: |
-          phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
-          xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$phone" -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+          xcrun simctl bootstatus "$PHONE"
+          xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$PHONE" -derivedDataPath build CODE_SIGNING_ALLOWED=NO

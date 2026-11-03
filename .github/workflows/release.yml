@@ -6,6 +6,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+    # Every push to main builds them too, as downloads on the run, so a tag
+    # finds Rust's build already in the cache: a tag can read only main's
+    # caches, and without one it compiled Tauri and whisper.cpp from nothing
+    # (7 minutes rather than 2). Paths are not looked at for a tag.
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md"]
   # Build a tag's installers again: a run failed, or its release is missing one.
   workflow_dispatch:
     inputs:
@@ -33,7 +39,7 @@ permissions:
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
-  RELEASING: ${{ github.event_name != 'pull_request' }}
+  RELEASING: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
 
 concurrency:
   group: release-${{ inputs.tag || github.ref }}
@@ -41,7 +47,8 @@ concurrency:
 jobs:
   draft:
     name: Draft release
-    if: github.event_name != 'pull_request'
+    # RELEASING, which a job's condition can't read.
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -69,7 +76,7 @@ jobs:
   installers:
     name: Installers (${{ matrix.os }})
     needs: draft
-    # On a pull request there is no draft to wait for.
+    # On a pull request or main there is no draft to wait for.
     if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
