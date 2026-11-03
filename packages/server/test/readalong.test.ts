@@ -243,6 +243,37 @@ describe("read-along from the server", () => {
     expect((await post(`/api/books/${book.id}/finished`, {})).statusCode).toBe(400);
   });
 
+  it("lists every listen-through, marks a book not finished, and starts it again from the beginning", async () => {
+    type Listen = { started: string; finished: string | null; listenedMs: number; ended: { how: string; at?: string } };
+    const listens = async () => ((await get(`/api/books/${book.id}/listens`)).json() as { listens: Listen[] }).listens;
+    const finished = async () => ((await get("/api/progress")).json() as { books: Record<string, { finished: boolean }> }).books[book.id]!.finished;
+    // The first, finished; the one started again after it, going.
+    expect((await listens()).map((l) => l.ended.how)).toEqual(["finished", "going"]);
+    expect((await listens())[0]).toMatchObject({ started: "2026-10-20T20:00:00.000Z", listenedMs: expect.any(Number) });
+    expect((await listens())[0]!.listenedMs).toBeGreaterThanOrEqual(160_000);
+
+    // Marked finished, then not finished after all: the same listen-through opens again, as the desktop's does.
+    await post(`/api/books/${book.id}/finished`, { device: phone });
+    expect(await finished()).toBe(true);
+    const reopened = await post(`/api/books/${book.id}/unfinished`, { device: phone });
+    expect(reopened.json()).toMatchObject({ read: { started: "2026-10-22T20:00:00.000Z", finished: null } });
+    expect(await finished()).toBe(false);
+    expect((await listens()).map((l) => l.ended.how)).toEqual(["finished", "going"]);
+
+    // Started again from the beginning before it was finished: a new listen-through, and the one before was left.
+    const again = { device: tv, start: "2026-10-25T20:00:00.000Z", end: "2026-10-25T20:01:00.000Z", fromMs: 0, toMs: 9000, again: true };
+    expect((await post(`/api/books/${book.id}/listened`, again)).json()).toEqual({ added: 2 });
+    expect((await listens()).map((l) => l.ended)).toEqual([
+      { how: "finished", at: expect.any(String) },
+      { how: "left", at: "2026-10-25T20:00:00.000Z" },
+      { how: "going" },
+    ]);
+
+    expect((await post(`/api/books/${book.id}/unfinished`, {})).statusCode).toBe(400);
+    expect((await get("/api/books/0123456789abcdef/listens")).statusCode).toBe(404);
+    expect((await server.app.inject({ method: "GET", url: `/api/books/${book.id}/listens` })).statusCode).toBe(401);
+  });
+
   it("finds a line remembered, by its words, as a sentence of the book's read-along", async () => {
     // Indexed as the book was added.
     const { results } = (await get(`/api/search?q=${encodeURIComponent("the second one that follows")}`)).json() as { results: { book: string; sentence: number; ms: number; chapter: string; text: string }[] };

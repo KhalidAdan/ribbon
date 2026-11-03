@@ -111,6 +111,23 @@ struct ListenThrough: Decodable, Equatable {
     let listenedMs: Int
 }
 
+/// One listen-through of a book, as the desktop's book page lists them (packages/desktop/src/ui/ReadHistory.tsx): how it
+/// went, and how it ended.
+struct Listen: Decodable, Hashable {
+    struct Ended: Decodable, Hashable {
+        /// "finished"; "left", started again without finishing it; or "going".
+        let how: String
+        /// When, unless it's going.
+        let at: String?
+    }
+
+    let started: String
+    let finished: String?
+    /// Wall-clock time spent listening in it, on every device.
+    let listenedMs: Int
+    let ended: Ended
+}
+
 /// A bookmarked passage from any of the person's books (packages/server/src/readalong-routes.ts, `GET /api/bookmarks`), for
 /// the screen they drift by on while a book is paused.
 struct Passage: Decodable, Identifiable {
@@ -252,10 +269,22 @@ struct RibbonServer {
         _ = try await send("POST", "api/books/\(id)/listened", body, answer: Answer.self)
     }
 
-    /// The book played to its end: the listen-through closes, and the server says how it went.
+    /// The book played to its end, or marked finished: the listen-through closes, and the server says how it went.
     func finished(_ id: String) async throws -> ListenThrough {
         struct Answer: Decodable { let read: ListenThrough }
         return try await send("POST", "api/books/\(id)/finished", [:], answer: Answer.self).read
+    }
+
+    /// Not finished after all: the latest listen-through opens again, as the desktop's Mark as not finished opens it.
+    func unfinished(_ id: String) async throws -> ListenThrough {
+        struct Answer: Decodable { let read: ListenThrough }
+        return try await send("POST", "api/books/\(id)/unfinished", [:], answer: Answer.self).read
+    }
+
+    /// Every listen-through of a book, oldest first.
+    func listens(in id: String) async throws -> [Listen] {
+        struct Answer: Decodable { let listens: [Listen] }
+        return try await get(Answer.self, "api/books/\(id)/listens").listens
     }
 
     /// Every passage the person has bookmarked, in every book, newest first.

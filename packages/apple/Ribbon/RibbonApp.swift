@@ -304,21 +304,45 @@ final class AppModel {
 
     // Listening ------------------------------------------------------------
 
-    /// Listen to a book, in the player: from your place, or from the start when it's finished.
+    /// Listen to a book, in the player: from your place, or, when it's finished, again from the start.
     func listen(to book: ServerBook) async {
+        if library?.progress(of: book)?.finished == true { return await startAgain(book) }
+        await play(book) { listening in
+            if !listening.playing { await listening.carryOn() }
+        }
+    }
+
+    /// Start a book again from the beginning, as a new listen-through, as the desktop's Listen again and Start again
+    /// from the beginning do; the one before stays in the history.
+    func startAgain(_ book: ServerBook) async {
+        await play(book) { listening in
+            // The stretch playing ends first, so the next one opens the new listen-through.
+            if listening.playing { listening.pause() }
+            listening.startingAgain = true
+            listening.play(from: 0)
+        }
+    }
+
+    /// Mark a book finished, or not finished after all, on every device, as the desktop's book page does.
+    func mark(_ book: ServerBook, finished: Bool) async {
+        guard let server else { return }
+        problem = nil
+        do {
+            if finished { _ = try await server.finished(book.id) } else { _ = try await server.unfinished(book.id) }
+            await library?.refreshProgress()
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// A book's narration made ready and started as asked, in the player.
+    private func play(_ book: ServerBook, _ start: (Listening) async -> Void) async {
         guard opening == nil else { return }
         opening = book.id
         problem = nil
         defer { opening = nil }
         do {
-            let listening = try await listening(for: book)
-            // A book finished and left at its end is listened to again from the start: a new listen-through.
-            if library?.progress(of: book)?.finished == true && listening.durationMs - listening.positionMs < FinishedWithin.ms {
-                listening.startingAgain = true
-                listening.play(from: 0)
-            } else if !listening.playing {
-                await listening.carryOn()
-            }
+            await start(try await listening(for: book))
             if path.last != .player { path.append(.player) }
         } catch {
             problem = error.localizedDescription
@@ -517,11 +541,6 @@ final class AppModel {
     private static func sessionsKey(_ account: Account) -> String {
         "ribbon.sessions.\(account.id)"
     }
-}
-
-/// How near its end a book counts as finished, as the desktop counts it (packages/core/src/progress.ts, `FINISHED_WITHIN_MS`).
-enum FinishedWithin {
-    static let ms = 60_000
 }
 
 /// What the app says about itself, in the system log: `log show --predicate 'subsystem == "app.ribbon.tv"'`.

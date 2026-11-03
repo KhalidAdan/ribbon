@@ -109,6 +109,8 @@ describe("what the server answers the Apple app", () => {
     const end = new Date(1_790_000_020_000).toISOString();
     await kept("listened", await ask("POST", `/api/books/${id}/listened`, { start, end, fromMs: 0, toMs: 20000, speed: 1, again: false, keep: true, device: DEVICE }));
     await kept("finished", await ask("POST", `/api/books/${id}/finished`, { device: DEVICE }));
+    await kept("listens", await ask("GET", `/api/books/${id}/listens`));
+    await kept("unfinished", await ask("POST", `/api/books/${id}/unfinished`, { device: DEVICE }));
   });
 
   it("a line found, and a book", async () => {
