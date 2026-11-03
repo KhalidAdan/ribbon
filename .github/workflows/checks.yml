@@ -167,16 +167,18 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # The app bundles the reader's own faces from the npm packages.
+      - run: npm ci --ignore-scripts
+      - run: brew install xcodegen
       # A runner's simulator takes about four minutes to start the first time,
-      # so the iPhone's is started first, to boot while the app builds.
+      # so the iPhone's starts here, to boot while the app builds. Not before the
+      # installs: its first boot is hard on the disk, and npm ci took four
+      # minutes beside it rather than seconds.
       - name: Start an iPhone simulator
         run: |
           phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
           echo "PHONE=$phone" >> "$GITHUB_ENV"
           nohup xcrun simctl bootstatus "$phone" -b > "$RUNNER_TEMP/boot.log" 2>&1 &
-      # The app bundles the reader's own faces from the npm packages.
-      - run: npm ci --ignore-scripts
-      - run: brew install xcodegen
       - run: xcodegen generate
         working-directory: packages/apple
       - run: xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -destination 'generic/platform=tvOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
