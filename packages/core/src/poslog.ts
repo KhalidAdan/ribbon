@@ -54,6 +54,21 @@ export interface TextPosRecord extends Base {
   loc: Locator;
 }
 
+/**
+ * Time spent reading a text edition (format 1.3): from `start` to `end`,
+ * `read_ms` of it reading, from `from` to `to` through the text (its
+ * `totalProgression`), under the text's claims (section 3.6). Readers of
+ * 1.2 skip it, as a kind they don't understand.
+ */
+export interface ReadingRecord extends Base {
+  k: "reading";
+  start: string;
+  end: string;
+  read_ms: number;
+  from?: number;
+  to?: number;
+}
+
 export interface ReadRecord extends Base {
   k: "read";
   id: string;
@@ -87,7 +102,7 @@ export interface DelRecord extends Base {
   of: string;
 }
 
-export type LogRecord = PosRecord | TextPosRecord | ReadRecord | SessionRecord | MarkRecord | DelRecord;
+export type LogRecord = PosRecord | TextPosRecord | ReadRecord | SessionRecord | ReadingRecord | MarkRecord | DelRecord;
 
 export interface DeviceInfo {
   id: string;
@@ -172,6 +187,8 @@ function isRecord(r: Record<string, unknown>): r is LogRecord & Record<string, u
       return typeof r.id === "string" && typeof r.started === "string";
     case "session":
       return typeof r.start === "string" && typeof r.end === "string" && typeof r.listened_ms === "number";
+    case "reading":
+      return typeof r.start === "string" && typeof r.end === "string" && typeof r.read_ms === "number";
     case "mark":
       return typeof r.id === "string" && typeof r.target === "object" && r.target !== null;
     case "del":

@@ -114,6 +114,7 @@ describe("what the server answers the Apple app", () => {
     const now = Date.now();
     await ask("POST", `/api/books/${id}/listened`, { start: new Date(now - 40_000).toISOString(), end: new Date(now).toISOString(), fromMs: 0, toMs: 40000, speed: 1, again: false, keep: true, device: DEVICE });
     await kept("stats", await ask("GET", "/api/stats?tz=300"));
+    await kept("reading", await ask("POST", `/api/books/${id}/reading`, { start: new Date(now - 60_000).toISOString(), end: new Date(now).toISOString(), from: 0, to: 1, keep: true, device: DEVICE }));
     await kept("unfinished", await ask("POST", `/api/books/${id}/unfinished`, { device: DEVICE }));
   });
 

@@ -17,7 +17,7 @@ import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
 import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
-import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
+import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 import { finishedByRead, openRead } from "@ribbon/core/stats";
 import { chaptersUrl, parseChapters, type LookedUp, type Region } from "@ribbon/core/audnexus";
 import { JobQueue, type JobStatus } from "./jobs";
@@ -78,6 +78,13 @@ interface ReadingData {
 function emptyReading(): ReadingData {
   return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), heardBy: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0 };
 }
+
+/** A stretch of reading ends after this long without the page moving: the reader has looked away. */
+const READING_IDLE_MS = 5 * 60_000;
+/** After the last move, this long still counts as reading: the page moved to is read. */
+const READING_LINGER_MS = 60_000;
+/** A stretch of listening or reading shorter than this isn't kept. */
+const STRETCH_MIN_MS = 30_000;
 
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
 const ALIGNED_WRITE_MS = 30_000;
@@ -232,8 +239,8 @@ export interface AppState {
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
   view: LibraryView;
-  /** Listen-throughs and listening sessions from every device's log. */
-  history: { reads: ReadRecord[]; sessions: SessionRecord[]; recording: boolean };
+  /** Listen-throughs, listening sessions and time spent reading, from every device's log. */
+  history: { reads: ReadRecord[]; sessions: SessionRecord[]; readings: ReadingRecord[]; recording: boolean };
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
   /** The book open in the reader, over everything but the player bar. */
@@ -256,6 +263,7 @@ function sameRecord(a: LogRecord, b: LogRecord): boolean {
   if (a.k === "read" && b.k === "read") return a.id === b.id && a.finished === b.finished && a.started === b.started;
   if (a.k === "del" && b.k === "del") return a.of === b.of;
   if (a.k === "session" && b.k === "session") return a.start === b.start;
+  if (a.k === "reading" && b.k === "reading") return a.start === b.start;
   if (a.k === "mark" && b.k === "mark") return a.id === b.id && a.modified === b.modified && a.body === b.body;
   return false;
 }
@@ -499,7 +507,7 @@ export class AppController {
       playerDrawer: null,
       editBook: null,
       view: DEFAULT_VIEW,
-      history: { reads: [], sessions: [], recording: true },
+      history: { reads: [], sessions: [], readings: [], recording: true },
       namedChapters: {},
       reading: null,
       readingSettings: parseReading(undefined),
@@ -1827,7 +1835,11 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
-    if (player.playing && !prev.playing && player.bookId) this.beginListening(player.bookId, player.positionMs, player.speed);
+    if (player.playing && !prev.playing && player.bookId) {
+      this.beginListening(player.bookId, player.positionMs, player.speed);
+      // Read along with the narration, the time is listening: the stretch of reading ends.
+      if (this.readingStretch?.bookId === player.bookId) void this.endReading();
+    }
     if (this.listening && (!player.playing || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
     // Stopped for any reason (the listener, the system, the end of a
     // preview, a file that failed): keep the place now.
@@ -2757,6 +2769,7 @@ export class AppController {
     const p = r.place;
     if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
     this.readingKeeper.move(place, why);
+    if (by !== "follow" && r.text) this.readOn(r.bookId, r.text, place);
     // A line found by a search is marked until the reader moves on.
     const { following, found: _found, ...rest } = r;
     this.set({ reading: { ...rest, place, ...(following && by !== "hand" ? { following } : {}) } });
@@ -2764,8 +2777,43 @@ export class AppController {
     if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
   }
 
+  /**
+   * The page moved by hand, with the narration not playing this book: time
+   * spent reading, as a stretch from the first move to the last (and a
+   * little after), kept as a `reading` record when it ends (format 1.3,
+   * `endReading`). Five minutes without a move, the reader has looked away,
+   * and the stretch ends where they did.
+   */
+  private readingStretch: { bookId: string; claims: string[]; start: number; last: number; from: number; to: number } | null = null;
+
+  private readOn(bookId: string, text: BookText, place: TextPlace): void {
+    if (this.state.player.playing && this.state.player.bookId === bookId) return;
+    const now = Date.now();
+    const at = text.locator(place).locations?.totalProgression ?? 0;
+    const s = this.readingStretch;
+    if (s && (s.bookId !== bookId || now - s.last > READING_IDLE_MS)) void this.endReading();
+    if (this.readingStretch) {
+      this.readingStretch.last = now;
+      this.readingStretch.to = at;
+    } else {
+      this.readingStretch = { bookId, claims: textClaimsFor(bookId, text.ebook.meta.identifiers), start: now, last: now, from: at, to: at };
+    }
+  }
+
+  /** The stretch of reading ends: kept, when it was long enough and sessions are kept, as listening's are. */
+  private endReading(at = Date.now()): Promise<void> {
+    const s = this.readingStretch;
+    this.readingStretch = null;
+    if (!s || !this.state.history.recording) return Promise.resolve();
+    const end = Math.min(at, s.last + READING_LINGER_MS);
+    if (end - s.start < STRETCH_MIN_MS) return Promise.resolve();
+    const progress = (x: number) => Math.round(x * 10_000) / 10_000;
+    return this.writeHistory(s.bookId, { k: "reading", start: new Date(s.start).toISOString(), end: new Date(end).toISOString(), read_ms: end - s.start, from: progress(s.from), to: progress(s.to) }, undefined, s.claims);
+  }
+
   /** Close the reader, keeping its place everywhere first. */
   async closeReading(): Promise<void> {
+    await this.endReading();
     const keeper = this.readingKeeper;
     this.readingKeeper = null;
     this.readingCtx = null;
@@ -3030,7 +3078,7 @@ export class AppController {
     if (this.state.player.playing) this.engine?.pause();
     await this.persistPosition("close");
     const reading = this.readingKeeper;
-    const all = Promise.all([...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
+    const all = Promise.all([this.endReading(), ...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
     await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
   }
 
@@ -3087,6 +3135,8 @@ export class AppController {
 
   /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
   async checkpoint(): Promise<void> {
+    // Out of sight, the reading stops counting.
+    await this.endReading();
     if (this.state.current) await this.persistPosition("close");
   }
 
@@ -3416,29 +3466,37 @@ export class AppController {
     const all = this.openedInOrder().flatMap((o) => o.log);
     const seen = new Set<string>();
     const sessions: SessionRecord[] = [];
+    const readings: ReadingRecord[] = [];
     for (const r of all) {
-      if (r.k !== "session") continue;
+      if (r.k !== "session" && r.k !== "reading") continue;
       const key = `${r.dev}:${r.seq}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      sessions.push(r);
+      if (r.k === "session") sessions.push(r);
+      else readings.push(r);
     }
-    this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions } });
+    this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions, readings } });
     this.refreshBookmarks();
     this.refreshHighlights();
   }
 
-  /** Write a history record or a mark to the log of the book's source, and show it at once. */
+  /** Write a history record or a mark to the log of the book's source, and show it at once. A reading is under its text's claims. */
   private async writeHistory(
     bookId: string,
-    r: { k: "read"; id: string; started: string; finished?: string } | { k: "del"; of: string } | MarkFields | (Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" }),
+    r:
+      | { k: "read"; id: string; started: string; finished?: string }
+      | { k: "del"; of: string }
+      | MarkFields
+      | (Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" })
+      | (Omit<ReadingRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "reading" }),
     t = new Date().toISOString(),
+    textClaims?: string[],
   ): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    // A book with no audio has no length to give.
-    const book = { ids: claimsFor(b.original ?? b.book), ...(b.book.durationMs > 0 ? { dur_ms: b.book.durationMs } : {}) };
+    // A book with no audio has no length to give, nor does a text.
+    const book = textClaims ? { ids: textClaims } : { ids: claimsFor(b.original ?? b.book), ...(b.book.durationMs > 0 ? { dur_ms: b.book.durationMs } : {}) };
     // Shown at once; the next read of the log replaces it with what was written.
     this.localSeq = Math.max(this.localSeq + 1, Date.now());
     const shown = { v: 1, dev: "local", seq: this.localSeq, t, book, ...r } as LogRecord;
@@ -3517,7 +3575,7 @@ export class AppController {
     this.listening = null;
     if (!s || !this.state.history.recording) return;
     const end = Date.now();
-    if (end - s.start < 30_000) return;
+    if (end - s.start < STRETCH_MIN_MS) return;
     void this.writeHistory(s.bookId, {
       k: "session",
       start: new Date(s.start).toISOString(),

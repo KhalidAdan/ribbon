@@ -120,4 +120,24 @@ describe("reading on a device that keeps no log", () => {
     expect(stats.authors).toEqual([{ name: "An Author", ms: 300_000 }]);
     expect((await server.app.inject({ method: "GET", url: "/api/stats" })).statusCode).toBe(401);
   });
+
+
+  it("keeps a stretch of reading as the desktop's reader keeps one, and counts it in the stats", async () => {
+    const stretch = { device: phone, start: "2026-11-03T21:00:00.000Z", end: "2026-11-03T21:03:00.000Z", from: 0, to: 2 };
+    expect((await post(`/api/books/${text.id}/reading`, stretch)).json()).toEqual({ added: 1 });
+    type Reading = { k: string; dev: string; read_ms: number; from: number; to: number; book: { ids: string[] } };
+    const kept = ((await get("/api/places")).json() as { records: Reading[] }).records.filter((r) => r.k === "reading");
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ dev: phone.id, read_ms: 180_000, book: { ids: expect.arrayContaining([`urn:ribbon:${localIdOf(text)}-text`]) } });
+    expect(kept[0]!.to).toBeGreaterThan(kept[0]!.from);
+    const stats = (await get("/api/stats?tz=0")).json() as { totals: { totalMs: number }; books: { book: string; ms: number }[] };
+    expect(stats.totals.totalMs).toBe(300_000 + 180_000);
+    expect(stats.books).toContainEqual({ book: text.id, ms: 180_000 });
+
+    // Too short, or not kept on that device: nothing.
+    expect((await post(`/api/books/${text.id}/reading`, { ...stretch, end: "2026-11-03T21:00:20.000Z" })).json()).toEqual({ added: 0 });
+    expect((await post(`/api/books/${text.id}/reading`, { ...stretch, keep: false })).json()).toEqual({ added: 0 });
+    expect((await post(`/api/books/${text.id}/reading`, { ...stretch, to: 999 })).statusCode).toBe(400);
+    expect((await post(`/api/books/${text.id}/reading`, { ...stretch, from: "a" })).statusCode).toBe(400);
+  });
 });

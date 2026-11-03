@@ -27,7 +27,7 @@ let root: Root | null = null;
 async function rowsOf(reads: ReadRecord[]): Promise<string[]> {
   const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources() };
   const c = new AppController(platform);
-  (c as unknown as { set(p: Partial<AppState>): void }).set({ history: { reads, sessions: [], recording: true } });
+  (c as unknown as { set(p: Partial<AppState>): void }).set({ history: { reads, sessions: [], readings: [], recording: true } });
   const el = document.createElement("div");
   document.body.append(el);
   root = createRoot(el);

@@ -1,8 +1,9 @@
-import type { ReadRecord, SessionRecord, LogRecord } from "./poslog";
+import type { ReadRecord, ReadingRecord, SessionRecord, LogRecord } from "./poslog";
 
 /**
- * Listening history from the position log: listen-throughs (reads) and
- * sessions, turned into what a person wants to know. Pure; days are
+ * Listening and reading history from the position log: listen-throughs
+ * (reads), and the time spent with books, listening (sessions) and reading
+ * (format 1.3), turned into what a person wants to know. Pure; days are
  * local days, given by the caller's time zone offset.
  */
 
@@ -12,6 +13,20 @@ const DAY = 86_400_000;
 export function bookIdOf(r: LogRecord): string | null {
   const claim = r.book.ids.find((id) => id.startsWith("urn:ribbon:"));
   return claim ? claim.slice(11) : null;
+}
+
+/** Time spent with a book: listening to it (a session) or reading it (a reading). */
+export type Spent = SessionRecord | ReadingRecord;
+
+/** How long a stretch of time with a book was. */
+export function spentMs(s: Spent): number {
+  return Math.max(0, s.k === "session" ? s.listened_ms : s.read_ms);
+}
+
+/** The book a stretch was spent with: a reading is under its text's claim, which names the book it's the text of. */
+export function spentOn(s: Spent): string | null {
+  const id = bookIdOf(s);
+  return id?.endsWith("-text") ? id.slice(0, -"-text".length) : id;
 }
 
 const indexes = new WeakMap<readonly ReadRecord[], Map<string, ReadRecord[]>>();
@@ -98,7 +113,7 @@ export interface Totals {
   weekMs: number;
   /** Over the last 30 days, per day. */
   dailyAverageMs: number;
-  /** Consecutive days with any listening, ending today or yesterday. */
+  /** Consecutive days with any listening or reading, ending today or yesterday. */
   streakDays: number;
   longestStreakDays: number;
   finishedThisYear: number;
@@ -106,18 +121,18 @@ export interface Totals {
   sessions: number;
 }
 
-/** Listening time per local day. */
-export function minutesByDay(sessions: readonly SessionRecord[], tzOffsetMin: number): Map<number, number> {
+/** Time spent listening and reading per local day. */
+export function minutesByDay(spent: readonly Spent[], tzOffsetMin: number): Map<number, number> {
   const out = new Map<number, number>();
-  for (const s of sessions) {
+  for (const s of spent) {
     const d = dayOf(Date.parse(s.start), tzOffsetMin);
-    out.set(d, (out.get(d) ?? 0) + Math.max(0, s.listened_ms));
+    out.set(d, (out.get(d) ?? 0) + spentMs(s));
   }
   return out;
 }
 
-export function totals(sessions: readonly SessionRecord[], reads: readonly ReadRecord[], nowMs: number, tzOffsetMin: number): Totals {
-  const byDay = minutesByDay(sessions, tzOffsetMin);
+export function totals(spent: readonly Spent[], reads: readonly ReadRecord[], nowMs: number, tzOffsetMin: number): Totals {
+  const byDay = minutesByDay(spent, tzOffsetMin);
   const today = dayOf(nowMs, tzOffsetMin);
   const sumDays = (from: number, to: number) => {
     let s = 0;
@@ -143,18 +158,18 @@ export function totals(sessions: readonly SessionRecord[], reads: readonly ReadR
     streakDays: streak,
     longestStreakDays: longest,
     finishedThisYear,
-    totalMs: sessions.reduce((s, x) => s + Math.max(0, x.listened_ms), 0),
-    sessions: sessions.length,
+    totalMs: spent.reduce((s, x) => s + spentMs(x), 0),
+    sessions: spent.length,
   };
 }
 
-/** Time listened per key (a book, an author, a narrator), most first. */
-export function timeBy(sessions: readonly SessionRecord[], keyOf: (bookId: string) => string[]): { key: string; ms: number }[] {
+/** Time spent listening and reading per key (a book, an author, a narrator), most first. */
+export function timeBy(spent: readonly Spent[], keyOf: (bookId: string) => string[]): { key: string; ms: number }[] {
   const out = new Map<string, number>();
-  for (const s of sessions) {
-    const id = bookIdOf(s);
+  for (const s of spent) {
+    const id = spentOn(s);
     if (!id) continue;
-    for (const k of keyOf(id)) if (k) out.set(k, (out.get(k) ?? 0) + Math.max(0, s.listened_ms));
+    for (const k of keyOf(id)) if (k) out.set(k, (out.get(k) ?? 0) + spentMs(s));
   }
   return [...out.entries()].map(([key, ms]) => ({ key, ms })).sort((a, b) => b.ms - a.ms);
 }
@@ -170,8 +185,8 @@ export interface HeatDay {
  * The last year as weeks of days, Monday first, ending this week, with a
  * level from 0 (nothing) to 4 (a long day) relative to the busiest days.
  */
-export function heatmap(sessions: readonly SessionRecord[], nowMs: number, tzOffsetMin: number, weeks = 53): HeatDay[][] {
-  const byDay = minutesByDay(sessions, tzOffsetMin);
+export function heatmap(spent: readonly Spent[], nowMs: number, tzOffsetMin: number, weeks = 53): HeatDay[][] {
+  const byDay = minutesByDay(spent, tzOffsetMin);
   const today = dayOf(nowMs, tzOffsetMin);
   // 1970-01-01 was a Thursday: day 0 is weekday 3 counting Monday as 0.
   const weekday = (d: number) => (((d + 3) % 7) + 7) % 7;

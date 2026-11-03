@@ -315,6 +315,14 @@ struct RibbonServer {
         _ = try await send("POST", "api/books/\(id)/listened", body, answer: Answer.self)
     }
 
+    /// A stretch of reading that just ended, from one sentence to another: kept as the desktop's reader keeps one, unless
+    /// the person keeps no sessions here (`keep`).
+    func read(from start: Date, to end: Date, sentences from: Int, to: Int, keep: Bool, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        let body: [String: Any] = ["start": Moment.write(start), "end": Moment.write(end), "from": from, "to": to, "keep": keep]
+        _ = try await send("POST", "api/books/\(id)/reading", body, answer: Answer.self)
+    }
+
     /// The book played to its end, or marked finished: the listen-through closes, and the server says how it went.
     func finished(_ id: String) async throws -> ListenThrough {
         struct Answer: Decodable { let read: ListenThrough }
