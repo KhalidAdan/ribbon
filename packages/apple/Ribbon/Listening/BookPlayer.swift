@@ -15,6 +15,9 @@ import UIKit
 /// server from the moment instead, which sends it from that moment's own
 /// frame (packages/server/src/library/frames.ts), and played from its own 0.
 ///
+/// Every file plays at the book's gain (Loudness), so every book is as
+/// loud as the last.
+///
 /// The system can stop it too: a phone call, Siri or an alarm, or the
 /// headphones taken out. Apple's player pauses itself then, and says
 /// nothing; this says so (`onSystemPause`), so the book is paused in
@@ -59,6 +62,8 @@ final class BookPlayer {
 
     private let files: [File]
     private let cookie: HTTPCookie?
+    /// The book's loudness gain, as a factor on each sample.
+    private let gain: Float
     private let player = AVQueuePlayer()
     /// The file each queued item plays, and where in the file it begins: an MP3 asked for from a moment begins there.
     private var fileOf: [ObjectIdentifier: Int] = [:]
@@ -71,9 +76,10 @@ final class BookPlayer {
     /// The times a failed file was asked for again lately: a network that stays down stops the asking.
     private var retries: [Date] = []
 
-    init(files: [File], cookie: HTTPCookie?) {
+    init(files: [File], cookie: HTTPCookie?, gainDb: Double = 0) {
         self.files = files
         self.cookie = cookie
+        gain = Loudness.linear(gainDb)
         player.actionAtItemEnd = .advance
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 5), queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
@@ -185,9 +191,20 @@ final class BookPlayer {
         let item = AVPlayerItem(asset: AVURLAsset(url: url, options: options))
         // A voice sped up or slowed down, without the chipmunk.
         item.audioTimePitchAlgorithm = .timeDomain
+        if gain != 1 { bringToLoudness(item) }
         fileOf[ObjectIdentifier(item)] = file
         if isMP3(file) { beginsAt[ObjectIdentifier(item)] = offset }
         player.insert(item, after: nil)
+    }
+
+    /// The book's gain on a file, once its sound is known: the asset reads it from the start of the stream, before the
+    /// file has much to play.
+    private func bringToLoudness(_ item: AVPlayerItem) {
+        let gain = gain
+        Task { @MainActor in
+            guard let track = try? await item.asset.loadTracks(withMediaType: .audio).first else { return }
+            item.audioMix = Loudness.mix(for: track, gain: gain)
+        }
     }
 
     private func tick() {

@@ -45,7 +45,11 @@ for listening without a network.
 - **The player**: the chapter and how far into it, the transport (chapters,
   thirty seconds back and on), speed, the sleep timer, and the chapter list.
   The player and the reader share one narration: leaving either leaves the
-  book playing. Paused, the transport moves the place and leaves it paused,
+  book playing. Every book plays at the same loudness, as on the desktop:
+  the server measures each once, and the app brings it to −18 LUFS without
+  its peaks clipping, at most 12 dB either way (`Listening/Loudness.swift`,
+  mirroring packages/core/src/loudness.ts). Apple's player volume stops at
+  1, so the gain is made on the samples, by an audio tap on each file. Paused, the transport moves the place and leaves it paused,
   as the desktop's does. The sleep timer counts listening: its clock waits
   while the book is paused, it fades over the last fifteen seconds, and +15
   min turns one waiting for the chapter's end into minutes, as the desktop's
@@ -215,6 +219,7 @@ passages.
 | `Remote.swift` | Every press and touch, seen first: when the person last did anything, and the one press that only wakes something. |
 | `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place, resuming, chapter cards, the end. |
 | `Listening/Resume.swift` | How far back resuming goes, as the desktop's `packages/core/src/resume.ts`. |
+| `Listening/Loudness.swift` | Every book at the same loudness, as the desktop's `packages/core/src/loudness.ts`: the gain, and the tap that makes it. |
 | `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
 | `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
 | `Library/SearchView.swift` | Search, by voice or typing: a book by its title, author or narrator, or a line in every book. |
@@ -332,7 +337,7 @@ others) cuts the column's edges. While a book is paused
 in the player or the reader, the iPad's screen stays on for the passages, an
 hour at most, as the TV's does.
 
-Pages, text sizes, loudness, notes on bookmarks, and books without a narration.
+Pages, trimming silences, notes on bookmarks, and books without a narration.
 
 MP3s are never sought in by Apple's player, which goes by the average bitrate
 and lands minutes off in a long VBR book: the TV asks the server for the file
