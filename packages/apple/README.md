@@ -76,7 +76,11 @@ for listening without a network.
   its reader (docs/POSITION-FORMAT.md, section 3.4), so it's on every device,
   in the audiobook's bookmarks too. Bookmarked words are underlined in amber,
   as on the desktop; holding Select on them offers to delete the bookmark.
-  The player lists the book's bookmarks, and listens from the one chosen.
+  The player bookmarks the moment playing (Bookmark this moment), as the
+  desktop's player does, and so does the lock screen's bookmark; either
+  offers a note, typed or said. The player lists the book's bookmarks from
+  every device with their notes, and listens from the one chosen; holding
+  one offers to write or change its note, or to delete it.
 - **Search**, at the top of the library, opens with its field ready, so
   holding the remote's microphone button and saying a title, an author, or
   what you remember is enough ("where the scarecrow gets his brains");
@@ -337,7 +341,9 @@ others) cuts the column's edges. While a book is paused
 in the player or the reader, the iPad's screen stays on for the passages, an
 hour at most, as the TV's does.
 
-Pages, trimming silences, notes on bookmarks, and books without a narration.
+Pages, trimming silences, and books without a narration. A bookmark made
+here keeps no thirty-second clip, as the desktop's do: the desktop plays a
+bookmark's lead-in from the book itself anyway.
 
 MP3s are never sought in by Apple's player, which goes by the average bitrate
 and lands minutes off in a long VBR book: the TV asks the server for the file

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "@ribbon/core/position";
-import { bookmarksOf, highlightId, highlightsOf, markFields } from "@ribbon/core/bookmarks";
+import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
 import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
 import { standingOf } from "@ribbon/core/progress";
 import { bookIdOf, listenThrough, readsOf } from "@ribbon/core/stats";
@@ -55,10 +55,12 @@ export interface BookPlace {
  *   recording. Written into the device's position log as any app writes it
  *   (docs/POSITION-FORMAT.md), with the claims the apps give the book, so
  *   the other devices find it and the device needs no log of its own.
- * - `GET`, `POST /api/books/:id/bookmarks` and `DELETE …/bookmarks/:mark`:
+ * - `GET`, `POST /api/books/:id/bookmarks`, `PUT` and `DELETE …/bookmarks/:mark`:
  *   the person's bookmarks in the book, from every device; bookmarking whole
  *   sentences, as the desktop bookmarks words selected in its reader (the same
- *   `mark`, so it's one of the audiobook's bookmarks too); and taking one back.
+ *   `mark`, so it's one of the audiobook's bookmarks too), or a moment of the
+ *   recording, as the desktop's player bookmarks one, either with a note;
+ *   changing a bookmark's note; and taking one back.
  * - `GET /api/bookmarks`: the person's bookmarks in every book, newest
  *   first, with each book's title: for the TV's screen of passages that
  *   drift by while it's paused.
@@ -191,13 +193,29 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return { bookmarks };
   });
 
-  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; first?: unknown; last?: unknown } }>("/api/books/:id/bookmarks", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; first?: unknown; last?: unknown; ms?: unknown; note?: unknown } }>("/api/books/:id/bookmarks", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
-    const { device, first, last } = request.body ?? {};
+    const { device, first, last, ms, note } = request.body ?? {};
     const who = deviceOf(device);
-    if (!who || !Number.isInteger(first) || !Number.isInteger(last) || (first as number) < 0 || (last as number) < (first as number)) {
-      return reply.code(400).send({ error: "Send the device ({ id, name }) and the sentences, first and last, counted across the read-along." });
+    if (!who || (note !== undefined && typeof note !== "string")) return reply.code(400).send({ error: "Send the device ({ id, name }), and the note, if there is one, as words." });
+    const said = typeof note === "string" ? note.trim() : "";
+    if (ms !== undefined) {
+      if (!isMoment(ms)) return reply.code(400).send({ error: "Send the moment of the recording (ms)." });
+      const listed = deps.books.get(request.params.id);
+      const stored = listed && (await storedBook(deps, request.params.id));
+      if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+      if (!listed.audio) return reply.code(400).send({ error: "This book has no recording to bookmark a moment of." });
+      // The bookmark the desktop's player makes (docs/POSITION-FORMAT.md, section 3.4), named by its book and moment as
+      // the desktop names it, so the same moment bookmarked twice is one bookmark. A device that only plays keeps no clip.
+      const bookId = localIdOf(listed);
+      const at = Math.round(Math.min(ms as number, stored.book.durationMs));
+      const bookmark: Bookmark = { id: markId(bookId, at), bookId, offsetMs: at, createdAt: nowIso(Date.now()), note: said, clip: "" };
+      const added = write(reply, me.id, who, listed, stored, markFields(bookmark));
+      return added === null ? reply : { bookmark: shownBookmark(bookmark, null) };
+    }
+    if (!Number.isInteger(first) || !Number.isInteger(last) || (first as number) < 0 || (last as number) < (first as number)) {
+      return reply.code(400).send({ error: "Send the device ({ id, name }) and the sentences, first and last, counted across the read-along, or a moment (ms)." });
     }
     const book = await readAlongOf(request.params.id, reply);
     if (!book) return reply;
@@ -209,9 +227,28 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     // first sentence is read: the same words bookmarked on any device are one bookmark. A device that only plays keeps no clip.
     const bookId = localIdOf(book.listed);
     const words = highlightOf(text, bookId, range);
-    const highlight: Highlight = { id: highlightId(bookId, words.start, words.quote), bookId, offsetMs: nthSentence(readAlong, first as number)?.ms ?? null, createdAt: nowIso(Date.now()), note: "", clip: "", text: words };
+    const highlight: Highlight = { id: highlightId(bookId, words.start, words.quote), bookId, offsetMs: nthSentence(readAlong, first as number)?.ms ?? null, createdAt: nowIso(Date.now()), note: said, clip: "", text: words };
     const added = write(reply, me.id, who, book.listed, book.stored, markFields(highlight));
     return added === null ? reply : { bookmark: shownBookmark(highlight, text) };
+  });
+
+  app.put<{ Params: { id: string; mark: string }; Body: { device?: DeviceBody; note?: unknown } }>("/api/books/:id/bookmarks/:mark", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const who = deviceOf(request.body?.device);
+    const note = request.body?.note;
+    if (!who || typeof note !== "string") return reply.code(400).send({ error: "Send the device ({ id, name }) and the note (empty takes it away)." });
+    const listed = deps.books.get(request.params.id);
+    const stored = listed && (await storedBook(deps, request.params.id));
+    if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+    const found = bookmarksIn(parseLog(deps.places.export(me.id)).records, listed, stored).find((b) => b.id === request.params.mark);
+    if (!found) return reply.code(404).send({ error: "No such bookmark in this book." });
+    // Written again with its new note, as the desktop changes one (`editBookmark`): the same id, so it's the same bookmark everywhere.
+    const changed = { ...found, note: note.trim(), modifiedAt: nowIso(Date.now()) };
+    const added = write(reply, me.id, who, listed, stored, markFields(changed));
+    if (added === null) return reply;
+    const text = changed.text && listed.ebook ? ((await deps.readAlongs.of(listed.id, stored).catch(() => null))?.text ?? null) : null;
+    return { bookmark: shownBookmark(changed, text) };
   });
 
   app.delete<{ Params: { id: string; mark: string }; Body: { device?: DeviceBody } }>("/api/books/:id/bookmarks/:mark", async (request, reply) => {

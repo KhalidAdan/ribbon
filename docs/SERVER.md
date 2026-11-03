@@ -378,7 +378,8 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id/bookmarks` | Your bookmarks in the book, from every device; words are named by the sentences of the read-along they're in. Never cached. |
 | `GET /api/library/readalong` | (Admin) How every book with text and narration reads along: by sentence or by chapter, how much of its narration is transcribed, and why one needs a person (section 9). |
 | `POST /api/books/:id/records/:kind` | What a device heard of the narration, `heard` or `aligned`, as the CSV it keeps beside the book: merged into the book's own, never replacing it. |
-| `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader, in this device's log. |
+| `POST /api/books/:id/bookmarks` | Bookmark whole sentences, first to last: the `mark` the desktop writes for words selected in its reader; or a moment of the recording (`ms`): the `mark` the desktop's player writes, named the same way, without a clip. Either with a `note`. In this device's log. |
+| `PUT /api/books/:id/bookmarks/:mark` | Change a bookmark's note (empty takes it away): the same `mark` written again with it, as the desktop changes one. |
 | `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |
 | `GET /api/bookmarks` | Your bookmarks in every book, newest first, each with its book's title and author: the TV's passages. Never cached. |
 | `POST /api/books/:id/listened` | A stretch of listening, for a device that keeps no log: a listen-through (`read`) opens with it when none is open (after a finished one, only when it says `again`), and it's a `session` when it's thirty seconds or more and the person keeps sessions (`keep`). |

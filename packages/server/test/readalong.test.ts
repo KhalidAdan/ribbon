@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bookId } from "@ribbon/core/bookid";
+import { markId } from "@ribbon/core/bookmarks";
 import type { ReadAlong } from "@ribbon/core/reading/readalong";
 import { localIdOf } from "@ribbon/core/server-books";
 import type { RibbonServer } from "../src/app.ts";
@@ -164,6 +165,32 @@ describe("read-along from the server", () => {
     expect((await del(url, { device: tv })).json()).toEqual({ deleted: bookmark.id });
     expect((await get(`/api/books/${book.id}/bookmarks`)).json()).toEqual({ bookmarks: [] });
     expect((await del(url, { device: tv })).statusCode).toBe(404);
+  });
+
+  it("bookmarks a moment of the recording with a note, as the desktop's player does, and changes the note", async () => {
+    const put = (url: string, payload: object) => server.app.inject({ method: "PUT", url, payload, headers: { authorization: `Bearer ${token}` } });
+    const del = (url: string, payload: object) => server.app.inject({ method: "DELETE", url, payload, headers: { authorization: `Bearer ${token}` } });
+    const made = await post(`/api/books/${book.id}/bookmarks`, { device: phone, ms: 6500, note: "  the lighthouse keeper's line " });
+    expect(made.statusCode).toBe(200);
+    const { bookmark } = made.json() as { bookmark: { id: string; quote?: string } };
+    // Named as the desktop names a bookmark by time, so the same moment bookmarked anywhere is one bookmark.
+    expect(bookmark).toEqual({ id: markId(localIdOf(book), 6500), ms: 6500, note: "the lighthouse keeper's line", created: expect.any(String) });
+
+    type Mark = { k: string; id: string; modified?: string; body?: string; target: { ms: number } };
+    const marks = async () => ((await get("/api/places")).json() as { records: Mark[] }).records.filter((r) => r.k === "mark" && r.id === bookmark.id);
+    expect((await marks())[0]).toMatchObject({ target: { ms: 6500 }, body: "the lighthouse keeper's line" });
+
+    const url = `/api/books/${book.id}/bookmarks/${encodeURIComponent(bookmark.id)}`;
+    const noted = await put(url, { device: tv, note: "where she turns the lamp" });
+    expect(noted.json()).toMatchObject({ bookmark: { id: bookmark.id, ms: 6500, note: "where she turns the lamp" } });
+    expect((await marks()).at(-1)).toMatchObject({ body: "where she turns the lamp", modified: expect.any(String) });
+    expect((await get(`/api/books/${book.id}/bookmarks`)).json()).toMatchObject({ bookmarks: [{ id: bookmark.id, note: "where she turns the lamp" }] });
+
+    expect((await put(url, { device: tv })).statusCode).toBe(400);
+    expect((await put(`/api/books/${book.id}/bookmarks/nothing-here`, { device: tv, note: "" })).statusCode).toBe(404);
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: phone, ms: -1 })).statusCode).toBe(400);
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: phone, ms: 1000, note: 7 })).statusCode).toBe(400);
+    expect((await del(url, { device: tv })).json()).toEqual({ deleted: bookmark.id });
   });
 
   it("lists the person's bookmarks in every book, newest first, with the book's title", async () => {
