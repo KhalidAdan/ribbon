@@ -138,12 +138,12 @@ private struct NowPlaying: View {
             HStack(spacing: narrow ? 12 : 36.scaled) {
                 Button { listening.chapter(by: -1) } label: { Image(systemName: "backward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
-                Button { listening.skip(by: -30_000) } label: { Image(systemName: "gobackward.30") }
+                Button { listening.skip(by: -Listening.skipMs) } label: { Image(systemName: "gobackward.30") }
                     .buttonStyle(RoundButtonStyle(size: 80))
                 Button { listening.playPause() } label: { Image(systemName: listening.playing ? "pause.fill" : "play.fill") }
                     .buttonStyle(RoundButtonStyle(size: 112, primary: true))
                     .focused(playFocused)
-                Button { listening.skip(by: 30_000) } label: { Image(systemName: "goforward.30") }
+                Button { listening.skip(by: Listening.skipMs) } label: { Image(systemName: "goforward.30") }
                     .buttonStyle(RoundButtonStyle(size: 80))
                 Button { listening.chapter(by: 1) } label: { Image(systemName: "forward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
@@ -243,9 +243,7 @@ private struct SleepRow: View {
                     minutes([15, 30, 45, 60])
                     endOfChapter
                 } else {
-                    if case .at = listening.sleep {
-                        Button("+15 min") { listening.extendSleep(by: 15) }.buttonStyle(SmallButtonStyle())
-                    }
+                    Button("+15 min") { listening.extendSleep(by: 15) }.buttonStyle(SmallButtonStyle())
                     Button("Turn off") { listening.sleep(after: nil) }.buttonStyle(SmallButtonStyle())
                 }
             }
@@ -271,7 +269,7 @@ private struct SleepRow: View {
         switch listening.sleep {
         case nil: "Fades out, and stops at a chapter's end if you like."
         case .endOfChapter: "At the end of this chapter"
-        case .at(let date): "\(Format.duration(Int(max(0, date.timeIntervalSinceNow) * 1000))) left"
+        case .at: "\(Format.duration(listening.sleepLeftMs ?? 0)) left\(listening.playing ? "" : ", waiting while paused")"
         }
     }
 }

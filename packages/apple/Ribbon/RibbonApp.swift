@@ -32,8 +32,10 @@ struct RibbonApp: App {
             #endif
             .onChange(of: phase, initial: true) { _, phase in
                 model.inFront = phase == .active
+                guard phase == .active else { return }
                 // Coming back to the app took a press, which the home screen had.
-                if phase == .active { Remote.used() }
+                Remote.used()
+                Task { await model.cameToFront() }
             }
         }
     }
@@ -273,6 +275,13 @@ final class AppModel {
 
     // The library ----------------------------------------------------------
 
+    /// Back in front, from the home screen or the lock screen: the person may have listened or read on another device
+    /// meanwhile, so the book here goes to where they are, and the shelf says how far through each book they are now.
+    func cameToFront() async {
+        await listening?.lookAgain()
+        if library?.loaded == true { await library?.refreshProgress() }
+    }
+
     /// The books and how far through each, again: the library is shown, or shown again.
     func loadLibrary() async {
         guard let library, let server else { return }
@@ -308,7 +317,7 @@ final class AppModel {
                 listening.startingAgain = true
                 listening.play(from: 0)
             } else if !listening.playing {
-                listening.resume()
+                await listening.carryOn()
             }
             if path.last != .player { path.append(.player) }
         } catch {
@@ -345,6 +354,8 @@ final class AppModel {
             async let readAlong = server.readAlong(book.id)
             let place = try await server.place(in: book.id)
             let listening = try await listening(for: book, at: place?.ms, placedAt: Moment.read(place?.at))
+            // The book was here already, paused: another device may have moved on in it since.
+            if let place { listening.catchUp(to: place.ms, at: Moment.read(place.at)) }
             let text = try await readAlong
             let typeset = ContinuousClock.now
             let measure = BookLayout.Measure.forThisScreen
@@ -467,9 +478,16 @@ final class AppModel {
         listening = nil
         let detail = try await server.book(book.id)
         await library.refreshProgress()
-        let progress = library.progress(of: book)
-        let start = ms ?? (progress?.finished == true ? 0 : progress?.ms ?? 0)
-        let made = Listening(book: book, detail: detail, startMs: start, placedAt: placedAt ?? Moment.read(progress?.at), server: server)
+        let start: (ms: Int, at: Date?)
+        if let ms {
+            start = (ms, placedAt)
+        } else if library.progress(of: book)?.finished == true {
+            start = (0, nil)
+        } else {
+            start = await newestPlace(of: book) ?? (0, nil)
+        }
+        let made = Listening(book: book, detail: detail, startMs: start.ms, placedAt: start.at, server: server)
+        made.newestPlace = { [weak self] in await self?.newestPlace(of: book) }
         made.keepsSessions = keepsSessions
         made.showsCards = { [weak self] in self?.bookOnScreen ?? false }
         made.inFront = { [weak self] in self?.inFront ?? true }
@@ -481,6 +499,19 @@ final class AppModel {
         }
         listening = made
         return made
+    }
+
+    /// Where the person is in a book, newest of every device. For a book with its text, the server's place, which
+    /// counts their reading too, so listening carries on from where they read to, as the desktop's does
+    /// (docs/READING.md, "pressing play outside the reader starts where the reading stopped"); else, or when that
+    /// can't be had in a moment, their newest place listening.
+    private func newestPlace(of book: ServerBook) async -> (ms: Int, at: Date?)? {
+        guard let server, let library else { return nil }
+        if book.ebook, let place = try? await server.place(in: book.id, waiting: 5) {
+            return (place.ms, Moment.read(place.at))
+        }
+        await library.refreshProgress()
+        return library.progress(of: book).map { ($0.ms, Moment.read($0.at)) }
     }
 
     private static func sessionsKey(_ account: Account) -> String {

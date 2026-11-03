@@ -214,9 +214,10 @@ struct RibbonServer {
         try await get(ReadAlong.self, "api/books/\(id)/readalong")
     }
 
-    func place(in id: String) async throws -> BookPlace? {
+    /// Where the person is in a book, newest of every device, listening or reading; `waiting` gives up sooner than usual.
+    func place(in id: String, waiting: TimeInterval? = nil) async throws -> BookPlace? {
         struct Answer: Decodable { let place: BookPlace? }
-        return try await get(Answer.self, "api/books/\(id)/place").place
+        return try await get(Answer.self, "api/books/\(id)/place", waiting: waiting).place
     }
 
     /// Say where this TV is in a book: the server keeps it in the TV's position log, for every other device.
@@ -283,8 +284,10 @@ struct RibbonServer {
         path.split(separator: "/").reduce(account.url.appending(path: "api/books/\(id)/files")) { $0.appending(path: String($1)) }
     }
 
-    private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = []) async throws -> T {
-        let (data, response) = try await Self.reach(authorized(path, query: query))
+    private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = [], waiting: TimeInterval? = nil) async throws -> T {
+        var request = authorized(path, query: query)
+        if let waiting { request.timeoutInterval = waiting }
+        let (data, response) = try await Self.reach(request)
         if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
         guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't answer (\(response.statusCode)).", status: response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)
