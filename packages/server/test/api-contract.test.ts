@@ -19,8 +19,11 @@ const AT = SENTENCES.map((_, i) => 11 + SENTENCES.slice(0, i).reduce((n, s) => n
 
 /**
  * An answer as a stable file: every array cut to its first two, and what
- * differs from one run to the next made the same (ids, moments, sizes). What's
- * left is the answer's shape, which is what an app depends on.
+ * differs from one run to the next made the same (ids, moments, sizes), and
+ * what differs from one ffmpeg to another (a cover's colour; its name, which
+ * is the hash of its bytes; loudness, a measurement that comes out whole from
+ * one and not another). What's left is the answer's shape, which is what an
+ * app depends on.
  */
 function shapeOf(value: unknown): unknown {
   if (Array.isArray(value)) return value.slice(0, 2).map(shapeOf);
@@ -28,12 +31,15 @@ function shapeOf(value: unknown): unknown {
   if (typeof value === "string") {
     if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return "2026-01-01T00:00:00.000Z";
     if (/^[0-9a-f]{16}$/.test(value)) return "0123456789abcdef";
+    if (/^covers\/[0-9a-f]{16}$/.test(value)) return "covers/0123456789abcdef";
+    if (/^#[0-9a-f]{6}$/.test(value)) return "#808080";
     if (/^urn:uuid:/.test(value)) return "urn:uuid:00000000-0000-4000-8000-000000000000";
     if (/^\d+\|\d+:/.test(value)) return "1|1:1";
     return value;
   }
   if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [/^[0-9a-f]{8}([0-9a-f]{8})?$/.test(k) ? "0123456789abcdef" : k, shapeOf(v)]));
+    const measured = (k: string, v: unknown) => /(Lufs|Dbtp)$/.test(k) && typeof v === "number";
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [/^[0-9a-f]{8}([0-9a-f]{8})?$/.test(k) ? "0123456789abcdef" : k, measured(k, v) ? 0.5 : shapeOf(v)]));
   }
   return value;
 }

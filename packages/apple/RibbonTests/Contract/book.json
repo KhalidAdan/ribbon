@@ -9,7 +9,7 @@
     "series": "",
     "seriesIndex": null,
     "year": null,
-    "cover": "covers/d6de69e6fb216279",
+    "cover": "covers/0123456789abcdef",
     "ebook": "book.epub",
     "durationMs": 1000,
     "sizeBytes": 1000,
@@ -44,12 +44,12 @@
   "cover": {
     "hash": "0123456789abcdef",
     "aspect": 0.5,
-    "colour": "#fe0100"
+    "colour": "#808080"
   },
   "ebookBytes": 1000,
   "analysis": {
     "loudness": {
-      "integratedLufs": 1000,
+      "integratedLufs": 0.5,
       "truePeakDbtp": 0.5
     },
     "silence": []
