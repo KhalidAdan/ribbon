@@ -99,4 +99,12 @@ describe("reading on a device that keeps no log", () => {
     const { results } = (await get(`/api/search?q=${encodeURIComponent("nobody came to the door")}`)).json() as { results: { book: string; ms: number }[] };
     expect(results[0]).toMatchObject({ book: text.id, ms: 0 });
   });
+
+
+  it("says the speed a book was last heard at, on any device, for a device to open it at", async () => {
+    const stretch = { device: phone, start: "2026-11-02T20:00:00.000Z", end: "2026-11-02T20:05:00.000Z", fromMs: 0, toMs: 9000, speed: 1.5 };
+    expect((await post(`/api/books/${narrated.id}/listened`, stretch)).statusCode).toBe(200);
+    const progress = ((await get("/api/progress")).json() as { books: Record<string, { speed?: number; speedAt?: string }> }).books[narrated.id];
+    expect(progress).toMatchObject({ speed: 1.5, speedAt: "2026-11-02T20:05:00.000Z" });
+  });
 });

@@ -126,8 +126,9 @@ final class Listening {
     static let fastest = 3.0
     static let speedStep = 0.05
 
-    /// `placedAt` is when the place started from was kept: resuming from it goes back by how long ago that was.
-    init(book: ServerBook, detail: ServerBookDetail, startMs: Int, placedAt: Date?, server: RibbonServer) {
+    /// `placedAt` is when the place started from was kept: resuming from it goes back by how long ago that was. `heard`
+    /// is the speed the book was last heard at, on any device, and when.
+    init(book: ServerBook, detail: ServerBookDetail, startMs: Int, placedAt: Date?, heard: (speed: Double, at: Date)? = nil, server: RibbonServer) {
         self.book = book
         self.detail = detail
         self.server = server
@@ -135,7 +136,12 @@ final class Listening {
         dozing = Dozing(account: server.account, book: book, at: startMs)
         positionMs = startMs
         pausedAt = placedAt
-        speed = UserDefaults.standard.object(forKey: Self.speedKey(server.account, book)) as? Double ?? 1
+        let kept = UserDefaults.standard
+        speed = Self.speedToPlay(
+            chosen: kept.object(forKey: Self.speedKey(server.account, book)) as? Double ?? 1,
+            at: kept.object(forKey: Self.speedAtKey(server.account, book)) as? Date,
+            heard: heard
+        )
         var fileStart = 0
         player = BookPlayer(files: detail.files.map { file in
             defer { fileStart += file.durationMs }
@@ -325,7 +331,16 @@ final class Listening {
         speed = (min(max(value, Self.slowest), Self.fastest) / Self.speedStep).rounded() * Self.speedStep
         player.speed = speed
         UserDefaults.standard.set(speed, forKey: Self.speedKey(server.account, book))
+        UserDefaults.standard.set(Date(), forKey: Self.speedAtKey(server.account, book))
         player.updateNowPlaying()
+    }
+
+    /// The speed a book plays at: the one it was last heard at, on any device, unless this one chose one since, as
+    /// the desktop chooses (packages/core/src/settings.ts, `speedToPlay`). A choice from before this was kept has no
+    /// time, and gives way.
+    nonisolated static func speedToPlay(chosen: Double, at chosenAt: Date?, heard: (speed: Double, at: Date)?) -> Double {
+        guard let heard, heard.at > (chosenAt ?? .distantPast) else { return chosen }
+        return heard.speed
     }
 
     /// Stop after so many minutes of listening, fading out; nil turns the timer off.
@@ -666,8 +681,12 @@ final class Listening {
         }
     }
 
-    /// Speed is kept per book, as the desktop keeps it, for each person.
+    /// Speed is kept per book, as the desktop keeps it, for each person, with when it was chosen.
     private static func speedKey(_ account: Account, _ book: ServerBook) -> String {
         "ribbon.speed.\(account.id).\(book.id)"
+    }
+
+    private static func speedAtKey(_ account: Account, _ book: ServerBook) -> String {
+        "ribbon.speedAt.\(account.id).\(book.id)"
     }
 }

@@ -24,7 +24,7 @@ import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "@ribbon/core/resume";
 import { snapSpeed } from "@ribbon/core/speed";
-import { defaultSettings } from "@ribbon/core/settings";
+import { defaultSettings, lastSpeed, speedToPlay } from "@ribbon/core/settings";
 import { bookmarksOf, clipRange, highlightId, highlightsOf, markFields, markId, type MarkFields } from "@ribbon/core/bookmarks";
 import { highlightOf, trimRange } from "@ribbon/core/reading/highlights";
 import { chapterAt } from "@ribbon/core/scan/chapters";
@@ -1890,7 +1890,9 @@ export class AppController {
     if (seq !== this.openSeq) return;
     const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
     if (seq !== this.openSeq) return;
-    const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
+    // At the speed it was last heard at on any device, unless this machine chose one since (core/settings.ts).
+    const speed = speedToPlay(settings, lastSpeed(this.state.history.sessions, id));
+    const current: CurrentBook = { book, settings: { ...settings, speed }, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
     // The book left behind may be one a server's admin deleted meanwhile.
     this.dropDeletedEverywhere();
@@ -1900,7 +1902,7 @@ export class AppController {
     const startMs = Math.min(ahead ?? position?.offsetMs ?? 0, book.book.durationMs);
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     if (seq !== this.openSeq) return;
-    engine.setSpeed(settings.speed);
+    engine.setSpeed(speed);
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
     if (ahead !== null) void this.persistPosition("seek");
@@ -2979,7 +2981,7 @@ export class AppController {
     if (!cur || !this.engine || !lib) return;
     const s = snapSpeed(speed);
     this.engine.setSpeed(s);
-    const settings = { ...cur.settings, speed: s };
+    const settings = { ...cur.settings, speed: s, speedAt: new Date().toISOString() };
     this.set({ current: { ...cur, settings } });
     await lib.writeSettings(settings);
   }

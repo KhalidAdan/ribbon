@@ -201,7 +201,7 @@ private struct ListeningGroup: View {
 
     var body: some View {
         Rows(label: "Listening") {
-            Row(title: "Speed", description: listening.speed != 1 ? "Kept for this book. \(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left at this speed." : "Kept for this book.") {
+            Row(title: "Speed", description: listening.speed != 1 ? "Kept for this book, on every device. \(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left at this speed." : "Kept for this book, on every device.") {
                 HStack(spacing: 18.scaled) {
                     Button { listening.setSpeed(listening.speed - Listening.speedStep) } label: { Image(systemName: "minus") }
                         .buttonStyle(RoundButtonStyle(size: 52))
