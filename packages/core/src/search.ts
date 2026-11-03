@@ -15,6 +15,12 @@ const schema = { title: "string", author: "string", narrator: "string", series: 
 
 export type BookIndex = Orama<typeof schema>;
 
+/** What the search reads of a book: its details, and an anthology's stories. A server's listed book will do. */
+export interface Searchable {
+  book: Pick<Book, "id" | "title" | "author" | "narrator" | "series" | "subtitle" | "genres" | "publisher">;
+  parts: readonly Pick<Part, "title" | "author">[];
+}
+
 /** Lower-case, no diacritics, collapsed whitespace. */
 export function fold(text: string): string {
   return text
@@ -25,7 +31,7 @@ export function fold(text: string): string {
     .trim();
 }
 
-export async function indexBooks(books: readonly { book: Book; parts: readonly Part[] }[]): Promise<BookIndex> {
+export async function indexBooks(books: readonly Searchable[]): Promise<BookIndex> {
   const db = create({ schema });
   await insertMultiple(
     db,

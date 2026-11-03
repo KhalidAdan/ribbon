@@ -55,4 +55,9 @@ final class ContractTests: XCTestCase {
         struct Found: Decodable { let results: [SearchResult] }
         XCTAssertFalse(try answer("search", as: Found.self).results.isEmpty)
     }
+
+    func testABookFound() throws {
+        struct Found: Decodable { let results: [SearchResult]; let books: [String] }
+        XCTAssertFalse(try answer("search-book", as: Found.self).books.isEmpty)
+    }
 }

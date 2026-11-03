@@ -225,6 +225,16 @@ describe("read-along from the server", () => {
     expect((await server.app.inject({ method: "GET", url: "/api/search?q=third" })).statusCode).toBe(401);
   });
 
+  it("finds a book by its title, author or narrator, needing every word", async () => {
+    const books = async (q: string) => ((await get(`/api/search?q=${encodeURIComponent(q)}`)).json() as { books: string[] }).books;
+    expect(await books("read along")).toEqual([book.id]);
+    expect(await books("an author")).toEqual([book.id]);
+    // Words that aren't all in its details find no book, though a line may have them.
+    expect(await books("the third ends the chapter")).toEqual([]);
+    // Searching one book is for its lines only.
+    expect(((await get(`/api/search?q=read&book=${book.id}`)).json() as { books: string[] }).books).toEqual([]);
+  });
+
   it("refuses a bookmark it can't make", async () => {
     expect((await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 2 })).statusCode).toBe(400);
     expect((await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 9 })).statusCode).toBe(400);
