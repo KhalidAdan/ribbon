@@ -54,7 +54,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       # After the unit tests: the Rust side reads the fixtures they generate.
-      - run: npm run test:rust
+      # The app's crate unoptimised for its tests, here only: Cargo.toml
+      # optimises it so `tauri dev` scans at full speed, which made compiling
+      # it for the tests take three or four times as long (36 s rather than
+      # 10 on an M2), and the tests run as fast either way.
+      - run: npm run test:rust -- --config profile.test.package.ribbon.opt-level=0
       # A build for a phone writes the signer's Apple team into the iOS project,
       # and this repository is public (docs/MAC.md, the phone).
       - name: No Apple team in the iOS project
@@ -66,15 +70,14 @@ jobs:
             exit 1
           fi
 
-  # The server (packages/server/, docs/SERVER.md) has its own tests. It runs on Linux and
-  # Mac hosts; it's checked on a
-  # Mac, where ffmpeg installs reliably (Ubuntu's mirror stalled the install
-  # past its time limit twice) and where it's first hosted.
+  # The server (packages/server/, docs/SERVER.md) has its own tests. It runs on
+  # Linux and Mac hosts, and is hosted in Docker on Linux, where it's checked:
+  # GitHub's Macs are scarce, and a pull request needed three.
   server:
     name: Server
     needs: changes
     if: needs.changes.outputs.server == 'true'
-    runs-on: macos-26
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
@@ -85,8 +88,25 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # Adding books reads them with ffprobe and makes covers with ffmpeg.
-      - run: brew install ffmpeg
+      # Adding books reads them with ffprobe and makes covers with ffmpeg: 9.0.2,
+      # as the Mac's Homebrew gave and Windows has, in BtbN's build from GitHub,
+      # not from Ubuntu's mirror, which stalled apt past its time limit twice.
+      # It's a month's last build, which BtbN keeps for two years (its daily
+      # ones go after two weeks).
+      - name: ffmpeg
+        env:
+          FFMPEG_BUILD: autobuild-2026-10-31-12-59
+          FFMPEG_FILE: ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-gpl-9.0.tar.xz
+          FFMPEG_SHA256: 73e29a56974ae5a651133a04584c7483b21afe941e17dc91d79814a758b608d3
+        run: |
+          archive="$RUNNER_TEMP/ffmpeg.tar.xz"
+          curl -fsSL --retry 3 -o "$archive" "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFMPEG_BUILD/$FFMPEG_FILE"
+          [ "$(sha256sum < "$archive" | cut -d' ' -f1)" = "$FFMPEG_SHA256" ] || { echo "::error::$FFMPEG_FILE is not the archive expected"; exit 1; }
+          bin="$RUNNER_TEMP/ffmpeg"
+          mkdir -p "$bin"
+          tar -xJf "$archive" -C "$bin" --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          "$bin/ffmpeg" -version > /dev/null && "$bin/ffprobe" -version > /dev/null || { echo "::error::ffmpeg could not be installed"; exit 1; }
+          echo "$bin" >> "$GITHUB_PATH"
       - run: npm ci --ignore-scripts
         working-directory: .
       # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index (packages/desktop/src-tauri/ebook, packages/desktop/src-tauri/frames), which the tests run.
