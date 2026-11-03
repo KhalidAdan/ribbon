@@ -472,7 +472,14 @@ being read and turns the page (or scrolls) when the narrator reads past
 it. Opening the reader while the book plays, **Listen from here**, and
 **Go to the narrator** start following; **Follow along** in the
 listening bar toggles it; turning a page or scrolling by hand stops it.
-The mark can be turned off in the text settings. Sentences come from
+Once the narration has played five seconds with the page following it,
+every word but the sentence being read steps back to 40%, and so do the
+pictures (the river, as on the TV): the sentence stands out with nothing
+moving. It comes in over 0.6 s, so it doesn't pull at the eye, and goes
+in 0.1 s when the narration pauses, the page is turned or scrolled by
+hand, a sentence is tapped or words are selected
+(`packages/desktop/src/reader/river.ts`). The mark can be turned off in
+the text settings, and the river goes with it. Sentences come from
 the browser's sentence breaking, with dialogue kept whole (a sentence
 that starts lowercase, as in “Who made it?” asked Jurilan., joins the
 one before).

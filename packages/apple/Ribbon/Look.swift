@@ -29,7 +29,7 @@ enum Look {
     /// The sentence the remote is on, when it isn't the one being read: lifted, the way tvOS lifts what has focus.
     static let focusWash = UIColor(white: 1, alpha: 0.1)
     /// How much of the words not being read shows while the narration plays: the sentence being read stands out
-    /// by everything else stepping back, and nothing moves.
+    /// by everything else stepping back, and nothing moves. The same as the desktop's reader (index.css, `data-river`).
     static let dimmedWords: CGFloat = 0.4
 }
 

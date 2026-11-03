@@ -144,3 +144,29 @@ body {
     transform: none;
   }
 }
+
+/*
+ * The river (src/reader/river.ts), as on the TV: once the narration has
+ * played a few seconds with the page following it, every word but the
+ * sentence being read steps back, and so do the pictures. It comes in
+ * slowly, so it doesn't pull at the eye, and goes at once, so the words
+ * turned to can be read.
+ */
+[data-block],
+[data-picture] {
+  transition:
+    color 100ms,
+    opacity 100ms;
+}
+[data-river] :is([data-block], [data-picture]) {
+  transition-duration: 600ms;
+}
+[data-river] [data-block] {
+  color: color-mix(in oklab, var(--ink) 40%, transparent);
+}
+[data-river] [data-mark="sentence"] {
+  color: var(--ink);
+}
+[data-river] [data-picture] {
+  opacity: 0.4;
+}

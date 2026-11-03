@@ -21,7 +21,7 @@ non-zero and lists what failed.
 | `open` | Opens from cold. Closed just after a page was turned by hand and opened again, it draws the page you left at once (the snapshot) and the real page replaces it without moving. Read last, it opens at your page, ready no later than its pairing. Listened to last, it opens at the narrator. |
 | `swipe` | The page follows a pen or finger; a long drag turns, a short slow one springs back, a quick flick turns; a trackpad's sideways swipe turns; a mouse turns on the press, once. |
 | `resize` | In pages and in scroll, no frame without text while the window's edge is dragged; laid out again for the new size; text when it is back. |
-| `readalong` | The narrator's sentence is marked and the mark moves on, the page turns with the narrator, the bar counts down; turning away stops following and offers Go to the narrator, which brings it back. |
+| `readalong` | The narrator's sentence is marked and the mark moves on, the page turns with the narrator, the bar counts down, and a few seconds in the other words step back (the river); turning away stops following, brings every word back, and offers Go to the narrator, which brings it back; the river waits again, comes back, and goes on a pause. |
 | `scroll` | The wheel scrolls and the place follows; the whole book scrolls through in 10 s without a frame lacking text, ending in its last section. |
 
 They run on a folder of books, and that covers a server's books too: the

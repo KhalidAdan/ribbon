@@ -63,7 +63,8 @@ final class ReadingSession {
     static let leadInMs = 250
     /// Left again within this long goes back another sentence.
     private static let againWithin: TimeInterval = 0.6
-    /// The river comes in once the narration has played this long with the remote following it.
+    /// The river comes in once the narration has played this long with the remote following it, as the desktop's
+    /// reader waits with the page following it (packages/desktop/src/reader/river.ts).
     static let riverAfterMs = 5_000
 
     /// Opened at the narrator's sentence when the book is playing and reads along, else at the place the server gave.
