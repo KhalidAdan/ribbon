@@ -292,3 +292,31 @@ Run with `cargo test --release` in `packages/desktop/src-tauri`.
       cover.
 - [ ] Sleep timer for one minute fades and stops.
 - [ ] Bookmark saves and shows in the list with a note.
+
+## Considered and not used
+
+### Formal verification with TLA+ (November 2026)
+
+TLA+ writes a protocol down as a state machine, and its model checker
+(TLC) tries every order of the steps, looking for one that breaks a
+stated rule. It was looked at for the position log's merge, adopting a
+place from another device, book edits on the server and whole-book
+transcription, and left out:
+
+- It checks a model of the design written by hand, not Ribbon's code.
+  Only more tests tie the two together.
+- Of Ribbon's costly bugs, one was its kind: 0.22.2's edits sync, which
+  lost a rename made on another device. The rest were layout (the
+  0.12.0 resize), the platform (MP3 seeks, WebKit suspending hidden
+  pages), speed (IPC, the share) and the speech model (whisper loops).
+- The sync leaves that kind little room: each device writes only its
+  own log, edits are last-wins per field, and the server stores what
+  it's sent.
+- A spec in a notation nobody here reads fluently is a spec nobody
+  reviews.
+
+If the merge rules need checking beyond their unit tests, property
+tests on the real code come first (fast-check against `mergePlace`).
+Look again only when a design needs devices to coordinate, such as two
+machines sharing out work, and "what if this happens while that does"
+can't be settled on paper.
