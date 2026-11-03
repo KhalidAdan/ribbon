@@ -18,6 +18,7 @@ import { useListening, type Visible } from "./listening";
 import { facesLoaded, FAMILY, loadFaces } from "./typeset";
 import { fitsKey, loadSnapshot, savePage, savePlace, type PageSnapshot } from "./snapshot";
 import { usePageSwipe } from "./swipe";
+import { useRiver } from "./river";
 import { LayoutEngine } from "./layout-engine";
 import type { SectionLayout } from "./layout";
 import { PlayButton } from "../ui/PlayerBar";
@@ -625,6 +626,8 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
     if (narratorShown && playing && !following && (!was.current.shown || !was.current.playing)) c.setFollowing(true);
     was.current = { shown: narratorShown, playing };
   }, [narratorShown, playing, following, c]);
+  // The river (river.ts): the narration playing on with the page following it and its sentence marked, nothing tapped or selected.
+  const river = useRiver(!!readMark && playing && following && !tap && !chosen);
   const mark = tap?.mark ?? readMark;
   const marks = useMemo<Marked[]>(
     () => [...saved.map((r) => ({ from: r.from, to: r.to, tone: "saved" as const })), ...(mark ? [{ from: { section: mark.section, block: mark.block, offset: mark.start }, to: { section: mark.section, block: mark.block, offset: mark.end }, tone: "sentence" as const }] : [])],
@@ -645,7 +648,7 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div ref={box} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
+      <div ref={box} data-river={river || undefined} className="relative min-h-0 flex-1" onCopy={onCopy} onClick={onClick} onPointerDown={(e) => e.button === 0 && !(e.target as HTMLElement).closest("[data-tap]") && (dragging.current = true)}>
         {ready && metrics && viewport && (
           <Profiler id={settings.layout === "pages" ? "pages" : "scroll"} onRender={perf.onRender}>
             {settings.layout === "pages" ? <Pages bookId={bookId} fits={fits} text={text} place={place} metrics={metrics} viewport={viewport} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} /> : <Scroll text={text} place={place} metrics={metrics} layout={layout} engine={engine} marks={marks} c={c} onVisible={onVisible} onScrolled={dropTap} />}
@@ -1265,7 +1268,7 @@ const Item = memo(function Item({ b, it, column, marks, text, c }: { b: LaidBloc
   if (b.kind === "img" && b.image) {
     // In the dark, line art turns light with its hues kept, and pictures dim so they do not glare.
     const dark = b.image.tone === "ink" ? "dark:invert dark:hue-rotate-180" : "dark:brightness-85";
-    return <img src={c.readingImageUrl(b.image.src)} alt={b.image.alt} draggable={false} className={`absolute select-none ${dark}`} style={{ top: it.y, left: Math.round((column - b.image.width) / 2), width: b.image.width, height: b.image.height }} />;
+    return <img src={c.readingImageUrl(b.image.src)} alt={b.image.alt} data-picture draggable={false} className={`absolute select-none ${dark}`} style={{ top: it.y, left: Math.round((column - b.image.width) / 2), width: b.image.width, height: b.image.height }} />;
   }
   if (b.kind === "hr") {
     return (
