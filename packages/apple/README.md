@@ -42,6 +42,14 @@ for listening without a network.
   you spent most time with, the narrators listened to most; and the books
   finished lately. The server counts them from every device's listening
   sessions and time spent reading (`GET /api/stats`).
+- **A daily goal**, in Settings: minutes a day with your books, listening
+  or reading, the same on every device (`GET` and `PUT /api/goal`). When
+  time spent here meets it, a small note at the top says so for a few
+  seconds, never over the sentence being read, with how many days in a row:
+  "Daily goal met. 20 minutes with your books today. 5 days in a row." Once
+  a day; a goal met by another device's time is that device's to say, and
+  one met while the app is behind is said when it's back. With a goal, the
+  Stats' streak counts the days it was met (`Library/Goal.swift`).
 - **Time spent reading** counts, as listening does: in the reader, with the
   narration paused, from the first move to the last and a minute after,
   ending after five minutes without one. It goes to the server as the
@@ -257,6 +265,7 @@ passages.
 | `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
 | `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
 | `Library/StatsView.swift` | What you've been listening to, as the desktop's Stats. |
+| `Library/Goal.swift` | The daily goal: today against it, and the note when it's met here. |
 | `Library/SearchView.swift` | Search, by voice or typing: a book by its title, author or narrator, or a line in every book. |
 | `Listening/Bookmarks.swift` | A book's bookmarks from every device: made of whole sentences here, words or moments elsewhere. |
 | `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |

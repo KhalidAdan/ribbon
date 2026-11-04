@@ -113,7 +113,7 @@ export interface Totals {
   weekMs: number;
   /** Over the last 30 days, per day. */
   dailyAverageMs: number;
-  /** Consecutive days with any listening or reading, ending today or yesterday. */
+  /** Consecutive days with any listening or reading, or with the daily goal met when there is one, ending today or yesterday. */
   streakDays: number;
   longestStreakDays: number;
   finishedThisYear: number;
@@ -131,8 +131,10 @@ export function minutesByDay(spent: readonly Spent[], tzOffsetMin: number): Map<
   return out;
 }
 
-export function totals(spent: readonly Spent[], reads: readonly ReadRecord[], nowMs: number, tzOffsetMin: number): Totals {
+export function totals(spent: readonly Spent[], reads: readonly ReadRecord[], nowMs: number, tzOffsetMin: number, goalMinutes = 0): Totals {
   const byDay = minutesByDay(spent, tzOffsetMin);
+  // A day counts toward a streak when its goal was met (core/goal.ts), or, with no goal, when there was any time at all.
+  const counts = (d: number) => (byDay.get(d) ?? 0) >= Math.max(1, goalMinutes * 60_000);
   const today = dayOf(nowMs, tzOffsetMin);
   const sumDays = (from: number, to: number) => {
     let s = 0;
@@ -141,10 +143,10 @@ export function totals(spent: readonly Spent[], reads: readonly ReadRecord[], no
   };
   // A streak may end yesterday: today is not over yet.
   let streak = 0;
-  for (let d = byDay.has(today) ? today : today - 1; byDay.has(d); d--) streak++;
+  for (let d = counts(today) ? today : today - 1; counts(d); d--) streak++;
   let longest = 0;
   let run = 0;
-  const days = [...byDay.keys()].sort((a, b) => a - b);
+  const days = [...byDay.keys()].filter(counts).sort((a, b) => a - b);
   for (let i = 0; i < days.length; i++) {
     run = i > 0 && days[i] === days[i - 1]! + 1 ? run + 1 : 1;
     longest = Math.max(longest, run);

@@ -3,6 +3,7 @@ import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
 import { groupProblems } from "@ribbon/core/problems";
 import { isHandMade } from "@ribbon/core/series";
+import { GOAL_CHOICES } from "@ribbon/core/goal";
 import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";
@@ -26,6 +27,7 @@ export function SettingsPane() {
     lookup: s.lookup,
     speech: s.speech,
     history: s.history,
+    goal: s.goal,
     perfLog: s.perfLog,
     canAddFolders: s.canAddFolders,
     transcribing: s.transcribingForServer,
@@ -257,8 +259,35 @@ export function SettingsPane() {
         </section>
 
         <section aria-labelledby="settings-history" className="flex flex-col gap-4">
-          <SectionHeader id="settings-history" title="History" description="What Ribbon keeps about your listening, in the position log beside your books." />
-          <Group footer="Each stretch of listening of thirty seconds or more: when, which book, how long. Turning this off keeps what is there and adds no more. Finished books and your place are always kept.">
+          <SectionHeader id="settings-history" title="History" description="What Ribbon keeps about your listening and reading, in the position log beside your books." />
+          <Group footer="Listening and reading both count, on every device. Met, a note says so for a moment, with how many days in a row; the Stats' streak counts the days you met it. With a server, it's the same on every device.">
+            <Row
+              title="Daily goal"
+              description={state.goal.minutes > 0 ? `${state.goal.minutes} minutes a day with your books.` : "Off."}
+              aside={
+                <span className="inline-grid grid-cols-[1fr_--spacing(7)]">
+                  <select
+                    id="daily-goal"
+                    name="daily-goal"
+                    aria-label="Daily goal"
+                    value={state.goal.minutes}
+                    onChange={(e) => void c.setGoal(Number(e.target.value))}
+                    className="col-span-full row-start-1 appearance-none rounded-md bg-raised py-1 pr-7 pl-2.5 text-base/6 text-ink ring-1 ring-line focus-ring sm:text-[0.8125rem]/[1.125rem]"
+                  >
+                    {GOAL_CHOICES.map((m) => (
+                      <option key={m} value={m}>
+                        {m === 0 ? "Off" : `${m} min`}
+                      </option>
+                    ))}
+                  </select>
+                  <svg viewBox="0 0 8 5" width="8" height="5" fill="none" className="pointer-events-none col-start-2 row-start-1 place-self-center stroke-ink-3" aria-hidden="true">
+                    <path d="M.5.5 4 4 7.5.5" />
+                  </svg>
+                </span>
+              }
+            />
+          </Group>
+          <Group footer="Each stretch of listening or reading of thirty seconds or more: when, which book, how long. Turning this off keeps what is there and adds no more. Finished books and your place are always kept.">
             <Row
               title="Keep listening sessions"
               description={`${state.history.sessions.length.toLocaleString()} ${state.history.sessions.length === 1 ? "session" : "sessions"} so far, behind the Stats page.`}

@@ -87,6 +87,15 @@ private struct Screens: View {
                 PassagesView(passages: passages).transition(.opacity)
             }
         }
+        .overlay(alignment: .top) {
+            if let met = model.goal?.met {
+                GoalNote(met: met)
+                    .padding(.top, 24.scaled)
+                    .onTapGesture { model.goal?.dismiss() }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.3), value: model.goal?.met)
         .animation(.easeInOut(duration: 0.5), value: listening?.card)
         .animation(.easeOut(duration: 0.4), value: listening?.dozing.asked)
         .animation(.easeInOut(duration: 1.2), value: model.passages == nil)
@@ -175,6 +184,8 @@ final class AppModel {
     var inFront = true
     /// Whether this person keeps their stretches of listening as sessions, on this TV (docs/POSITION-FORMAT.md, section 3.3).
     private(set) var keepsSessions = true
+    /// Their daily goal, and today against it.
+    private(set) var goal: DailyGoal?
 
     /// Paused this long in the player or the reader with nothing pressed, the passages drift by.
     private static let stillFor = Waits.of(5 * 60, quick: 15)
@@ -229,6 +240,9 @@ final class AppModel {
         UserDefaults.standard.set(account.id, forKey: "ribbon.lastPerson")
         keepsSessions = UserDefaults.standard.object(forKey: Self.sessionsKey(account)) as? Bool ?? true
         passagesKnown = nil
+        let goal = DailyGoal(server: server)
+        self.goal = goal
+        Task { await goal.load() }
     }
 
     /// Keep this person's stretches of listening as sessions, or stop: the end of a book can then say how long it took.
@@ -250,6 +264,7 @@ final class AppModel {
         path = []
         server = nil
         library = nil
+        goal = nil
         problem = nil
     }
 
@@ -283,7 +298,13 @@ final class AppModel {
     /// meanwhile, so the book here goes to where they are, and the shelf says how far through each book they are now.
     func cameToFront() async {
         await listening?.lookAgain()
+        await goal?.see(liveMs: liveMs, inFront: inFront)
         if library?.loaded == true { await library?.refreshProgress() }
+    }
+
+    /// Listening and reading going on now, not sent to the server yet.
+    private var liveMs: Int {
+        (listening?.stretchMs ?? 0) + (reading?.session.stretchMs ?? 0)
     }
 
     /// Gone behind the home screen or the lock screen: a stretch of reading ends where it was.
@@ -498,6 +519,8 @@ final class AppModel {
     private func watchStillness() async {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(5))
+            // Today against the daily goal, with what's going on now.
+            await goal?.see(liveMs: liveMs, inFront: inFront)
             let still = listening.map { !$0.playing && !$0.stoppedOnItsOwn } == true && bookOnScreen && finished == nil
             guard still else {
                 if passages != nil { passages = nil }

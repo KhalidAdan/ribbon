@@ -397,6 +397,13 @@ final class ReadingSession {
         }
     }
 
+    /// Reading going on now and not sent yet: the stretch so far, a minute past its last move at most (the daily goal counts it).
+    var stretchMs: Int {
+        guard let stretch else { return 0 }
+        let end = min(Date(), stretch.last.addingTimeInterval(Self.lingerFor))
+        return max(0, Int(end.timeIntervalSince(stretch.start) * 1000))
+    }
+
     /// The stretch of reading ends, a minute after its last move at most, and goes to the server when it was long enough.
     func endStretch(at time: Date = Date()) {
         guard let stretch else { return }

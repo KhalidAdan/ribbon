@@ -58,6 +58,13 @@ final class ContractTests: XCTestCase {
         XCTAssertNil(try answer("unfinished", as: Finished.self).read.finished)
     }
 
+    func testTheDailyGoal() throws {
+        let today = try answer("goal", as: GoalToday.self)
+        XCTAssertEqual(today.goal.minutes, 1000)
+        struct Chosen: Decodable { let goal: GoalToday.Goal }
+        _ = try answer("goal-chosen", as: Chosen.self)
+    }
+
     func testStats() throws {
         let stats = try answer("stats", as: ListeningStats.self)
         XCTAssertEqual(stats.days.count, 2)

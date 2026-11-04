@@ -140,4 +140,18 @@ describe("reading on a device that keeps no log", () => {
     expect((await post(`/api/books/${text.id}/reading`, { ...stretch, to: 999 })).statusCode).toBe(400);
     expect((await post(`/api/books/${text.id}/reading`, { ...stretch, from: "a" })).statusCode).toBe(400);
   });
+
+
+  it("keeps the person's daily goal, the one chosen later standing, and says how today stands against it", async () => {
+    const put = (payload: object) => server.app.inject({ method: "PUT", url: "/api/goal", payload, headers: { authorization: `Bearer ${token}` } });
+    expect((await get("/api/goal?tz=0")).json()).toMatchObject({ goal: { minutes: 0, chosenAt: null }, today: { met: false, streakDays: 0 } });
+    expect((await put({ minutes: 20, chosenAt: "2026-11-03T10:00:00.000Z" })).json()).toEqual({ goal: { minutes: 20, chosenAt: "2026-11-03T10:00:00.000Z" } });
+    // A goal chosen earlier, on a device that hadn't heard, doesn't undo it.
+    expect((await put({ minutes: 60, chosenAt: "2026-11-02T10:00:00.000Z" })).json()).toEqual({ goal: { minutes: 20, chosenAt: "2026-11-03T10:00:00.000Z" } });
+    const { goal, today } = (await get("/api/goal?tz=0")).json() as { goal: { minutes: number }; today: { todayMs: number; met: boolean; streakDays: number } };
+    expect(goal.minutes).toBe(20);
+    expect(typeof today.todayMs).toBe("number");
+    expect((await put({ minutes: -5 })).statusCode).toBe(400);
+    expect((await server.app.inject({ method: "GET", url: "/api/goal" })).statusCode).toBe(401);
+  });
 });

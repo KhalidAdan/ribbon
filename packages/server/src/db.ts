@@ -152,6 +152,15 @@ CREATE TABLE IF NOT EXISTS place (
 
 CREATE INDEX IF NOT EXISTS place_by_person ON place (person_id, id);
 
+-- A person's daily goal (packages/core/src/goal.ts): minutes a day with their books, the same on every
+-- device; the one chosen later stands.
+CREATE TABLE IF NOT EXISTS person_goal (
+  person_id TEXT PRIMARY KEY,
+  minutes INTEGER NOT NULL,
+  -- When it was chosen, ISO, on whichever device chose it.
+  chosen_at TEXT NOT NULL
+);
+
 -- Who each of a person's devices is: what it calls itself.
 CREATE TABLE IF NOT EXISTS place_device (
   person_id TEXT NOT NULL,

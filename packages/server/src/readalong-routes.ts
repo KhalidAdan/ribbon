@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "@ribbon/core/position";
 import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
 import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadingRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
+import { goalToday } from "@ribbon/core/goal";
 import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 import { lastSpeed } from "@ribbon/core/settings";
 import { splitPeople } from "@ribbon/core/scan/sidefiles";
@@ -15,6 +16,7 @@ import { localIdOf } from "@ribbon/core/server-books";
 import type { Bookmark, Highlight } from "@ribbon/core/types";
 import { signedIn, type Auth } from "./auth.ts";
 import type { Events } from "./events.ts";
+import type { Goals } from "./goals.ts";
 import { sendRevalidated, storedBook } from "./library/api.ts";
 import type { BookIndex, ListedBook, StoredBook } from "./library/books.ts";
 import type { Mp3Frames } from "./library/frames.ts";
@@ -92,6 +94,11 @@ export interface BookPlace {
  *   last year; the books, authors and narrators listened to most; and the
  *   books finished lately. Days are the device's own, by its offset from UTC
  *   in minutes (`tz`, as JavaScript's `getTimezoneOffset` gives it).
+ * - `GET /api/goal?tz=` and `PUT /api/goal`: the person's daily goal, minutes
+ *   a day with their books, the same on every device, the one chosen later
+ *   standing (packages/core/src/goal.ts); and today against it, on the
+ *   device's own days: the time so far, whether it's met, and the days in a
+ *   row it was.
  * - `GET /api/books/:id/listens`: every listen-through of the book, oldest
  *   first, each with how it ended and the time spent in it, as the desktop's
  *   book page lists them (packages/desktop/src/ui/ReadHistory.tsx).
@@ -111,7 +118,10 @@ export interface BookPlace {
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */
-export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; dataDir: string }): void {
+export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; goals: Goals; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; dataDir: string }): void {
+  /** Time spent with books, listening and reading, from a person's log: what the Stats and the goal count. */
+  const spentBy = (personId: string) => parseLog(deps.places.export(personId)).records.filter((r): r is SessionRecord | ReadingRecord => r.k === "session" || r.k === "reading");
+
   /** The book and its read-along, or the answer that says why there's none. */
   const readAlongOf = async (id: string, reply: FastifyReply): Promise<{ listed: ListedBook; stored: StoredBook; made: MadeReadAlong } | null> => {
     const listed = deps.books.get(id);
@@ -430,6 +440,26 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return added === null ? reply : { added };
   });
 
+  app.get<{ Querystring: { tz?: string } }>("/api/goal", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    const tz = Number(request.query.tz ?? 0);
+    const goal = deps.goals.of(me.id);
+    return { goal, today: goalToday(spentBy(me.id), goal.minutes, Date.now(), Number.isFinite(tz) ? tz : 0) };
+  });
+
+  app.put<{ Body: { minutes?: unknown; chosenAt?: unknown } }>("/api/goal", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const { minutes, chosenAt } = request.body ?? {};
+    const at = typeof chosenAt === "string" ? Date.parse(chosenAt) : Date.now();
+    if (!Number.isInteger(minutes) || (minutes as number) < 0 || (minutes as number) > 24 * 60 || Number.isNaN(at)) {
+      return reply.code(400).send({ error: "Send the minutes a day (0 is off), and when it was chosen (chosenAt), if not now." });
+    }
+    return { goal: deps.goals.choose(me.id, { minutes: minutes as number, chosenAt: new Date(at).toISOString() }) };
+  });
+
   app.get<{ Querystring: { tz?: string } }>("/api/stats", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
@@ -454,7 +484,7 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
       .slice(0, 8)
       .map((r) => ({ book: byLocal.get(bookIdOf(r)!)!.id, finished: r.finished! }));
     return {
-      totals: totals(spent, reads, now, Number.isFinite(tz) ? tz : 0),
+      totals: totals(spent, reads, now, Number.isFinite(tz) ? tz : 0, deps.goals.of(me.id).minutes),
       days: heatmap(spent, now, Number.isFinite(tz) ? tz : 0).map((week) => week.map((d) => d.level)),
       books: timeBy(spent, (id) => [id]).flatMap(({ key, ms }) => (byLocal.has(key) ? [{ book: byLocal.get(key)!.id, ms }] : [])).slice(0, 6),
       authors: people("author"),
