@@ -140,7 +140,7 @@ final class Listening {
         player = BookPlayer(files: detail.files.map { file in
             defer { fileStart += file.durationMs }
             return .init(url: server.fileURL(book: book.id, path: file.path), startMs: fileStart, durationMs: file.durationMs)
-        }, cookie: server.account.cookie)
+        }, cookie: server.account.cookie, gainDb: detail.gainDb)
         player.speed = speed
         player.nowPlayingTitle = book.title
         player.nowPlayingAuthor = book.author

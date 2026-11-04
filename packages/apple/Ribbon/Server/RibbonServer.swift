@@ -59,9 +59,27 @@ struct ServerBookDetail: Decodable {
         let publisher: String?
     }
 
+    /// What the server measured of the book once, as it came in (packages/server/src/library/prepare.ts).
+    struct Analysis: Decodable {
+        struct Measured: Decodable {
+            let integratedLufs: Double
+            let truePeakDbtp: Double?
+        }
+
+        let loudness: Measured?
+    }
+
     let files: [File]
     let chapters: [Chapter]
     let book: About
+    /// Nil until the server has measured it.
+    var analysis: Analysis? = nil
+
+    /// The gain that brings the book to the library's loudness (Loudness), in dB: none before it's measured.
+    var gainDb: Double {
+        guard let measured = analysis?.loudness else { return 0 }
+        return Loudness.gainDb(integratedLufs: measured.integratedLufs, truePeakDbtp: measured.truePeakDbtp)
+    }
 }
 
 /// How far someone is through a book (packages/server/src/readalong-routes.ts, `GET /api/progress`).
