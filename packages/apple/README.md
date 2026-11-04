@@ -41,7 +41,12 @@ for listening without a network.
   section 3.3: off, the end of a book won't count the time spent on this TV),
   who's signed in to which server, and Switch reader.
 - **A book's page**: where you are as a sentence, Continue listening and Read
-  along, the facts, the description, and the rest of its series.
+  along, and More: Mark as finished, or not finished after all, and Start
+  again from the beginning, as the desktop's book page has them. Then the
+  facts, the description, your history with it (every listen-through, when
+  it started and how it ended, and the time spent in it on every device),
+  and the rest of its series. Listen again, on a finished book, always
+  starts from the beginning as a new listen-through, as the desktop's does.
 - **The player**: the chapter and how far into it, the transport (chapters,
   thirty seconds back and on), speed, the sleep timer, and the chapter list.
   The player and the reader share one narration: leaving either leaves the

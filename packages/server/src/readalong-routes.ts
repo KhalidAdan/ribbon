@@ -4,7 +4,7 @@ import { nowIso } from "@ribbon/core/position";
 import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
 import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
 import { standingOf } from "@ribbon/core/progress";
-import { bookIdOf, listenThrough, readsOf } from "@ribbon/core/stats";
+import { bookIdOf, endOf, listenThrough, readsOf } from "@ribbon/core/stats";
 import type { BookText } from "@ribbon/core/reading/booktext";
 import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
 import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
@@ -65,14 +65,21 @@ export interface BookPlace {
  *   first, with each book's title: for the TV's screen of passages that
  *   drift by while it's paused.
  * - `POST /api/books/:id/listened`: a stretch of listening, as the desktop
- *   keeps one: it opens a listen-through when none is open (a new one after
- *   a finished one only when the person chose to listen again), and is kept
- *   as a session unless the person turned sessions off on that device
- *   (docs/POSITION-FORMAT.md, sections 3.2 and 3.3).
- * - `POST /api/books/:id/finished`: the book played to its end. The
- *   listen-through closes, as the desktop closes one, and the answer says
- *   how it went: when it started and finished, and the time spent in it on
- *   every device (packages/core/src/stats.ts, `listenThrough`).
+ *   keeps one: it opens a listen-through when none is open, and a new one
+ *   whenever the person chose to start again (the desktop's Listen again and
+ *   Start again from the beginning), and is kept as a session unless the
+ *   person turned sessions off on that device (docs/POSITION-FORMAT.md,
+ *   sections 3.2 and 3.3).
+ * - `POST /api/books/:id/finished`: the book played to its end, or the person
+ *   marked it finished. The listen-through closes, as the desktop closes one,
+ *   and the answer says how it went: when it started and finished, and the
+ *   time spent in it on every device (packages/core/src/stats.ts,
+ *   `listenThrough`).
+ * - `POST /api/books/:id/unfinished`: not finished after all. The latest
+ *   listen-through opens again, as the desktop's Mark as not finished opens it.
+ * - `GET /api/books/:id/listens`: every listen-through of the book, oldest
+ *   first, each with how it ended and the time spent in it, as the desktop's
+ *   book page lists them (packages/desktop/src/ui/ReadHistory.tsx).
  * - `GET /api/search?q=&book=`: the sentences that best match words someone
  *   remembers, or says, in one book or every one, each named by its book and
  *   its sentence of the read-along, so a device can go straight to it. In
@@ -301,8 +308,8 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const last = readsOf(mergeById<ReadRecord>(parseLog(deps.places.export(me.id)).records, "read"), id).at(-1);
     const fields: Record<string, unknown>[] = [];
     // A listen-through opens as the desktop opens one when playing starts (`beginListening`): when none is open, and
-    // after a finished one only when the person chose to start again.
-    if (!last || (last.finished && again === true)) fields.push({ k: "read", id: `urn:uuid:${randomUUID()}`, started: nowIso(began) });
+    // a new one whenever the person chose to start again, finished or not (`listenAgain`).
+    if (!last || again === true) fields.push({ k: "read", id: `urn:uuid:${randomUUID()}`, started: nowIso(began) });
     if (keep !== false && ended - began >= SESSION_MIN_MS) {
       const durationMs = stored.book.durationMs;
       fields.push({ k: "session", start: nowIso(began), end: nowIso(ended), from_ms: Math.round(Math.min(fromMs as number, durationMs)), to_ms: Math.round(Math.min(toMs as number, durationMs)), listened_ms: ended - began, ...(typeof speed === "number" ? { speed } : {}) });
@@ -331,6 +338,38 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const read = { k: "read" as const, id: last?.id ?? `urn:uuid:${randomUUID()}`, started: last?.started ?? firstHeard(records, id) ?? now, finished: now };
     const added = write(reply, me.id, who, listed, stored, read);
     return added === null ? reply : { read: listenThrough(read, sessions, id) };
+  });
+
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody } }>("/api/books/:id/unfinished", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const who = deviceOf(request.body?.device);
+    if (!who) return reply.code(400).send({ error: "Send the device ({ id, name })." });
+    const listed = deps.books.get(request.params.id);
+    const stored = listed && (await storedBook(deps, request.params.id));
+    if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+    const id = localIdOf(listed);
+    const records = parseLog(deps.places.export(me.id)).records;
+    const last = readsOf(mergeById<ReadRecord>(records, "read"), id).at(-1);
+    // The latest listen-through written again without its finish, as the desktop's `markUnfinished` writes it; a book
+    // never listened to through gets one that's going.
+    const read = { k: "read" as const, id: last?.id ?? `urn:uuid:${randomUUID()}`, started: last?.started ?? nowIso(Date.now()) };
+    const added = write(reply, me.id, who, listed, stored, read);
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    return added === null ? reply : { read: listenThrough(read, sessions, id) };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/books/:id/listens", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const listed = deps.books.get(request.params.id);
+    if (!listed) return reply.code(404).send({ error: "No such book on this server." });
+    reply.header("cache-control", "no-store");
+    const id = localIdOf(listed);
+    const records = parseLog(deps.places.export(me.id)).records;
+    const reads = readsOf(mergeById<ReadRecord>(records, "read"), id);
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    return { listens: reads.map((r, i) => ({ ...listenThrough(r, sessions, id), ended: endOf(r, reads[i + 1]) })) };
   });
 
   /** A person's bookmarks in a book, by time and by words, from every device's log, merged as the apps merge them. */

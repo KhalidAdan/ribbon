@@ -382,8 +382,10 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `PUT /api/books/:id/bookmarks/:mark` | Change a bookmark's note (empty takes it away): the same `mark` written again with it, as the desktop changes one. |
 | `DELETE /api/books/:id/bookmarks/:mark` | Take a bookmark back: a `del` of it in this device's log. |
 | `GET /api/bookmarks` | Your bookmarks in every book, newest first, each with its book's title and author: the TV's passages. Never cached. |
-| `POST /api/books/:id/listened` | A stretch of listening, for a device that keeps no log: a listen-through (`read`) opens with it when none is open (after a finished one, only when it says `again`), and it's a `session` when it's thirty seconds or more and the person keeps sessions (`keep`). |
-| `POST /api/books/:id/finished` | The book played to its end: the open listen-through closes, as the desktop's does, and the answer says when it started and finished and the time spent listening in it on every device (`packages/core/src/stats.ts`, `listenThrough`). |
+| `POST /api/books/:id/listened` | A stretch of listening, for a device that keeps no log: a listen-through (`read`) opens with it when none is open, and a new one whenever it says `again` (Listen again, Start again from the beginning), and it's a `session` when it's thirty seconds or more and the person keeps sessions (`keep`). |
+| `POST /api/books/:id/finished` | The book played to its end, or marked finished: the open listen-through closes, as the desktop's does, and the answer says when it started and finished and the time spent listening in it on every device (`packages/core/src/stats.ts`, `listenThrough`). |
+| `POST /api/books/:id/unfinished` | Not finished after all: the latest listen-through is written again without its finish, as the desktop's Mark as not finished writes it. |
+| `GET /api/books/:id/listens` | Every listen-through of the book, oldest first: when it started, how it ended (finished, left when it was started again, or going) and the time spent listening in it on every device, as the desktop's book page lists them. Never cached. |
 | `GET /api/events` | Server-sent events: your place moved on another device, a book was added or deleted. |
 
 The admin pages have their own: invites, people, devices, adding a folder,
