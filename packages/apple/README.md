@@ -45,7 +45,11 @@ for listening without a network.
 - **The player**: the chapter and how far into it, the transport (chapters,
   thirty seconds back and on), speed, the sleep timer, and the chapter list.
   The player and the reader share one narration: leaving either leaves the
-  book playing.
+  book playing. Paused, the transport moves the place and leaves it paused,
+  as the desktop's does. The sleep timer counts listening: its clock waits
+  while the book is paused, it fades over the last fifteen seconds, and +15
+  min turns one waiting for the chapter's end into minutes, as the desktop's
+  (packages/core/src/sleep.ts).
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
   amber, and the column glides when it leaves the middle of the screen. Once
@@ -76,7 +80,12 @@ for listening without a network.
   Read along on it, the narrator where it was: left listens from it.
 - **Your place** goes to the server as you listen, the way the phone's and
   the desktop's do, and the book opens at the newest of your places on any
-  device, listening or reading.
+  device, listening or reading: Continue listening carries on from where you
+  read to, when that's newer, as the desktop's does. A book left paused here
+  doesn't keep an old place: after half a minute paused, playing on asks the
+  server first, and so does coming back to the app, so it carries on from
+  where another device left it rather than tell the server this one's older
+  place as the newest (the desktop's `takeSharePositions`).
 - **Resuming** goes back by as much as the time away asks, as the desktop's
   does (packages/core/src/resume.ts, mirrored in `Listening/Resume.swift`): two
   seconds after a short pause, ten after a few minutes, thirty after a night,
@@ -161,6 +170,13 @@ two rows; and the reader's buttons say From here and To narrator.
   is its Play.
 - **Any touch** answers Still listening? and brings back the screen from the
   passages, and goes no further, as a press does on the TV (`Remote.swift`).
+- **The lock screen**, Control Center, headphones and the car: play and
+  pause, thirty seconds back and on, the chapter before and the next (a
+  double or triple press of the headphones), and the place on the line, with
+  the cover. A phone call, Siri, or the headphones coming out pause the book
+  as Pause does, its place kept; a call that ends gives it back, a little
+  before where it stopped. A stream that drops partway is asked for again
+  from the moment it reached (`BookPlayer.swift`).
 
 ## Where the read-along comes from
 

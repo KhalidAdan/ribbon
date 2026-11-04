@@ -14,6 +14,10 @@ import UIKit
 /// say how long it took.
 ///
 /// Resuming goes back a little, by as much as the time away asks (Resume).
+/// After a while paused, it first asks the server where the person is: another
+/// device may have moved on in the book meanwhile, and playing on from this
+/// one's older place would tell that as the newest (`lookAgain`), as the
+/// desktop moves a paused book to a newer place (`takeSharePositions`).
 /// Crossing into a new chapter, where the book is on screen, the narration
 /// waits a moment while the chapter's card shows. Played on for forty
 /// minutes with nothing pressed, it asks whether you're still listening
@@ -45,8 +49,9 @@ final class Listening {
     private(set) var finishedRead: ListenThrough?
 
     enum Sleep: Equatable {
-        /// At a time, a few minutes from when it was set.
-        case at(Date)
+        /// After so many minutes of listening: when that is if it plays on, and, while it's paused, since when. The
+        /// clock holds while it's paused, as the desktop's does (packages/core/src/sleep.ts).
+        case at(Date, pausedAt: Date?)
         /// At the end of the chapter that was playing.
         case endOfChapter(endMs: Int)
     }
@@ -74,10 +79,20 @@ final class Listening {
     @ObservationIgnored var sentences: Sentences?
     /// A finished book started again from its start: a new listen-through, which its next stretch opens.
     @ObservationIgnored var startingAgain = false
+    /// Where the person is in this book on the server, newest of every device, listening or reading (AppModel).
+    @ObservationIgnored var newestPlace: (() async -> (ms: Int, at: Date?)?)?
 
     @ObservationIgnored private let player: BookPlayer
     @ObservationIgnored private let server: RibbonServer
     @ObservationIgnored private var toldAt = Date.distantPast
+    /// Places told and not answered yet, and whether the last one answered failed: until each has landed, the
+    /// server's newest place may be older than this one, and is no place to move to.
+    @ObservationIgnored private var telling = 0
+    @ObservationIgnored private var unsent = false
+    /// When the server last said nothing was newer than this place: as the book opened, or a place told landed.
+    @ObservationIgnored private var checkedAt = Date()
+    /// Asking the server where the person is, before playing on: a second press meanwhile waits for it.
+    @ObservationIgnored private var lookingAgain = false
     /// The stretch of listening playing now: from when, and from which moment.
     @ObservationIgnored private var stretch: (start: Date, fromMs: Int, speed: Double)?
     /// The moment heard last while playing on; nil after a move, so a chapter is crossed only by playing into it.
@@ -98,8 +113,12 @@ final class Listening {
 
     /// While the narration plays, the place goes to the server this often.
     private static let tellEvery: TimeInterval = 15
-    /// The sleep timer fades the narrator out over this long before it stops.
-    private static let fadeMs = 10_000
+    /// Paused longer than this, playing on first asks the server where the person is.
+    private static let lookAgainAfter: TimeInterval = 30
+    /// The sleep timer fades the narrator out over this long before it stops, as the desktop's (packages/core/src/sleep.ts).
+    private static let fadeMs = 15_000
+    /// Thirty seconds back and on, from the buttons and from the lock screen, the headphones and the car.
+    static let skipMs = 30_000
     /// How long the narration waits on a chapter's card, which wipes in and out either side.
     static let cardHold: Duration = .seconds(2.6)
     /// The speeds there are, and the step between them, as the desktop's (packages/core/src/speed.ts).
@@ -127,7 +146,10 @@ final class Listening {
         player.nowPlayingAuthor = book.author
         player.onTime = { [weak self] ms in self?.heard(ms) }
         player.onEnd = { [weak self] in self?.ended() }
+        player.onSystemPause = { [weak self] in self?.pausedBySystem() }
+        player.onSystemResume = { [weak self] in Task { await self?.carryOn() } }
         listenToRemoteCommands()
+        showCover()
     }
 
     // What there is to show ------------------------------------------------
@@ -167,6 +189,46 @@ final class Listening {
         tell(.seek)
     }
 
+    /// Play on from where the person is. After a while paused, ask the server first: another device may have moved on
+    /// (`lookAgain`). Then back a little (`resume`). The moment it plays from, before any lead-in.
+    @discardableResult
+    func carryOn() async -> Int {
+        guard !playing, !lookingAgain else { return positionMs }
+        if Date().timeIntervalSince(checkedAt) > Self.lookAgainAfter {
+            lookingAgain = true
+            await lookAgain()
+            lookingAgain = false
+        }
+        // Pressed again, or played some other way, while the server was asked.
+        guard !playing else { return positionMs }
+        return resume()
+    }
+
+    /// Where the person is on the server, asked again; when another device has moved on since this one's place, go
+    /// there. Nothing moves while it plays, or while a place told here hasn't landed.
+    func lookAgain() async {
+        guard !playing, let newestPlace, let found = await newestPlace() else { return }
+        checkedAt = Date()
+        catchUp(to: found.ms, at: found.at)
+    }
+
+    /// The person is somewhere else in the book, kept by another device since this one's place: go there, paused,
+    /// and resuming goes back by how long ago that was. The server's newest place differs from this one only when
+    /// it's newer, once every place told from here has landed.
+    func catchUp(to ms: Int, at: Date?) {
+        let target = min(max(0, ms), durationMs)
+        guard !playing, telling == 0, !unsent, abs(target - positionMs) > 1_000 else { return }
+        moved()
+        positionMs = target
+        pausedAt = at ?? pausedAt
+        resumeOffer = nil
+        // Wherever this device dozed off, the person has been awake elsewhere since.
+        dozing.forget()
+        player.unload(at: target)
+        player.updateNowPlaying()
+        onTime?(target)
+    }
+
     /// Play from where it is, or from the place kept when nothing has played yet: back a little first, by as much
     /// as the time away asks (Resume), never into the chapter before, and from a sentence's first word where the
     /// read-along places it. The moment it plays from, before any lead-in.
@@ -201,20 +263,34 @@ final class Listening {
     }
 
     func playPause() {
-        if playing { pause() } else { resume() }
+        if playing { pause() } else { Task { await carryOn() } }
     }
 
-    /// Back or on, by thirty seconds, as the desktop's buttons go.
+    /// Back or on, by thirty seconds, as the desktop's buttons go: playing on from there, or paused there.
     func skip(by ms: Int) {
-        play(from: positionMs + ms)
+        move(to: positionMs + ms)
     }
 
-    /// The previous chapter, or the start of this one when it's been playing a while; or the next.
+    /// A moment chosen: played from, or, while paused, the place moved there exactly and still paused.
+    func move(to ms: Int) {
+        guard !playing else { return play(from: ms) }
+        moved()
+        positionMs = min(max(0, ms), durationMs)
+        pausedAt = nil
+        resumeOffer = nil
+        player.unload(at: positionMs)
+        player.updateNowPlaying()
+        onTime?(positionMs)
+        tell(.seek)
+    }
+
+    /// The previous chapter, or the start of this one when it's been playing a while; or the next. Paused, it stays
+    /// paused there, as the desktop's buttons do.
     func chapter(by step: Int) {
         guard let chapter else { return }
-        if step < 0 && positionMs - chapter.startMs > 3_000 { return play(from: chapter.startMs) }
+        if step < 0 && positionMs - chapter.startMs > 3_000 { return move(to: chapter.startMs) }
         let target = min(max(0, chapterIndex + step), chapters.count - 1)
-        play(from: chapters[target].startMs)
+        move(to: chapters[target].startMs)
     }
 
     /// The start of the chapter, offered after a long time away.
@@ -246,17 +322,30 @@ final class Listening {
         player.updateNowPlaying()
     }
 
-    /// Stop after so many minutes, fading out; nil turns the timer off.
+    /// Stop after so many minutes of listening, fading out; nil turns the timer off.
     func sleep(after minutes: Int?) {
-        sleep = minutes.map { .at(Date().addingTimeInterval(TimeInterval($0 * 60))) }
+        sleep = minutes.map { .at(Date().addingTimeInterval(TimeInterval($0 * 60)), pausedAt: playing ? nil : Date()) }
         player.volume = 1
     }
 
-    /// A timer that's counting down, given more minutes.
+    /// More minutes: on a timer counting down, added to what's left; on one waiting for the chapter's end, from now,
+    /// as the desktop's does.
     func extendSleep(by minutes: Int) {
-        guard case .at(let date) = sleep else { return }
-        sleep = .at(max(date, Date()).addingTimeInterval(TimeInterval(minutes * 60)))
+        let more = TimeInterval(minutes * 60)
+        switch sleep {
+        case .at(let date, let paused?): sleep = .at(date.addingTimeInterval(more), pausedAt: paused)
+        case .at(let date, nil): sleep = .at(max(date, Date()).addingTimeInterval(more), pausedAt: nil)
+        case .endOfChapter: sleep = .at(Date().addingTimeInterval(more), pausedAt: playing ? nil : Date())
+        case nil: return
+        }
         player.volume = 1
+    }
+
+    /// How long until a timer counting down stops the narration, its clock held while paused; nil for none, or one
+    /// waiting for the chapter's end.
+    var sleepLeftMs: Int? {
+        guard case .at(let date, let paused) = sleep else { return nil }
+        return max(0, Int(date.timeIntervalSince(paused ?? Date()) * 1000))
     }
 
     /// Stop at the end of the chapter playing.
@@ -274,9 +363,7 @@ final class Listening {
         playing = false
         KeepAwake.set("narration", false)
         Remote.stopWaiting("dozing")
-        for command in [MPRemoteCommandCenter.shared().playCommand, MPRemoteCommandCenter.shared().pauseCommand, MPRemoteCommandCenter.shared().togglePlayPauseCommand] {
-            command.removeTarget(nil)
-        }
+        for command in Self.remoteCommands { command.removeTarget(nil) }
     }
 
     // Inside -----------------------------------------------------------------
@@ -284,6 +371,8 @@ final class Listening {
     private func started() {
         playing = true
         stoppedOnItsOwn = false
+        // The sleep timer's clock goes on from where it held.
+        if case .at(let date, let paused?) = sleep { sleep = .at(date.addingTimeInterval(Date().timeIntervalSince(paused)), pausedAt: nil) }
         if stretch == nil { beginStretch() }
         player.nowPlayingChapter = chapter?.title ?? ""
         player.updateNowPlaying()
@@ -300,11 +389,19 @@ final class Listening {
         pausedAt = Date()
         stoppedOnItsOwn = !byHand
         player.volume = 1
+        if case .at(let date, nil) = sleep { sleep = .at(date, pausedAt: Date()) }
         dozing.stopped()
         Remote.stopWaiting("dozing")
         KeepAwake.set("narration", false)
         endStretch()
         tell(.pause)
+    }
+
+    /// The system paused the narration: a phone call, the headphones out, a stream that couldn't be had again
+    /// (BookPlayer). Paused here too, as by hand: its place kept, and resuming goes back a little.
+    private func pausedBySystem() {
+        guard playing else { return }
+        stopPlaying(byHand: true)
     }
 
     /// The narration moves or stops: what it was about to stop or wait at no longer stands.
@@ -340,7 +437,7 @@ final class Listening {
         guard let sleep, playing else { return }
         let left: Int
         switch sleep {
-        case .at(let date): left = Int(date.timeIntervalSinceNow * 1000)
+        case .at: left = sleepLeftMs ?? 0
         case .endOfChapter(let endMs): left = Int(Double(endMs - positionMs) / speed)
         }
         if left <= 0 {
@@ -421,7 +518,7 @@ final class Listening {
         if let dozeStop { return (dozeStop.ms, .dozed) }
         let sleepsSoon: Bool
         switch sleep {
-        case .at(let date): sleepsSoon = date.timeIntervalSinceNow < 15
+        case .at: sleepsSoon = (sleepLeftMs ?? 0) < 15_000
         case .endOfChapter: sleepsSoon = true
         case nil: sleepsSoon = false
         }
@@ -502,25 +599,62 @@ final class Listening {
 
     private func tell(_ why: Why) {
         toldAt = Date()
+        telling += 1
         let (ms, server, id) = (positionMs, server, book.id)
-        Task { try? await server.tell(ms, why: why, in: id) }
+        Task { [weak self] in
+            let landed = (try? await server.tell(ms, why: why, in: id)) != nil
+            guard let self else { return }
+            self.telling -= 1
+            self.unsent = !landed
+            if landed { self.checkedAt = Date() }
+        }
     }
 
-    /// The TV's own play and pause, from Control Center and other remotes.
+    /// The cover, for the lock screen and Now Playing, once it's here.
+    private func showCover() {
+        guard let hash = book.cover?.hash else { return }
+        let server = server
+        Task { [weak self] in
+            guard let cover = try? await server.cover(hash, width: 800), let self else { return }
+            self.player.nowPlayingCover = cover
+            self.player.updateNowPlaying()
+        }
+    }
+
+    /// What the system asks of the narration from outside the app: the TV's own play and pause, Control Center, the
+    /// phone's lock screen, headphones and the car.
+    private static var remoteCommands: [MPRemoteCommand] {
+        let center = MPRemoteCommandCenter.shared()
+        return [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand, center.skipBackwardCommand, center.skipForwardCommand,
+                center.previousTrackCommand, center.nextTrackCommand, center.changePlaybackPositionCommand]
+    }
+
+    /// Play and pause; thirty seconds back and on; the chapter before and the next (a double or triple press of the
+    /// headphones); and the place on the lock screen's line. Each on the main thread, where they're sent.
     private func listenToRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
-        // Each plays or pauses only when that changes something, on the main thread, where they're sent.
-        let command = { [weak self] (wanted: Bool?) -> MPRemoteCommandHandlerStatus in
+        let act = { [weak self] (action: @MainActor (Listening) -> Void) -> MPRemoteCommandHandlerStatus in
             MainActor.assumeIsolated {
                 Remote.used()
-                guard let self, wanted == nil || wanted != self.playing else { return }
-                self.playPause()
+                if let self { action(self) }
             }
             return .success
         }
-        commands.togglePlayPauseCommand.addTarget { _ in command(nil) }
-        commands.playCommand.addTarget { _ in command(true) }
-        commands.pauseCommand.addTarget { _ in command(false) }
+        // Each plays or pauses only when that changes something.
+        commands.togglePlayPauseCommand.addTarget { _ in act { $0.playPause() } }
+        commands.playCommand.addTarget { _ in act { if !$0.playing { $0.playPause() } } }
+        commands.pauseCommand.addTarget { _ in act { if $0.playing { $0.playPause() } } }
+        commands.skipBackwardCommand.preferredIntervals = [NSNumber(value: Self.skipMs / 1000)]
+        commands.skipForwardCommand.preferredIntervals = [NSNumber(value: Self.skipMs / 1000)]
+        commands.skipBackwardCommand.addTarget { _ in act { $0.skip(by: -Self.skipMs) } }
+        commands.skipForwardCommand.addTarget { _ in act { $0.skip(by: Self.skipMs) } }
+        commands.previousTrackCommand.addTarget { _ in act { $0.chapter(by: -1) } }
+        commands.nextTrackCommand.addTarget { _ in act { $0.chapter(by: 1) } }
+        commands.changePlaybackPositionCommand.addTarget { event in
+            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            let ms = Int(event.positionTime * 1000)
+            return act { $0.move(to: ms) }
+        }
     }
 
     /// Speed is kept per book, as the desktop keeps it, for each person.

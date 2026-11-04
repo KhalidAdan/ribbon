@@ -178,16 +178,19 @@ final class ReadingSession {
     }
 
     /// The narration resumed at the narrator's sentence, gone back by as much as the time away asks; the page waits at
-    /// the sentence it goes back to while the lead-in plays.
+    /// the sentence it goes back to while the lead-in plays. After a while paused, the server is asked first where the
+    /// person is (Listening, `carryOn`).
     private func resumePlace() {
         if atDozed { listening.dozing.forget() }
         atDozed = false
-        let from = listening.resume()
-        listenedFrom = from
-        narrator = sentences.read(at: from)
-        cursor = narrator
-        following = true
-        onMarks?()
+        Task {
+            let from = await listening.carryOn()
+            listenedFrom = from
+            narrator = sentences.read(at: from)
+            cursor = narrator
+            following = true
+            onMarks?()
+        }
     }
 
     /// The narration stopped on its own; for someone who dozed off, the remote goes to where they were last awake.
