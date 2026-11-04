@@ -1,0 +1,42 @@
+{
+  "totals": {
+    "todayMs": 1000,
+    "weekMs": 1000,
+    "dailyAverageMs": 0.5,
+    "streakDays": 1000,
+    "longestStreakDays": 1000,
+    "finishedThisYear": 1000,
+    "totalMs": 1000,
+    "sessions": 1000
+  },
+  "days": [
+    [
+      1000,
+      1000
+    ],
+    [
+      1000,
+      1000
+    ]
+  ],
+  "books": [
+    {
+      "book": "0123456789abcdef",
+      "ms": 1000
+    }
+  ],
+  "authors": [
+    {
+      "name": "An Author",
+      "ms": 1000
+    }
+  ],
+  "narrators": [],
+  "finished": [
+    {
+      "book": "0123456789abcdef",
+      "finished": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "finishedInAll": 1000
+}

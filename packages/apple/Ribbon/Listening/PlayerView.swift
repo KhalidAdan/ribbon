@@ -11,6 +11,8 @@ struct PlayerView: View {
     @Environment(\.upright) private var upright
     @State private var chapters = false
     @State private var bookmarks = false
+    /// A bookmark just made, its note being written.
+    @State private var noting: ServerBookmark?
     @FocusState private var playFocused: Bool
 
     var body: some View {
@@ -19,7 +21,7 @@ struct PlayerView: View {
             if let listening = model.listening {
                 let settings = VStack(alignment: .leading, spacing: 40.scaled) {
                     ListeningGroup(listening: listening)
-                    ThisBookGroup(listening: listening, chapters: $chapters, bookmarks: $bookmarks)
+                    ThisBookGroup(listening: listening, chapters: $chapters, bookmarks: $bookmarks, noting: $noting)
                 }
                 Group {
                     if upright {
@@ -52,6 +54,7 @@ struct PlayerView: View {
                 .onAppear { playFocused = true }
                 .sheet(isPresented: $chapters) { ChapterSheet(listening: listening) { chapters = false } }
                 .sheet(isPresented: $bookmarks) { BookmarkSheet(listening: listening) { bookmarks = false } }
+                .sheet(item: $noting) { bookmark in NoteSheet(listening: listening, bookmark: bookmark) { noting = nil } }
                 // Bookmarks made on other devices since.
                 .task(id: listening.book.id) { await listening.bookmarks.load() }
             } else {
@@ -138,12 +141,12 @@ private struct NowPlaying: View {
             HStack(spacing: narrow ? 12 : 36.scaled) {
                 Button { listening.chapter(by: -1) } label: { Image(systemName: "backward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
-                Button { listening.skip(by: -30_000) } label: { Image(systemName: "gobackward.30") }
+                Button { listening.skip(by: -Listening.skipMs) } label: { Image(systemName: "gobackward.30") }
                     .buttonStyle(RoundButtonStyle(size: 80))
                 Button { listening.playPause() } label: { Image(systemName: listening.playing ? "pause.fill" : "play.fill") }
                     .buttonStyle(RoundButtonStyle(size: 112, primary: true))
                     .focused(playFocused)
-                Button { listening.skip(by: 30_000) } label: { Image(systemName: "goforward.30") }
+                Button { listening.skip(by: Listening.skipMs) } label: { Image(systemName: "goforward.30") }
                     .buttonStyle(RoundButtonStyle(size: 80))
                 Button { listening.chapter(by: 1) } label: { Image(systemName: "forward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
@@ -198,7 +201,7 @@ private struct ListeningGroup: View {
 
     var body: some View {
         Rows(label: "Listening") {
-            Row(title: "Speed", description: listening.speed != 1 ? "Kept for this book. \(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left at this speed." : "Kept for this book.") {
+            Row(title: "Speed", description: listening.speed != 1 ? "Kept for this book, on every device. \(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left at this speed." : "Kept for this book, on every device.") {
                 HStack(spacing: 18.scaled) {
                     Button { listening.setSpeed(listening.speed - Listening.speedStep) } label: { Image(systemName: "minus") }
                         .buttonStyle(RoundButtonStyle(size: 52))
@@ -243,9 +246,7 @@ private struct SleepRow: View {
                     minutes([15, 30, 45, 60])
                     endOfChapter
                 } else {
-                    if case .at = listening.sleep {
-                        Button("+15 min") { listening.extendSleep(by: 15) }.buttonStyle(SmallButtonStyle())
-                    }
+                    Button("+15 min") { listening.extendSleep(by: 15) }.buttonStyle(SmallButtonStyle())
                     Button("Turn off") { listening.sleep(after: nil) }.buttonStyle(SmallButtonStyle())
                 }
             }
@@ -271,7 +272,7 @@ private struct SleepRow: View {
         switch listening.sleep {
         case nil: "Fades out, and stops at a chapter's end if you like."
         case .endOfChapter: "At the end of this chapter"
-        case .at(let date): "\(Format.duration(Int(max(0, date.timeIntervalSinceNow) * 1000))) left"
+        case .at: "\(Format.duration(listening.sleepLeftMs ?? 0)) left\(listening.playing ? "" : ", waiting while paused")"
         }
     }
 }
@@ -282,13 +283,27 @@ private struct ThisBookGroup: View {
     let listening: Listening
     @Binding var chapters: Bool
     @Binding var bookmarks: Bool
+    @Binding var noting: ServerBookmark?
     @State private var moreAbout = false
+    @State private var marking = false
 
     var body: some View {
         let count = listening.chapters.count
         Rows(label: "This book") {
             Button { chapters = true } label: {
                 Row(title: "Chapters") { Text(count > 1 ? listening.chapter?.title ?? "" : String(count)) }
+            }
+            .buttonStyle(LiftStyle.row())
+            Button {
+                guard !marking else { return }
+                marking = true
+                Task {
+                    // Kept at once, then a note offered for it, as the desktop's player offers one.
+                    noting = await listening.bookmarkHere()
+                    marking = false
+                }
+            } label: {
+                Row(title: "Bookmark this moment", description: "Kept on every device, with a note if you like.") { Image(systemName: "bookmark") }
             }
             .buttonStyle(LiftStyle.row())
             Button { bookmarks = true } label: {
@@ -319,9 +334,9 @@ private struct ThisBookGroup: View {
     }
 
     #if os(tvOS)
-    static let howToBookmark = "Hold Select on the words in Read along to keep them."
+    static let howToBookmark = "Bookmark this moment, or hold Select on the words in Read along to keep them."
     #else
-    static let howToBookmark = "Hold the words in Read along to keep them."
+    static let howToBookmark = "Bookmark this moment, or hold the words in Read along to keep them."
     #endif
 }
 
@@ -377,10 +392,11 @@ private struct ChapterSheet: View {
 
 /// The book's bookmarks from every device, in the order of the book, as the desktop lists them
 /// (packages/desktop/src/ui/BookmarkList.tsx): the words, or the note, with the chapter and the time. Choosing one
-/// listens from it; holding Select on one offers to delete it.
+/// listens from it; holding Select on one offers its note and to delete it.
 private struct BookmarkSheet: View {
     let listening: Listening
     let onDone: () -> Void
+    @State private var noting: ServerBookmark?
 
     var body: some View {
         let all = listening.bookmarks.all
@@ -399,7 +415,11 @@ private struct BookmarkSheet: View {
                                 Image(systemName: "bookmark.fill").font(.system(size: 20.scaled)).foregroundStyle(Color.place).padding(.top, 4.scaled)
                                 VStack(alignment: .leading, spacing: 6.scaled) {
                                     Text(words(of: bookmark)).font(.ui(24)).foregroundStyle(Color.ink).lineLimit(3).multilineTextAlignment(.leading)
-                                    Text(whereIs(bookmark)).font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit().lineLimit(1)
+                                    // The words, with a note under them.
+                                    if bookmark.quote != nil && !bookmark.note.isEmpty {
+                                        Text(bookmark.note).font(.ui(22)).foregroundStyle(Color.ink2).lineLimit(3).multilineTextAlignment(.leading)
+                                    }
+                                    Text(whereIs(bookmark.ms, in: listening)).font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit().lineLimit(1)
                                 }
                                 Spacer(minLength: 0)
                             }
@@ -409,6 +429,7 @@ private struct BookmarkSheet: View {
                         }
                         .buttonStyle(LiftStyle.row(radius: 12))
                         .contextMenu {
+                            Button(bookmark.note.isEmpty ? "Add a note" : "Change the note") { noting = bookmark }
                             Button("Delete bookmark", role: .destructive) {
                                 Task { try? await listening.bookmarks.remove(bookmark) }
                             }
@@ -424,12 +445,13 @@ private struct BookmarkSheet: View {
         .frame(width: 1100)
         #endif
         .background(Color.surface.ignoresSafeArea())
+        .sheet(item: $noting) { bookmark in NoteSheet(listening: listening, bookmark: bookmark) { noting = nil } }
     }
 
     #if os(tvOS)
-    private static let none = "None yet. In Read along, hold Select on a sentence to keep it."
+    private static let none = "None yet. Bookmark this moment in the player, or in Read along hold Select on a sentence to keep it."
     #else
-    private static let none = "None yet. In Read along, hold a sentence to keep it."
+    private static let none = "None yet. Bookmark this moment in the player, or in Read along hold a sentence to keep it."
     #endif
 
     /// The words it marks, or its note, or that it's a moment.
@@ -439,11 +461,71 @@ private struct BookmarkSheet: View {
         return "Bookmark at \(Format.duration(bookmark.ms ?? 0))"
     }
 
-    /// "Chapter II The Council with the Munchkins · 11:03", as the desktop's list says it.
-    private func whereIs(_ bookmark: ServerBookmark) -> String {
-        guard let ms = bookmark.ms else { return "In the text" }
-        let chapter = listening.chapters.last { $0.startMs <= ms }?.title
-        return [chapter, Format.duration(ms)].compactMap { $0 }.joined(separator: " · ")
+}
+
+/// Where a bookmark is: "Chapter II The Council with the Munchkins · 11:03", as the desktop's list says it.
+@MainActor
+private func whereIs(_ ms: Int?, in listening: Listening) -> String {
+    guard let ms else { return "In the text" }
+    let chapter = listening.chapters.last { $0.startMs <= ms }?.title
+    return [chapter, Format.duration(ms)].compactMap { $0 }.joined(separator: " · ")
+}
+
+/// A bookmark's note, typed or said (the TV's keyboard listens, as Search's field does), kept on every device.
+/// Empty takes it away.
+private struct NoteSheet: View {
+    let listening: Listening
+    let bookmark: ServerBookmark
+    let onDone: () -> Void
+    @State private var note = ""
+    @State private var problem: String?
+    @State private var keeping = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28.scaled) {
+            SectionHeader(title: bookmark.note.isEmpty ? "Add a note" : "Change the note", description: "Bookmarked: \(whereIs(bookmark.ms, in: listening)).") {
+                SheetDone(action: onDone)
+            }
+            TextField("Say or type a note", text: $note, axis: .vertical)
+                .font(.ui(28))
+                .lineLimit(1...4)
+                .focused($focused)
+                .ribbonField()
+            if let problem {
+                Text(problem).font(.ui(22)).foregroundStyle(Color.ink2)
+            }
+            HStack(spacing: 24.scaled) {
+                Button(keeping ? "Keeping…" : "Keep note") { keep() }
+                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                Button("Cancel", action: onDone)
+                    .buttonStyle(RibbonButtonStyle())
+            }
+            Spacer(minLength: 0)
+        }
+        .screenEdges(horizontal: 64, vertical: 64)
+        #if os(tvOS)
+        .frame(width: 1100)
+        #endif
+        .background(Color.surface.ignoresSafeArea())
+        .onAppear {
+            note = bookmark.note
+            focused = true
+        }
+    }
+
+    private func keep() {
+        guard !keeping else { return }
+        keeping = true
+        Task {
+            do {
+                try await listening.bookmarks.setNote(note, on: bookmark)
+                onDone()
+            } catch {
+                problem = error.localizedDescription
+            }
+            keeping = false
+        }
     }
 }
 

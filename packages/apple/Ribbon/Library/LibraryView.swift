@@ -98,6 +98,7 @@ private struct TopBar: View {
                     mark
                     Spacer()
                     search.labelStyle(.iconOnly)
+                    stats.labelStyle(.iconOnly)
                     settings.labelStyle(.iconOnly)
                 }
                 if let listening = model.listening { playing(listening) }
@@ -110,6 +111,8 @@ private struct TopBar: View {
                 Spacer()
                 // Each button's words whole: where the bar is short, as on an iPad held upright, the book playing gives way.
                 search
+                    .padding(.trailing, 16.scaled)
+                stats
                     .padding(.trailing, 16.scaled)
                 if let listening = model.listening {
                     playing(listening)
@@ -156,6 +159,14 @@ private struct TopBar: View {
         .buttonStyle(RibbonButtonStyle())
     }
 
+    /// What you've been listening to.
+    private var stats: some View {
+        Button { model.showStats() } label: {
+            Label("Stats", systemImage: "chart.bar").fixedSize()
+        }
+        .buttonStyle(RibbonButtonStyle())
+    }
+
     /// Who's reading, which is where their settings are.
     private var settings: some View {
         Button { model.showSettings() } label: {
@@ -193,8 +204,10 @@ private struct ContinueCard: View {
         .task { detail = await model.library?.detail(of: book) }
     }
 
-    /// "Chapter 4 · 9h 40m left", the chapter by its own name, or how far in when the book is one chapter.
+    /// "Chapter 4 · 9h 40m left", the chapter by its own name, or how far in when the book is one chapter; "42% read"
+    /// for a book that is only its text.
     private var where_: String {
+        guard book.audio else { return model.library?.standing(of: book) ?? "" }
         let ms = model.library?.progress(of: book)?.ms ?? 0
         let left = "\(Format.left(book.durationMs - ms)) left"
         guard let chapters = detail?.chapters, chapters.count > 1 else {

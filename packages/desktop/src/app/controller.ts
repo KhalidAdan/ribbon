@@ -17,14 +17,15 @@ import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
 import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
-import { claimsFor, mergeById, type LogRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
+import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 import { finishedByRead, openRead } from "@ribbon/core/stats";
+import { goalToday, GoalWatch, newerGoal, NO_GOAL, type DailyGoal } from "@ribbon/core/goal";
 import { chaptersUrl, parseChapters, type LookedUp, type Region } from "@ribbon/core/audnexus";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
 import { resumePosition, rewindFor } from "@ribbon/core/resume";
 import { snapSpeed } from "@ribbon/core/speed";
-import { defaultSettings } from "@ribbon/core/settings";
+import { defaultSettings, lastSpeed, speedToPlay } from "@ribbon/core/settings";
 import { bookmarksOf, clipRange, highlightId, highlightsOf, markFields, markId, type MarkFields } from "@ribbon/core/bookmarks";
 import { highlightOf, trimRange } from "@ribbon/core/reading/highlights";
 import { chapterAt } from "@ribbon/core/scan/chapters";
@@ -78,6 +79,15 @@ interface ReadingData {
 function emptyReading(): ReadingData {
   return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), heardBy: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0 };
 }
+
+/** A stretch of reading ends after this long without the page moving: the reader has looked away. */
+const READING_IDLE_MS = 5 * 60_000;
+/** After the last move, this long still counts as reading: the page moved to is read. */
+const READING_LINGER_MS = 60_000;
+/** A stretch of listening or reading shorter than this isn't kept. */
+const STRETCH_MIN_MS = 30_000;
+/** How often today is checked against the daily goal. */
+const GOAL_CHECK_MS = 15_000;
 
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
 const ALIGNED_WRITE_MS = 30_000;
@@ -232,10 +242,14 @@ export interface AppState {
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
   view: LibraryView;
-  /** Listen-throughs and listening sessions from every device's log. */
-  history: { reads: ReadRecord[]; sessions: SessionRecord[]; recording: boolean };
+  /** Listen-throughs, listening sessions and time spent reading, from every device's log. */
+  history: { reads: ReadRecord[]; sessions: SessionRecord[]; readings: ReadingRecord[]; recording: boolean };
   /** A book that has just played to its end, while its card shows (ui/TheEnd.tsx), by id. */
   theEnd: string | null;
+  /** The person's daily goal, minutes a day with their books (core/goal.ts): this machine's, or a server's chosen later. */
+  goal: DailyGoal;
+  /** The goal just met, while its note shows (ui/GoalMet.tsx): the minutes, and the days in a row. */
+  goalMet: { minutes: number; streakDays: number } | null;
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
   /** The book open in the reader, over everything but the player bar. */
@@ -258,6 +272,7 @@ function sameRecord(a: LogRecord, b: LogRecord): boolean {
   if (a.k === "read" && b.k === "read") return a.id === b.id && a.finished === b.finished && a.started === b.started;
   if (a.k === "del" && b.k === "del") return a.of === b.of;
   if (a.k === "session" && b.k === "session") return a.start === b.start;
+  if (a.k === "reading" && b.k === "reading") return a.start === b.start;
   if (a.k === "mark" && b.k === "mark") return a.id === b.id && a.modified === b.modified && a.body === b.body;
   return false;
 }
@@ -433,6 +448,11 @@ export class AppController {
   private bookmarkRows = new Map<string, Bookmark[]>();
   /** The stretch of playing going on now, for the session record. */
   private listening: { bookId: string; start: number; fromMs: number; speed: number } | null = null;
+  /** Whether to say the daily goal was met: once a day, when it's met here (core/goal.ts). */
+  private goalWatch = new GoalWatch();
+  private goalTimer: ReturnType<typeof setInterval> | null = null;
+  /** When a stretch of listening or reading here last ended and was kept: the goal it meets is this machine's to say. */
+  private spentHereAt = 0;
   private lastWrite = 0;
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
@@ -501,8 +521,10 @@ export class AppController {
       playerDrawer: null,
       editBook: null,
       view: DEFAULT_VIEW,
-      history: { reads: [], sessions: [], recording: true },
+      history: { reads: [], sessions: [], readings: [], recording: true },
       theEnd: null,
+      goal: NO_GOAL,
+      goalMet: null,
       namedChapters: {},
       reading: null,
       readingSettings: parseReading(undefined),
@@ -656,12 +678,18 @@ export class AppController {
         log.info("replacing Ribbon's speech model, whisper base, with whisper small");
         void this.downloadSpeechModel();
       }
+      const kept = this.appSettings.dailyGoal as Partial<DailyGoal> | undefined;
+      if (kept && typeof kept.minutes === "number") this.set({ goal: { minutes: kept.minutes, chosenAt: typeof kept.chosenAt === "string" ? kept.chosenAt : null } });
+      this.goalWatch = new GoalWatch(typeof this.appSettings.goalCelebrated === "number" ? this.appSettings.goalCelebrated : null);
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
         await this.platform.appSettings.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
       }
     }
+    this.goalTimer = setInterval(() => this.checkGoal(), GOAL_CHECK_MS);
+    // Under Node (the tests, the tools) it never holds the process open.
+    (this.goalTimer as { unref?: () => void }).unref?.();
     const asked = performance.now();
     void this.platform.uptimeMs?.().then((ms) => {
       this.clockOffset = ms - asked;
@@ -1523,6 +1551,7 @@ export class AppController {
     try {
       const books = await shelf.refresh();
       const series = await shelf.refreshSeries();
+      if (alive()) await this.takeGoal(o);
       if (books && alive()) this.publishBooks();
       if (books && alive()) await this.takeEdits(o);
       // A series' books are named by their ids here, which come with the list.
@@ -1830,7 +1859,11 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
-    if (player.playing && !prev.playing && player.bookId) this.beginListening(player.bookId, player.positionMs, player.speed);
+    if (player.playing && !prev.playing && player.bookId) {
+      this.beginListening(player.bookId, player.positionMs, player.speed);
+      // Read along with the narration, the time is listening: the stretch of reading ends.
+      if (this.readingStretch?.bookId === player.bookId) void this.endReading();
+    }
     if (this.listening && (!player.playing || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
     // Stopped for any reason (the listener, the system, the end of a
     // preview, a file that failed): keep the place now.
@@ -1893,7 +1926,9 @@ export class AppController {
     if (seq !== this.openSeq) return;
     const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
     if (seq !== this.openSeq) return;
-    const current: CurrentBook = { book, settings, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
+    // At the speed it was last heard at on any device, unless this machine chose one since (core/settings.ts).
+    const speed = speedToPlay(settings, lastSpeed(this.state.history.sessions, id));
+    const current: CurrentBook = { book, settings: { ...settings, speed }, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
     this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
     // The book left behind may be one a server's admin deleted meanwhile.
     this.dropDeletedEverywhere();
@@ -1903,7 +1938,7 @@ export class AppController {
     const startMs = Math.min(ahead ?? position?.offsetMs ?? 0, book.book.durationMs);
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
     if (seq !== this.openSeq) return;
-    engine.setSpeed(settings.speed);
+    engine.setSpeed(speed);
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
     if (ahead !== null) void this.persistPosition("seek");
@@ -2758,6 +2793,7 @@ export class AppController {
     const p = r.place;
     if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
     this.readingKeeper.move(place, why);
+    if (by !== "follow" && r.text) this.readOn(r.bookId, r.text, place);
     // A line found by a search is marked until the reader moves on.
     const { following, found: _found, ...rest } = r;
     this.set({ reading: { ...rest, place, ...(following && by !== "hand" ? { following } : {}) } });
@@ -2765,8 +2801,44 @@ export class AppController {
     if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
   }
 
+  /**
+   * The page moved by hand, with the narration not playing this book: time
+   * spent reading, as a stretch from the first move to the last (and a
+   * little after), kept as a `reading` record when it ends (format 1.3,
+   * `endReading`). Five minutes without a move, the reader has looked away,
+   * and the stretch ends where they did.
+   */
+  private readingStretch: { bookId: string; claims: string[]; start: number; last: number; from: number; to: number } | null = null;
+
+  private readOn(bookId: string, text: BookText, place: TextPlace): void {
+    if (this.state.player.playing && this.state.player.bookId === bookId) return;
+    const now = Date.now();
+    const at = text.locator(place).locations?.totalProgression ?? 0;
+    const s = this.readingStretch;
+    if (s && (s.bookId !== bookId || now - s.last > READING_IDLE_MS)) void this.endReading();
+    if (this.readingStretch) {
+      this.readingStretch.last = now;
+      this.readingStretch.to = at;
+    } else {
+      this.readingStretch = { bookId, claims: textClaimsFor(bookId, text.ebook.meta.identifiers), start: now, last: now, from: at, to: at };
+    }
+  }
+
+  /** The stretch of reading ends: kept, when it was long enough and sessions are kept, as listening's are. */
+  private endReading(at = Date.now()): Promise<void> {
+    const s = this.readingStretch;
+    this.readingStretch = null;
+    if (!s || !this.state.history.recording) return Promise.resolve();
+    const end = Math.min(at, s.last + READING_LINGER_MS);
+    if (end - s.start < STRETCH_MIN_MS) return Promise.resolve();
+    const progress = (x: number) => Math.round(x * 10_000) / 10_000;
+    this.spentHereAt = Date.now();
+    return this.writeHistory(s.bookId, { k: "reading", start: new Date(s.start).toISOString(), end: new Date(end).toISOString(), read_ms: end - s.start, from: progress(s.from), to: progress(s.to) }, undefined, s.claims);
+  }
+
   /** Close the reader, keeping its place everywhere first. */
   async closeReading(): Promise<void> {
+    await this.endReading();
     const keeper = this.readingKeeper;
     this.readingKeeper = null;
     this.readingCtx = null;
@@ -2982,7 +3054,7 @@ export class AppController {
     if (!cur || !this.engine || !lib) return;
     const s = snapSpeed(speed);
     this.engine.setSpeed(s);
-    const settings = { ...cur.settings, speed: s };
+    const settings = { ...cur.settings, speed: s, speedAt: new Date().toISOString() };
     this.set({ current: { ...cur, settings } });
     await lib.writeSettings(settings);
   }
@@ -3031,7 +3103,7 @@ export class AppController {
     if (this.state.player.playing) this.engine?.pause();
     await this.persistPosition("close");
     const reading = this.readingKeeper;
-    const all = Promise.all([...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
+    const all = Promise.all([this.endReading(), ...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
     await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
   }
 
@@ -3088,6 +3160,8 @@ export class AppController {
 
   /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
   async checkpoint(): Promise<void> {
+    // Out of sight, the reading stops counting.
+    await this.endReading();
     if (this.state.current) await this.persistPosition("close");
   }
 
@@ -3421,29 +3495,37 @@ export class AppController {
     const all = this.openedInOrder().flatMap((o) => o.log);
     const seen = new Set<string>();
     const sessions: SessionRecord[] = [];
+    const readings: ReadingRecord[] = [];
     for (const r of all) {
-      if (r.k !== "session") continue;
+      if (r.k !== "session" && r.k !== "reading") continue;
       const key = `${r.dev}:${r.seq}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      sessions.push(r);
+      if (r.k === "session") sessions.push(r);
+      else readings.push(r);
     }
-    this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions } });
+    this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions, readings } });
     this.refreshBookmarks();
     this.refreshHighlights();
   }
 
-  /** Write a history record or a mark to the log of the book's source, and show it at once. */
+  /** Write a history record or a mark to the log of the book's source, and show it at once. A reading is under its text's claims. */
   private async writeHistory(
     bookId: string,
-    r: { k: "read"; id: string; started: string; finished?: string } | { k: "del"; of: string } | MarkFields | (Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" }),
+    r:
+      | { k: "read"; id: string; started: string; finished?: string }
+      | { k: "del"; of: string }
+      | MarkFields
+      | (Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" })
+      | (Omit<ReadingRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "reading" }),
     t = new Date().toISOString(),
+    textClaims?: string[],
   ): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    // A book with no audio has no length to give.
-    const book = { ids: claimsFor(b.original ?? b.book), ...(b.book.durationMs > 0 ? { dur_ms: b.book.durationMs } : {}) };
+    // A book with no audio has no length to give, nor does a text.
+    const book = textClaims ? { ids: textClaims } : { ids: claimsFor(b.original ?? b.book), ...(b.book.durationMs > 0 ? { dur_ms: b.book.durationMs } : {}) };
     // Shown at once; the next read of the log replaces it with what was written.
     this.localSeq = Math.max(this.localSeq + 1, Date.now());
     const shown = { v: 1, dev: "local", seq: this.localSeq, t, book, ...r } as LogRecord;
@@ -3497,6 +3579,67 @@ export class AppController {
     await this.writeHistory(bookId, { k: "del", of: readId });
   }
 
+  // Daily goal ----------------------------------------------------------
+
+  /** Choose a daily goal, in minutes (0 is off): kept on this machine and on every server signed in to, where it's the person's. */
+  async setGoal(minutes: number): Promise<void> {
+    const goal = { minutes, chosenAt: new Date().toISOString() };
+    this.keepGoal(goal);
+    for (const o of this.openedInOrder()) {
+      await o.server?.client.chooseGoal(goal).catch((e: unknown) => log.warn("could not keep the daily goal on the server:", o.source.name, describe(e)));
+    }
+  }
+
+  /** A server's goal and this machine's: the one chosen later stands, here and there. */
+  private async takeGoal(o: Opened): Promise<void> {
+    const client = o.server?.client;
+    const theirs = client && (await client.goal().catch(() => null));
+    if (!client || !theirs) return;
+    const stands = newerGoal(this.state.goal, theirs);
+    if (stands === theirs) {
+      if (theirs.minutes !== this.state.goal.minutes || theirs.chosenAt !== this.state.goal.chosenAt) this.keepGoal(theirs);
+    } else if (stands.chosenAt) {
+      await client.chooseGoal(stands).catch((e: unknown) => log.warn("could not keep the daily goal on the server:", o.source.name, describe(e)));
+    }
+  }
+
+  private keepGoal(goal: DailyGoal): void {
+    this.appSettings = { ...this.appSettings, dailyGoal: goal };
+    this.saveAppSettingsSoon();
+    this.set({ goal });
+    this.checkGoal();
+  }
+
+  /**
+   * Today against the daily goal: the time kept, listening and reading,
+   * with what's going on now. Met here, after being seen not met today, it
+   * says so, once a day (ui/GoalMet.tsx).
+   */
+  private checkGoal(now = Date.now()): void {
+    const minutes = this.state.goal.minutes;
+    if (!minutes) return;
+    const tz = new Date(now).getTimezoneOffset();
+    const { sessions, readings } = this.state.history;
+    const live = this.liveMs(now);
+    const today = goalToday([...sessions, ...readings], minutes, now, tz, live);
+    if (!this.goalWatch.see(today, now, tz, live > 0 || now - this.spentHereAt < 60_000)) return;
+    this.appSettings = { ...this.appSettings, goalCelebrated: this.goalWatch.celebrated };
+    this.saveAppSettingsSoon();
+    this.set({ goalMet: { minutes, streakDays: today.streakDays } });
+  }
+
+  /** Listening and reading going on now, not kept in the log yet. */
+  private liveMs(now: number): number {
+    const listening = this.listening && this.state.player.playing ? now - this.listening.start : 0;
+    const s = this.readingStretch;
+    const reading = s ? Math.min(now, s.last + READING_LINGER_MS) - s.start : 0;
+    return Math.max(0, listening) + Math.max(0, reading);
+  }
+
+  dismissGoalMet(): void {
+    this.set({ goalMet: null });
+  }
+
   /** Keep a record of listening sessions, or stop. Turning it off writes no more of them. */
   async setRecordSessions(on: boolean): Promise<void> {
     this.appSettings = { ...this.appSettings, recordSessions: on };
@@ -3527,7 +3670,8 @@ export class AppController {
     this.listening = null;
     if (!s || !this.state.history.recording) return;
     const end = Date.now();
-    if (end - s.start < 30_000) return;
+    if (end - s.start < STRETCH_MIN_MS) return;
+    this.spentHereAt = end;
     void this.writeHistory(s.bookId, {
       k: "session",
       start: new Date(s.start).toISOString(),
@@ -3911,6 +4055,7 @@ export class AppController {
   }
 
   destroy(): void {
+    if (this.goalTimer) clearInterval(this.goalTimer);
     for (const o of this.opened.values()) {
       void o.keeper.flush();
       o.lookup?.stop();

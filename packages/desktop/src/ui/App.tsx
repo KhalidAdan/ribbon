@@ -24,6 +24,7 @@ import { MoveToServer, SpaceShort } from "./Servers";
 import { SpeechNudge } from "./SpeechNudge";
 import { StatsPane } from "./StatsPane";
 import { TheEnd } from "./TheEnd";
+import { GoalMet } from "./GoalMet";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
 import { preloadFaces } from "../reader/typeset";
@@ -143,6 +144,7 @@ function Ready() {
           <PlayerPane />
         </PlayerSheet>
         <TheEnd />
+        <GoalMet />
         <SpeechNudge />
       </>
     );
@@ -156,6 +158,7 @@ function Ready() {
       <SpaceShort />
       <MoveToServer />
       <TheEnd />
+      <GoalMet />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={matchCount} onSubmit={openFirst} />
       <Tabs
         current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}

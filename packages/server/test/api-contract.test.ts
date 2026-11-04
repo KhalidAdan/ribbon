@@ -57,7 +57,7 @@ describe("what the server answers the Apple app", () => {
   let admin = "";
   let id = "";
 
-  const ask = async (method: "GET" | "POST" | "DELETE", url: string, payload?: Record<string, unknown>) => {
+  const ask = async (method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: Record<string, unknown>) => {
     const r = await server.app.inject({ method, url, headers: { authorization: `Bearer ${admin}` }, ...(payload ? { payload } : {}) });
     expect(r.statusCode, `${method} ${url}: ${r.body}`).toBeLessThan(300);
     return r.json() as Record<string, unknown>;
@@ -105,6 +105,9 @@ describe("what the server answers the Apple app", () => {
     await kept("bookmarks", await ask("GET", `/api/books/${id}/bookmarks`));
     await kept("passages", await ask("GET", "/api/bookmarks"));
     await kept("bookmark-deleted", await ask("DELETE", `/api/books/${id}/bookmarks/${encodeURIComponent((made.bookmark as { id: string }).id)}`, { device: DEVICE }));
+    const moment = await ask("POST", `/api/books/${id}/bookmarks`, { ms: 12000, note: "the waygate opens", device: DEVICE });
+    await kept("bookmark-moment", moment);
+    await kept("bookmark-noted", await ask("PUT", `/api/books/${id}/bookmarks/${encodeURIComponent((moment.bookmark as { id: string }).id)}`, { note: "where it opens", device: DEVICE }));
   });
 
   it("listening, and the end of a book", async () => {
@@ -112,9 +115,19 @@ describe("what the server answers the Apple app", () => {
     const end = new Date(1_790_000_020_000).toISOString();
     await kept("listened", await ask("POST", `/api/books/${id}/listened`, { start, end, fromMs: 0, toMs: 20000, speed: 1, again: false, keep: true, device: DEVICE }));
     await kept("finished", await ask("POST", `/api/books/${id}/finished`, { device: DEVICE }));
+    await kept("listens", await ask("GET", `/api/books/${id}/listens`));
+    // A stretch long enough to count, so the stats have numbers in them: a day's average is a fraction of a millisecond.
+    const now = Date.now();
+    await ask("POST", `/api/books/${id}/listened`, { start: new Date(now - 40_000).toISOString(), end: new Date(now).toISOString(), fromMs: 0, toMs: 40000, speed: 1, again: false, keep: true, device: DEVICE });
+    await kept("stats", await ask("GET", "/api/stats?tz=300"));
+    await kept("goal-chosen", await ask("PUT", "/api/goal", { minutes: 20 }));
+    await kept("goal", await ask("GET", "/api/goal?tz=300"));
+    await kept("reading", await ask("POST", `/api/books/${id}/reading`, { start: new Date(now - 60_000).toISOString(), end: new Date(now).toISOString(), from: 0, to: 1, keep: true, device: DEVICE }));
+    await kept("unfinished", await ask("POST", `/api/books/${id}/unfinished`, { device: DEVICE }));
   });
 
-  it("a line found", async () => {
+  it("a line found, and a book", async () => {
     await kept("search", await ask("GET", `/api/search?q=${encodeURIComponent("giant circle of wraithbone")}`));
+    await kept("search-book", await ask("GET", `/api/search?q=${encodeURIComponent("waygate")}`));
   });
 });

@@ -42,6 +42,9 @@ final class ContractTests: XCTestCase {
         XCTAssertFalse(try answer("bookmarks", as: InABook.self).bookmarks.isEmpty)
         XCTAssertFalse(try answer("passages", as: InEveryBook.self).bookmarks.isEmpty)
         _ = try answer("bookmark-deleted", as: Deleted.self)
+        // A moment, with a note, and the note changed.
+        XCTAssertNotNil(try answer("bookmark-moment", as: Made.self).bookmark.ms)
+        XCTAssertEqual(try answer("bookmark-noted", as: Made.self).bookmark.note, "where it opens")
     }
 
     func testListeningAndTheEndOfABook() throws {
@@ -49,10 +52,31 @@ final class ContractTests: XCTestCase {
         struct Finished: Decodable { let read: ListenThrough }
         _ = try answer("listened", as: Told.self)
         _ = try answer("finished", as: Finished.self)
+        _ = try answer("reading", as: Told.self)
+        struct Listens: Decodable { let listens: [Listen] }
+        XCTAssertEqual(try answer("listens", as: Listens.self).listens.first?.ended.how, "finished")
+        XCTAssertNil(try answer("unfinished", as: Finished.self).read.finished)
+    }
+
+    func testTheDailyGoal() throws {
+        let today = try answer("goal", as: GoalToday.self)
+        XCTAssertEqual(today.goal.minutes, 1000)
+        struct Chosen: Decodable { let goal: GoalToday.Goal }
+        _ = try answer("goal-chosen", as: Chosen.self)
+    }
+
+    func testStats() throws {
+        let stats = try answer("stats", as: ListeningStats.self)
+        XCTAssertEqual(stats.days.count, 2)
     }
 
     func testALineFound() throws {
         struct Found: Decodable { let results: [SearchResult] }
         XCTAssertFalse(try answer("search", as: Found.self).results.isEmpty)
+    }
+
+    func testABookFound() throws {
+        struct Found: Decodable { let results: [SearchResult]; let books: [String] }
+        XCTAssertFalse(try answer("search-book", as: Found.self).books.isEmpty)
     }
 }

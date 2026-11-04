@@ -21,10 +21,26 @@ import UIKit
 /// Once the narration has played a few seconds with the remote following it,
 /// the words not being read step back (the river); the remote moving away, or
 /// the narration pausing, brings them back at once.
+///
+/// Reading on away from the narrator while it's paused is reading: where you
+/// are goes to the server as a reading place a few seconds after you rest on
+/// a sentence, and as you leave, as the desktop's reader keeps one
+/// (ReadingKeeper). Every device then opens at it, and listening carries on
+/// from it. A book that is only its text has no narration at all: where you
+/// are is the remote's sentence, and that's all it keeps.
+///
+/// That reading is time spent with the book too, as listening is: from the
+/// first move with the narration paused to the last, and a minute after,
+/// sent when it ends (a `reading` record, docs/POSITION-FORMAT.md, format
+/// 1.3). Five minutes without a move, you've looked away, and it ends where
+/// you did. The Stats, and the daily goal, count it.
 @MainActor
 @Observable
 final class ReadingSession {
-    let listening: Listening
+    /// The narration, for a book that has one; nil for a book that is only its text.
+    let listening: Listening?
+    let book: ServerBook
+    let bookmarks: Bookmarks
     let readAlong: ReadAlong
     let sentences: Sentences
 
@@ -58,6 +74,14 @@ final class ReadingSession {
     @ObservationIgnored private var followedMs = 0
     /// The last moment heard, and when.
     @ObservationIgnored private var lastHeard: (at: Date, ms: Int)?
+    @ObservationIgnored private let server: RibbonServer
+    /// The sentence read to and not told yet, and the wait before it's told: a few seconds' rest, as the desktop waits.
+    @ObservationIgnored private var readTo: Int?
+    @ObservationIgnored private var telling: Task<Void, Never>?
+    /// The stretch of reading now: since when, the last move, and the sentences it ran between.
+    @ObservationIgnored private(set) var stretch: (start: Date, last: Date, from: Int, to: Int)?
+    /// Whether the person keeps their stretches of time as sessions here (docs/POSITION-FORMAT.md, section 3.3).
+    @ObservationIgnored private let keepsSessions: Bool
 
     /// Listening from a sentence starts this long before it, so its first word isn't clipped (packages/core/src/reading/align.ts, `LEAD_IN_MS`).
     static let leadInMs = 250
@@ -66,23 +90,42 @@ final class ReadingSession {
     /// The river comes in once the narration has played this long with the remote following it, as the desktop's
     /// reader waits with the page following it (packages/desktop/src/reader/river.ts).
     static let riverAfterMs = 5_000
+    /// Resting on a sentence this long makes it the reading place, as the desktop's reader waits (`SHARE_AFTER_MS`).
+    static let restMs = 5_000
+    /// This long without a move, the reader has looked away: the stretch of reading ends (the desktop's `READING_IDLE_MS`).
+    static let idleAfter: TimeInterval = 5 * 60
+    /// After the last move, this long still counts: the sentence moved to is read (`READING_LINGER_MS`).
+    static let lingerFor: TimeInterval = 60
+    /// A stretch shorter than this isn't kept, as a listening session isn't.
+    static let shortest: TimeInterval = 30
 
     /// Opened at the narrator's sentence when the book is playing and reads along, else at the place the server gave.
-    init(listening: Listening, readAlong: ReadAlong, place: BookPlace?) {
+    init(book: ServerBook, server: RibbonServer, listening: Listening?, readAlong: ReadAlong, place: BookPlace?, keepsSessions: Bool = true) {
+        self.book = book
+        self.server = server
+        self.keepsSessions = keepsSessions
         self.listening = listening
+        bookmarks = listening?.bookmarks ?? Bookmarks(server: server, bookId: book.id)
         self.readAlong = readAlong
-        sentences = Sentences(readAlong)
+        let sentences = Sentences(readAlong)
+        self.sentences = sentences
         let last = max(0, sentences.count - 1)
-        let narrated = readAlong.readsAlong && listening.playing
-        let start = min(narrated ? sentences.read(at: listening.positionMs) : place?.sentence ?? sentences.read(at: listening.positionMs), last)
-        cursor = start
-        narrator = start
-        // The sentences time the narration's resuming and its stopping for someone who dozed off, in the player too.
-        listening.sentences = sentences
-        listening.onTime = { [weak self] ms in self?.heard(ms) }
-        listening.onStop = { [weak self] in self?.stopped() }
-        if !listening.playing { offerDozed() }
-        caveat = readAlong.notReady ?? readAlong.check?.caveat
+        let start: Int
+        if let listening, readAlong.readsAlong && listening.playing {
+            start = sentences.read(at: listening.positionMs)
+        } else {
+            start = place?.sentence ?? listening.map { sentences.read(at: $0.positionMs) } ?? 0
+        }
+        cursor = min(start, last)
+        narrator = min(start, last)
+        if let listening {
+            // The sentences time the narration's resuming and its stopping for someone who dozed off, in the player too.
+            listening.sentences = sentences
+            listening.onTime = { [weak self] ms in self?.heard(ms) }
+            listening.onStop = { [weak self] in self?.stopped() }
+            if !listening.playing { offerDozed() }
+            caveat = readAlong.notReady ?? readAlong.check?.caveat
+        }
         if caveat != nil {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(6))
@@ -91,13 +134,11 @@ final class ReadingSession {
         }
         // Bookmarks made on other devices since the book was last open.
         Task { [weak self] in
-            await listening.bookmarks.load()
-            self?.onMarks?()
+            guard let self else { return }
+            await self.bookmarks.load()
+            self.onMarks?()
         }
     }
-
-    var book: ServerBook { listening.book }
-    var bookmarks: Bookmarks { listening.bookmarks }
 
     // The remote --------------------------------------------------------
 
@@ -109,6 +150,7 @@ final class ReadingSession {
     /// Play and pause, or Select: on the narrator's sentence, pause or go on, back a little after a while away; on
     /// any other, read from it. A book that reads only plays on from where it was, wherever the remote is.
     func playPause() {
+        guard let listening else { return }
         if !readAlong.readsAlong {
             if listening.playing { listening.pause() } else { resumePlace() }
         } else if cursor != narrator {
@@ -126,7 +168,7 @@ final class ReadingSession {
     /// listened from, and again, a sentence further back each time. Nothing, in a book that reads only: when its
     /// sentences are read isn't known yet.
     func left() {
-        guard readAlong.readsAlong else { return }
+        guard readAlong.readsAlong, listening != nil else { return }
         if let last = lastLeft, Date().timeIntervalSince(last.at) < Self.againWithin {
             var back = last.sentence - 1
             while back > 0 && !sentences[back].narrated { back -= 1 }
@@ -138,9 +180,13 @@ final class ReadingSession {
 
     /// Listen from the sentence the remote is on.
     func listenFromHere() {
+        guard let listening else { return }
         let sentence = sentences[cursor]
         if atDozed { listening.dozing.forget() }
         atDozed = false
+        // Listening from here: the narration's place is the place now, and the time is listening.
+        forgetReading()
+        endStretch()
         // A listening place not moved from is resumed where it stopped, a little before; anywhere else, from the sentence.
         if !listening.loaded && cursor == narrator && !sentence.exact && listening.positionMs > 0 { return resumePlace() }
         listenedFrom = sentence.ms
@@ -152,7 +198,7 @@ final class ReadingSession {
 
     /// Back to the narrator's sentence, following it again. From where the person dozed off, that turns it down.
     func returnToNarrator() {
-        if atDozed { listening.dozing.forget() }
+        if atDozed { listening?.dozing.forget() }
         atDozed = false
         moveCursor(to: narrator)
     }
@@ -169,6 +215,7 @@ final class ReadingSession {
         if marking != nil || deleting != nil {
             marking = nil
             deleting = nil
+            followAgainIfOnlyText()
             onMarks?()
             return true
         }
@@ -178,16 +225,22 @@ final class ReadingSession {
     }
 
     /// The narration resumed at the narrator's sentence, gone back by as much as the time away asks; the page waits at
-    /// the sentence it goes back to while the lead-in plays.
+    /// the sentence it goes back to while the lead-in plays. After a while paused, the server is asked first where the
+    /// person is (Listening, `carryOn`).
     private func resumePlace() {
+        guard let listening else { return }
         if atDozed { listening.dozing.forget() }
         atDozed = false
-        let from = listening.resume()
-        listenedFrom = from
-        narrator = sentences.read(at: from)
-        cursor = narrator
-        following = true
-        onMarks?()
+        forgetReading()
+        endStretch()
+        Task {
+            let from = await listening.carryOn()
+            listenedFrom = from
+            narrator = sentences.read(at: from)
+            cursor = narrator
+            following = true
+            onMarks?()
+        }
     }
 
     /// The narration stopped on its own; for someone who dozed off, the remote goes to where they were last awake.
@@ -199,7 +252,7 @@ final class ReadingSession {
 
     /// Where the person dozed off, as the remote's sentence, away from the narrator: Left listens from it.
     private func offerDozed() {
-        guard let ms = listening.dozedOffer else { return }
+        guard let ms = listening?.dozedOffer else { return }
         // The moment kept may be in the lead-in before a sentence listened from: that sentence is the one.
         let sentence = sentences.read(at: ms + Self.leadInMs)
         guard sentence < narrator else { return }
@@ -234,6 +287,7 @@ final class ReadingSession {
     func keepBookmark() {
         guard let sentences = markingRange else { return }
         marking = nil
+        followAgainIfOnlyText()
         onMarks?()
         Task {
             do {
@@ -273,10 +327,13 @@ final class ReadingSession {
         }
     }
 
-    /// Out of the book: the reader lets go of the narration, which plays on.
+    /// Out of the book: the reader lets go of the narration, which plays on, and where you read to is kept.
     func close() {
-        listening.onTime = nil
-        listening.onStop = nil
+        listening?.onTime = nil
+        listening?.onStop = nil
+        telling?.cancel()
+        tellReadingPlace(why: .close)
+        endStretch()
     }
 
     // What's on the page ------------------------------------------------
@@ -292,7 +349,13 @@ final class ReadingSession {
 
     /// The river: every word but the ones being read stepped back, once the narration has played a few seconds with
     /// the remote following it.
-    var river: Bool { listening.playing && following && followedMs >= Self.riverAfterMs }
+    var river: Bool { listening?.playing == true && following && followedMs >= Self.riverAfterMs }
+
+    /// How far through the book: the narration's place, or, in a book that is only its text, the sentence you're on.
+    var fraction: Double {
+        if let listening { return Double(listening.positionMs) / Double(max(1, listening.durationMs)) }
+        return Double(cursor) / Double(max(1, sentences.count - 1))
+    }
 
     // Inside -------------------------------------------------------------
 
@@ -306,10 +369,86 @@ final class ReadingSession {
         guard target != cursor || !following else { return }
         atDozed = false
         cursor = target
-        // Back on the narrator's sentence, the remote follows it again; never while a bookmark takes in more.
-        following = cursor == narrator && marking == nil
+        if listening == nil {
+            // Only the text: where you are is the sentence you're on.
+            narrator = cursor
+            following = marking == nil
+        } else {
+            // Back on the narrator's sentence, the remote follows it again; never while a bookmark takes in more.
+            following = cursor == narrator && marking == nil
+        }
         if !following { calm() }
+        readOn()
+        timeOn()
         onMarks?()
+    }
+
+    // Time spent reading ------------------------------------------------------
+
+    /// A move by hand, with the narration not playing: the stretch of reading goes on, or begins.
+    private func timeOn() {
+        guard listening?.playing != true else { return }
+        let now = Date()
+        if let stretch, now.timeIntervalSince(stretch.last) > Self.idleAfter { endStretch(at: now) }
+        if let stretch {
+            self.stretch = (stretch.start, now, stretch.from, cursor)
+        } else {
+            stretch = (now, now, cursor, cursor)
+        }
+    }
+
+    /// Reading going on now and not sent yet: the stretch so far, a minute past its last move at most (the daily goal counts it).
+    var stretchMs: Int {
+        guard let stretch else { return 0 }
+        let end = min(Date(), stretch.last.addingTimeInterval(Self.lingerFor))
+        return max(0, Int(end.timeIntervalSince(stretch.start) * 1000))
+    }
+
+    /// The stretch of reading ends, a minute after its last move at most, and goes to the server when it was long enough.
+    func endStretch(at time: Date = Date()) {
+        guard let stretch else { return }
+        self.stretch = nil
+        let end = min(time, stretch.last.addingTimeInterval(Self.lingerFor))
+        guard end.timeIntervalSince(stretch.start) >= Self.shortest else { return }
+        let (server, id, keep) = (server, book.id, keepsSessions)
+        Task { try? await server.read(from: stretch.start, to: end, sentences: stretch.from, to: stretch.to, keep: keep, in: id) }
+    }
+
+    /// In a book that is only its text, a bookmark made or left goes back to following where you are, so Menu leaves.
+    private func followAgainIfOnlyText() {
+        if listening == nil { following = true }
+    }
+
+    // Where you read to -----------------------------------------------------
+
+    /// The sentence moved to by hand: once it has rested a few seconds, with the narration paused and the remote away
+    /// from the narrator's sentence, it's where you read to. Following the narrator, the narration keeps the place.
+    private func readOn() {
+        telling?.cancel()
+        guard listening?.playing != true, listening == nil || cursor != narrator else {
+            readTo = nil
+            return
+        }
+        readTo = cursor
+        telling = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.restMs))
+            guard !Task.isCancelled else { return }
+            self?.tellReadingPlace(why: .periodic)
+        }
+    }
+
+    /// Where you read to, to the server, if there's somewhere new.
+    private func tellReadingPlace(why: Why) {
+        guard let sentence = readTo else { return }
+        readTo = nil
+        let (server, id) = (server, book.id)
+        Task { try? await server.tell(sentence: sentence, why: why, in: id) }
+    }
+
+    /// The narration takes the place over: nothing read to is waiting.
+    private func forgetReading() {
+        telling?.cancel()
+        readTo = nil
     }
 
     /// The narration reached a moment: the sentence it's in is the narrator's, and the remote's while it follows. In a
@@ -328,7 +467,7 @@ final class ReadingSession {
     /// The narration playing on while the remote follows it, toward the river: from the moment heard just before, but
     /// not across a jump (a sentence listened from), and from nothing again after a pause.
     private func flow(_ ms: Int) {
-        guard listening.playing && following else { return calm() }
+        guard listening?.playing == true && following else { return calm() }
         let at = Date()
         defer { lastHeard = (at, ms) }
         // The player says where it is five times a second while it plays.

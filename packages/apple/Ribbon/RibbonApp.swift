@@ -32,8 +32,11 @@ struct RibbonApp: App {
             #endif
             .onChange(of: phase, initial: true) { _, phase in
                 model.inFront = phase == .active
+                // Behind the home screen, or locked, nobody is reading.
+                guard phase == .active else { return model.wentBehind() }
                 // Coming back to the app took a press, which the home screen had.
-                if phase == .active { Remote.used() }
+                Remote.used()
+                Task { await model.cameToFront() }
             }
         }
     }
@@ -59,6 +62,7 @@ private struct Screens: View {
                         case .player: PlayerView().wayBack()
                         case .search: SearchView().wayBack()
                         case .settings: SettingsView().wayBack()
+                        case .stats: StatsView().wayBack()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -83,6 +87,15 @@ private struct Screens: View {
                 PassagesView(passages: passages).transition(.opacity)
             }
         }
+        .overlay(alignment: .top) {
+            if let met = model.goal?.met {
+                GoalNote(met: met)
+                    .padding(.top, 24.scaled)
+                    .onTapGesture { model.goal?.dismiss() }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.3), value: model.goal?.met)
         .animation(.easeInOut(duration: 0.5), value: listening?.card)
         .animation(.easeOut(duration: 0.4), value: listening?.dozing.asked)
         .animation(.easeInOut(duration: 1.2), value: model.passages == nil)
@@ -130,6 +143,7 @@ final class AppModel {
         case search
         case reader
         case settings
+        case stats
     }
 
     struct Reading {
@@ -170,6 +184,8 @@ final class AppModel {
     var inFront = true
     /// Whether this person keeps their stretches of listening as sessions, on this TV (docs/POSITION-FORMAT.md, section 3.3).
     private(set) var keepsSessions = true
+    /// Their daily goal, and today against it.
+    private(set) var goal: DailyGoal?
 
     /// Paused this long in the player or the reader with nothing pressed, the passages drift by.
     private static let stillFor = Waits.of(5 * 60, quick: 15)
@@ -196,8 +212,9 @@ final class AppModel {
         switch path[path.count - 2] {
         case .book(let book): return book.title
         case .player: return "Player"
-        case .search: return "Find a line"
+        case .search: return "Search"
         case .settings: return "Settings"
+        case .stats: return "Stats"
         case .reader: return "Read along"
         }
     }
@@ -223,6 +240,9 @@ final class AppModel {
         UserDefaults.standard.set(account.id, forKey: "ribbon.lastPerson")
         keepsSessions = UserDefaults.standard.object(forKey: Self.sessionsKey(account)) as? Bool ?? true
         passagesKnown = nil
+        let goal = DailyGoal(server: server)
+        self.goal = goal
+        Task { await goal.load() }
     }
 
     /// Keep this person's stretches of listening as sessions, or stop: the end of a book can then say how long it took.
@@ -244,6 +264,7 @@ final class AppModel {
         path = []
         server = nil
         library = nil
+        goal = nil
         problem = nil
     }
 
@@ -273,6 +294,24 @@ final class AppModel {
 
     // The library ----------------------------------------------------------
 
+    /// Back in front, from the home screen or the lock screen: the person may have listened or read on another device
+    /// meanwhile, so the book here goes to where they are, and the shelf says how far through each book they are now.
+    func cameToFront() async {
+        await listening?.lookAgain()
+        await goal?.see(liveMs: liveMs, inFront: inFront)
+        if library?.loaded == true { await library?.refreshProgress() }
+    }
+
+    /// Listening and reading going on now, not sent to the server yet.
+    private var liveMs: Int {
+        (listening?.stretchMs ?? 0) + (reading?.session.stretchMs ?? 0)
+    }
+
+    /// Gone behind the home screen or the lock screen: a stretch of reading ends where it was.
+    func wentBehind() {
+        reading?.session.endStretch()
+    }
+
     /// The books and how far through each, again: the library is shown, or shown again.
     func loadLibrary() async {
         guard let library, let server else { return }
@@ -295,21 +334,45 @@ final class AppModel {
 
     // Listening ------------------------------------------------------------
 
-    /// Listen to a book, in the player: from your place, or from the start when it's finished.
+    /// Listen to a book, in the player: from your place, or, when it's finished, again from the start.
     func listen(to book: ServerBook) async {
+        if library?.progress(of: book)?.finished == true { return await startAgain(book) }
+        await play(book) { listening in
+            if !listening.playing { await listening.carryOn() }
+        }
+    }
+
+    /// Start a book again from the beginning, as a new listen-through, as the desktop's Listen again and Start again
+    /// from the beginning do; the one before stays in the history.
+    func startAgain(_ book: ServerBook) async {
+        await play(book) { listening in
+            // The stretch playing ends first, so the next one opens the new listen-through.
+            if listening.playing { listening.pause() }
+            listening.startingAgain = true
+            listening.play(from: 0)
+        }
+    }
+
+    /// Mark a book finished, or not finished after all, on every device, as the desktop's book page does.
+    func mark(_ book: ServerBook, finished: Bool) async {
+        guard let server else { return }
+        problem = nil
+        do {
+            if finished { _ = try await server.finished(book.id) } else { _ = try await server.unfinished(book.id) }
+            await library?.refreshProgress()
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// A book's narration made ready and started as asked, in the player.
+    private func play(_ book: ServerBook, _ start: (Listening) async -> Void) async {
         guard opening == nil else { return }
         opening = book.id
         problem = nil
         defer { opening = nil }
         do {
-            let listening = try await listening(for: book)
-            // A book finished and left at its end is listened to again from the start: a new listen-through.
-            if library?.progress(of: book)?.finished == true && listening.durationMs - listening.positionMs < FinishedWithin.ms {
-                listening.startingAgain = true
-                listening.play(from: 0)
-            } else if !listening.playing {
-                listening.resume()
-            }
+            await start(try await listening(for: book))
             if path.last != .player { path.append(.player) }
         } catch {
             problem = error.localizedDescription
@@ -328,7 +391,12 @@ final class AppModel {
         if path.last != .settings { path.append(.settings) }
     }
 
-    /// Find a line, by voice or by typing, in any book.
+    /// What you've been listening to.
+    func showStats() {
+        if path.last != .stats { path.append(.stats) }
+    }
+
+    /// Search, by voice or by typing: a book by its details, or a line in any book.
     func showSearch() {
         if path.last != .search { path.append(.search) }
     }
@@ -336,6 +404,7 @@ final class AppModel {
     /// Read along with a book: its read-along and your place in it, from the server, and its text set in type. Opened at a
     /// sentence, as from a search, the remote is on that sentence and the narrator where it was.
     func readAlong(_ book: ServerBook, at sentence: Int? = nil) async {
+        guard book.audio else { return await read(book, at: sentence) }
         guard let server, opening == nil else { return }
         opening = book.id
         problem = nil
@@ -345,13 +414,38 @@ final class AppModel {
             async let readAlong = server.readAlong(book.id)
             let place = try await server.place(in: book.id)
             let listening = try await listening(for: book, at: place?.ms, placedAt: Moment.read(place?.at))
+            // The book was here already, paused: another device may have moved on in it since.
+            if let place { listening.catchUp(to: place.ms, at: Moment.read(place.at)) }
             let text = try await readAlong
             let typeset = ContinuousClock.now
             let measure = BookLayout.Measure.forThisScreen
             let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
             log.info("opened \(book.title, privacy: .public): the server answered in \(typeset - asked, privacy: .public), \(layout.paragraphs.count) paragraphs set in \(ContinuousClock.now - typeset, privacy: .public)")
-            let session = ReadingSession(listening: listening, readAlong: text, place: place)
+            let session = ReadingSession(book: book, server: server, listening: listening, readAlong: text, place: place, keepsSessions: keepsSessions)
             if let sentence { session.show(sentence) }
+            reading = Reading(session: session, layout: layout)
+            path.append(.reader)
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// Read a book that is only its text: the reader with no narration, at your place in it, or at a sentence found.
+    /// A book playing meanwhile plays on.
+    func read(_ book: ServerBook, at sentence: Int? = nil) async {
+        guard let server, opening == nil else { return }
+        opening = book.id
+        problem = nil
+        defer { opening = nil }
+        do {
+            async let readAlong = server.readAlong(book.id)
+            let place = try await server.place(in: book.id)
+            let text = try await readAlong
+            let measure = BookLayout.Measure.forThisScreen
+            let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
+            let session = ReadingSession(book: book, server: server, listening: nil, readAlong: text, place: place, keepsSessions: keepsSessions)
+            if let sentence { session.show(sentence) }
+            reading?.session.close()
             reading = Reading(session: session, layout: layout)
             path.append(.reader)
         } catch {
@@ -425,6 +519,8 @@ final class AppModel {
     private func watchStillness() async {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(5))
+            // Today against the daily goal, with what's going on now.
+            await goal?.see(liveMs: liveMs, inFront: inFront)
             let still = listening.map { !$0.playing && !$0.stoppedOnItsOwn } == true && bookOnScreen && finished == nil
             guard still else {
                 if passages != nil { passages = nil }
@@ -467,9 +563,18 @@ final class AppModel {
         listening = nil
         let detail = try await server.book(book.id)
         await library.refreshProgress()
+        let start: (ms: Int, at: Date?)
+        if let ms {
+            start = (ms, placedAt)
+        } else if library.progress(of: book)?.finished == true {
+            start = (0, nil)
+        } else {
+            start = await newestPlace(of: book) ?? (0, nil)
+        }
         let progress = library.progress(of: book)
-        let start = ms ?? (progress?.finished == true ? 0 : progress?.ms ?? 0)
-        let made = Listening(book: book, detail: detail, startMs: start, placedAt: placedAt ?? Moment.read(progress?.at), server: server)
+        let heard = progress?.speed.flatMap { speed in Moment.read(progress?.speedAt).map { (speed: speed, at: $0) } }
+        let made = Listening(book: book, detail: detail, startMs: start.ms, placedAt: start.at, heard: heard, server: server)
+        made.newestPlace = { [weak self] in await self?.newestPlace(of: book) }
         made.keepsSessions = keepsSessions
         made.showsCards = { [weak self] in self?.bookOnScreen ?? false }
         made.inFront = { [weak self] in self?.inFront ?? true }
@@ -483,14 +588,22 @@ final class AppModel {
         return made
     }
 
+    /// Where the person is in a book, newest of every device. For a book with its text, the server's place, which
+    /// counts their reading too, so listening carries on from where they read to, as the desktop's does
+    /// (docs/READING.md, "pressing play outside the reader starts where the reading stopped"); else, or when that
+    /// can't be had in a moment, their newest place listening.
+    private func newestPlace(of book: ServerBook) async -> (ms: Int, at: Date?)? {
+        guard let server, let library else { return nil }
+        if book.ebook, let place = try? await server.place(in: book.id, waiting: 5) {
+            return (place.ms, Moment.read(place.at))
+        }
+        await library.refreshProgress()
+        return library.progress(of: book).map { ($0.ms, Moment.read($0.at)) }
+    }
+
     private static func sessionsKey(_ account: Account) -> String {
         "ribbon.sessions.\(account.id)"
     }
-}
-
-/// How near its end a book counts as finished, as the desktop counts it (packages/core/src/progress.ts, `FINISHED_WITHIN_MS`).
-enum FinishedWithin {
-    static let ms = 60_000
 }
 
 /// What the app says about itself, in the system log: `log show --predicate 'subsystem == "app.ribbon.tv"'`.

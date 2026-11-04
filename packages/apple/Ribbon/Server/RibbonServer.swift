@@ -59,9 +59,27 @@ struct ServerBookDetail: Decodable {
         let publisher: String?
     }
 
+    /// What the server measured of the book once, as it came in (packages/server/src/library/prepare.ts).
+    struct Analysis: Decodable {
+        struct Measured: Decodable {
+            let integratedLufs: Double
+            let truePeakDbtp: Double?
+        }
+
+        let loudness: Measured?
+    }
+
     let files: [File]
     let chapters: [Chapter]
     let book: About
+    /// Nil until the server has measured it.
+    var analysis: Analysis? = nil
+
+    /// The gain that brings the book to the library's loudness (Loudness), in dB: none before it's measured.
+    var gainDb: Double {
+        guard let measured = analysis?.loudness else { return 0 }
+        return Loudness.gainDb(integratedLufs: measured.integratedLufs, truePeakDbtp: measured.truePeakDbtp)
+    }
 }
 
 /// How far someone is through a book (packages/server/src/readalong-routes.ts, `GET /api/progress`).
@@ -71,6 +89,11 @@ struct BookProgress: Decodable {
     let at: String
     let started: Bool
     let finished: Bool
+    /// How far through its text, 0 to 1, for a book that is only its text; nil for one with a recording.
+    var fraction: Double? = nil
+    /// The speed it was last heard at, on any device, and when that listening ended; nil before any is kept.
+    var speed: Double? = nil
+    var speedAt: String? = nil
 }
 
 /// Where the person is in a book (packages/server/src/readalong-routes.ts, `BookPlace`).
@@ -91,6 +114,84 @@ struct ListenThrough: Decodable, Equatable {
     let finished: String?
     /// Wall-clock time spent listening in it, on every device.
     let listenedMs: Int
+}
+
+/// One listen-through of a book, as the desktop's book page lists them (packages/desktop/src/ui/ReadHistory.tsx): how it
+/// went, and how it ended.
+struct Listen: Decodable, Hashable {
+    struct Ended: Decodable, Hashable {
+        /// "finished"; "left", started again without finishing it; or "going".
+        let how: String
+        /// When, unless it's going.
+        let at: String?
+    }
+
+    let started: String
+    let finished: String?
+    /// Wall-clock time spent listening in it, on every device.
+    let listenedMs: Int
+    let ended: Ended
+}
+
+/// What the person has been listening to, counted from every device's sessions as the desktop's Stats counts it
+/// (packages/server/src/readalong-routes.ts, `GET /api/stats`).
+struct ListeningStats: Decodable {
+    struct Totals: Decodable {
+        let todayMs: Int
+        let weekMs: Int
+        /// Over the last thirty days, a day: a fraction of a millisecond, as the server divides it.
+        let dailyAverageMs: Double
+        let streakDays: Int
+        let longestStreakDays: Int
+        let finishedThisYear: Int
+        let totalMs: Int
+        let sessions: Int
+    }
+
+    struct BookTime: Decodable {
+        let book: String
+        let ms: Int
+    }
+
+    struct PersonTime: Decodable {
+        let name: String
+        let ms: Int
+    }
+
+    struct Finished: Decodable {
+        let book: String
+        let finished: String
+    }
+
+    let totals: Totals
+    /// The last year, a week a column, each day 0 (nothing) to 4 (the most).
+    let days: [[Int]]
+    let books: [BookTime]
+    let authors: [PersonTime]
+    let narrators: [PersonTime]
+    let finished: [Finished]
+    let finishedInAll: Int
+}
+
+/// The person's daily goal, and today against it, on this device's days (packages/server/src/readalong-routes.ts,
+/// `GET /api/goal`; packages/core/src/goal.ts).
+struct GoalToday: Decodable {
+    struct Goal: Decodable {
+        /// Minutes a day with their books; 0 is off.
+        let minutes: Int
+        let chosenAt: String?
+    }
+
+    struct Today: Decodable {
+        /// Time kept today, listening and reading, on every device.
+        let todayMs: Int
+        let met: Bool
+        /// Days in a row the goal was met, ending today, or yesterday while today isn't met yet.
+        let streakDays: Int
+    }
+
+    let goal: Goal
+    let today: Today
 }
 
 /// A bookmarked passage from any of the person's books (packages/server/src/readalong-routes.ts, `GET /api/bookmarks`), for
@@ -188,10 +289,11 @@ struct RibbonServer {
         return Account(url: url, name: name, token: token, cookieName: cookie.name, cookieValue: cookie.value)
     }
 
-    /// The books with a narration: the ones there are to listen to, and, with their text, to read along with.
+    /// Every book: the ones with a narration, to listen to, and to read along with when they have their text too; and
+    /// the ones that are only their text, to read.
     func books() async throws -> [ServerBook] {
         struct Answer: Decodable { let books: [ServerBook] }
-        return try await get(Answer.self, "api/books").books.filter(\.audio)
+        return try await get(Answer.self, "api/books").books.filter { $0.audio || $0.ebook }
     }
 
     /// The library's series, each with its books in order.
@@ -214,9 +316,10 @@ struct RibbonServer {
         try await get(ReadAlong.self, "api/books/\(id)/readalong")
     }
 
-    func place(in id: String) async throws -> BookPlace? {
+    /// Where the person is in a book, newest of every device, listening or reading; `waiting` gives up sooner than usual.
+    func place(in id: String, waiting: TimeInterval? = nil) async throws -> BookPlace? {
         struct Answer: Decodable { let place: BookPlace? }
-        return try await get(Answer.self, "api/books/\(id)/place").place
+        return try await get(Answer.self, "api/books/\(id)/place", waiting: waiting).place
     }
 
     /// Say where this TV is in a book: the server keeps it in the TV's position log, for every other device.
@@ -233,10 +336,48 @@ struct RibbonServer {
         _ = try await send("POST", "api/books/\(id)/listened", body, answer: Answer.self)
     }
 
-    /// The book played to its end: the listen-through closes, and the server says how it went.
+    /// A stretch of reading that just ended, from one sentence to another: kept as the desktop's reader keeps one, unless
+    /// the person keeps no sessions here (`keep`).
+    func read(from start: Date, to end: Date, sentences from: Int, to: Int, keep: Bool, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        let body: [String: Any] = ["start": Moment.write(start), "end": Moment.write(end), "from": from, "to": to, "keep": keep]
+        _ = try await send("POST", "api/books/\(id)/reading", body, answer: Answer.self)
+    }
+
+    /// The book played to its end, or marked finished: the listen-through closes, and the server says how it went.
     func finished(_ id: String) async throws -> ListenThrough {
         struct Answer: Decodable { let read: ListenThrough }
         return try await send("POST", "api/books/\(id)/finished", [:], answer: Answer.self).read
+    }
+
+    /// Not finished after all: the latest listen-through opens again, as the desktop's Mark as not finished opens it.
+    func unfinished(_ id: String) async throws -> ListenThrough {
+        struct Answer: Decodable { let read: ListenThrough }
+        return try await send("POST", "api/books/\(id)/unfinished", [:], answer: Answer.self).read
+    }
+
+    /// The person's daily goal, and today against it, on this device's days.
+    func goal() async throws -> GoalToday {
+        let offset = -TimeZone.current.secondsFromGMT() / 60
+        return try await get(GoalToday.self, "api/goal", query: [URLQueryItem(name: "tz", value: String(offset))])
+    }
+
+    /// Choose a daily goal, for every device: the server keeps it unless one was chosen later, and says which stands.
+    func chooseGoal(minutes: Int) async throws -> GoalToday.Goal {
+        struct Answer: Decodable { let goal: GoalToday.Goal }
+        return try await send("PUT", "api/goal", ["minutes": minutes, "chosenAt": Moment.write(Date())], answer: Answer.self).goal
+    }
+
+    /// What the person has been listening to, on this device's days.
+    func stats() async throws -> ListeningStats {
+        let offset = -TimeZone.current.secondsFromGMT() / 60
+        return try await get(ListeningStats.self, "api/stats", query: [URLQueryItem(name: "tz", value: String(offset))])
+    }
+
+    /// Every listen-through of a book, oldest first.
+    func listens(in id: String) async throws -> [Listen] {
+        struct Answer: Decodable { let listens: [Listen] }
+        return try await get(Answer.self, "api/books/\(id)/listens").listens
     }
 
     /// Every passage the person has bookmarked, in every book, newest first.
@@ -245,12 +386,25 @@ struct RibbonServer {
         return try await get(Answer.self, "api/bookmarks").bookmarks
     }
 
-    /// The sentences that best match words someone remembers, or says: in every book, or in one.
-    func search(_ words: String, in book: String? = nil) async throws -> [SearchResult] {
-        struct Answer: Decodable { let results: [SearchResult] }
+    /// Say where this device is reading in a book, as a sentence of its read-along: the server keeps it as a reading
+    /// place, as the desktop's reader keeps one, for every other device.
+    func tell(sentence: Int, why: Why, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        _ = try await send("POST", "api/books/\(id)/place", ["sentence": sentence, "why": why.rawValue], answer: Answer.self)
+    }
+
+    /// The sentences that best match words someone remembers, or says, in every book or in one; and, in every book,
+    /// the books whose title, author, narrator or series have every word, best first.
+    func search(_ words: String, in book: String? = nil) async throws -> (lines: [SearchResult], books: [String]) {
+        struct Answer: Decodable {
+            let results: [SearchResult]
+            /// Nil from a server from before it found books.
+            let books: [String]?
+        }
         var query = [URLQueryItem(name: "q", value: words)]
         if let book { query.append(URLQueryItem(name: "book", value: book)) }
-        return try await get(Answer.self, "api/search", query: query).results
+        let answer = try await get(Answer.self, "api/search", query: query)
+        return (answer.results, answer.books ?? [])
     }
 
     /// The person's bookmarks in a book, from every device.
@@ -263,6 +417,18 @@ struct RibbonServer {
     func bookmark(sentences first: Int, to last: Int, in id: String) async throws -> ServerBookmark {
         struct Answer: Decodable { let bookmark: ServerBookmark }
         return try await send("POST", "api/books/\(id)/bookmarks", ["first": first, "last": last], answer: Answer.self).bookmark
+    }
+
+    /// Bookmark a moment of the recording, as the desktop's player bookmarks one, with a note or none.
+    func bookmark(at ms: Int, note: String = "", in id: String) async throws -> ServerBookmark {
+        struct Answer: Decodable { let bookmark: ServerBookmark }
+        return try await send("POST", "api/books/\(id)/bookmarks", ["ms": ms, "note": note], answer: Answer.self).bookmark
+    }
+
+    /// A bookmark's note, changed on every device; empty takes it away.
+    func note(_ note: String, on mark: String, in id: String) async throws -> ServerBookmark {
+        struct Answer: Decodable { let bookmark: ServerBookmark }
+        return try await send("PUT", "api/books/\(id)/bookmarks/\(mark)", ["note": note], answer: Answer.self).bookmark
     }
 
     /// Take a bookmark back, on every device.
@@ -283,8 +449,10 @@ struct RibbonServer {
         path.split(separator: "/").reduce(account.url.appending(path: "api/books/\(id)/files")) { $0.appending(path: String($1)) }
     }
 
-    private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = []) async throws -> T {
-        let (data, response) = try await Self.reach(authorized(path, query: query))
+    private func get<T: Decodable>(_ type: T.Type, _ path: String, query: [URLQueryItem] = [], waiting: TimeInterval? = nil) async throws -> T {
+        var request = authorized(path, query: query)
+        if let waiting { request.timeoutInterval = waiting }
+        let (data, response) = try await Self.reach(request)
         if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
         guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't answer (\(response.statusCode)).", status: response.statusCode) }
         return try JSONDecoder().decode(T.self, from: data)

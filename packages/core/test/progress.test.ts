@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ribbonClaim, type ReadRecord } from "@ribbon/core/poslog";
-import { standingOf } from "@ribbon/core/progress";
+import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 
 const HOUR = 3_600_000;
 const read = (finished?: string): ReadRecord => ({ v: 1, k: "read", dev: "d", seq: 1, t: "2026-10-23T00:00:00.000Z", book: { ids: [ribbonClaim("b1")] }, id: "r1", started: "2026-10-22T00:00:00.000Z", ...(finished ? { finished } : {}) });
@@ -29,5 +29,18 @@ describe("standingOf", () => {
     expect(standingOf(10 * HOUR, 10 * HOUR, [read()]).finished).toBe(false);
     // Marked finished partway through.
     expect(standingOf(HOUR, 10 * HOUR, [read("2026-10-23T00:00:00.000Z")])).toEqual({ started: true, finished: true, fraction: 0.1 });
+  });
+});
+
+describe("readingStandingOf", () => {
+  it("is as far as the reading place, for a book that is only its text", () => {
+    expect(readingStandingOf(0, [])).toEqual({ started: false, finished: false, fraction: 0 });
+    expect(readingStandingOf(0.42, [])).toEqual({ started: true, finished: false, fraction: 0.42 });
+  });
+
+  it("is finished by reading to the end, until a read says otherwise", () => {
+    expect(readingStandingOf(0.995, []).finished).toBe(true);
+    expect(readingStandingOf(0.995, [read()]).finished).toBe(false);
+    expect(readingStandingOf(0.3, [read("2026-10-23T00:00:00.000Z")]).finished).toBe(true);
   });
 });

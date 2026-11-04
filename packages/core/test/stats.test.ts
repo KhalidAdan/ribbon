@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bookIdOf, dayOf, endOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, timeBy, totals } from "@ribbon/core/stats";
-import { ribbonClaim, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
+import { bookIdOf, dayOf, endOf, finishedByRead, formatSpan, heatmap, listenThrough, openRead, readsOf, spentOn, timeBy, totals } from "@ribbon/core/stats";
+import { parseLog, ribbonClaim, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 
 const NOW = Date.parse("2026-10-18T20:00:00.000Z"); // a Sunday
 const H = 3_600_000;
@@ -107,5 +107,24 @@ describe("totals", () => {
     expect(formatSpan(6 * H + 12 * 60_000)).toBe("6h 12m");
     expect(formatSpan(41 * 60_000)).toBe("41m");
     expect(formatSpan(0)).toBe("0m");
+  });
+});
+
+describe("time spent reading (format 1.3)", () => {
+  const reading = (book: string, start: string, ms: number): ReadingRecord => ({ v: 1, k: "reading", dev: "d", seq: 9, t: start, book: { ids: [`urn:ribbon:${book}-text`, "urn:isbn:9781836093152"] }, start, end: start, read_ms: ms, from: 0.1, to: 0.2 });
+
+  it("is read from the log, and refused without its time", () => {
+    const line = JSON.stringify(reading("abc", "2026-11-03T21:00:00.000Z", 180_000));
+    const { records, skipped } = parseLog([line, JSON.stringify({ ...JSON.parse(line), read_ms: undefined })].join("\n"));
+    expect(records).toEqual([reading("abc", "2026-11-03T21:00:00.000Z", 180_000)]);
+    expect(skipped).toBe(1);
+  });
+
+  it("counts with listening, for the book it's the text of", () => {
+    const listened = { v: 1, k: "session", dev: "d", seq: 1, t: "x", book: { ids: [ribbonClaim("abc")] }, start: "2026-11-03T20:00:00.000Z", end: "2026-11-03T20:10:00.000Z", from_ms: 0, to_ms: 1, listened_ms: 600_000 } as SessionRecord;
+    const read = reading("abc", "2026-11-03T21:00:00.000Z", 180_000);
+    expect(spentOn(read)).toBe("abc");
+    expect(timeBy([listened, read], (id) => [id])).toEqual([{ key: "abc", ms: 780_000 }]);
+    expect(totals([listened, read], [], Date.parse("2026-11-03T22:00:00.000Z"), 0)).toMatchObject({ todayMs: 780_000, totalMs: 780_000, sessions: 2 });
   });
 });

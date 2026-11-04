@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bookId } from "@ribbon/core/bookid";
+import { markId } from "@ribbon/core/bookmarks";
 import type { ReadAlong } from "@ribbon/core/reading/readalong";
 import { localIdOf } from "@ribbon/core/server-books";
 import type { RibbonServer } from "../src/app.ts";
@@ -166,6 +167,32 @@ describe("read-along from the server", () => {
     expect((await del(url, { device: tv })).statusCode).toBe(404);
   });
 
+  it("bookmarks a moment of the recording with a note, as the desktop's player does, and changes the note", async () => {
+    const put = (url: string, payload: object) => server.app.inject({ method: "PUT", url, payload, headers: { authorization: `Bearer ${token}` } });
+    const del = (url: string, payload: object) => server.app.inject({ method: "DELETE", url, payload, headers: { authorization: `Bearer ${token}` } });
+    const made = await post(`/api/books/${book.id}/bookmarks`, { device: phone, ms: 6500, note: "  the lighthouse keeper's line " });
+    expect(made.statusCode).toBe(200);
+    const { bookmark } = made.json() as { bookmark: { id: string; quote?: string } };
+    // Named as the desktop names a bookmark by time, so the same moment bookmarked anywhere is one bookmark.
+    expect(bookmark).toEqual({ id: markId(localIdOf(book), 6500), ms: 6500, note: "the lighthouse keeper's line", created: expect.any(String) });
+
+    type Mark = { k: string; id: string; modified?: string; body?: string; target: { ms: number } };
+    const marks = async () => ((await get("/api/places")).json() as { records: Mark[] }).records.filter((r) => r.k === "mark" && r.id === bookmark.id);
+    expect((await marks())[0]).toMatchObject({ target: { ms: 6500 }, body: "the lighthouse keeper's line" });
+
+    const url = `/api/books/${book.id}/bookmarks/${encodeURIComponent(bookmark.id)}`;
+    const noted = await put(url, { device: tv, note: "where she turns the lamp" });
+    expect(noted.json()).toMatchObject({ bookmark: { id: bookmark.id, ms: 6500, note: "where she turns the lamp" } });
+    expect((await marks()).at(-1)).toMatchObject({ body: "where she turns the lamp", modified: expect.any(String) });
+    expect((await get(`/api/books/${book.id}/bookmarks`)).json()).toMatchObject({ bookmarks: [{ id: bookmark.id, note: "where she turns the lamp" }] });
+
+    expect((await put(url, { device: tv })).statusCode).toBe(400);
+    expect((await put(`/api/books/${book.id}/bookmarks/nothing-here`, { device: tv, note: "" })).statusCode).toBe(404);
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: phone, ms: -1 })).statusCode).toBe(400);
+    expect((await post(`/api/books/${book.id}/bookmarks`, { device: phone, ms: 1000, note: 7 })).statusCode).toBe(400);
+    expect((await del(url, { device: tv })).json()).toEqual({ deleted: bookmark.id });
+  });
+
   it("lists the person's bookmarks in every book, newest first, with the book's title", async () => {
     await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 1, last: 1 });
     await post(`/api/books/${book.id}/bookmarks`, { device: tv, first: 3, last: 3 });
@@ -216,6 +243,37 @@ describe("read-along from the server", () => {
     expect((await post(`/api/books/${book.id}/finished`, {})).statusCode).toBe(400);
   });
 
+  it("lists every listen-through, marks a book not finished, and starts it again from the beginning", async () => {
+    type Listen = { started: string; finished: string | null; listenedMs: number; ended: { how: string; at?: string } };
+    const listens = async () => ((await get(`/api/books/${book.id}/listens`)).json() as { listens: Listen[] }).listens;
+    const finished = async () => ((await get("/api/progress")).json() as { books: Record<string, { finished: boolean }> }).books[book.id]!.finished;
+    // The first, finished; the one started again after it, going.
+    expect((await listens()).map((l) => l.ended.how)).toEqual(["finished", "going"]);
+    expect((await listens())[0]).toMatchObject({ started: "2026-10-20T20:00:00.000Z", listenedMs: expect.any(Number) });
+    expect((await listens())[0]!.listenedMs).toBeGreaterThanOrEqual(160_000);
+
+    // Marked finished, then not finished after all: the same listen-through opens again, as the desktop's does.
+    await post(`/api/books/${book.id}/finished`, { device: phone });
+    expect(await finished()).toBe(true);
+    const reopened = await post(`/api/books/${book.id}/unfinished`, { device: phone });
+    expect(reopened.json()).toMatchObject({ read: { started: "2026-10-22T20:00:00.000Z", finished: null } });
+    expect(await finished()).toBe(false);
+    expect((await listens()).map((l) => l.ended.how)).toEqual(["finished", "going"]);
+
+    // Started again from the beginning before it was finished: a new listen-through, and the one before was left.
+    const again = { device: tv, start: "2026-10-25T20:00:00.000Z", end: "2026-10-25T20:01:00.000Z", fromMs: 0, toMs: 9000, again: true };
+    expect((await post(`/api/books/${book.id}/listened`, again)).json()).toEqual({ added: 2 });
+    expect((await listens()).map((l) => l.ended)).toEqual([
+      { how: "finished", at: expect.any(String) },
+      { how: "left", at: "2026-10-25T20:00:00.000Z" },
+      { how: "going" },
+    ]);
+
+    expect((await post(`/api/books/${book.id}/unfinished`, {})).statusCode).toBe(400);
+    expect((await get("/api/books/0123456789abcdef/listens")).statusCode).toBe(404);
+    expect((await server.app.inject({ method: "GET", url: `/api/books/${book.id}/listens` })).statusCode).toBe(401);
+  });
+
   it("finds a line remembered, by its words, as a sentence of the book's read-along", async () => {
     // Indexed as the book was added.
     const { results } = (await get(`/api/search?q=${encodeURIComponent("the second one that follows")}`)).json() as { results: { book: string; sentence: number; ms: number; chapter: string; text: string }[] };
@@ -223,6 +281,16 @@ describe("read-along from the server", () => {
     expect(((await get(`/api/search?q=third&book=${book.id}`)).json() as { results: { sentence: number }[] }).results.map((r) => r.sentence)).toEqual([3]);
     expect((await get("/api/search?q=third&book=0123456789abcdef")).statusCode).toBe(404);
     expect((await server.app.inject({ method: "GET", url: "/api/search?q=third" })).statusCode).toBe(401);
+  });
+
+  it("finds a book by its title, author or narrator, needing every word", async () => {
+    const books = async (q: string) => ((await get(`/api/search?q=${encodeURIComponent(q)}`)).json() as { books: string[] }).books;
+    expect(await books("read along")).toEqual([book.id]);
+    expect(await books("an author")).toEqual([book.id]);
+    // Words that aren't all in its details find no book, though a line may have them.
+    expect(await books("the third ends the chapter")).toEqual([]);
+    // Searching one book is for its lines only.
+    expect(((await get(`/api/search?q=read&book=${book.id}`)).json() as { books: string[] }).books).toEqual([]);
   });
 
   it("refuses a bookmark it can't make", async () => {

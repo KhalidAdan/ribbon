@@ -1,17 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "@ribbon/core/position";
-import { bookmarksOf, highlightId, highlightsOf, markFields } from "@ribbon/core/bookmarks";
-import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
-import { standingOf } from "@ribbon/core/progress";
-import { bookIdOf, listenThrough, readsOf } from "@ribbon/core/stats";
+import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
+import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadingRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
+import { goalToday } from "@ribbon/core/goal";
+import { readingStandingOf, standingOf } from "@ribbon/core/progress";
+import { lastSpeed } from "@ribbon/core/settings";
+import { splitPeople } from "@ribbon/core/scan/sidefiles";
+import { bookIdOf, endOf, heatmap, listenThrough, readsOf, timeBy, totals } from "@ribbon/core/stats";
 import type { BookText } from "@ribbon/core/reading/booktext";
 import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
 import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
+import { indexBooks, searchBooks } from "@ribbon/core/search";
 import { localIdOf } from "@ribbon/core/server-books";
 import type { Bookmark, Highlight } from "@ribbon/core/types";
 import { signedIn, type Auth } from "./auth.ts";
 import type { Events } from "./events.ts";
+import type { Goals } from "./goals.ts";
 import { sendRevalidated, storedBook } from "./library/api.ts";
 import type { BookIndex, ListedBook, StoredBook } from "./library/books.ts";
 import type { Mp3Frames } from "./library/frames.ts";
@@ -24,6 +29,9 @@ const WHYS: readonly Why[] = ["open", "pause", "seek", "periodic", "end", "close
 
 /** A stretch of listening shorter than this is no session, as the desktop keeps them (packages/desktop/src/app/controller.ts, `endListening`). */
 const SESSION_MIN_MS = 30_000;
+
+/** At most this many books come back from a search, best first. */
+const BOOKS_FOUND = 20;
 
 /** Where a person is in a book, as a device that only draws and plays is told it. */
 export interface BookPlace {
@@ -48,35 +56,72 @@ export interface BookPlace {
  *   of their listening and reading places, from all their devices, as a
  *   sentence and a moment. Never cached.
  * - `POST /api/books/:id/place`: this device is at this moment of the
- *   recording. Written into the device's position log as any app writes it
- *   (docs/POSITION-FORMAT.md), with the claims the apps give the book, so
- *   the other devices find it and the device needs no log of its own.
- * - `GET`, `POST /api/books/:id/bookmarks` and `DELETE …/bookmarks/:mark`:
+ *   recording, or reading at this sentence of the read-along. Written into
+ *   the device's position log as any app writes it (docs/POSITION-FORMAT.md):
+ *   a moment as a listening place, with the claims the apps give the book; a
+ *   sentence as a reading place in the book's text, where the desktop's
+ *   reader writes one, so the other devices find it and the device needs no
+ *   log of its own.
+ * - `GET`, `POST /api/books/:id/bookmarks`, `PUT` and `DELETE …/bookmarks/:mark`:
  *   the person's bookmarks in the book, from every device; bookmarking whole
  *   sentences, as the desktop bookmarks words selected in its reader (the same
- *   `mark`, so it's one of the audiobook's bookmarks too); and taking one back.
+ *   `mark`, so it's one of the audiobook's bookmarks too), or a moment of the
+ *   recording, as the desktop's player bookmarks one, either with a note;
+ *   changing a bookmark's note; and taking one back.
  * - `GET /api/bookmarks`: the person's bookmarks in every book, newest
  *   first, with each book's title: for the TV's screen of passages that
  *   drift by while it's paused.
  * - `POST /api/books/:id/listened`: a stretch of listening, as the desktop
- *   keeps one: it opens a listen-through when none is open (a new one after
- *   a finished one only when the person chose to listen again), and is kept
- *   as a session unless the person turned sessions off on that device
- *   (docs/POSITION-FORMAT.md, sections 3.2 and 3.3).
- * - `POST /api/books/:id/finished`: the book played to its end. The
- *   listen-through closes, as the desktop closes one, and the answer says
- *   how it went: when it started and finished, and the time spent in it on
- *   every device (packages/core/src/stats.ts, `listenThrough`).
+ *   keeps one: it opens a listen-through when none is open, and a new one
+ *   whenever the person chose to start again (the desktop's Listen again and
+ *   Start again from the beginning), and is kept as a session unless the
+ *   person turned sessions off on that device (docs/POSITION-FORMAT.md,
+ *   sections 3.2 and 3.3).
+ * - `POST /api/books/:id/finished`: the book played to its end, or the person
+ *   marked it finished. The listen-through closes, as the desktop closes one,
+ *   and the answer says how it went: when it started and finished, and the
+ *   time spent in it on every device (packages/core/src/stats.ts,
+ *   `listenThrough`).
+ * - `POST /api/books/:id/unfinished`: not finished after all. The latest
+ *   listen-through opens again, as the desktop's Mark as not finished opens it.
+ * - `POST /api/books/:id/reading`: a stretch of reading, from one sentence of
+ *   the read-along to another, kept as the desktop's reader keeps one (a
+ *   `reading` record under the text's claims, docs/POSITION-FORMAT.md,
+ *   format 1.3), unless the person keeps no sessions on that device.
+ * - `GET /api/stats?tz=`: what the person has been listening to and reading, counted as
+ *   the desktop's Stats counts it (packages/core/src/stats.ts): this week, a
+ *   day lately, the streak and the books finished this year; each day of the
+ *   last year; the books, authors and narrators listened to most; and the
+ *   books finished lately. Days are the device's own, by its offset from UTC
+ *   in minutes (`tz`, as JavaScript's `getTimezoneOffset` gives it).
+ * - `GET /api/goal?tz=` and `PUT /api/goal`: the person's daily goal, minutes
+ *   a day with their books, the same on every device, the one chosen later
+ *   standing (packages/core/src/goal.ts); and today against it, on the
+ *   device's own days: the time so far, whether it's met, and the days in a
+ *   row it was.
+ * - `GET /api/books/:id/listens`: every listen-through of the book, oldest
+ *   first, each with how it ended and the time spent in it, as the desktop's
+ *   book page lists them (packages/desktop/src/ui/ReadHistory.tsx).
  * - `GET /api/search?q=&book=`: the sentences that best match words someone
  *   remembers, or says, in one book or every one, each named by its book and
- *   its sentence of the read-along, so a device can go straight to it.
+ *   its sentence of the read-along, so a device can go straight to it. In
+ *   every book, the books whose details have every word come back too, as the
+ *   desktop's shelf finds them (packages/core/src/search.ts), so a title, an
+ *   author or a narrator said to the TV finds the book, not only lines that
+ *   share its words.
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
- *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts).
+ *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts);
+ *   for a book that is only its text, how far through its text (`fraction`);
+ *   and the speed it was last heard at, on any device, and when (`speed`,
+ *   `speedAt`), so a device opens it at that unless it chose one since.
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */
-export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; dataDir: string }): void {
+export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; places: Places; goals: Goals; events: Events; readAlongs: ReadAlongs; search: SearchIndex; frames: Mp3Frames; dataDir: string }): void {
+  /** Time spent with books, listening and reading, from a person's log: what the Stats and the goal count. */
+  const spentBy = (personId: string) => parseLog(deps.places.export(personId)).records.filter((r): r is SessionRecord | ReadingRecord => r.k === "session" || r.k === "reading");
+
   /** The book and its read-along, or the answer that says why there's none. */
   const readAlongOf = async (id: string, reply: FastifyReply): Promise<{ listed: ListedBook; stored: StoredBook; made: MadeReadAlong } | null> => {
     const listed = deps.books.get(id);
@@ -103,15 +148,26 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     reply.header("cache-control", "no-store");
     const records = parseLog(deps.places.export(me.id)).records;
     const places = mergePlaces(records);
+    const reading = mergeTextPlaces(records);
     const reads = mergeById<ReadRecord>(records, "read");
-    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean }> = {};
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean; fraction?: number; speed?: number; speedAt?: string }> = {};
     for (const listed of deps.books.list()) {
       const id = localIdOf(listed);
-      const place = places.get(id);
       const theirs = readsOf(reads, id);
+      if (!listed.audio) {
+        // Only its text: as far as its reading place, as the desktop's shelf has it.
+        const read = reading.get(id);
+        if (!read && theirs.length === 0) continue;
+        books[listed.id] = { ms: 0, at: read?.t ?? theirs.at(-1)!.started, ...readingStandingOf(read?.loc.locations?.totalProgression ?? 0, theirs) };
+        continue;
+      }
+      const place = places.get(id);
       if (!place && theirs.length === 0) continue;
       const ms = place?.ms ?? 0;
-      books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs) };
+      // The speed it was last heard at, on any device, and when: a device opens it at that unless it chose one since.
+      const heard = lastSpeed(sessions, id);
+      books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs), ...(heard ? { speed: heard.speed, speedAt: heard.at } : {}) };
     }
     return { books };
   });
@@ -121,7 +177,9 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const { q = "", book } = request.query;
     if (book && !deps.books.has(book)) return reply.code(404).send({ error: "No such book on this server." });
     reply.header("cache-control", "no-store");
-    return { results: deps.search.search(q, book ? { book } : {}) };
+    // The index of the books' details is made for each search: a few milliseconds for a few hundred books.
+    const books = book ? [] : await searchBooks(await indexBooks(deps.books.list().map((listed) => ({ book: listed, parts: [] }))), q, BOOKS_FOUND);
+    return { results: deps.search.search(q, book ? { book } : {}), books };
   });
 
   app.get<{ Params: { id: string } }>("/api/books/:id/readalong", async (request, reply) => {
@@ -152,13 +210,28 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return { place };
   });
 
-  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; ms?: unknown; why?: unknown } }>("/api/books/:id/place", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; ms?: unknown; sentence?: unknown; why?: unknown } }>("/api/books/:id/place", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
-    const { device, ms, why } = request.body ?? {};
+    const { device, ms, sentence, why } = request.body ?? {};
     const who = deviceOf(device);
+    if (who && sentence !== undefined && WHYS.includes(why as Why)) {
+      if (!Number.isInteger(sentence) || (sentence as number) < 0) return reply.code(400).send({ error: "Send the sentence, counted across the read-along." });
+      const book = await readAlongOf(request.params.id, reply);
+      if (!book) return reply;
+      const { readAlong, text } = book.made;
+      const range = sentencesRange(text, sentence as number, sentence as number);
+      if (!range) return reply.code(400).send({ error: "That sentence isn't in this book's read-along." });
+      // A reading place, as the desktop's reader writes one (ReadingKeeper): the place in the text, under the claims of
+      // the book's text, with where it is in the recording, when there is one, as a hint for players.
+      const at = book.listed.audio ? nthSentence(readAlong, sentence as number) : null;
+      const hint = at ? { x: { "urn:ribbon:audio": { ms: at.ms, how: at.exact ? "sentence" : "chapter" } } } : {};
+      const claims = textClaimsFor(localIdOf(book.listed), text.ebook.meta.identifiers);
+      const added = writeAs(reply, me.id, who, claims, { k: "pos", why, loc: text.locator(range.from), ...hint });
+      return added === null ? reply : { added };
+    }
     if (!who || typeof ms !== "number" || !Number.isFinite(ms) || ms < 0 || !WHYS.includes(why as Why)) {
-      return reply.code(400).send({ error: "Send the device ({ id, name }), the moment (ms) and why (pause, seek, periodic, …)." });
+      return reply.code(400).send({ error: "Send the device ({ id, name }), the moment (ms) or the sentence, and why (pause, seek, periodic, …)." });
     }
     const listed = deps.books.get(request.params.id);
     const stored = listed && (await storedBook(deps, request.params.id));
@@ -181,13 +254,29 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return { bookmarks };
   });
 
-  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; first?: unknown; last?: unknown } }>("/api/books/:id/bookmarks", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; first?: unknown; last?: unknown; ms?: unknown; note?: unknown } }>("/api/books/:id/bookmarks", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
-    const { device, first, last } = request.body ?? {};
+    const { device, first, last, ms, note } = request.body ?? {};
     const who = deviceOf(device);
-    if (!who || !Number.isInteger(first) || !Number.isInteger(last) || (first as number) < 0 || (last as number) < (first as number)) {
-      return reply.code(400).send({ error: "Send the device ({ id, name }) and the sentences, first and last, counted across the read-along." });
+    if (!who || (note !== undefined && typeof note !== "string")) return reply.code(400).send({ error: "Send the device ({ id, name }), and the note, if there is one, as words." });
+    const said = typeof note === "string" ? note.trim() : "";
+    if (ms !== undefined) {
+      if (!isMoment(ms)) return reply.code(400).send({ error: "Send the moment of the recording (ms)." });
+      const listed = deps.books.get(request.params.id);
+      const stored = listed && (await storedBook(deps, request.params.id));
+      if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+      if (!listed.audio) return reply.code(400).send({ error: "This book has no recording to bookmark a moment of." });
+      // The bookmark the desktop's player makes (docs/POSITION-FORMAT.md, section 3.4), named by its book and moment as
+      // the desktop names it, so the same moment bookmarked twice is one bookmark. A device that only plays keeps no clip.
+      const bookId = localIdOf(listed);
+      const at = Math.round(Math.min(ms as number, stored.book.durationMs));
+      const bookmark: Bookmark = { id: markId(bookId, at), bookId, offsetMs: at, createdAt: nowIso(Date.now()), note: said, clip: "" };
+      const added = write(reply, me.id, who, listed, stored, markFields(bookmark));
+      return added === null ? reply : { bookmark: shownBookmark(bookmark, null) };
+    }
+    if (!Number.isInteger(first) || !Number.isInteger(last) || (first as number) < 0 || (last as number) < (first as number)) {
+      return reply.code(400).send({ error: "Send the device ({ id, name }) and the sentences, first and last, counted across the read-along, or a moment (ms)." });
     }
     const book = await readAlongOf(request.params.id, reply);
     if (!book) return reply;
@@ -199,9 +288,29 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     // first sentence is read: the same words bookmarked on any device are one bookmark. A device that only plays keeps no clip.
     const bookId = localIdOf(book.listed);
     const words = highlightOf(text, bookId, range);
-    const highlight: Highlight = { id: highlightId(bookId, words.start, words.quote), bookId, offsetMs: nthSentence(readAlong, first as number)?.ms ?? null, createdAt: nowIso(Date.now()), note: "", clip: "", text: words };
+    const offsetMs = book.listed.audio ? (nthSentence(readAlong, first as number)?.ms ?? null) : null;
+    const highlight: Highlight = { id: highlightId(bookId, words.start, words.quote), bookId, offsetMs, createdAt: nowIso(Date.now()), note: said, clip: "", text: words };
     const added = write(reply, me.id, who, book.listed, book.stored, markFields(highlight));
     return added === null ? reply : { bookmark: shownBookmark(highlight, text) };
+  });
+
+  app.put<{ Params: { id: string; mark: string }; Body: { device?: DeviceBody; note?: unknown } }>("/api/books/:id/bookmarks/:mark", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const who = deviceOf(request.body?.device);
+    const note = request.body?.note;
+    if (!who || typeof note !== "string") return reply.code(400).send({ error: "Send the device ({ id, name }) and the note (empty takes it away)." });
+    const listed = deps.books.get(request.params.id);
+    const stored = listed && (await storedBook(deps, request.params.id));
+    if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+    const found = bookmarksIn(parseLog(deps.places.export(me.id)).records, listed, stored).find((b) => b.id === request.params.mark);
+    if (!found) return reply.code(404).send({ error: "No such bookmark in this book." });
+    // Written again with its new note, as the desktop changes one (`editBookmark`): the same id, so it's the same bookmark everywhere.
+    const changed = { ...found, note: note.trim(), modifiedAt: nowIso(Date.now()) };
+    const added = write(reply, me.id, who, listed, stored, markFields(changed));
+    if (added === null) return reply;
+    const text = changed.text && listed.ebook ? ((await deps.readAlongs.of(listed.id, stored).catch(() => null))?.text ?? null) : null;
+    return { bookmark: shownBookmark(changed, text) };
   });
 
   app.delete<{ Params: { id: string; mark: string }; Body: { device?: DeviceBody } }>("/api/books/:id/bookmarks/:mark", async (request, reply) => {
@@ -254,8 +363,8 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const last = readsOf(mergeById<ReadRecord>(parseLog(deps.places.export(me.id)).records, "read"), id).at(-1);
     const fields: Record<string, unknown>[] = [];
     // A listen-through opens as the desktop opens one when playing starts (`beginListening`): when none is open, and
-    // after a finished one only when the person chose to start again.
-    if (!last || (last.finished && again === true)) fields.push({ k: "read", id: `urn:uuid:${randomUUID()}`, started: nowIso(began) });
+    // a new one whenever the person chose to start again, finished or not (`listenAgain`).
+    if (!last || again === true) fields.push({ k: "read", id: `urn:uuid:${randomUUID()}`, started: nowIso(began) });
     if (keep !== false && ended - began >= SESSION_MIN_MS) {
       const durationMs = stored.book.durationMs;
       fields.push({ k: "session", start: nowIso(began), end: nowIso(ended), from_ms: Math.round(Math.min(fromMs as number, durationMs)), to_ms: Math.round(Math.min(toMs as number, durationMs)), listened_ms: ended - began, ...(typeof speed === "number" ? { speed } : {}) });
@@ -286,6 +395,118 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return added === null ? reply : { read: listenThrough(read, sessions, id) };
   });
 
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody } }>("/api/books/:id/unfinished", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const who = deviceOf(request.body?.device);
+    if (!who) return reply.code(400).send({ error: "Send the device ({ id, name })." });
+    const listed = deps.books.get(request.params.id);
+    const stored = listed && (await storedBook(deps, request.params.id));
+    if (!listed || !stored) return reply.code(404).send({ error: "No such book on this server." });
+    const id = localIdOf(listed);
+    const records = parseLog(deps.places.export(me.id)).records;
+    const last = readsOf(mergeById<ReadRecord>(records, "read"), id).at(-1);
+    // The latest listen-through written again without its finish, as the desktop's `markUnfinished` writes it; a book
+    // never listened to through gets one that's going.
+    const read = { k: "read" as const, id: last?.id ?? `urn:uuid:${randomUUID()}`, started: last?.started ?? nowIso(Date.now()) };
+    const added = write(reply, me.id, who, listed, stored, read);
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    return added === null ? reply : { read: listenThrough(read, sessions, id) };
+  });
+
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; start?: unknown; end?: unknown; from?: unknown; to?: unknown; keep?: unknown } }>("/api/books/:id/reading", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const { device, start, end, from, to, keep } = request.body ?? {};
+    const who = deviceOf(device);
+    const began = typeof start === "string" ? Date.parse(start) : NaN;
+    const ended = typeof end === "string" ? Date.parse(end) : NaN;
+    if (!who || !(ended >= began) || !Number.isInteger(from) || !Number.isInteger(to) || (from as number) < 0 || (to as number) < 0) {
+      return reply.code(400).send({ error: "Send the device ({ id, name }), when the stretch started and ended (start, end) and the sentences it ran between (from, to)." });
+    }
+    // As the desktop keeps a stretch of reading: long enough, and only where sessions are kept.
+    if (keep === false || ended - began < SESSION_MIN_MS) return { added: 0 };
+    const book = await readAlongOf(request.params.id, reply);
+    if (!book) return reply;
+    const { text } = book.made;
+    const through = (n: number) => {
+      const range = sentencesRange(text, n, n);
+      return range ? Math.round((text.locator(range.from).locations?.totalProgression ?? 0) * 10_000) / 10_000 : null;
+    };
+    const [fromAt, toAt] = [through(from as number), through(to as number)];
+    if (fromAt === null || toAt === null) return reply.code(400).send({ error: "Those sentences aren't in this book's read-along." });
+    const claims = textClaimsFor(localIdOf(book.listed), text.ebook.meta.identifiers);
+    const added = writeAs(reply, me.id, who, claims, { k: "reading", start: nowIso(began), end: nowIso(ended), read_ms: ended - began, from: fromAt, to: toAt });
+    return added === null ? reply : { added };
+  });
+
+  app.get<{ Querystring: { tz?: string } }>("/api/goal", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    const tz = Number(request.query.tz ?? 0);
+    const goal = deps.goals.of(me.id);
+    return { goal, today: goalToday(spentBy(me.id), goal.minutes, Date.now(), Number.isFinite(tz) ? tz : 0) };
+  });
+
+  app.put<{ Body: { minutes?: unknown; chosenAt?: unknown } }>("/api/goal", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const { minutes, chosenAt } = request.body ?? {};
+    const at = typeof chosenAt === "string" ? Date.parse(chosenAt) : Date.now();
+    if (!Number.isInteger(minutes) || (minutes as number) < 0 || (minutes as number) > 24 * 60 || Number.isNaN(at)) {
+      return reply.code(400).send({ error: "Send the minutes a day (0 is off), and when it was chosen (chosenAt), if not now." });
+    }
+    return { goal: deps.goals.choose(me.id, { minutes: minutes as number, chosenAt: new Date(at).toISOString() }) };
+  });
+
+  app.get<{ Querystring: { tz?: string } }>("/api/stats", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    const tz = Number(request.query.tz ?? 0);
+    const now = Date.now();
+    const records = parseLog(deps.places.export(me.id)).records;
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    // Time with a book, listening or reading: one book, two editions.
+    const spent = [...sessions, ...records.filter((r): r is ReadingRecord => r.k === "reading")];
+    const reads = mergeById<ReadRecord>(records, "read");
+    // The books on this server by the id the log names them by.
+    const byLocal = new Map(deps.books.list().map((b) => [localIdOf(b), b]));
+    // A narrator is only heard: their time is listening's.
+    const people = (field: "author" | "narrator") =>
+      timeBy(field === "narrator" ? sessions : spent, (id) => splitPeople(byLocal.get(id)?.[field] ?? ""))
+        .slice(0, 6)
+        .map(({ key, ms }) => ({ name: key, ms }));
+    const finished = reads
+      .filter((r) => r.finished && byLocal.has(bookIdOf(r) ?? ""))
+      .sort((a, b) => Date.parse(b.finished!) - Date.parse(a.finished!))
+      .slice(0, 8)
+      .map((r) => ({ book: byLocal.get(bookIdOf(r)!)!.id, finished: r.finished! }));
+    return {
+      totals: totals(spent, reads, now, Number.isFinite(tz) ? tz : 0, deps.goals.of(me.id).minutes),
+      days: heatmap(spent, now, Number.isFinite(tz) ? tz : 0).map((week) => week.map((d) => d.level)),
+      books: timeBy(spent, (id) => [id]).flatMap(({ key, ms }) => (byLocal.has(key) ? [{ book: byLocal.get(key)!.id, ms }] : [])).slice(0, 6),
+      authors: people("author"),
+      narrators: people("narrator"),
+      finished,
+      finishedInAll: reads.filter((r) => r.finished).length,
+    };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/books/:id/listens", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const listed = deps.books.get(request.params.id);
+    if (!listed) return reply.code(404).send({ error: "No such book on this server." });
+    reply.header("cache-control", "no-store");
+    const id = localIdOf(listed);
+    const records = parseLog(deps.places.export(me.id)).records;
+    const reads = readsOf(mergeById<ReadRecord>(records, "read"), id);
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    return { listens: reads.map((r, i) => ({ ...listenThrough(r, sessions, id), ended: endOf(r, reads[i + 1]) })) };
+  });
+
   /** A person's bookmarks in a book, by time and by words, from every device's log, merged as the apps merge them. */
   function bookmarksIn(records: readonly LogRecord[], listed: ListedBook, stored: StoredBook): (Bookmark | Highlight)[] {
     const id = localIdOf(listed);
@@ -302,10 +523,19 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
    * new, or null when the answer has already said why they couldn't be kept.
    */
   function write(reply: FastifyReply, personId: string, device: DeviceInfo, listed: ListedBook, stored: StoredBook, ...fields: Record<string, unknown>[]): number | null {
+    const book = { ids: claimsFor({ id: localIdOf(listed), isbn: stored.book.isbn, asin: stored.book.asin }), dur_ms: stored.book.durationMs };
+    return writeFor(reply, personId, device, book, fields);
+  }
+
+  /** The same, for a book's text, under its own claims: a reading place. */
+  function writeAs(reply: FastifyReply, personId: string, device: DeviceInfo, claims: string[], ...fields: Record<string, unknown>[]): number | null {
+    return writeFor(reply, personId, device, { ids: claims }, fields);
+  }
+
+  function writeFor(reply: FastifyReply, personId: string, device: DeviceInfo, book: { ids: string[]; dur_ms?: number }, fields: Record<string, unknown>[]): number | null {
     if (fields.length === 0) return 0;
     const now = Date.now();
     let seq = deps.places.lastSeq(personId, device.id);
-    const book = { ids: claimsFor({ id: localIdOf(listed), isbn: stored.book.isbn, asin: stored.book.asin }), dur_ms: stored.book.durationMs };
     const records = fields.map((f) => ({ v: 1, dev: device.id, seq: (seq = nextSeq(seq, now)), t: nowIso(now), book, ...f }));
     try {
       const done = deps.places.append(personId, device, records);

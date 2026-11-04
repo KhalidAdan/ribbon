@@ -5,7 +5,9 @@ import SwiftUI
 /// amber for how far through it is (docs/DESIGN.md: amber is your place).
 /// The iPad, with no remote, has the way back beside the title, and what the
 /// remote does as buttons over the chapter: Listen from here, play and pause,
-/// Return to narrator, and keeping or leaving a bookmark.
+/// Return to narrator, and keeping or leaving a bookmark; and the contents.
+/// A book that is only its text has no narration to play: the time left is
+/// how far through it you've read.
 struct ReaderView: View {
     let session: ReadingSession
     let layout: BookLayout
@@ -31,7 +33,7 @@ struct ReaderView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                ProgressHairline(fraction: Double(session.listening.positionMs) / Double(max(1, session.listening.durationMs)))
+                ProgressHairline(fraction: session.fraction)
             }
             // At the screen's edges, in the room the column's fade leaves them.
             .padding(.horizontal, 120)
@@ -60,7 +62,7 @@ struct ReaderView: View {
                     .padding(.top, 20)
                     .padding(.bottom, 10)
                     .allowsHitTesting(false)
-                ProgressHairline(fraction: Double(session.listening.positionMs) / Double(max(1, session.listening.durationMs)))
+                ProgressHairline(fraction: session.fraction)
                     .allowsHitTesting(false)
             }
             .padding(.horizontal, narrow ? 16 : 32)
@@ -117,9 +119,9 @@ private struct StatusLine: View {
         }
     }
 
-    /// "2h 41m left", or "Paused · 2h 41m left", at the narrator's speed.
+    /// "2h 41m left", or "Paused · 2h 41m left", at the narrator's speed; "42% read" in a book that is only its text.
     private var status: String {
-        let listening = session.listening
+        guard let listening = session.listening else { return "\(Int((session.fraction * 100).rounded()))% read" }
         let time = "\(Format.left(Format.atSpeed(listening.durationMs - listening.positionMs, listening.speed))) left"
         return listening.playing ? time : "Paused · \(time)"
     }
@@ -139,6 +141,7 @@ private struct ReaderButtons: View {
     /// sheet. Inside the popover it's compact too, so it's asked here.
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var choosingText = false
+    @State private var choosingChapter = false
     #endif
 
     var body: some View {
@@ -169,9 +172,11 @@ private struct ReaderButtons: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
-                Button { session.playPause() } label: { Image(systemName: session.listening.playing ? "pause.fill" : "play.fill") }
-                    .buttonStyle(RoundButtonStyle(size: narrow ? 96 : 104, primary: true))
-                    .accessibilityLabel(session.listening.playing ? "Pause" : "Play")
+                if let listening = session.listening {
+                    Button { session.playPause() } label: { Image(systemName: listening.playing ? "pause.fill" : "play.fill") }
+                        .buttonStyle(RoundButtonStyle(size: narrow ? 96 : 104, primary: true))
+                        .accessibilityLabel(listening.playing ? "Pause" : "Play")
+                }
                 HStack {
                     if away {
                         Button { session.returnToNarrator() } label: {
@@ -187,6 +192,11 @@ private struct ReaderButtons: View {
                     #if os(iOS)
                     // Out of the way at the far side; Return to narrator has the room while you're away.
                     if !away {
+                        if !session.readAlong.contents.isEmpty {
+                            Button { choosingChapter = true } label: { Image(systemName: "list.bullet") }
+                                .buttonStyle(RoundButtonStyle(size: 68))
+                                .accessibilityLabel("Contents")
+                        }
                         Button { choosingText = true } label: { Text("Aa").font(.ui(24, weight: 500)) }
                             .buttonStyle(RoundButtonStyle(size: 68))
                             .accessibilityLabel("Text size")
@@ -198,6 +208,7 @@ private struct ReaderButtons: View {
         }
         .animation(.easeOut(duration: 0.15), value: session.following)
         #if os(iOS)
+        .sheet(isPresented: $choosingChapter) { ContentsSheet(session: session) { choosingChapter = false } }
         // On an iPad, a popover from Aa, the column left in view; on a phone, a low sheet, so the words above it can
         // be seen changing, and can still be scrolled.
         .popover(isPresented: $choosingText, attachmentAnchor: .point(.trailing), arrowEdge: .bottom) {
@@ -213,6 +224,48 @@ private struct ReaderButtons: View {
 }
 
 #if os(iOS)
+/// The book's contents, as the desktop's reader lists them: choosing an entry goes to its first sentence, which is where
+/// you're reading then. The entry you're in is marked in amber.
+private struct ContentsSheet: View {
+    let session: ReadingSession
+    let onDone: () -> Void
+
+    var body: some View {
+        let contents = session.readAlong.contents
+        let here = contents.lastIndex { $0.block <= session.sentences[session.cursor].block }
+        VStack(alignment: .leading, spacing: 28.scaled) {
+            SectionHeader(title: "Contents", description: session.book.title) {
+                Button("Done", action: onDone).buttonStyle(RibbonButtonStyle())
+            }
+            ScrollView {
+                VStack(spacing: 4.scaled) {
+                    ForEach(Array(contents.enumerated()), id: \.offset) { index, entry in
+                        Button {
+                            if let sentence = session.sentences.at(0, in: entry.block) { session.show(sentence) }
+                            onDone()
+                        } label: {
+                            Text(entry.title)
+                                .font(.ui(26, weight: index == here ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(2).multilineTextAlignment(.leading)
+                                .padding(.vertical, 14.scaled)
+                                .padding(.horizontal, 20.scaled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 12.scaled).fill(index == here ? Color.raised : Color.clear))
+                                .overlay(alignment: .leading) {
+                                    if index == here { Capsule().fill(Color.place).frame(width: 4.scaled).padding(.vertical, 12.scaled) }
+                                }
+                        }
+                        .buttonStyle(LiftStyle.row(radius: 12))
+                    }
+                }
+                .padding(24.scaled)
+            }
+            .padding(-24.scaled)
+        }
+        .screenEdges(horizontal: 64, vertical: 64)
+        .background(Color.surface.ignoresSafeArea())
+    }
+}
+
 /// The Aa sheet: the words bigger or smaller, and their lines closer or further apart, as Apple Books has them. The
 /// book behind it is set again at each choice, the sentence you're on staying where it was.
 private struct TextSheet: View {

@@ -1,10 +1,11 @@
 # The Ribbon position log
 
-**Version 1.2. A file format for keeping your place in a book, which any
+**Version 1.3. A file format for keeping your place in a book, which any
 player, reader or read-along app can read and write.** Version 1.1 adds
-places in text editions (section 3.6), and version 1.2 bookmarks made
-from words highlighted in a text (section 3.4); everything written by an
-earlier version is still version 1.2.
+places in text editions (section 3.6), version 1.2 bookmarks made from
+words highlighted in a text (section 3.4), and version 1.3 the time spent
+reading a text (section 3.7); everything written by an earlier version is
+still version 1.3.
 
 Your place in a book belongs to you, not to an app or a server. This
 format stores it as plain files beside the books. Any file sync you
@@ -85,7 +86,7 @@ Every record carries these fields:
 | Field  | Type    | Meaning                                                              |
 | ------ | ------- | -------------------------------------------------------------------- |
 | `v`    | integer | Format version. `1`.                                                 |
-| `k`    | string  | Kind: `pos`, `read`, `session`, `mark`, `del`.                       |
+| `k`    | string  | Kind: `pos`, `read`, `session`, `reading`, `mark`, `del`.            |
 | `dev`  | string  | The writing device, `urn:uuid:…`.                                    |
 | `seq`  | integer | Increases with every record a device writes, never repeats.         |
 | `t`    | string  | When, as ISO 8601 UTC with milliseconds: `2026-10-18T21:04:03.211Z`. |
@@ -254,6 +255,28 @@ not understand, and a device compacting its own log keeps the latest
 `pos` for each set of claims, so text and audio places never displace
 each other.
 
+### 3.7 `reading`: what was read (1.3)
+
+OPTIONAL, as sessions are, and turned off with them. Time spent reading
+a text edition, under the text's claims (section 3.6):
+
+```json
+{"v":1,"k":"reading","dev":"…","seq":…,"t":"…",
+ "book":{"ids":["urn:ribbon:aec8d2c8-text","urn:isbn:9781836093152"]},
+ "start":"2026-11-03T21:00:00.000Z","end":"2026-11-03T21:24:30.000Z","read_ms":1470000,"from":0.1338,"to":0.1502}
+```
+
+| Field     | Meaning                                                                         |
+| --------- | ------------------------------------------------------------------------------- |
+| `read_ms` | Wall-clock time spent reading, from `start` to `end`.                            |
+| `from`    | OPTIONAL. Where in the text the stretch began, as a `totalProgression`.         |
+| `to`      | OPTIONAL. Where it ended, the same way.                                          |
+
+A stretch of reading is what a session is to listening. A writer SHOULD
+NOT count reading while the same book's narration plays, which a session
+counts already, so read-along is never counted twice. A reader of 1.2
+skips a `reading` as a kind it does not understand.
+
 ## 4. Which book
 
 `book.ids` is a set of **claims**. Each claim is a URN that names the
@@ -333,9 +356,9 @@ working. A later version will stop.
   stop new `session` records. Deleting one's own log removes one's
   history from the folder.
 
-## 7. Not in version 1.2
+## 7. Not in version 1.3
 
-- **Mapping between editions, and between text and audio.** Version 1.2
+- **Mapping between editions, and between text and audio.** Version 1.3
   records what the writer knows, `text` anchors included when it has
   them. A future version may record how a place was mapped (a Media
   Overlay, a transcript match, chapter and progression, or proportion)
@@ -366,6 +389,13 @@ working. A later version will stop.
 - `read` records start and finish listen-throughs. Starting a book again
   before finishing it opens a new one and leaves the last as it was.
   Sessions are on by default and can be turned off in Settings.
+- A `reading` runs from the reader's first move by hand, with the book's
+  narration not playing, to its last move and a minute after. Five
+  minutes without a move ends it there; so do closing the reader, the
+  narration starting, and the window going out of sight. One shorter than
+  thirty seconds is not kept, as a session shorter than that is not. The
+  Apple app keeps the same through the server
+  (`POST /api/books/:id/reading`).
 - Bookmarks are `mark` records with a `motivation` of `bookmarking`.
   Adding one writes a `mark`, editing its note writes it again with a
   later `modified`, and deleting it writes a `del`. The `body` is the

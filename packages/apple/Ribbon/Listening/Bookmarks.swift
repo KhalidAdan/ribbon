@@ -4,7 +4,8 @@ import Observation
 /// desktop's, the phone's and the TV's, from the server, which keeps them in
 /// the position log as the apps do (docs/POSITION-FORMAT.md, section 3.4).
 /// The reader underlines the words they mark and bookmarks whole sentences;
-/// the player lists them. One per book, made with its narration.
+/// the player bookmarks the moment playing, as the desktop's does, and lists
+/// them, each with its note. One per book, made with its narration.
 @MainActor
 @Observable
 final class Bookmarks {
@@ -29,12 +30,26 @@ final class Bookmarks {
 
     /// Bookmark whole sentences; what the server said when it couldn't.
     func add(sentences: ClosedRange<Int>) async throws -> ServerBookmark {
-        let made = try await server.bookmark(sentences: sentences.lowerBound, to: sentences.upperBound, in: bookId)
-        // The same words bookmarked again are the same bookmark.
-        all.removeAll { $0.id == made.id }
-        all.append(made)
+        keep(try await server.bookmark(sentences: sentences.lowerBound, to: sentences.upperBound, in: bookId))
+    }
+
+    /// Bookmark a moment of the narration.
+    func add(at ms: Int) async throws -> ServerBookmark {
+        keep(try await server.bookmark(at: ms, in: bookId))
+    }
+
+    /// Write, change or take away a bookmark's note.
+    func setNote(_ note: String, on bookmark: ServerBookmark) async throws {
+        keep(try await server.note(note, on: bookmark.id, in: bookId))
+    }
+
+    /// A bookmark as the server now has it. The same words, or the same moment, bookmarked again are the same bookmark.
+    @discardableResult
+    private func keep(_ bookmark: ServerBookmark) -> ServerBookmark {
+        all.removeAll { $0.id == bookmark.id }
+        all.append(bookmark)
         all.sort { ($0.first ?? .max, $0.ms ?? 0) < ($1.first ?? .max, $1.ms ?? 0) }
-        return made
+        return bookmark
     }
 
     func remove(_ bookmark: ServerBookmark) async throws {

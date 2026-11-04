@@ -53,7 +53,7 @@ describe("the end of a book", () => {
       {
         books: [one, two],
         theEnd: "one",
-        history: { reads: [read("one", "2026-10-01T09:00:00.000Z", "2026-10-09T21:00:00.000Z")], sessions: [session("one", "2026-10-02T09:00:00.000Z", "2026-10-02T20:00:00.000Z", 11 * HOUR + 20 * 60_000)], recording: true },
+        history: { reads: [read("one", "2026-10-01T09:00:00.000Z", "2026-10-09T21:00:00.000Z")], sessions: [session("one", "2026-10-02T09:00:00.000Z", "2026-10-02T20:00:00.000Z", 11 * HOUR + 20 * 60_000)], readings: [], recording: true },
       },
       [{ key: "waygates", name: "The Waygates", bookIds: ["one", "two"] } as SeriesGroup],
     );
@@ -68,7 +68,7 @@ describe("the end of a book", () => {
   });
 
   it("offers nothing next when the series is finished, or the book is in none", async () => {
-    await shown({ books: [book("one", "The Waygate")], theEnd: "one", history: { reads: [read("one", "2026-10-01T09:00:00.000Z", "2026-10-09T21:00:00.000Z")], sessions: [], recording: true } });
+    await shown({ books: [book("one", "The Waygate")], theEnd: "one", history: { reads: [read("one", "2026-10-01T09:00:00.000Z", "2026-10-09T21:00:00.000Z")], sessions: [], readings: [], recording: true } });
     expect(document.body.textContent).not.toContain("Up next");
     expect([...document.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Done"]);
   });

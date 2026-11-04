@@ -2,13 +2,16 @@ import SwiftUI
 
 /// One book's page, as the desktop's (packages/desktop/src/ui/ReaderPage.tsx): the cover, the
 /// title in the book's own serif, where you are as a sentence, listening and
-/// reading along, the facts, the description, and the rest of its series as
-/// a list. A faint wash of the cover's colour sits behind the top. The focus
-/// starts on listening; Menu goes back to the library.
+/// reading along, and More (finished or not, starting again), the facts, the
+/// description, your history with it, and the rest of its series as a list.
+/// A faint wash of the cover's colour sits behind the top. The focus starts
+/// on listening; Menu goes back to the library.
 struct BookView: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
     @State private var detail: ServerBookDetail?
+    /// Every listen-through of the book, oldest first.
+    @State private var listens: [Listen] = []
     /// Whether the details came after the page was drawn, rather than with it.
     @State private var arrivedLate = false
     @State private var moreAbout = false
@@ -67,18 +70,42 @@ struct BookView: View {
                             // One above the other on a phone.
                             let buttons = narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12.scaled)) : AnyLayout(HStackLayout(spacing: 24.scaled))
                             buttons {
-                                Button { Task { await model.listen(to: book) } } label: {
-                                    Label(listenLabel(progress), systemImage: "play.fill")
+                                if book.audio {
+                                    Button { Task { await model.listen(to: book) } } label: {
+                                        Label(listenLabel(progress), systemImage: "play.fill")
+                                    }
+                                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                                    .focused($focused, equals: .listen)
+                                } else {
+                                    // Only its text: reading is the book, as the desktop's page has it.
+                                    Button { Task { await model.read(book) } } label: {
+                                        Label(model.opening == book.id ? "Opening…" : progress?.started == true && progress?.finished != true ? "Continue reading" : "Read", systemImage: "book.fill")
+                                    }
+                                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                                    .focused($focused, equals: .listen)
                                 }
-                                .buttonStyle(RibbonButtonStyle(kind: .primary))
-                                .focused($focused, equals: .listen)
-                                if book.ebook {
+                                if book.audio && book.ebook {
                                     Button { Task { await model.readAlong(book) } } label: {
                                         Label(model.opening == book.id ? "Opening…" : "Read along", systemImage: "book.fill")
                                     }
                                     .buttonStyle(RibbonButtonStyle())
                                     .focused($focused, equals: .readAlong)
                                 }
+                                // What the desktop's book page has under its own More.
+                                Menu {
+                                    if progress?.finished == true {
+                                        Button("Mark as not finished") { Task { await mark(finished: false) } }
+                                    } else {
+                                        Button("Mark as finished") { Task { await mark(finished: true) } }
+                                    }
+                                    if book.audio && progress?.started == true && progress?.finished != true {
+                                        Button("Start again from the beginning") { Task { await model.startAgain(book) } }
+                                    }
+                                } label: {
+                                    Label("More", systemImage: "ellipsis")
+                                }
+                                .menuStyle(.button)
+                                .buttonStyle(RibbonButtonStyle())
                             }
                             .padding(.top, 36.scaled)
                             if let problem = model.problem {
@@ -106,6 +133,10 @@ struct BookView: View {
                         }
                     }
 
+                    if !listens.isEmpty {
+                        History(listens: listens)
+                    }
+
                     if let series {
                         SeriesList(series: series, current: book)
                     }
@@ -114,6 +145,7 @@ struct BookView: View {
             }
         }
         .defaultFocus($focused, .listen)
+        .task(id: book.id) { await loadListens() }
         .task(id: book.id) {
             if let kept = model.library?.details[book.id] {
                 detail = kept
@@ -128,6 +160,17 @@ struct BookView: View {
         }
     }
 
+    /// Finished, or not after all, on every device; the history then says so.
+    private func mark(finished: Bool) async {
+        await model.mark(book, finished: finished)
+        await loadListens()
+    }
+
+    private func loadListens() async {
+        guard let found = try? await model.server?.listens(in: book.id) else { return }
+        listens = found
+    }
+
     /// The cover's own colour, for the wash behind the top.
     private var tone: Color {
         UIColor(hex: book.cover?.colour).map { Color(uiColor: $0) } ?? .clear
@@ -140,6 +183,11 @@ struct BookView: View {
 
     /// Where you are in the book, as a sentence, as the desktop says it.
     private func sentence(_ progress: BookProgress?) -> String {
+        if !book.audio {
+            guard let progress, progress.started else { return "Not started. An EPUB to read; there is no audio for it." }
+            if progress.finished { return "Finished. Read it again any time." }
+            return "You are \(max(1, Int((model.library?.fraction(of: book) ?? 0) * 100)))% through."
+        }
         let chapters = detail?.chapters ?? []
         guard let progress, progress.started else {
             return "Not started. \(Format.left(book.durationMs))\(chapters.count > 1 ? " in \(chapters.count) chapters" : "")."
@@ -153,7 +201,7 @@ struct BookView: View {
     }
 
     private var facts: [(term: String, value: String)] {
-        var facts: [(String, String)] = [("Length", Format.left(book.durationMs))]
+        var facts: [(String, String)] = book.audio ? [("Length", Format.left(book.durationMs))] : []
         if let detail, !detail.chapters.isEmpty { facts.append(("Chapters", String(detail.chapters.count))) }
         if let year = detail?.book.year { facts.append(("Year", String(year))) }
         if let publisher = detail?.book.publisher, !publisher.isEmpty { facts.append(("Publisher", publisher)) }
@@ -172,6 +220,49 @@ private struct FadesInPlace: ViewModifier {
         content
             .opacity(fades && !shown ? 0 : 1)
             .onAppear { withAnimation(.easeOut(duration: 0.2)) { shown = true } }
+    }
+}
+
+/// Every listen-through of the book, newest first, as the desktop's book page lists them
+/// (packages/desktop/src/ui/ReadHistory.tsx): when it started, how it ended, how many days it took, and the time spent
+/// listening in it on every device. Dates are corrected on the desktop.
+private struct History: View {
+    let listens: [Listen]
+
+    var body: some View {
+        let listened = listens.reduce(0) { $0 + $1.listenedMs }
+        VStack(alignment: .leading, spacing: 18.scaled) {
+            SectionHeader(title: "Your history with it", description: listened > 0 ? "\(Format.left(listened)) listened\(listens.count > 1 ? ", over \(listens.count) listen-throughs" : "")." : nil)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(listens.enumerated()).reversed(), id: \.offset) { index, listen in
+                    HStack(alignment: .firstTextBaseline, spacing: 20.scaled) {
+                        Text(String(index + 1)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44.scaled, alignment: .trailing)
+                        Text(line(listen)).font(.ui(24)).foregroundStyle(Color.ink).monospacedDigit()
+                    }
+                    .padding(.vertical, 12.scaled)
+                    .overlay(alignment: .top) { Rectangle().fill(Color.line).frame(height: 1) }
+                }
+            }
+        }
+        .frame(maxWidth: 1000.scaled, alignment: .leading)
+    }
+
+    /// "3 Oct 2026 to 12 Oct 2026 · 9 days · 11h 20m", "1 Nov 2026 to now", or "… · not finished".
+    private func line(_ listen: Listen) -> String {
+        let started = Moment.read(listen.started)
+        let ended = Moment.read(listen.ended.at)
+        var words = "\(Self.day(started)) to \(listen.ended.how == "going" ? "now" : Self.day(ended))"
+        if listen.ended.how == "left" { words += " · not finished" }
+        if listen.ended.how == "finished", let started, let ended {
+            let days = max(1, Int((ended.timeIntervalSince(started) / 86_400).rounded()))
+            words += days == 1 ? " · a day" : " · \(days) days"
+        }
+        if listen.listenedMs > 0 { words += " · \(Format.left(listen.listenedMs))" }
+        return words
+    }
+
+    private static func day(_ date: Date?) -> String {
+        date?.formatted(date: .abbreviated, time: .omitted) ?? "?"
     }
 }
 

@@ -36,16 +36,52 @@ for listening without a network.
   title as the series lists it. A card is one button, which opens the
   book's page; play is there. While a book plays, its title at the top opens the
   player. Menu goes back to Who's reading, when there's more than one person.
+- **Stats**, at the top of the library, as the desktop's Stats has them:
+  this week as a sentence, a day lately, the streak and the books finished
+  this year; a square for each day of the last year; the books and authors
+  you spent most time with, the narrators listened to most; and the books
+  finished lately. The server counts them from every device's listening
+  sessions and time spent reading (`GET /api/stats`).
+- **A daily goal**, in Settings: minutes a day with your books, listening
+  or reading, the same on every device (`GET` and `PUT /api/goal`). When
+  time spent here meets it, a small note at the top says so for a few
+  seconds, never over the sentence being read, with how many days in a row:
+  "Daily goal met. 20 minutes with your books today. 5 days in a row." Once
+  a day; a goal met by another device's time is that device's to say, and
+  one met while the app is behind is said when it's back. With a goal, the
+  Stats' streak counts the days it was met (`Library/Goal.swift`).
+- **Time spent reading** counts, as listening does: in the reader, with the
+  narration paused, from the first move to the last and a minute after,
+  ending after five minutes without one. It goes to the server as the
+  desktop's reader keeps it (`POST /api/books/:id/reading`), under Keep
+  listening sessions.
 - **Settings**, from your name at the top of the library: Keep listening
   sessions (as the desktop's Settings has it, docs/POSITION-FORMAT.md,
   section 3.3: off, the end of a book won't count the time spent on this TV),
   who's signed in to which server, and Switch reader.
 - **A book's page**: where you are as a sentence, Continue listening and Read
-  along, the facts, the description, and the rest of its series.
+  along, and More: Mark as finished, or not finished after all, and Start
+  again from the beginning, as the desktop's book page has them. Then the
+  facts, the description, your history with it (every listen-through, when
+  it started and how it ended, and the time spent in it on every device),
+  and the rest of its series. Listen again, on a finished book, always
+  starts from the beginning as a new listen-through, as the desktop's does.
 - **The player**: the chapter and how far into it, the transport (chapters,
   thirty seconds back and on), speed, the sleep timer, and the chapter list.
   The player and the reader share one narration: leaving either leaves the
-  book playing.
+  book playing. Every book plays at the same loudness, as on the desktop:
+  the server measures each once, and the app brings it to −18 LUFS without
+  its peaks clipping, at most 12 dB either way (`Listening/Loudness.swift`,
+  mirroring packages/core/src/loudness.ts). Apple's player volume stops at
+  1, so the gain is made on the samples, by an audio tap on each file.
+  Speed is per book, and follows you: a book opens at the speed it was
+  last heard at on any device (its newest listening session), unless this
+  device chose one for it since, as the desktop does
+  (packages/core/src/settings.ts, `speedToPlay`). Paused, the transport
+  moves the place and leaves it paused, as the desktop's does. The sleep
+  timer counts listening: its clock waits while the book is paused, it fades
+  over the last fifteen seconds, and +15 min turns one waiting for the
+  chapter's end into minutes, as the desktop's (packages/core/src/sleep.ts).
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
   amber, and the column glides when it leaves the middle of the screen. Once
@@ -53,7 +89,17 @@ for listening without a network.
   words not being read step back (the river); moving off the narrator, or
   pausing, brings them back at once (a tenth of a second). A book whose
   read-along is by chapter says so for a few seconds as it opens: the words
-  can be up to a minute from the voice.
+  can be up to a minute from the voice. Reading on away from the narrator
+  while it's paused is reading, as it is on the desktop: once you rest on a
+  sentence for five seconds, and as you leave the book, it goes to the
+  server as your reading place, so every device opens there and Continue
+  listening carries on from it. On the iPad and the iPhone, the contents
+  (the list beside Aa) go to a chapter's first sentence.
+- **Books that are only their text** are on the shelf as on the desktop,
+  "EPUB" where a recording would say how long it is, and "42% read" once
+  started. Their page reads them (Read, Continue reading), in the same column
+  with nothing to play: where you are is the sentence you're on, kept as your
+  reading place, and the server finds lines in them too.
 - **The Siri Remote**: up and down step a sentence, a swipe on the touch
   surface glides through several. Left listens from the sentence you're on,
   and right returns to the narrator; away from the narrator, Listen from here
@@ -68,15 +114,27 @@ for listening without a network.
   its reader (docs/POSITION-FORMAT.md, section 3.4), so it's on every device,
   in the audiobook's bookmarks too. Bookmarked words are underlined in amber,
   as on the desktop; holding Select on them offers to delete the bookmark.
-  The player lists the book's bookmarks, and listens from the one chosen.
-- **Find a line**: Search, at the top of the library, opens with its field
-  ready, so holding the remote's microphone button and saying what you
-  remember is enough ("where the scarecrow gets his brains"); typing works
-  too. The server searches every book's sentences, and choosing one opens
-  Read along on it, the narrator where it was: left listens from it.
+  The player bookmarks the moment playing (Bookmark this moment), as the
+  desktop's player does, and so does the lock screen's bookmark; either
+  offers a note, typed or said. The player lists the book's bookmarks from
+  every device with their notes, and listens from the one chosen; holding
+  one offers to write or change its note, or to delete it.
+- **Search**, at the top of the library, opens with its field ready, so
+  holding the remote's microphone button and saying a title, an author, or
+  what you remember is enough ("where the scarecrow gets his brains");
+  typing works too. The books whose title, author, narrator or series have
+  every word come first, as the desktop's search finds them, and choosing
+  one opens its page. Then the lines: the server searches every book's
+  sentences, and choosing one opens Read along on it, the narrator where it
+  was: left listens from it.
 - **Your place** goes to the server as you listen, the way the phone's and
   the desktop's do, and the book opens at the newest of your places on any
-  device, listening or reading.
+  device, listening or reading: Continue listening carries on from where you
+  read to, when that's newer, as the desktop's does. A book left paused here
+  doesn't keep an old place: after half a minute paused, playing on asks the
+  server first, and so does coming back to the app, so it carries on from
+  where another device left it rather than tell the server this one's older
+  place as the newest (the desktop's `takeSharePositions`).
 - **Resuming** goes back by as much as the time away asks, as the desktop's
   does (packages/core/src/resume.ts, mirrored in `Listening/Resume.swift`): two
   seconds after a short pause, ten after a few minutes, thirty after a night,
@@ -161,6 +219,13 @@ two rows; and the reader's buttons say From here and To narrator.
   is its Play.
 - **Any touch** answers Still listening? and brings back the screen from the
   passages, and goes no further, as a press does on the TV (`Remote.swift`).
+- **The lock screen**, Control Center, headphones and the car: play and
+  pause, thirty seconds back and on, the chapter before and the next (a
+  double or triple press of the headphones), and the place on the line, with
+  the cover. A phone call, Siri, or the headphones coming out pause the book
+  as Pause does, its place kept; a call that ends gives it back, a little
+  before where it stopped. A stream that drops partway is asked for again
+  from the moment it reached (`BookPlayer.swift`).
 
 ## Where the read-along comes from
 
@@ -196,9 +261,12 @@ passages.
 | `Remote.swift` | Every press and touch, seen first: when the person last did anything, and the one press that only wakes something. |
 | `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place, resuming, chapter cards, the end. |
 | `Listening/Resume.swift` | How far back resuming goes, as the desktop's `packages/core/src/resume.ts`. |
+| `Listening/Loudness.swift` | Every book at the same loudness, as the desktop's `packages/core/src/loudness.ts`: the gain, and the tap that makes it. |
 | `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
 | `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
-| `Library/SearchView.swift` | Find a line, by voice or typing, in every book. |
+| `Library/StatsView.swift` | What you've been listening to, as the desktop's Stats. |
+| `Library/Goal.swift` | The daily goal: today against it, and the note when it's met here. |
+| `Library/SearchView.swift` | Search, by voice or typing: a book by its title, author or narrator, or a line in every book. |
 | `Listening/Bookmarks.swift` | A book's bookmarks from every device: made of whole sentences here, words or moments elsewhere. |
 | `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |
 | `Listening/PlayerView.swift` | The full player, and the chapter list. |
@@ -313,7 +381,11 @@ others) cuts the column's edges. While a book is paused
 in the player or the reader, the iPad's screen stays on for the passages, an
 hour at most, as the TV's does.
 
-Pages, text sizes, loudness, notes on bookmarks, and books without a narration.
+Pages, and trimming silences. The contents on the TV: the player's chapter
+list moves the narrator instead, and a book that is only its text has no
+player, so on the TV it's read with up, down and swipes. A bookmark made
+here keeps no thirty-second clip, as the desktop's do: the desktop plays a
+bookmark's lead-in from the book itself anyway.
 
 MP3s are never sought in by Apple's player, which goes by the average bitrate
 and lands minutes off in a long VBR book: the TV asks the server for the file
