@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "book": "0123456789abcdef",
+      "sentence": 1000,
+      "ms": 1000,
+      "chapter": "Chapter One",
+      "text": "The waygate hung in the void before them.",
+      "matches": [
+        [
+          1000,
+          1000
+        ]
+      ]
+    }
+  ],
+  "books": [
+    "0123456789abcdef"
+  ]
+}

@@ -73,11 +73,14 @@ for listening without a network.
   in the audiobook's bookmarks too. Bookmarked words are underlined in amber,
   as on the desktop; holding Select on them offers to delete the bookmark.
   The player lists the book's bookmarks, and listens from the one chosen.
-- **Find a line**: Search, at the top of the library, opens with its field
-  ready, so holding the remote's microphone button and saying what you
-  remember is enough ("where the scarecrow gets his brains"); typing works
-  too. The server searches every book's sentences, and choosing one opens
-  Read along on it, the narrator where it was: left listens from it.
+- **Search**, at the top of the library, opens with its field ready, so
+  holding the remote's microphone button and saying a title, an author, or
+  what you remember is enough ("where the scarecrow gets his brains");
+  typing works too. The books whose title, author, narrator or series have
+  every word come first, as the desktop's search finds them, and choosing
+  one opens its page. Then the lines: the server searches every book's
+  sentences, and choosing one opens Read along on it, the narrator where it
+  was: left listens from it.
 - **Your place** goes to the server as you listen, the way the phone's and
   the desktop's do, and the book opens at the newest of your places on any
   device, listening or reading: Continue listening carries on from where you
@@ -214,7 +217,7 @@ passages.
 | `Listening/Resume.swift` | How far back resuming goes, as the desktop's `packages/core/src/resume.ts`. |
 | `Listening/Dozing.swift` | Still listening?, and where you dozed off. |
 | `Listening/Cards.swift`, `Listening/FinishedView.swift`, `Listening/PassagesView.swift` | A chapter's card and Still listening?, the end of a book, and the passages. |
-| `Library/SearchView.swift` | Find a line, by voice or typing, in every book. |
+| `Library/SearchView.swift` | Search, by voice or typing: a book by its title, author or narrator, or a line in every book. |
 | `Listening/Bookmarks.swift` | A book's bookmarks from every device: made of whole sentences here, words or moments elsewhere. |
 | `Listening/BookPlayer.swift` | The narration, streamed: the book's files as one timeline. |
 | `Listening/PlayerView.swift` | The full player, and the chapter list. |

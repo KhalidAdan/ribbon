@@ -198,7 +198,7 @@ final class AppModel {
         switch path[path.count - 2] {
         case .book(let book): return book.title
         case .player: return "Player"
-        case .search: return "Find a line"
+        case .search: return "Search"
         case .settings: return "Settings"
         case .reader: return "Read along"
         }
@@ -337,7 +337,7 @@ final class AppModel {
         if path.last != .settings { path.append(.settings) }
     }
 
-    /// Find a line, by voice or by typing, in any book.
+    /// Search, by voice or by typing: a book by its details, or a line in any book.
     func showSearch() {
         if path.last != .search { path.append(.search) }
     }

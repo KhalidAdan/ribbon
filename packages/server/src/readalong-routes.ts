@@ -8,6 +8,7 @@ import { bookIdOf, listenThrough, readsOf } from "@ribbon/core/stats";
 import type { BookText } from "@ribbon/core/reading/booktext";
 import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
 import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
+import { indexBooks, searchBooks } from "@ribbon/core/search";
 import { localIdOf } from "@ribbon/core/server-books";
 import type { Bookmark, Highlight } from "@ribbon/core/types";
 import { signedIn, type Auth } from "./auth.ts";
@@ -24,6 +25,9 @@ const WHYS: readonly Why[] = ["open", "pause", "seek", "periodic", "end", "close
 
 /** A stretch of listening shorter than this is no session, as the desktop keeps them (packages/desktop/src/app/controller.ts, `endListening`). */
 const SESSION_MIN_MS = 30_000;
+
+/** At most this many books come back from a search, best first. */
+const BOOKS_FOUND = 20;
 
 /** Where a person is in a book, as a device that only draws and plays is told it. */
 export interface BookPlace {
@@ -69,7 +73,11 @@ export interface BookPlace {
  *   every device (packages/core/src/stats.ts, `listenThrough`).
  * - `GET /api/search?q=&book=`: the sentences that best match words someone
  *   remembers, or says, in one book or every one, each named by its book and
- *   its sentence of the read-along, so a device can go straight to it.
+ *   its sentence of the read-along, so a device can go straight to it. In
+ *   every book, the books whose details have every word come back too, as the
+ *   desktop's shelf finds them (packages/core/src/search.ts), so a title, an
+ *   author or a narrator said to the TV finds the book, not only lines that
+ *   share its words.
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
  *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts).
@@ -121,7 +129,9 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const { q = "", book } = request.query;
     if (book && !deps.books.has(book)) return reply.code(404).send({ error: "No such book on this server." });
     reply.header("cache-control", "no-store");
-    return { results: deps.search.search(q, book ? { book } : {}) };
+    // The index of the books' details is made for each search: a few milliseconds for a few hundred books.
+    const books = book ? [] : await searchBooks(await indexBooks(deps.books.list().map((listed) => ({ book: listed, parts: [] }))), q, BOOKS_FOUND);
+    return { results: deps.search.search(q, book ? { book } : {}), books };
   });
 
   app.get<{ Params: { id: string } }>("/api/books/:id/readalong", async (request, reply) => {

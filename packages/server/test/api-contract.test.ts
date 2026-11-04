@@ -114,7 +114,8 @@ describe("what the server answers the Apple app", () => {
     await kept("finished", await ask("POST", `/api/books/${id}/finished`, { device: DEVICE }));
   });
 
-  it("a line found", async () => {
+  it("a line found, and a book", async () => {
     await kept("search", await ask("GET", `/api/search?q=${encodeURIComponent("giant circle of wraithbone")}`));
+    await kept("search-book", await ask("GET", `/api/search?q=${encodeURIComponent("waygate")}`));
   });
 });

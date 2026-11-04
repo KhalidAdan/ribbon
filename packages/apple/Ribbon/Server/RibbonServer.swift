@@ -246,12 +246,18 @@ struct RibbonServer {
         return try await get(Answer.self, "api/bookmarks").bookmarks
     }
 
-    /// The sentences that best match words someone remembers, or says: in every book, or in one.
-    func search(_ words: String, in book: String? = nil) async throws -> [SearchResult] {
-        struct Answer: Decodable { let results: [SearchResult] }
+    /// The sentences that best match words someone remembers, or says, in every book or in one; and, in every book,
+    /// the books whose title, author, narrator or series have every word, best first.
+    func search(_ words: String, in book: String? = nil) async throws -> (lines: [SearchResult], books: [String]) {
+        struct Answer: Decodable {
+            let results: [SearchResult]
+            /// Nil from a server from before it found books.
+            let books: [String]?
+        }
         var query = [URLQueryItem(name: "q", value: words)]
         if let book { query.append(URLQueryItem(name: "book", value: book)) }
-        return try await get(Answer.self, "api/search", query: query).results
+        let answer = try await get(Answer.self, "api/search", query: query)
+        return (answer.results, answer.books ?? [])
     }
 
     /// The person's bookmarks in a book, from every device.
