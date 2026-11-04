@@ -22,7 +22,8 @@ export function StatsPane() {
   const spent = useMemo(() => [...sessions, ...readings], [sessions, readings]);
   const now = Date.now();
   const tz = new Date().getTimezoneOffset();
-  const t = useMemo(() => totals(spent, reads, now, tz), [spent, reads, tz]); // eslint-disable-line react-hooks/exhaustive-deps
+  const goal = useAppState((s) => s.goal.minutes);
+  const t = useMemo(() => totals(spent, reads, now, tz, goal), [spent, reads, tz, goal]); // eslint-disable-line react-hooks/exhaustive-deps
   const weeks = useMemo(() => heatmap(spent, now, tz), [spent, tz]); // eslint-disable-line react-hooks/exhaustive-deps
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
   const books = useMemo(() => timeBy(spent, (id) => [id]).filter((x) => byId.has(x.key)).slice(0, 6), [spent, byId]);
@@ -58,7 +59,7 @@ export function StatsPane() {
   const tiles = [
     { label: "This week", value: formatSpan(t.weekMs) },
     { label: "A day, lately", value: formatSpan(t.dailyAverageMs) },
-    { label: "Streak", value: `${t.streakDays} ${t.streakDays === 1 ? "day" : "days"}`, note: t.longestStreakDays > t.streakDays ? `Longest ${t.longestStreakDays}` : undefined },
+    { label: "Streak", value: `${t.streakDays} ${t.streakDays === 1 ? "day" : "days"}`, note: t.longestStreakDays > t.streakDays ? `Longest ${t.longestStreakDays}` : goal > 0 ? `Days with your ${goal} minutes` : undefined },
     { label: `Finished in ${new Date().getFullYear()}`, value: String(t.finishedThisYear) },
   ];
   const maxBook = books[0]?.ms ?? 1;

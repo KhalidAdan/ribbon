@@ -24,6 +24,7 @@ import { ReadAlongs } from "./library/readalong.ts";
 import { SearchIndex } from "./library/search.ts";
 import { LibrarySeries } from "./library/series.ts";
 import { Mp3Frames } from "./library/frames.ts";
+import { Goals } from "./goals.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
 import { readAlongRoutes } from "./readalong-routes.ts";
@@ -154,7 +155,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   libraryRoutes(app, { auth, jobs, books, places, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir, folders: config.folders ?? [] });
   await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames, readAlongs });
   placesRoutes(app, { auth, places, events });
-  readAlongRoutes(app, { auth, books, places, events, readAlongs, search, frames, dataDir: config.dataDir });
+  readAlongRoutes(app, { auth, books, places, goals: new Goals(db), events, readAlongs, search, frames, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }

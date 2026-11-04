@@ -104,4 +104,39 @@ describe("time spent reading, in the app", () => {
     expect((await readingsInTheLog()).length).toBe(before);
     c.destroy();
   });
+
+
+  it("says the daily goal was met, once, when reading meets it here", async () => {
+    const host: Host = { ...nodeHost(), openEbook: async () => JSON.stringify(model) };
+    const settings = memorySettings();
+    const platform: Platform = { host, pickFolder: async () => root, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: settings };
+    const c = new AppController(platform);
+    await c.boot();
+    await c.pickLibrary();
+    const check = (now: number) => (c as unknown as { checkGoal(now: number): void }).checkGoal(now);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t0 = new Date("2026-11-05T21:00:00.000Z").getTime();
+    vi.setSystemTime(t0);
+    await c.setGoal(1);
+    expect(c.getState().goal).toMatchObject({ minutes: 1 });
+    check(t0);
+    expect(c.getState().goalMet).toBeNull();
+
+    const book = c.getState().books.find((b) => b.book.path === "Ebooks/Lamp.epub")!;
+    await c.openReading(book.book.id);
+    vi.setSystemTime(t0);
+    c.moveReading({ section: 0, block: 0, offset: 3 }, "periodic", "hand");
+    vi.setSystemTime(t0 + 50_000);
+    c.moveReading({ section: 1, block: 0, offset: 3 }, "periodic", "hand");
+    // Seventy seconds of reading going on, not kept yet: a minute's goal is met.
+    check(t0 + 70_000);
+    expect(c.getState().goalMet).toEqual({ minutes: 1, streakDays: 1 });
+    c.dismissGoalMet();
+    check(t0 + 80_000);
+    expect(c.getState().goalMet).toBeNull();
+    // Kept on this machine, with the day it was said, a moment later.
+    await vi.waitFor(async () => expect(await settings.read()).toMatchObject({ dailyGoal: { minutes: 1 }, goalCelebrated: expect.any(Number) }));
+    await c.closeReading();
+    c.destroy();
+  });
 });

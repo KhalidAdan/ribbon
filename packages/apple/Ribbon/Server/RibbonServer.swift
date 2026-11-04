@@ -173,6 +173,27 @@ struct ListeningStats: Decodable {
     let finishedInAll: Int
 }
 
+/// The person's daily goal, and today against it, on this device's days (packages/server/src/readalong-routes.ts,
+/// `GET /api/goal`; packages/core/src/goal.ts).
+struct GoalToday: Decodable {
+    struct Goal: Decodable {
+        /// Minutes a day with their books; 0 is off.
+        let minutes: Int
+        let chosenAt: String?
+    }
+
+    struct Today: Decodable {
+        /// Time kept today, listening and reading, on every device.
+        let todayMs: Int
+        let met: Bool
+        /// Days in a row the goal was met, ending today, or yesterday while today isn't met yet.
+        let streakDays: Int
+    }
+
+    let goal: Goal
+    let today: Today
+}
+
 /// A bookmarked passage from any of the person's books (packages/server/src/readalong-routes.ts, `GET /api/bookmarks`), for
 /// the screen they drift by on while a book is paused.
 struct Passage: Decodable, Identifiable {
@@ -333,6 +354,18 @@ struct RibbonServer {
     func unfinished(_ id: String) async throws -> ListenThrough {
         struct Answer: Decodable { let read: ListenThrough }
         return try await send("POST", "api/books/\(id)/unfinished", [:], answer: Answer.self).read
+    }
+
+    /// The person's daily goal, and today against it, on this device's days.
+    func goal() async throws -> GoalToday {
+        let offset = -TimeZone.current.secondsFromGMT() / 60
+        return try await get(GoalToday.self, "api/goal", query: [URLQueryItem(name: "tz", value: String(offset))])
+    }
+
+    /// Choose a daily goal, for every device: the server keeps it unless one was chosen later, and says which stands.
+    func chooseGoal(minutes: Int) async throws -> GoalToday.Goal {
+        struct Answer: Decodable { let goal: GoalToday.Goal }
+        return try await send("PUT", "api/goal", ["minutes": minutes, "chosenAt": Moment.write(Date())], answer: Answer.self).goal
     }
 
     /// What the person has been listening to, on this device's days.

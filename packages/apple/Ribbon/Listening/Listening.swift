@@ -162,6 +162,12 @@ final class Listening {
 
     var durationMs: Int { book.durationMs }
 
+    /// Listening going on now and not sent yet: the stretch playing, in wall-clock time (the daily goal counts it).
+    var stretchMs: Int {
+        guard playing, let stretch else { return 0 }
+        return max(0, Int(Date().timeIntervalSince(stretch.start) * 1000))
+    }
+
     /// Whether anything has played yet: before, Play resumes from the place kept.
     var loaded: Bool { player.loaded }
 

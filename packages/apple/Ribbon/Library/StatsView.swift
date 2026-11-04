@@ -23,7 +23,7 @@ struct StatsView: View {
                             Text("Nothing to count yet. Listen or read for a while, and your time, your streaks and what you finished show up here.")
                                 .font(.ui(26)).foregroundStyle(Color.ink2).frame(maxWidth: 1000.scaled, alignment: .leading)
                         } else {
-                            Summary(totals: stats.totals)
+                            Summary(totals: stats.totals, goal: model.goal?.minutes ?? 0)
                             Year(days: stats.days, totals: stats.totals)
                             if !stats.books.isEmpty { MostListened(rows: stats.books) }
                             if !stats.finished.isEmpty { FinishedLately(rows: stats.finished, inAll: stats.finishedInAll) }
@@ -52,6 +52,8 @@ struct StatsView: View {
 /// This week as a sentence beside a rule, then four numbers under a hairline: two to a row on a phone.
 private struct Summary: View {
     let totals: ListeningStats.Totals
+    /// The daily goal's minutes: with one, the streak counts the days it was met.
+    let goal: Int
     @Environment(\.narrow) private var narrow
 
     var body: some View {
@@ -65,7 +67,7 @@ private struct Summary: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32.scaled, alignment: .leading), count: narrow ? 2 : 4), alignment: .leading, spacing: 22.scaled) {
                     tile("This week", Format.left(totals.weekMs))
                     tile("A day, lately", Format.left(Int(totals.dailyAverageMs.rounded())))
-                    tile("Streak", "\(totals.streakDays) \(totals.streakDays == 1 ? "day" : "days")", note: totals.longestStreakDays > totals.streakDays ? "Longest \(totals.longestStreakDays)" : nil)
+                    tile("Streak", "\(totals.streakDays) \(totals.streakDays == 1 ? "day" : "days")", note: totals.longestStreakDays > totals.streakDays ? "Longest \(totals.longestStreakDays)" : goal > 0 ? "Days with your \(goal) minutes" : nil)
                     tile("Finished in \(Calendar.current.component(.year, from: Date()))", String(totals.finishedThisYear))
                 }
             }

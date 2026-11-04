@@ -34,6 +34,17 @@ struct SettingsView: View {
                                 }
                             }
                             .buttonStyle(LiftStyle.row())
+                            if let goal = model.goal {
+                                Button { Task { await goal.choose(goal.next) } } label: {
+                                    Row(
+                                        title: "Daily goal",
+                                        description: "Minutes a day with your books, listening or reading, the same on every device. Met, a note says so for a moment, with how many days in a row."
+                                    ) {
+                                        Text(goal.minutes == 0 ? "Off" : "\(goal.minutes) min").monospacedDigit()
+                                    }
+                                }
+                                .buttonStyle(LiftStyle.row())
+                            }
                         }
                         Rows(label: "Reader") {
                             Row(title: name, description: "Signed in to \(model.host).")

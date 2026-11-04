@@ -1,3 +1,4 @@
+import type { DailyGoal } from "@ribbon/core/goal";
 import type { DeviceInfo, LogRecord } from "@ribbon/core/poslog";
 import type { EditValues } from "@ribbon/core/edits";
 import type { FoundSentence, ServerBook, ServerBookDetail, ServerJob, ServerSeries } from "@ribbon/core/server-books";
@@ -115,6 +116,17 @@ export class ServerClient {
   /** A cover's bytes at one of the widths the server makes (200, 400 or 800). */
   async cover(hash: string, width: number): Promise<Uint8Array> {
     return new Uint8Array(await (await this.get(`/covers/${hash}-${width}.jpg`)).arrayBuffer());
+  }
+
+  /** The person's daily goal, as the server keeps it (packages/core/src/goal.ts). */
+  async goal(): Promise<DailyGoal> {
+    return ((await (await this.get("/api/goal")).json()) as { goal: DailyGoal }).goal;
+  }
+
+  /** Choose a daily goal: the server keeps it unless one was chosen later, and answers with the goal that stands. */
+  async chooseGoal(goal: DailyGoal): Promise<DailyGoal> {
+    const r = await this.send("/api/goal", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(goal) });
+    return ((await r.json()) as { goal: DailyGoal }).goal;
   }
 
   /** Who's signed in: their name, and whether they're the server's admin. */

@@ -167,6 +167,28 @@ describe("the desktop on a server", () => {
     expect(app.getState().positions[id]?.device).toBe("Ribbon on the phone");
   }, 30_000);
 
+  it("keeps the daily goal on the server, the one chosen later standing on every device", async () => {
+    await stocked();
+    const goal = async () => (await asked<{ goal: { minutes: number; chosenAt: string | null } }>("/api/goal")).goal;
+    const { app } = await aDesktop();
+    await app.setGoal(20);
+    expect((await goal()).minutes).toBe(20);
+
+    // Chosen later on the phone: a desktop signing in takes it.
+    const later = new Date(Date.now() + 60_000).toISOString();
+    await server.app.inject({ method: "PUT", url: "/api/goal", headers: { authorization: `Bearer ${admin}` }, payload: { minutes: 30, chosenAt: later } });
+    const { app: other } = await aDesktop();
+    await soon(() => other.getState().goal.minutes).toBe(30);
+
+    // Chosen later still on a desktop that was away: signing in, it's the server's too.
+    const settings = memorySettings();
+    await settings.write({ dailyGoal: { minutes: 45, chosenAt: new Date(Date.now() + 120_000).toISOString() } });
+    const { app: away } = await aDesktop("admin", { settings });
+    expect(away.getState().goal.minutes).toBe(45);
+    await soon(async () => (await goal()).minutes).toBe(45);
+    for (const a of [app, other, away]) a.destroy();
+  }, 30_000);
+
   it("sends what's waiting on disconnecting, and finds it all on signing in again", async () => {
     await stocked();
     const { app, settings } = await aDesktop();

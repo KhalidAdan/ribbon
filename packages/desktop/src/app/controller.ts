@@ -19,6 +19,7 @@ import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type
 import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
 import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 import { finishedByRead, openRead } from "@ribbon/core/stats";
+import { goalToday, GoalWatch, newerGoal, NO_GOAL, type DailyGoal } from "@ribbon/core/goal";
 import { chaptersUrl, parseChapters, type LookedUp, type Region } from "@ribbon/core/audnexus";
 import { JobQueue, type JobStatus } from "./jobs";
 import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "./media-session";
@@ -85,6 +86,8 @@ const READING_IDLE_MS = 5 * 60_000;
 const READING_LINGER_MS = 60_000;
 /** A stretch of listening or reading shorter than this isn't kept. */
 const STRETCH_MIN_MS = 30_000;
+/** How often today is checked against the daily goal. */
+const GOAL_CHECK_MS = 15_000;
 
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
 const ALIGNED_WRITE_MS = 30_000;
@@ -241,6 +244,10 @@ export interface AppState {
   view: LibraryView;
   /** Listen-throughs, listening sessions and time spent reading, from every device's log. */
   history: { reads: ReadRecord[]; sessions: SessionRecord[]; readings: ReadingRecord[]; recording: boolean };
+  /** The person's daily goal, minutes a day with their books (core/goal.ts): this machine's, or a server's chosen later. */
+  goal: DailyGoal;
+  /** The goal just met, while its note shows (ui/GoalMet.tsx): the minutes, and the days in a row. */
+  goalMet: { minutes: number; streakDays: number } | null;
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
   /** The book open in the reader, over everything but the player bar. */
@@ -439,6 +446,11 @@ export class AppController {
   private bookmarkRows = new Map<string, Bookmark[]>();
   /** The stretch of playing going on now, for the session record. */
   private listening: { bookId: string; start: number; fromMs: number; speed: number } | null = null;
+  /** Whether to say the daily goal was met: once a day, when it's met here (core/goal.ts). */
+  private goalWatch = new GoalWatch();
+  private goalTimer: ReturnType<typeof setInterval> | null = null;
+  /** When a stretch of listening or reading here last ended and was kept: the goal it meets is this machine's to say. */
+  private spentHereAt = 0;
   private lastWrite = 0;
   private sleepTimer: number | null = null;
   private uninstallMedia: (() => void) | null = null;
@@ -508,6 +520,8 @@ export class AppController {
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], readings: [], recording: true },
+      goal: NO_GOAL,
+      goalMet: null,
       namedChapters: {},
       reading: null,
       readingSettings: parseReading(undefined),
@@ -661,12 +675,18 @@ export class AppController {
         log.info("replacing Ribbon's speech model, whisper base, with whisper small");
         void this.downloadSpeechModel();
       }
+      const kept = this.appSettings.dailyGoal as Partial<DailyGoal> | undefined;
+      if (kept && typeof kept.minutes === "number") this.set({ goal: { minutes: kept.minutes, chosenAt: typeof kept.chosenAt === "string" ? kept.chosenAt : null } });
+      this.goalWatch = new GoalWatch(typeof this.appSettings.goalCelebrated === "number" ? this.appSettings.goalCelebrated : null);
       if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
       else {
         this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
         await this.platform.appSettings.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
       }
     }
+    this.goalTimer = setInterval(() => this.checkGoal(), GOAL_CHECK_MS);
+    // Under Node (the tests, the tools) it never holds the process open.
+    (this.goalTimer as { unref?: () => void }).unref?.();
     const asked = performance.now();
     void this.platform.uptimeMs?.().then((ms) => {
       this.clockOffset = ms - asked;
@@ -1528,6 +1548,7 @@ export class AppController {
     try {
       const books = await shelf.refresh();
       const series = await shelf.refreshSeries();
+      if (alive()) await this.takeGoal(o);
       if (books && alive()) this.publishBooks();
       if (books && alive()) await this.takeEdits(o);
       // A series' books are named by their ids here, which come with the list.
@@ -2808,6 +2829,7 @@ export class AppController {
     const end = Math.min(at, s.last + READING_LINGER_MS);
     if (end - s.start < STRETCH_MIN_MS) return Promise.resolve();
     const progress = (x: number) => Math.round(x * 10_000) / 10_000;
+    this.spentHereAt = Date.now();
     return this.writeHistory(s.bookId, { k: "reading", start: new Date(s.start).toISOString(), end: new Date(end).toISOString(), read_ms: end - s.start, from: progress(s.from), to: progress(s.to) }, undefined, s.claims);
   }
 
@@ -3545,6 +3567,67 @@ export class AppController {
     await this.writeHistory(bookId, { k: "del", of: readId });
   }
 
+  // Daily goal ----------------------------------------------------------
+
+  /** Choose a daily goal, in minutes (0 is off): kept on this machine and on every server signed in to, where it's the person's. */
+  async setGoal(minutes: number): Promise<void> {
+    const goal = { minutes, chosenAt: new Date().toISOString() };
+    this.keepGoal(goal);
+    for (const o of this.openedInOrder()) {
+      await o.server?.client.chooseGoal(goal).catch((e: unknown) => log.warn("could not keep the daily goal on the server:", o.source.name, describe(e)));
+    }
+  }
+
+  /** A server's goal and this machine's: the one chosen later stands, here and there. */
+  private async takeGoal(o: Opened): Promise<void> {
+    const client = o.server?.client;
+    const theirs = client && (await client.goal().catch(() => null));
+    if (!client || !theirs) return;
+    const stands = newerGoal(this.state.goal, theirs);
+    if (stands === theirs) {
+      if (theirs.minutes !== this.state.goal.minutes || theirs.chosenAt !== this.state.goal.chosenAt) this.keepGoal(theirs);
+    } else if (stands.chosenAt) {
+      await client.chooseGoal(stands).catch((e: unknown) => log.warn("could not keep the daily goal on the server:", o.source.name, describe(e)));
+    }
+  }
+
+  private keepGoal(goal: DailyGoal): void {
+    this.appSettings = { ...this.appSettings, dailyGoal: goal };
+    this.saveAppSettingsSoon();
+    this.set({ goal });
+    this.checkGoal();
+  }
+
+  /**
+   * Today against the daily goal: the time kept, listening and reading,
+   * with what's going on now. Met here, after being seen not met today, it
+   * says so, once a day (ui/GoalMet.tsx).
+   */
+  private checkGoal(now = Date.now()): void {
+    const minutes = this.state.goal.minutes;
+    if (!minutes) return;
+    const tz = new Date(now).getTimezoneOffset();
+    const { sessions, readings } = this.state.history;
+    const live = this.liveMs(now);
+    const today = goalToday([...sessions, ...readings], minutes, now, tz, live);
+    if (!this.goalWatch.see(today, now, tz, live > 0 || now - this.spentHereAt < 60_000)) return;
+    this.appSettings = { ...this.appSettings, goalCelebrated: this.goalWatch.celebrated };
+    this.saveAppSettingsSoon();
+    this.set({ goalMet: { minutes, streakDays: today.streakDays } });
+  }
+
+  /** Listening and reading going on now, not kept in the log yet. */
+  private liveMs(now: number): number {
+    const listening = this.listening && this.state.player.playing ? now - this.listening.start : 0;
+    const s = this.readingStretch;
+    const reading = s ? Math.min(now, s.last + READING_LINGER_MS) - s.start : 0;
+    return Math.max(0, listening) + Math.max(0, reading);
+  }
+
+  dismissGoalMet(): void {
+    this.set({ goalMet: null });
+  }
+
   /** Keep a record of listening sessions, or stop. Turning it off writes no more of them. */
   async setRecordSessions(on: boolean): Promise<void> {
     this.appSettings = { ...this.appSettings, recordSessions: on };
@@ -3576,6 +3659,7 @@ export class AppController {
     if (!s || !this.state.history.recording) return;
     const end = Date.now();
     if (end - s.start < STRETCH_MIN_MS) return;
+    this.spentHereAt = end;
     void this.writeHistory(s.bookId, {
       k: "session",
       start: new Date(s.start).toISOString(),
@@ -3959,6 +4043,7 @@ export class AppController {
   }
 
   destroy(): void {
+    if (this.goalTimer) clearInterval(this.goalTimer);
     for (const o of this.opened.values()) {
       void o.keeper.flush();
       o.lookup?.stop();
