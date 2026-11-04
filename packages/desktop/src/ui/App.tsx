@@ -23,6 +23,7 @@ import { useKept } from "./modal";
 import { MoveToServer, SpaceShort } from "./Servers";
 import { SpeechNudge } from "./SpeechNudge";
 import { StatsPane } from "./StatsPane";
+import { TheEnd } from "./TheEnd";
 import { GoalMet } from "./GoalMet";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
@@ -142,6 +143,7 @@ function Ready() {
         <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
           <PlayerPane />
         </PlayerSheet>
+        <TheEnd />
         <GoalMet />
         <SpeechNudge />
       </>
@@ -155,6 +157,7 @@ function Ready() {
       <EditBookHost />
       <SpaceShort />
       <MoveToServer />
+      <TheEnd />
       <GoalMet />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={matchCount} onSubmit={openFirst} />
       <Tabs

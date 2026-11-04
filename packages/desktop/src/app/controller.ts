@@ -244,6 +244,8 @@ export interface AppState {
   view: LibraryView;
   /** Listen-throughs, listening sessions and time spent reading, from every device's log. */
   history: { reads: ReadRecord[]; sessions: SessionRecord[]; readings: ReadingRecord[]; recording: boolean };
+  /** A book that has just played to its end, while its card shows (ui/TheEnd.tsx), by id. */
+  theEnd: string | null;
   /** The person's daily goal, minutes a day with their books (core/goal.ts): this machine's, or a server's chosen later. */
   goal: DailyGoal;
   /** The goal just met, while its note shows (ui/GoalMet.tsx): the minutes, and the days in a row. */
@@ -520,6 +522,7 @@ export class AppController {
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], readings: [], recording: true },
+      theEnd: null,
       goal: NO_GOAL,
       goalMet: null,
       namedChapters: {},
@@ -3162,10 +3165,14 @@ export class AppController {
     if (this.state.current) await this.persistPosition("close");
   }
 
+  /** The book played to its end: finished, and its card says how it went and what's next (ui/TheEnd.tsx). */
   private onBookEnded(): void {
     this.pausedAt = Date.now();
     const id = this.state.current?.book.book.id;
-    if (id) void this.markFinished(id);
+    if (id) {
+      void this.markFinished(id);
+      this.set({ theEnd: id });
+    }
     void this.persistPosition("end");
   }
 
@@ -3530,6 +3537,11 @@ export class AppController {
     } catch (e) {
       log.warn("could not write history beside the books:", describe(e));
     }
+  }
+
+  /** Away from the end of a book's card. */
+  closeTheEnd(): void {
+    this.set({ theEnd: null });
   }
 
   /** Mark a book finished: the listen-through in progress closes now, or one is recorded that does. */
