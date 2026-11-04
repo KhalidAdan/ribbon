@@ -124,18 +124,28 @@ final class Library {
         series.first { group in group.books.contains { $0.id == book.id } }
     }
 
-    /// How far through a book, 0 to 1.
+    /// How far through a book, 0 to 1: through its recording, or, for a book that is only its text, through its text.
     func fraction(of book: ServerBook) -> Double {
-        guard let p = progress[book.id], book.durationMs > 0 else { return 0 }
-        return p.finished ? 1 : min(1, Double(p.ms) / Double(book.durationMs))
+        guard let p = progress[book.id] else { return 0 }
+        if p.finished { return 1 }
+        if !book.audio { return min(1, p.fraction ?? 0) }
+        return book.durationMs > 0 ? min(1, Double(p.ms) / Double(book.durationMs)) : 0
     }
 
-    /// What a book's card says under its author: finished, how far and how long is left, or how long it is (packages/desktop/src/ui/LibraryPane.tsx, `standing`).
+    /// What a book's card says under its author: finished, how far and how long is left, or how long it is
+    /// (packages/desktop/src/ui/LibraryPane.tsx, `standing`); "42% read" for a book that is only its text.
     func standing(of book: ServerBook) -> String {
-        guard let p = progress[book.id] else { return Format.left(book.durationMs) }
+        guard let p = progress[book.id] else { return length(of: book) }
         if p.finished { return "Finished" }
-        if p.started { return "\(max(1, Int((fraction(of: book) * 100).rounded())))% · \(Format.left(book.durationMs - p.ms)) left" }
-        return Format.left(book.durationMs)
+        guard p.started else { return length(of: book) }
+        let percent = max(1, Int((fraction(of: book) * 100).rounded()))
+        return book.audio ? "\(percent)% · \(Format.left(book.durationMs - p.ms)) left" : "\(percent)% read"
+    }
+
+    /// What a book comes to before it's started: how long it is, or that it's an EPUB to read
+    /// (packages/desktop/src/ui/progress.ts, `lengthOf`).
+    func length(of book: ServerBook) -> String {
+        book.audio ? Format.left(book.durationMs) : "EPUB"
     }
 
     private func lastListened(_ book: ServerBook) -> String {

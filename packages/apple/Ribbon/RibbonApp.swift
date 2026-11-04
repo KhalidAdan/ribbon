@@ -369,6 +369,7 @@ final class AppModel {
     /// Read along with a book: its read-along and your place in it, from the server, and its text set in type. Opened at a
     /// sentence, as from a search, the remote is on that sentence and the narrator where it was.
     func readAlong(_ book: ServerBook, at sentence: Int? = nil) async {
+        guard book.audio else { return await read(book, at: sentence) }
         guard let server, opening == nil else { return }
         opening = book.id
         problem = nil
@@ -385,8 +386,31 @@ final class AppModel {
             let measure = BookLayout.Measure.forThisScreen
             let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
             log.info("opened \(book.title, privacy: .public): the server answered in \(typeset - asked, privacy: .public), \(layout.paragraphs.count) paragraphs set in \(ContinuousClock.now - typeset, privacy: .public)")
-            let session = ReadingSession(listening: listening, readAlong: text, place: place)
+            let session = ReadingSession(book: book, server: server, listening: listening, readAlong: text, place: place)
             if let sentence { session.show(sentence) }
+            reading = Reading(session: session, layout: layout)
+            path.append(.reader)
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// Read a book that is only its text: the reader with no narration, at your place in it, or at a sentence found.
+    /// A book playing meanwhile plays on.
+    func read(_ book: ServerBook, at sentence: Int? = nil) async {
+        guard let server, opening == nil else { return }
+        opening = book.id
+        problem = nil
+        defer { opening = nil }
+        do {
+            async let readAlong = server.readAlong(book.id)
+            let place = try await server.place(in: book.id)
+            let text = try await readAlong
+            let measure = BookLayout.Measure.forThisScreen
+            let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
+            let session = ReadingSession(book: book, server: server, listening: nil, readAlong: text, place: place)
+            if let sentence { session.show(sentence) }
+            reading?.session.close()
             reading = Reading(session: session, layout: layout)
             path.append(.reader)
         } catch {

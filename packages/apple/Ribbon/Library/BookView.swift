@@ -70,12 +70,21 @@ struct BookView: View {
                             // One above the other on a phone.
                             let buttons = narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12.scaled)) : AnyLayout(HStackLayout(spacing: 24.scaled))
                             buttons {
-                                Button { Task { await model.listen(to: book) } } label: {
-                                    Label(listenLabel(progress), systemImage: "play.fill")
+                                if book.audio {
+                                    Button { Task { await model.listen(to: book) } } label: {
+                                        Label(listenLabel(progress), systemImage: "play.fill")
+                                    }
+                                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                                    .focused($focused, equals: .listen)
+                                } else {
+                                    // Only its text: reading is the book, as the desktop's page has it.
+                                    Button { Task { await model.read(book) } } label: {
+                                        Label(model.opening == book.id ? "Opening…" : progress?.started == true && progress?.finished != true ? "Continue reading" : "Read", systemImage: "book.fill")
+                                    }
+                                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                                    .focused($focused, equals: .listen)
                                 }
-                                .buttonStyle(RibbonButtonStyle(kind: .primary))
-                                .focused($focused, equals: .listen)
-                                if book.ebook {
+                                if book.audio && book.ebook {
                                     Button { Task { await model.readAlong(book) } } label: {
                                         Label(model.opening == book.id ? "Opening…" : "Read along", systemImage: "book.fill")
                                     }
@@ -89,7 +98,7 @@ struct BookView: View {
                                     } else {
                                         Button("Mark as finished") { Task { await mark(finished: true) } }
                                     }
-                                    if progress?.started == true && progress?.finished != true {
+                                    if book.audio && progress?.started == true && progress?.finished != true {
                                         Button("Start again from the beginning") { Task { await model.startAgain(book) } }
                                     }
                                 } label: {
@@ -174,6 +183,11 @@ struct BookView: View {
 
     /// Where you are in the book, as a sentence, as the desktop says it.
     private func sentence(_ progress: BookProgress?) -> String {
+        if !book.audio {
+            guard let progress, progress.started else { return "Not started. An EPUB to read; there is no audio for it." }
+            if progress.finished { return "Finished. Read it again any time." }
+            return "You are \(max(1, Int((model.library?.fraction(of: book) ?? 0) * 100)))% through."
+        }
         let chapters = detail?.chapters ?? []
         guard let progress, progress.started else {
             return "Not started. \(Format.left(book.durationMs))\(chapters.count > 1 ? " in \(chapters.count) chapters" : "")."
@@ -187,7 +201,7 @@ struct BookView: View {
     }
 
     private var facts: [(term: String, value: String)] {
-        var facts: [(String, String)] = [("Length", Format.left(book.durationMs))]
+        var facts: [(String, String)] = book.audio ? [("Length", Format.left(book.durationMs))] : []
         if let detail, !detail.chapters.isEmpty { facts.append(("Chapters", String(detail.chapters.count))) }
         if let year = detail?.book.year { facts.append(("Year", String(year))) }
         if let publisher = detail?.book.publisher, !publisher.isEmpty { facts.append(("Publisher", publisher)) }

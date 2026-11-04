@@ -83,7 +83,7 @@ export class SearchIndex {
     if (!readAlongs.available) return 0;
     let indexed = 0;
     for (const listed of books.list()) {
-      if (!listed.ebook || !listed.audio) continue;
+      if (!listed.ebook) continue;
       const stored = await readStored(dataDir, listed.id);
       if (!stored || this.isCurrent(listed.id, await readAlongs.stamp(listed.id, stored))) continue;
       // Making the read-along indexes it.

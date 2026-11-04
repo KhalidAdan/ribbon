@@ -193,8 +193,10 @@ private struct ContinueCard: View {
         .task { detail = await model.library?.detail(of: book) }
     }
 
-    /// "Chapter 4 · 9h 40m left", the chapter by its own name, or how far in when the book is one chapter.
+    /// "Chapter 4 · 9h 40m left", the chapter by its own name, or how far in when the book is one chapter; "42% read"
+    /// for a book that is only its text.
     private var where_: String {
+        guard book.audio else { return model.library?.standing(of: book) ?? "" }
         let ms = model.library?.progress(of: book)?.ms ?? 0
         let left = "\(Format.left(book.durationMs - ms)) left"
         guard let chapters = detail?.chapters, chapters.count > 1 else {

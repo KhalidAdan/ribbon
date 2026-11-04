@@ -49,6 +49,15 @@ function paired(withOverlay: boolean, transcribed = { done: 0, total: 1 }) {
 }
 
 describe("a read-along", () => {
+  it("of a book that is only its text, has its sentences, none read aloud, and doesn't read along", () => {
+    const readAlong = readAlongOf(new BookText(book()), null, { done: 0, total: 0 });
+    expect(readAlong).toMatchObject({ ready: false, transcribed: { done: 0, total: 0 }, check: { placed: 0, heldOut: null, unmarked: null } });
+    expect(readAlong.blocks.map((b) => b.k)).toEqual(["h", "p", "hr", "p"]);
+    const sentences = readAlong.blocks.flatMap((b) => b.sentences ?? []);
+    expect(sentences.length).toBeGreaterThan(0);
+    expect(sentences.every((s) => s.ms === 0 && s.endMs === 0 && !s.exact)).toBe(true);
+  });
+
   it("is the reading order's headings, paragraphs and breaks, without pictures or notes", () => {
     const { readAlong } = paired(true);
     expect(readAlong.format).toBe(READ_ALONG_FORMAT);
