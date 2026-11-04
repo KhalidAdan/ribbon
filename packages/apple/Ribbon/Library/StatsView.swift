@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// What you've been listening to, as the desktop's Stats has it
+/// What you've been listening to and reading, as the desktop's Stats has it
 /// (packages/desktop/src/ui/StatsPane.tsx), counted by the server from every
-/// device's sessions (`GET /api/stats`): this week as a sentence, the numbers
+/// device's sessions and readings (`GET /api/stats`): this week as a sentence, the numbers
 /// that matter, a year of days, the books, authors and narrators listened to
 /// most, and what you finished lately. Reached from Stats at the top of the
 /// library; Menu goes back.
@@ -20,7 +20,7 @@ struct StatsView: View {
                     Text("Stats").font(.book(56, weight: 500)).foregroundStyle(Color.ink)
                     if let stats {
                         if stats.totals.sessions == 0 && stats.finished.isEmpty {
-                            Text("Nothing to count yet. Listen for a while, and your time, your streaks and what you finished show up here.")
+                            Text("Nothing to count yet. Listen or read for a while, and your time, your streaks and what you finished show up here.")
                                 .font(.ui(26)).foregroundStyle(Color.ink2).frame(maxWidth: 1000.scaled, alignment: .leading)
                         } else {
                             Summary(totals: stats.totals)
@@ -72,10 +72,10 @@ private struct Summary: View {
         }
     }
 
-    /// "You listened 3h 20m this week, 40 min of it today."
+    /// "You spent 3h 20m with your books this week, 40 min of it today."
     private var sentence: String {
         guard totals.weekMs > 0 else { return "Nothing this week yet. \(Format.left(totals.totalMs)) in all." }
-        return "You listened \(Format.left(totals.weekMs)) this week\(totals.todayMs > 0 ? ", \(Format.left(totals.todayMs)) of it today" : "")."
+        return "You spent \(Format.left(totals.weekMs)) with your books this week\(totals.todayMs > 0 ? ", \(Format.left(totals.todayMs)) of it today" : "")."
     }
 
     private func tile(_ term: String, _ value: String, note: String? = nil) -> some View {
@@ -116,7 +116,7 @@ private struct Year: View {
     }
 }
 
-/// The books listened to most, by time spent, all time: each with its cover and a line of amber for its share.
+/// The books you've spent most time with, listening and reading, all time: each with its cover and a line of amber for its share.
 private struct MostListened: View {
     @Environment(AppModel.self) private var model
     let rows: [ListeningStats.BookTime]
@@ -124,7 +124,7 @@ private struct MostListened: View {
     var body: some View {
         let most = max(1, rows.first?.ms ?? 1)
         VStack(alignment: .leading, spacing: 20.scaled) {
-            SectionHeader(title: "Most listened", description: "By time spent, all time.")
+            SectionHeader(title: "Most time spent", description: "Listening and reading, all time.")
             VStack(spacing: 4.scaled) {
                 ForEach(rows, id: \.book) { row in
                     if let book = model.library?.books.first(where: { $0.id == row.book }) {

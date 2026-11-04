@@ -52,6 +52,7 @@ final class ContractTests: XCTestCase {
         struct Finished: Decodable { let read: ListenThrough }
         _ = try answer("listened", as: Told.self)
         _ = try answer("finished", as: Finished.self)
+        _ = try answer("reading", as: Told.self)
         struct Listens: Decodable { let listens: [Listen] }
         XCTAssertEqual(try answer("listens", as: Listens.self).listens.first?.ended.how, "finished")
         XCTAssertNil(try answer("unfinished", as: Finished.self).read.finished)

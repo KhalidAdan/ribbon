@@ -28,6 +28,12 @@ import UIKit
 /// (ReadingKeeper). Every device then opens at it, and listening carries on
 /// from it. A book that is only its text has no narration at all: where you
 /// are is the remote's sentence, and that's all it keeps.
+///
+/// That reading is time spent with the book too, as listening is: from the
+/// first move with the narration paused to the last, and a minute after,
+/// sent when it ends (a `reading` record, docs/POSITION-FORMAT.md, format
+/// 1.3). Five minutes without a move, you've looked away, and it ends where
+/// you did. The Stats, and the daily goal, count it.
 @MainActor
 @Observable
 final class ReadingSession {
@@ -72,6 +78,10 @@ final class ReadingSession {
     /// The sentence read to and not told yet, and the wait before it's told: a few seconds' rest, as the desktop waits.
     @ObservationIgnored private var readTo: Int?
     @ObservationIgnored private var telling: Task<Void, Never>?
+    /// The stretch of reading now: since when, the last move, and the sentences it ran between.
+    @ObservationIgnored private(set) var stretch: (start: Date, last: Date, from: Int, to: Int)?
+    /// Whether the person keeps their stretches of time as sessions here (docs/POSITION-FORMAT.md, section 3.3).
+    @ObservationIgnored private let keepsSessions: Bool
 
     /// Listening from a sentence starts this long before it, so its first word isn't clipped (packages/core/src/reading/align.ts, `LEAD_IN_MS`).
     static let leadInMs = 250
@@ -82,11 +92,18 @@ final class ReadingSession {
     static let riverAfterMs = 5_000
     /// Resting on a sentence this long makes it the reading place, as the desktop's reader waits (`SHARE_AFTER_MS`).
     static let restMs = 5_000
+    /// This long without a move, the reader has looked away: the stretch of reading ends (the desktop's `READING_IDLE_MS`).
+    static let idleAfter: TimeInterval = 5 * 60
+    /// After the last move, this long still counts: the sentence moved to is read (`READING_LINGER_MS`).
+    static let lingerFor: TimeInterval = 60
+    /// A stretch shorter than this isn't kept, as a listening session isn't.
+    static let shortest: TimeInterval = 30
 
     /// Opened at the narrator's sentence when the book is playing and reads along, else at the place the server gave.
-    init(book: ServerBook, server: RibbonServer, listening: Listening?, readAlong: ReadAlong, place: BookPlace?) {
+    init(book: ServerBook, server: RibbonServer, listening: Listening?, readAlong: ReadAlong, place: BookPlace?, keepsSessions: Bool = true) {
         self.book = book
         self.server = server
+        self.keepsSessions = keepsSessions
         self.listening = listening
         bookmarks = listening?.bookmarks ?? Bookmarks(server: server, bookId: book.id)
         self.readAlong = readAlong
@@ -167,8 +184,9 @@ final class ReadingSession {
         let sentence = sentences[cursor]
         if atDozed { listening.dozing.forget() }
         atDozed = false
-        // Listening from here: the narration's place is the place now.
+        // Listening from here: the narration's place is the place now, and the time is listening.
         forgetReading()
+        endStretch()
         // A listening place not moved from is resumed where it stopped, a little before; anywhere else, from the sentence.
         if !listening.loaded && cursor == narrator && !sentence.exact && listening.positionMs > 0 { return resumePlace() }
         listenedFrom = sentence.ms
@@ -214,6 +232,7 @@ final class ReadingSession {
         if atDozed { listening.dozing.forget() }
         atDozed = false
         forgetReading()
+        endStretch()
         Task {
             let from = await listening.carryOn()
             listenedFrom = from
@@ -314,6 +333,7 @@ final class ReadingSession {
         listening?.onStop = nil
         telling?.cancel()
         tellReadingPlace(why: .close)
+        endStretch()
     }
 
     // What's on the page ------------------------------------------------
@@ -359,7 +379,32 @@ final class ReadingSession {
         }
         if !following { calm() }
         readOn()
+        timeOn()
         onMarks?()
+    }
+
+    // Time spent reading ------------------------------------------------------
+
+    /// A move by hand, with the narration not playing: the stretch of reading goes on, or begins.
+    private func timeOn() {
+        guard listening?.playing != true else { return }
+        let now = Date()
+        if let stretch, now.timeIntervalSince(stretch.last) > Self.idleAfter { endStretch(at: now) }
+        if let stretch {
+            self.stretch = (stretch.start, now, stretch.from, cursor)
+        } else {
+            stretch = (now, now, cursor, cursor)
+        }
+    }
+
+    /// The stretch of reading ends, a minute after its last move at most, and goes to the server when it was long enough.
+    func endStretch(at time: Date = Date()) {
+        guard let stretch else { return }
+        self.stretch = nil
+        let end = min(time, stretch.last.addingTimeInterval(Self.lingerFor))
+        guard end.timeIntervalSince(stretch.start) >= Self.shortest else { return }
+        let (server, id, keep) = (server, book.id, keepsSessions)
+        Task { try? await server.read(from: stretch.start, to: end, sentences: stretch.from, to: stretch.to, keep: keep, in: id) }
     }
 
     /// In a book that is only its text, a bookmark made or left goes back to following where you are, so Menu leaves.

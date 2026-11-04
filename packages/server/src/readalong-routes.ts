@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { nowIso } from "@ribbon/core/position";
 import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
-import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
+import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadingRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
 import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 import { lastSpeed } from "@ribbon/core/settings";
 import { splitPeople } from "@ribbon/core/scan/sidefiles";
@@ -82,7 +82,11 @@ export interface BookPlace {
  *   `listenThrough`).
  * - `POST /api/books/:id/unfinished`: not finished after all. The latest
  *   listen-through opens again, as the desktop's Mark as not finished opens it.
- * - `GET /api/stats?tz=`: what the person has been listening to, counted as
+ * - `POST /api/books/:id/reading`: a stretch of reading, from one sentence of
+ *   the read-along to another, kept as the desktop's reader keeps one (a
+ *   `reading` record under the text's claims, docs/POSITION-FORMAT.md,
+ *   format 1.3), unless the person keeps no sessions on that device.
+ * - `GET /api/stats?tz=`: what the person has been listening to and reading, counted as
  *   the desktop's Stats counts it (packages/core/src/stats.ts): this week, a
  *   day lately, the streak and the books finished this year; each day of the
  *   last year; the books, authors and narrators listened to most; and the
@@ -400,6 +404,32 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return added === null ? reply : { read: listenThrough(read, sessions, id) };
   });
 
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; start?: unknown; end?: unknown; from?: unknown; to?: unknown; keep?: unknown } }>("/api/books/:id/reading", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    const { device, start, end, from, to, keep } = request.body ?? {};
+    const who = deviceOf(device);
+    const began = typeof start === "string" ? Date.parse(start) : NaN;
+    const ended = typeof end === "string" ? Date.parse(end) : NaN;
+    if (!who || !(ended >= began) || !Number.isInteger(from) || !Number.isInteger(to) || (from as number) < 0 || (to as number) < 0) {
+      return reply.code(400).send({ error: "Send the device ({ id, name }), when the stretch started and ended (start, end) and the sentences it ran between (from, to)." });
+    }
+    // As the desktop keeps a stretch of reading: long enough, and only where sessions are kept.
+    if (keep === false || ended - began < SESSION_MIN_MS) return { added: 0 };
+    const book = await readAlongOf(request.params.id, reply);
+    if (!book) return reply;
+    const { text } = book.made;
+    const through = (n: number) => {
+      const range = sentencesRange(text, n, n);
+      return range ? Math.round((text.locator(range.from).locations?.totalProgression ?? 0) * 10_000) / 10_000 : null;
+    };
+    const [fromAt, toAt] = [through(from as number), through(to as number)];
+    if (fromAt === null || toAt === null) return reply.code(400).send({ error: "Those sentences aren't in this book's read-along." });
+    const claims = textClaimsFor(localIdOf(book.listed), text.ebook.meta.identifiers);
+    const added = writeAs(reply, me.id, who, claims, { k: "reading", start: nowIso(began), end: nowIso(ended), read_ms: ended - began, from: fromAt, to: toAt });
+    return added === null ? reply : { added };
+  });
+
   app.get<{ Querystring: { tz?: string } }>("/api/stats", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
@@ -408,19 +438,25 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const now = Date.now();
     const records = parseLog(deps.places.export(me.id)).records;
     const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    // Time with a book, listening or reading: one book, two editions.
+    const spent = [...sessions, ...records.filter((r): r is ReadingRecord => r.k === "reading")];
     const reads = mergeById<ReadRecord>(records, "read");
     // The books on this server by the id the log names them by.
     const byLocal = new Map(deps.books.list().map((b) => [localIdOf(b), b]));
-    const people = (field: "author" | "narrator") => timeBy(sessions, (id) => splitPeople(byLocal.get(id)?.[field] ?? "")).slice(0, 6).map(({ key, ms }) => ({ name: key, ms }));
+    // A narrator is only heard: their time is listening's.
+    const people = (field: "author" | "narrator") =>
+      timeBy(field === "narrator" ? sessions : spent, (id) => splitPeople(byLocal.get(id)?.[field] ?? ""))
+        .slice(0, 6)
+        .map(({ key, ms }) => ({ name: key, ms }));
     const finished = reads
       .filter((r) => r.finished && byLocal.has(bookIdOf(r) ?? ""))
       .sort((a, b) => Date.parse(b.finished!) - Date.parse(a.finished!))
       .slice(0, 8)
       .map((r) => ({ book: byLocal.get(bookIdOf(r)!)!.id, finished: r.finished! }));
     return {
-      totals: totals(sessions, reads, now, Number.isFinite(tz) ? tz : 0),
-      days: heatmap(sessions, now, Number.isFinite(tz) ? tz : 0).map((week) => week.map((d) => d.level)),
-      books: timeBy(sessions, (id) => [id]).flatMap(({ key, ms }) => (byLocal.has(key) ? [{ book: byLocal.get(key)!.id, ms }] : [])).slice(0, 6),
+      totals: totals(spent, reads, now, Number.isFinite(tz) ? tz : 0),
+      days: heatmap(spent, now, Number.isFinite(tz) ? tz : 0).map((week) => week.map((d) => d.level)),
+      books: timeBy(spent, (id) => [id]).flatMap(({ key, ms }) => (byLocal.has(key) ? [{ book: byLocal.get(key)!.id, ms }] : [])).slice(0, 6),
       authors: people("author"),
       narrators: people("narrator"),
       finished,

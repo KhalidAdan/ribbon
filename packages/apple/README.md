@@ -38,9 +38,15 @@ for listening without a network.
   player. Menu goes back to Who's reading, when there's more than one person.
 - **Stats**, at the top of the library, as the desktop's Stats has them:
   this week as a sentence, a day lately, the streak and the books finished
-  this year; a square for each day of the last year; the books, authors and
-  narrators listened to most; and the books finished lately. The server
-  counts them from every device's listening sessions (`GET /api/stats`).
+  this year; a square for each day of the last year; the books and authors
+  you spent most time with, the narrators listened to most; and the books
+  finished lately. The server counts them from every device's listening
+  sessions and time spent reading (`GET /api/stats`).
+- **Time spent reading** counts, as listening does: in the reader, with the
+  narration paused, from the first move to the last and a minute after,
+  ending after five minutes without one. It goes to the server as the
+  desktop's reader keeps it (`POST /api/books/:id/reading`), under Keep
+  listening sessions.
 - **Settings**, from your name at the top of the library: Keep listening
   sessions (as the desktop's Settings has it, docs/POSITION-FORMAT.md,
   section 3.3: off, the end of a book won't count the time spent on this TV),

@@ -8,23 +8,26 @@ import { Cover } from "./Cover";
 import { EmptyState, SectionHeader } from "./kit";
 
 /**
- * What you have been listening to, from the sessions in the position
- * log: this week as a sentence, the numbers that matter, a year of days,
- * and where the time went. Kept beside the books; nothing leaves the
- * machine except through your own sync.
+ * What you have been listening to and reading, from the sessions and the
+ * readings in the position log: this week as a sentence, the numbers that
+ * matter, a year of days, and where the time went. Kept beside the books;
+ * nothing leaves the machine except through your own sync.
  */
 export function StatsPane() {
   const state = useAppState((s) => ({ history: s.history, books: s.books }));
   useCovers();
   const c = useController();
-  const { sessions, reads, recording } = state.history;
+  const { sessions, readings, reads, recording } = state.history;
+  // Time with a book, listening or reading: one book, two editions.
+  const spent = useMemo(() => [...sessions, ...readings], [sessions, readings]);
   const now = Date.now();
   const tz = new Date().getTimezoneOffset();
-  const t = useMemo(() => totals(sessions, reads, now, tz), [sessions, reads, tz]); // eslint-disable-line react-hooks/exhaustive-deps
-  const weeks = useMemo(() => heatmap(sessions, now, tz), [sessions, tz]); // eslint-disable-line react-hooks/exhaustive-deps
+  const t = useMemo(() => totals(spent, reads, now, tz), [spent, reads, tz]); // eslint-disable-line react-hooks/exhaustive-deps
+  const weeks = useMemo(() => heatmap(spent, now, tz), [spent, tz]); // eslint-disable-line react-hooks/exhaustive-deps
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
-  const books = useMemo(() => timeBy(sessions, (id) => [id]).filter((x) => byId.has(x.key)).slice(0, 6), [sessions, byId]);
-  const authors = useMemo(() => timeBy(sessions, (id) => splitPeople(byId.get(id)?.book.author ?? "")).slice(0, 6), [sessions, byId]);
+  const books = useMemo(() => timeBy(spent, (id) => [id]).filter((x) => byId.has(x.key)).slice(0, 6), [spent, byId]);
+  const authors = useMemo(() => timeBy(spent, (id) => splitPeople(byId.get(id)?.book.author ?? "")).slice(0, 6), [spent, byId]);
+  // A narrator is only heard: their time is listening's.
   const narrators = useMemo(() => timeBy(sessions, (id) => splitPeople(byId.get(id)?.book.narrator ?? "")).slice(0, 6), [sessions, byId]);
   const finished = useMemo(
     () =>
@@ -35,12 +38,12 @@ export function StatsPane() {
     [reads],
   );
 
-  if (sessions.length === 0 && finished.length === 0) {
+  if (spent.length === 0 && finished.length === 0) {
     return (
       <section className="h-full overflow-y-auto quiet-scroll" aria-label="Stats">
         <div className="mx-auto w-full max-w-4xl px-4 pt-16 sm:px-8">
           <EmptyState icon={ChartBarIcon} title="Nothing to count yet">
-            {recording ? "Listen for a while and your time, your streaks and what you finished show up here. It is kept beside your books." : "Listening sessions are not being kept. Turn them on in Settings to see your time here."}
+            {recording ? "Listen or read for a while and your time, your streaks and what you finished show up here. It is kept beside your books." : "Listening sessions are not being kept. Turn them on in Settings to see your time here."}
           </EmptyState>
         </div>
       </section>
@@ -49,7 +52,7 @@ export function StatsPane() {
 
   const sentence =
     t.weekMs > 0
-      ? `You listened ${formatSpan(t.weekMs)} this week${t.todayMs > 0 ? `, ${formatSpan(t.todayMs)} of it today` : ""}.`
+      ? `You spent ${formatSpan(t.weekMs)} with your books this week${t.todayMs > 0 ? `, ${formatSpan(t.todayMs)} of it today` : ""}.`
       : `Nothing this week yet. ${formatSpan(t.totalMs)} in all.`;
 
   const tiles = [
@@ -100,7 +103,7 @@ export function StatsPane() {
         <div className="grid gap-12 lg:grid-cols-2">
           {books.length > 0 && (
             <section aria-labelledby="stats-books" className="flex flex-col gap-4">
-              <SectionHeader id="stats-books" title="Most listened" description="By time spent, all time." />
+              <SectionHeader id="stats-books" title="Most time spent" description="Listening and reading, all time." />
               <ol role="list" className="flex flex-col gap-1">
                 {books.map((x) => {
                   const b = byId.get(x.key)!;

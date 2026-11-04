@@ -32,7 +32,8 @@ struct RibbonApp: App {
             #endif
             .onChange(of: phase, initial: true) { _, phase in
                 model.inFront = phase == .active
-                guard phase == .active else { return }
+                // Behind the home screen, or locked, nobody is reading.
+                guard phase == .active else { return model.wentBehind() }
                 // Coming back to the app took a press, which the home screen had.
                 Remote.used()
                 Task { await model.cameToFront() }
@@ -285,6 +286,11 @@ final class AppModel {
         if library?.loaded == true { await library?.refreshProgress() }
     }
 
+    /// Gone behind the home screen or the lock screen: a stretch of reading ends where it was.
+    func wentBehind() {
+        reading?.session.endStretch()
+    }
+
     /// The books and how far through each, again: the library is shown, or shown again.
     func loadLibrary() async {
         guard let library, let server else { return }
@@ -394,7 +400,7 @@ final class AppModel {
             let measure = BookLayout.Measure.forThisScreen
             let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
             log.info("opened \(book.title, privacy: .public): the server answered in \(typeset - asked, privacy: .public), \(layout.paragraphs.count) paragraphs set in \(ContinuousClock.now - typeset, privacy: .public)")
-            let session = ReadingSession(book: book, server: server, listening: listening, readAlong: text, place: place)
+            let session = ReadingSession(book: book, server: server, listening: listening, readAlong: text, place: place, keepsSessions: keepsSessions)
             if let sentence { session.show(sentence) }
             reading = Reading(session: session, layout: layout)
             path.append(.reader)
@@ -416,7 +422,7 @@ final class AppModel {
             let text = try await readAlong
             let measure = BookLayout.Measure.forThisScreen
             let layout = await Task.detached(priority: .userInitiated) { BookLayout(text, measure: measure) }.value
-            let session = ReadingSession(book: book, server: server, listening: nil, readAlong: text, place: place)
+            let session = ReadingSession(book: book, server: server, listening: nil, readAlong: text, place: place, keepsSessions: keepsSessions)
             if let sentence { session.show(sentence) }
             reading?.session.close()
             reading = Reading(session: session, layout: layout)
