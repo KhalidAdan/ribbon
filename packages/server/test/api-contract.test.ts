@@ -57,7 +57,7 @@ describe("what the server answers the Apple app", () => {
   let admin = "";
   let id = "";
 
-  const ask = async (method: "GET" | "POST" | "DELETE", url: string, payload?: Record<string, unknown>) => {
+  const ask = async (method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: Record<string, unknown>) => {
     const r = await server.app.inject({ method, url, headers: { authorization: `Bearer ${admin}` }, ...(payload ? { payload } : {}) });
     expect(r.statusCode, `${method} ${url}: ${r.body}`).toBeLessThan(300);
     return r.json() as Record<string, unknown>;
@@ -105,6 +105,9 @@ describe("what the server answers the Apple app", () => {
     await kept("bookmarks", await ask("GET", `/api/books/${id}/bookmarks`));
     await kept("passages", await ask("GET", "/api/bookmarks"));
     await kept("bookmark-deleted", await ask("DELETE", `/api/books/${id}/bookmarks/${encodeURIComponent((made.bookmark as { id: string }).id)}`, { device: DEVICE }));
+    const moment = await ask("POST", `/api/books/${id}/bookmarks`, { ms: 12000, note: "the waygate opens", device: DEVICE });
+    await kept("bookmark-moment", moment);
+    await kept("bookmark-noted", await ask("PUT", `/api/books/${id}/bookmarks/${encodeURIComponent((moment.bookmark as { id: string }).id)}`, { note: "where it opens", device: DEVICE }));
   });
 
   it("listening, and the end of a book", async () => {

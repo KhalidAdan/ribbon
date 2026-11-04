@@ -290,6 +290,18 @@ struct RibbonServer {
         return try await send("POST", "api/books/\(id)/bookmarks", ["first": first, "last": last], answer: Answer.self).bookmark
     }
 
+    /// Bookmark a moment of the recording, as the desktop's player bookmarks one, with a note or none.
+    func bookmark(at ms: Int, note: String = "", in id: String) async throws -> ServerBookmark {
+        struct Answer: Decodable { let bookmark: ServerBookmark }
+        return try await send("POST", "api/books/\(id)/bookmarks", ["ms": ms, "note": note], answer: Answer.self).bookmark
+    }
+
+    /// A bookmark's note, changed on every device; empty takes it away.
+    func note(_ note: String, on mark: String, in id: String) async throws -> ServerBookmark {
+        struct Answer: Decodable { let bookmark: ServerBookmark }
+        return try await send("PUT", "api/books/\(id)/bookmarks/\(mark)", ["note": note], answer: Answer.self).bookmark
+    }
+
     /// Take a bookmark back, on every device.
     func deleteBookmark(_ mark: String, in id: String) async throws {
         struct Answer: Decodable { let deleted: String }

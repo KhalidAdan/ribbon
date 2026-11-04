@@ -42,6 +42,9 @@ final class ContractTests: XCTestCase {
         XCTAssertFalse(try answer("bookmarks", as: InABook.self).bookmarks.isEmpty)
         XCTAssertFalse(try answer("passages", as: InEveryBook.self).bookmarks.isEmpty)
         _ = try answer("bookmark-deleted", as: Deleted.self)
+        // A moment, with a note, and the note changed.
+        XCTAssertNotNil(try answer("bookmark-moment", as: Made.self).bookmark.ms)
+        XCTAssertEqual(try answer("bookmark-noted", as: Made.self).bookmark.note, "where it opens")
     }
 
     func testListeningAndTheEndOfABook() throws {

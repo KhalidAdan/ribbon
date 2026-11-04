@@ -271,6 +271,12 @@ final class Listening {
         move(to: positionMs + ms)
     }
 
+    /// Bookmark the moment playing, on every device, as the desktop's player does: from the player and the lock screen.
+    @discardableResult
+    func bookmarkHere() async -> ServerBookmark? {
+        try? await bookmarks.add(at: positionMs)
+    }
+
     /// A moment chosen: played from, or, while paused, the place moved there exactly and still paused.
     func move(to ms: Int) {
         guard !playing else { return play(from: ms) }
@@ -626,11 +632,12 @@ final class Listening {
     private static var remoteCommands: [MPRemoteCommand] {
         let center = MPRemoteCommandCenter.shared()
         return [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand, center.skipBackwardCommand, center.skipForwardCommand,
-                center.previousTrackCommand, center.nextTrackCommand, center.changePlaybackPositionCommand]
+                center.previousTrackCommand, center.nextTrackCommand, center.changePlaybackPositionCommand, center.bookmarkCommand]
     }
 
     /// Play and pause; thirty seconds back and on; the chapter before and the next (a double or triple press of the
-    /// headphones); and the place on the lock screen's line. Each on the main thread, where they're sent.
+    /// headphones); the place on the lock screen's line; and a bookmark of the moment. Each on the main thread, where
+    /// they're sent.
     private func listenToRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
         let act = { [weak self] (action: @MainActor (Listening) -> Void) -> MPRemoteCommandHandlerStatus in
@@ -650,6 +657,8 @@ final class Listening {
         commands.skipForwardCommand.addTarget { _ in act { $0.skip(by: Self.skipMs) } }
         commands.previousTrackCommand.addTarget { _ in act { $0.chapter(by: -1) } }
         commands.nextTrackCommand.addTarget { _ in act { $0.chapter(by: 1) } }
+        commands.bookmarkCommand.localizedTitle = "Bookmark"
+        commands.bookmarkCommand.addTarget { _ in act { listening in Task { await listening.bookmarkHere() } } }
         commands.changePlaybackPositionCommand.addTarget { event in
             guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
             let ms = Int(event.positionTime * 1000)
