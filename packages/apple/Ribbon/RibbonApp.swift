@@ -61,6 +61,7 @@ private struct Screens: View {
                         case .player: PlayerView().wayBack()
                         case .search: SearchView().wayBack()
                         case .settings: SettingsView().wayBack()
+                        case .stats: StatsView().wayBack()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -132,6 +133,7 @@ final class AppModel {
         case search
         case reader
         case settings
+        case stats
     }
 
     struct Reading {
@@ -200,6 +202,7 @@ final class AppModel {
         case .player: return "Player"
         case .search: return "Search"
         case .settings: return "Settings"
+        case .stats: return "Stats"
         case .reader: return "Read along"
         }
     }
@@ -359,6 +362,11 @@ final class AppModel {
     /// The TV's settings: listening sessions, and who's reading.
     func showSettings() {
         if path.last != .settings { path.append(.settings) }
+    }
+
+    /// What you've been listening to.
+    func showStats() {
+        if path.last != .stats { path.append(.stats) }
     }
 
     /// Search, by voice or by typing: a book by its details, or a line in any book.

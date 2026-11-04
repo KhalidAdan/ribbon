@@ -5,7 +5,8 @@ import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@rib
 import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
 import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 import { lastSpeed } from "@ribbon/core/settings";
-import { bookIdOf, endOf, listenThrough, readsOf } from "@ribbon/core/stats";
+import { splitPeople } from "@ribbon/core/scan/sidefiles";
+import { bookIdOf, endOf, heatmap, listenThrough, readsOf, timeBy, totals } from "@ribbon/core/stats";
 import type { BookText } from "@ribbon/core/reading/booktext";
 import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
 import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
@@ -81,6 +82,12 @@ export interface BookPlace {
  *   `listenThrough`).
  * - `POST /api/books/:id/unfinished`: not finished after all. The latest
  *   listen-through opens again, as the desktop's Mark as not finished opens it.
+ * - `GET /api/stats?tz=`: what the person has been listening to, counted as
+ *   the desktop's Stats counts it (packages/core/src/stats.ts): this week, a
+ *   day lately, the streak and the books finished this year; each day of the
+ *   last year; the books, authors and narrators listened to most; and the
+ *   books finished lately. Days are the device's own, by its offset from UTC
+ *   in minutes (`tz`, as JavaScript's `getTimezoneOffset` gives it).
  * - `GET /api/books/:id/listens`: every listen-through of the book, oldest
  *   first, each with how it ended and the time spent in it, as the desktop's
  *   book page lists them (packages/desktop/src/ui/ReadHistory.tsx).
@@ -391,6 +398,34 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const added = write(reply, me.id, who, listed, stored, read);
     const sessions = records.filter((r): r is SessionRecord => r.k === "session");
     return added === null ? reply : { read: listenThrough(read, sessions, id) };
+  });
+
+  app.get<{ Querystring: { tz?: string } }>("/api/stats", async (request, reply) => {
+    const me = await signedIn(deps.auth, request);
+    if (!me) return reply.code(401).send({ error: "Sign in first." });
+    reply.header("cache-control", "no-store");
+    const tz = Number(request.query.tz ?? 0);
+    const now = Date.now();
+    const records = parseLog(deps.places.export(me.id)).records;
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    const reads = mergeById<ReadRecord>(records, "read");
+    // The books on this server by the id the log names them by.
+    const byLocal = new Map(deps.books.list().map((b) => [localIdOf(b), b]));
+    const people = (field: "author" | "narrator") => timeBy(sessions, (id) => splitPeople(byLocal.get(id)?.[field] ?? "")).slice(0, 6).map(({ key, ms }) => ({ name: key, ms }));
+    const finished = reads
+      .filter((r) => r.finished && byLocal.has(bookIdOf(r) ?? ""))
+      .sort((a, b) => Date.parse(b.finished!) - Date.parse(a.finished!))
+      .slice(0, 8)
+      .map((r) => ({ book: byLocal.get(bookIdOf(r)!)!.id, finished: r.finished! }));
+    return {
+      totals: totals(sessions, reads, now, Number.isFinite(tz) ? tz : 0),
+      days: heatmap(sessions, now, Number.isFinite(tz) ? tz : 0).map((week) => week.map((d) => d.level)),
+      books: timeBy(sessions, (id) => [id]).flatMap(({ key, ms }) => (byLocal.has(key) ? [{ book: byLocal.get(key)!.id, ms }] : [])).slice(0, 6),
+      authors: people("author"),
+      narrators: people("narrator"),
+      finished,
+      finishedInAll: reads.filter((r) => r.finished).length,
+    };
   });
 
   app.get<{ Params: { id: string } }>("/api/books/:id/listens", async (request, reply) => {

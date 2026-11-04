@@ -57,6 +57,11 @@ final class ContractTests: XCTestCase {
         XCTAssertNil(try answer("unfinished", as: Finished.self).read.finished)
     }
 
+    func testStats() throws {
+        let stats = try answer("stats", as: ListeningStats.self)
+        XCTAssertEqual(stats.days.count, 2)
+    }
+
     func testALineFound() throws {
         struct Found: Decodable { let results: [SearchResult] }
         XCTAssertFalse(try answer("search", as: Found.self).results.isEmpty)

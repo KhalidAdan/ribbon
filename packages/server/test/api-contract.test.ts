@@ -116,6 +116,10 @@ describe("what the server answers the Apple app", () => {
     await kept("listened", await ask("POST", `/api/books/${id}/listened`, { start, end, fromMs: 0, toMs: 20000, speed: 1, again: false, keep: true, device: DEVICE }));
     await kept("finished", await ask("POST", `/api/books/${id}/finished`, { device: DEVICE }));
     await kept("listens", await ask("GET", `/api/books/${id}/listens`));
+    // A stretch long enough to count, so the stats have numbers in them: a day's average is a fraction of a millisecond.
+    const now = Date.now();
+    await ask("POST", `/api/books/${id}/listened`, { start: new Date(now - 40_000).toISOString(), end: new Date(now).toISOString(), fromMs: 0, toMs: 40000, speed: 1, again: false, keep: true, device: DEVICE });
+    await kept("stats", await ask("GET", "/api/stats?tz=300"));
     await kept("unfinished", await ask("POST", `/api/books/${id}/unfinished`, { device: DEVICE }));
   });
 
