@@ -91,6 +91,9 @@ struct BookProgress: Decodable {
     let finished: Bool
     /// How far through its text, 0 to 1, for a book that is only its text; nil for one with a recording.
     var fraction: Double? = nil
+    /// The speed it was last heard at, on any device, and when that listening ended; nil before any is kept.
+    var speed: Double? = nil
+    var speedAt: String? = nil
 }
 
 /// Where the person is in a book (packages/server/src/readalong-routes.ts, `BookPlace`).

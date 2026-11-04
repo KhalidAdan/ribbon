@@ -534,7 +534,9 @@ final class AppModel {
         } else {
             start = await newestPlace(of: book) ?? (0, nil)
         }
-        let made = Listening(book: book, detail: detail, startMs: start.ms, placedAt: start.at, server: server)
+        let progress = library.progress(of: book)
+        let heard = progress?.speed.flatMap { speed in Moment.read(progress?.speedAt).map { (speed: speed, at: $0) } }
+        let made = Listening(book: book, detail: detail, startMs: start.ms, placedAt: start.at, heard: heard, server: server)
         made.newestPlace = { [weak self] in await self?.newestPlace(of: book) }
         made.keepsSessions = keepsSessions
         made.showsCards = { [weak self] in self?.bookOnScreen ?? false }

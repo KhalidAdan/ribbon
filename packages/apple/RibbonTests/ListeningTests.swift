@@ -79,3 +79,21 @@ final class ListeningTests: XCTestCase {
         XCTAssertNil(book.pausedAt)
     }
 }
+
+/// The speed a book opens at, as the desktop chooses it (packages/core/src/settings.ts, `speedToPlay`).
+final class SpeedTests: XCTestCase {
+    private let now = Date()
+
+    func testTheSpeedLastHeardAnywhereWhenItsNewer() {
+        XCTAssertEqual(Listening.speedToPlay(chosen: 1, at: now.addingTimeInterval(-3600), heard: (1.5, now)), 1.5)
+    }
+
+    func testAChoiceMadeHereSinceHolds() {
+        XCTAssertEqual(Listening.speedToPlay(chosen: 1.25, at: now, heard: (1.5, now.addingTimeInterval(-3600))), 1.25)
+    }
+
+    func testAChoiceFromBeforeTimesWereKeptGivesWay() {
+        XCTAssertEqual(Listening.speedToPlay(chosen: 1.25, at: nil, heard: (1.5, now.addingTimeInterval(-86_400))), 1.5)
+        XCTAssertEqual(Listening.speedToPlay(chosen: 1.25, at: nil, heard: nil), 1.25)
+    }
+}

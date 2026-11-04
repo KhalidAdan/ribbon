@@ -4,6 +4,7 @@ import { nowIso } from "@ribbon/core/position";
 import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
 import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
 import { readingStandingOf, standingOf } from "@ribbon/core/progress";
+import { lastSpeed } from "@ribbon/core/settings";
 import { bookIdOf, endOf, listenThrough, readsOf } from "@ribbon/core/stats";
 import type { BookText } from "@ribbon/core/reading/booktext";
 import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlights";
@@ -93,7 +94,9 @@ export interface BookPlace {
  * - `GET /api/progress`: how far the person is through each book, for a
  *   library that keeps no log either: where they are, when, and whether
  *   it's finished, as the apps' shelves work it out (packages/core/src/progress.ts);
- *   for a book that is only its text, how far through its text (`fraction`).
+ *   for a book that is only its text, how far through its text (`fraction`);
+ *   and the speed it was last heard at, on any device, and when (`speed`,
+ *   `speedAt`), so a device opens it at that unless it chose one since.
  *   Never cached, and never in the library answer, which stays the same
  *   while people listen.
  */
@@ -126,7 +129,8 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const places = mergePlaces(records);
     const reading = mergeTextPlaces(records);
     const reads = mergeById<ReadRecord>(records, "read");
-    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean; fraction?: number }> = {};
+    const sessions = records.filter((r): r is SessionRecord => r.k === "session");
+    const books: Record<string, { ms: number; at: string; started: boolean; finished: boolean; fraction?: number; speed?: number; speedAt?: string }> = {};
     for (const listed of deps.books.list()) {
       const id = localIdOf(listed);
       const theirs = readsOf(reads, id);
@@ -140,7 +144,9 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
       const place = places.get(id);
       if (!place && theirs.length === 0) continue;
       const ms = place?.ms ?? 0;
-      books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs) };
+      // The speed it was last heard at, on any device, and when: a device opens it at that unless it chose one since.
+      const heard = lastSpeed(sessions, id);
+      books[listed.id] = { ms, at: place?.t ?? theirs.at(-1)!.started, ...standingOf(ms, listed.durationMs, theirs), ...(heard ? { speed: heard.speed, speedAt: heard.at } : {}) };
     }
     return { books };
   });

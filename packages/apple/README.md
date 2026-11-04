@@ -54,11 +54,15 @@ for listening without a network.
   the server measures each once, and the app brings it to −18 LUFS without
   its peaks clipping, at most 12 dB either way (`Listening/Loudness.swift`,
   mirroring packages/core/src/loudness.ts). Apple's player volume stops at
-  1, so the gain is made on the samples, by an audio tap on each file. Paused, the transport moves the place and leaves it paused,
-  as the desktop's does. The sleep timer counts listening: its clock waits
-  while the book is paused, it fades over the last fifteen seconds, and +15
-  min turns one waiting for the chapter's end into minutes, as the desktop's
-  (packages/core/src/sleep.ts).
+  1, so the gain is made on the samples, by an audio tap on each file.
+  Speed is per book, and follows you: a book opens at the speed it was
+  last heard at on any device (its newest listening session), unless this
+  device chose one for it since, as the desktop does
+  (packages/core/src/settings.ts, `speedToPlay`). Paused, the transport
+  moves the place and leaves it paused, as the desktop's does. The sleep
+  timer counts listening: its clock waits while the book is paused, it fades
+  over the last fifteen seconds, and +15 min turns one waiting for the
+  chapter's end into minutes, as the desktop's (packages/core/src/sleep.ts).
 - **Read along**: the book as one long column (scroll only, no pages), set in
   the reader's own face (Newsreader). The sentence being read is washed in
   amber, and the column glides when it leaves the middle of the screen. Once

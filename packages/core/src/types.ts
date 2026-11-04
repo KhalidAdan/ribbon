@@ -133,6 +133,8 @@ export interface SilenceRange {
 export interface BookSettings {
   bookId: string;
   speed: number;
+  /** When the speed was last chosen on this device, if it ever was: a newer session elsewhere outranks an older choice. */
+  speedAt?: string;
   /** Shorten recorded pauses during playback. Off unless the listener turns it on. */
   trimSilence: boolean;
 }
