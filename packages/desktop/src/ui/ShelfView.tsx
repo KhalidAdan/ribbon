@@ -15,9 +15,10 @@ export function useShelfFacts(): BookFacts {
   const state = useAppState((s) => ({ books: s.books, series: s.series, sources: s.sources }));
   const progress = useShelfProgress();
   const c = useController();
+  // Every series a book is in, by name: a book can be in several.
   const seriesById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const g of c.detectedSeries()) for (const id of g.bookIds) if (!m.has(id)) m.set(id, g.name);
+    const m = new Map<string, string[]>();
+    for (const g of c.detectedSeries()) for (const id of g.bookIds) m.set(id, [...(m.get(id) ?? []), g.name]);
     return m;
   }, [c, state.books, state.series, state.sources]);
   // A book that is only its EPUB is as far along as its reading place.
@@ -33,7 +34,7 @@ export function useShelfFacts(): BookFacts {
         const p = progress.positions[b.book.id];
         return p ? Date.parse(p.updatedAt) : 0;
       },
-      seriesOf: (b) => seriesById.get(b.book.id) ?? null,
+      seriesOf: (b) => seriesById.get(b.book.id) ?? [],
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [progress, seriesById],

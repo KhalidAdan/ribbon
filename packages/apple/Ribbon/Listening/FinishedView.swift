@@ -3,7 +3,8 @@ import SwiftUI
 /// The end of a book: a quiet card that says when it was started and
 /// finished, and the time spent with it on every device, then what's next in
 /// its series, for the person to start when they choose: there's no
-/// countdown. Menu, or Done, goes back to where it ended.
+/// countdown. A book in several series has the next in each other one under
+/// the buttons, to start instead. Menu, or Done, goes back to where it ended.
 struct FinishedView: View {
     @Environment(AppModel.self) private var model
     let listening: Listening
@@ -16,51 +17,71 @@ struct FinishedView: View {
 
     var body: some View {
         let book = listening.book
-        let next = model.upNext(after: book)
+        let nexts = model.upNext(after: book)
+        let next = nexts.first
         ZStack {
             Color.canvas.ignoresSafeArea()
-            // Upright, the iPad has the cover above the rest.
-            let side = upright ? AnyLayout(VStackLayout(alignment: .leading, spacing: 56.scaled)) : AnyLayout(HStackLayout(alignment: .center, spacing: 96.scaled))
-            side {
-                CoverView(book: book, size: 420)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("The end").font(.ui(24, weight: 500)).foregroundStyle(Color.ink3)
-                    Text(book.title).font(.book(64, weight: 500)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 10.scaled)
-                    Text(book.author.isEmpty ? "Author unknown" : book.author).font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)
-                    // Once the server has closed the listen-through, which takes a moment.
-                    Text(howItWent ?? " ")
-                        .font(.ui(26)).foregroundStyle(Color.ink).lineSpacing(6.scaled).monospacedDigit()
-                        .padding(.leading, 18.scaled)
-                        .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
-                        .padding(.top, 40.scaled)
-                        .opacity(howItWent == nil ? 0 : 1)
-                        .animation(.easeOut(duration: 0.3), value: howItWent)
-
-                    if let next, let series = model.library?.series(of: next) {
-                        UpNext(book: next, series: series).padding(.top, 64.scaled)
-                    }
-                    HStack(spacing: 24.scaled) {
-                        if let next {
-                            Button { Task { await model.listenToNext(next) } } label: {
-                                Label(model.opening == next.id ? "Opening…" : "Start listening", systemImage: "play.fill")
-                            }
-                            .buttonStyle(RibbonButtonStyle(kind: .primary))
-                            .focused($focused, equals: .next)
-                        }
-                        Button("Done") { model.closeFinished() }
-                            .buttonStyle(RibbonButtonStyle())
-                            .focused($focused, equals: .done)
-                    }
-                    .padding(.top, (next == nil ? 56 : 32).scaled)
-                }
-                .frame(maxWidth: 1000.scaled, alignment: .leading)
+            if Look.phone {
+                // The phone's screen is too short for the cover, the end and what's next together: they scroll.
+                ScrollView { card(book, nexts).padding(.vertical, 24) }
+            } else {
+                card(book, nexts)
             }
-            .screenEdges(horizontal: 120, vertical: 0)
         }
         .defaultFocus($focused, next == nil ? .done : .next)
         #if os(tvOS)
         .onExitCommand { model.closeFinished() }
         #endif
+    }
+
+    /// The cover, the end, and what's next: beside each other, or one above the other when upright.
+    private func card(_ book: ServerBook, _ nexts: [AppModel.NextInSeries]) -> some View {
+        let next = nexts.first
+        // Upright, the iPad has the cover above the rest.
+        let side = upright ? AnyLayout(VStackLayout(alignment: .leading, spacing: 56.scaled)) : AnyLayout(HStackLayout(alignment: .center, spacing: 96.scaled))
+        return side {
+            CoverView(book: book, size: 420)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("The end").font(.ui(24, weight: 500)).foregroundStyle(Color.ink3)
+                Text(book.title).font(.book(64, weight: 500)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 10.scaled)
+                Text(book.author.isEmpty ? "Author unknown" : book.author).font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)
+                // Once the server has closed the listen-through, which takes a moment.
+                Text(howItWent ?? " ")
+                    .font(.ui(26)).foregroundStyle(Color.ink).lineSpacing(6.scaled).monospacedDigit()
+                    .padding(.leading, 18.scaled)
+                    .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
+                    .padding(.top, 40.scaled)
+                    .opacity(howItWent == nil ? 0 : 1)
+                    .animation(.easeOut(duration: 0.3), value: howItWent)
+
+                if let next {
+                    UpNext(book: next.book, series: next.series).padding(.top, 64.scaled)
+                }
+                HStack(spacing: 24.scaled) {
+                    if let next {
+                        Button { Task { await model.listenToNext(next.book) } } label: {
+                            Label(model.opening == next.id ? "Opening…" : "Start listening", systemImage: "play.fill")
+                        }
+                        .buttonStyle(RibbonButtonStyle(kind: .primary))
+                        .focused($focused, equals: .next)
+                    }
+                    Button("Done") { model.closeFinished() }
+                        .buttonStyle(RibbonButtonStyle())
+                        .focused($focused, equals: .done)
+                }
+                .padding(.top, (next == nil ? 56 : 32).scaled)
+                // What's next in the other series the book is in.
+                ForEach(nexts.dropFirst()) { other in
+                    Button { Task { await model.listenToNext(other.book) } } label: {
+                        Label(model.opening == other.id ? "Opening…" : "Next in \(other.series.name): \(other.series.title(of: other.book))", systemImage: "play.fill")
+                    }
+                    .buttonStyle(RibbonButtonStyle())
+                    .padding(.top, 24.scaled)
+                }
+            }
+            .frame(maxWidth: 1000.scaled, alignment: .leading)
+        }
+        .screenEdges(horizontal: 120, vertical: 0)
     }
 
     /// "Started on 3 October, finished today. 11h 20m of listening, over 9 days."

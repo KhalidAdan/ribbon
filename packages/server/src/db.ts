@@ -16,7 +16,67 @@ export function openDatabase(dataDir: string): DatabaseSync {
   // One writer, many readers, and a wait rather than an error when two requests write at once.
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
+  letBooksIntoManySeries(db);
   return db;
+}
+
+/**
+ * A series' books, in order: one row for each series a book is in, and a
+ * book can be in any number of them (The Horus Heresy, and a White Scars
+ * reading list made by hand). A function of the table's name so the
+ * upgrade below can make it anew.
+ */
+function seriesBookTable(name: string): string {
+  return `
+CREATE TABLE IF NOT EXISTS ${name} (
+  series_id TEXT NOT NULL REFERENCES series (id) ON DELETE CASCADE,
+  book_id TEXT NOT NULL REFERENCES book (id) ON DELETE CASCADE,
+  -- Its place in the order: between two others is anything between their positions.
+  position REAL NOT NULL,
+  -- Its number in the series where one is known: 8 for "Book 8, Part 2", 2.5 between 2 and 3.
+  number REAL,
+  -- Its title as a list of the series shows it, without the series' name; null to show its own.
+  title TEXT,
+  -- 0 leaves it off the shelf: a novella nobody listens to.
+  shelved INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (series_id, book_id)
+);`;
+}
+
+/**
+ * A database from when a book could be in one series at most has its books'
+ * table made again without that rule, once. Back then putting a book in a
+ * series took it out of the one it was in, for good (a `series_left` row),
+ * so making a reading list emptied the series its books came from. The
+ * books that left a series only because they went into another are let
+ * back: the next time series are found, at start, each goes back where its
+ * tags or its title put it. SQLite can't drop a column's UNIQUE, hence a new
+ * table. All of it happens, or none.
+ */
+function letBooksIntoManySeries(db: DatabaseSync): void {
+  if (!bookInOneSeriesAtMost(db)) return;
+  db.exec("BEGIN");
+  try {
+    db.exec(seriesBookTable("series_book_new"));
+    db.exec("INSERT INTO series_book_new (series_id, book_id, position, number, title, shelved) SELECT series_id, book_id, position, number, title, shelved FROM series_book");
+    db.exec("DROP TABLE series_book");
+    db.exec("ALTER TABLE series_book_new RENAME TO series_book");
+    db.exec("CREATE INDEX IF NOT EXISTS series_book_by_book ON series_book (book_id)");
+    db.exec("DELETE FROM series_left WHERE EXISTS (SELECT 1 FROM series_book b WHERE b.book_id = series_left.book_id AND b.series_id <> series_left.series_id)");
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
+/** Whether `series_book.book_id` is UNIQUE on its own, as it was when a book could be in one series at most. */
+function bookInOneSeriesAtMost(db: DatabaseSync): boolean {
+  const unique = db.prepare("SELECT name FROM pragma_index_list('series_book') WHERE \"unique\" = 1 AND origin = 'u'").all();
+  return unique.some((index) => {
+    const columns = db.prepare("SELECT name FROM pragma_index_info(?)").all(String(index.name));
+    return columns.length === 1 && columns[0]!.name === "book_id";
+  });
 }
 
 /** The server's own tables. Better Auth makes its own (`getMigrations` in app.ts). */
@@ -85,20 +145,8 @@ CREATE TABLE IF NOT EXISTS series (
   changed_by TEXT
 );
 
--- A series' books, in order. A book is in one series at most.
-CREATE TABLE IF NOT EXISTS series_book (
-  series_id TEXT NOT NULL REFERENCES series (id) ON DELETE CASCADE,
-  book_id TEXT NOT NULL UNIQUE REFERENCES book (id) ON DELETE CASCADE,
-  -- Its place in the order: between two others is anything between their positions.
-  position REAL NOT NULL,
-  -- Its number in the series where one is known: 8 for "Book 8, Part 2", 2.5 between 2 and 3.
-  number REAL,
-  -- Its title as a list of the series shows it, without the series' name; null to show its own.
-  title TEXT,
-  -- 0 leaves it off the shelf: a novella nobody listens to.
-  shelved INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (series_id, book_id)
-);
+${seriesBookTable("series_book")}
+CREATE INDEX IF NOT EXISTS series_book_by_book ON series_book (book_id);
 
 -- A book's details as a person corrected them (packages/core/src/edits.ts), laid over
 -- what its files say wherever it's listed or served. Taken back, the row goes.

@@ -488,10 +488,26 @@ final class AppModel {
         finished = nil
     }
 
-    /// The next book in the series to hear: the first after this one not finished yet.
-    func upNext(after book: ServerBook) -> ServerBook? {
-        guard let library, let series = library.series(of: book), let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
-        return series.books[(index + 1)...].first { library.progress(of: $0)?.finished != true }
+    /// A book to hear next, and the series it's next in.
+    struct NextInSeries: Identifiable {
+        let book: ServerBook
+        let series: Library.Series
+        var id: String { book.id }
+    }
+
+    /// The next book to hear in each series this one is in: the first after it not finished yet. A book next in
+    /// two series is there once, for the first.
+    func upNext(after book: ServerBook) -> [NextInSeries] {
+        guard let library else { return [] }
+        var found: [NextInSeries] = []
+        for series in library.series(of: book) {
+            guard let index = series.books.firstIndex(where: { $0.id == book.id }),
+                  let next = series.books[(index + 1)...].first(where: { library.progress(of: $0)?.finished != true }),
+                  !found.contains(where: { $0.book.id == next.id })
+            else { continue }
+            found.append(NextInSeries(book: next, series: series))
+        }
+        return found
     }
 
     /// Up next, chosen from the end of a book: its player, over its page where the book before's page was.

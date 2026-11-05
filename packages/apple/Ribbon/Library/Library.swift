@@ -17,10 +17,14 @@ final class Library {
         let books: [ServerBook]
         var numbers: [String: Double] = [:]
         var titles: [String: String] = [:]
+        /// Grouped here by the books' series tags, from a server from before series were its own.
+        var fromTags = false
 
-        /// A book's number: the series' or its files' ("2", "2.5"), else its place in the list.
+        /// A book's number: the series' ("2", "2.5"), else its place in the list. A series grouped by tags goes
+        /// by its files' numbers; a server's series doesn't, as the number in a book's files is its number in
+        /// one series only, not in a reading list it's also in.
         func number(of book: ServerBook, at index: Int) -> String {
-            guard let n = numbers[book.id] ?? book.seriesIndex else { return String(index + 1) }
+            guard let n = numbers[book.id] ?? (fromTags ? book.seriesIndex : nil) else { return String(index + 1) }
             return n == n.rounded() ? String(Int(n)) : String(n)
         }
 
@@ -107,7 +111,7 @@ final class Library {
         } else {
             // A server from before series were its own: books that share a series tag, two or more, by their number in it.
             found = Dictionary(grouping: books.filter { !$0.series.isEmpty }, by: \.series).filter { $0.value.count > 1 }
-                .map { Series(id: $0.key, name: $0.key, books: $0.value.sorted { ($0.seriesIndex ?? .infinity, $0.title) < ($1.seriesIndex ?? .infinity, $1.title) }) }
+                .map { Series(id: $0.key, name: $0.key, books: $0.value.sorted { ($0.seriesIndex ?? .infinity, $0.title) < ($1.seriesIndex ?? .infinity, $1.title) }, fromTags: true) }
         }
         return found.sorted { (lastListened(in: $0), $1.name) > (lastListened(in: $1), $0.name) }
     }
@@ -119,9 +123,10 @@ final class Library {
         return books.filter { !inSeries.contains($0.id) && !offShelf.contains($0.id) }.sorted { (lastListened($0), $1.title) > (lastListened($1), $0.title) }
     }
 
-    /// The series a book is in, when it's one the library groups.
-    func series(of book: ServerBook) -> Series? {
-        series.first { group in group.books.contains { $0.id == book.id } }
+    /// Every series a book is in that the library groups, the one heard most recently first: a book can be in
+    /// several (The Horus Heresy, and a White Scars reading list made by hand).
+    func series(of book: ServerBook) -> [Series] {
+        series.filter { group in group.books.contains { $0.id == book.id } }
     }
 
     /// How far through a book, 0 to 1: through its recording, or, for a book that is only its text, through its text.

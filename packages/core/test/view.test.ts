@@ -25,7 +25,7 @@ const facts: BookFacts = {
   standing: (b) => standing[b.book.id]!,
   fraction: (b) => ({ dune: 1, legion: 0.5, horus: 0.1, ego: 0 })[b.book.id]!,
   listenedAt: (b) => ({ dune: 10, legion: 30, horus: 20, ego: 0 })[b.book.id]!,
-  seriesOf: (b) => (b.book.author === "Dan Abnett" ? "The Horus Heresy" : null),
+  seriesOf: (b) => (b.book.author === "Dan Abnett" ? ["The Horus Heresy", ...(b.book.id === "legion" ? ["Alpha Legion"] : [])] : []),
 };
 const ids = (list: ScannedBook[]) => list.map((b) => b.book.id);
 
@@ -35,6 +35,12 @@ describe("filters", () => {
     expect(ids(applyView(books, { ...DEFAULT_VIEW, filter: { author: ["Frank Herbert", "Ryan Holiday"] } }, facts))).toEqual(["dune", "ego"]);
     expect(ids(applyView(books, { ...DEFAULT_VIEW, filter: { narrator: ["Simon Vance"] } }, facts))).toEqual(["dune"]);
     expect(ids(applyView(books, { ...DEFAULT_VIEW, filter: { series: ["The Horus Heresy"], standing: ["started"] } }, facts))).toEqual(["legion", "horus"]);
+    // A book in two series is found by either.
+    expect(ids(applyView(books, { ...DEFAULT_VIEW, filter: { series: ["Alpha Legion"] } }, facts))).toEqual(["legion"]);
+    expect(facetCounts(books, "series", facts)).toEqual([
+      { value: "The Horus Heresy", count: 2 },
+      { value: "Alpha Legion", count: 1 },
+    ]);
   });
 
   it("find books that need attention", () => {

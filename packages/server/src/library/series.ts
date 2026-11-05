@@ -36,9 +36,10 @@ export interface SeriesBookChange {
  * (docs/SERVER.md, section 7). The server finds them as books arrive, by the
  * rules the desktop has always used (packages/core/src/series.ts): a series tag,
  * else a series named in the titles ("…, Book 7"). After that a series is
- * what people make of it: renamed, reordered, numbered, books moved in or
- * out or left off the shelf, or deleted; finding series again never undoes
- * any of that.
+ * what people make of it: renamed, reordered, numbered, books brought in or
+ * taken out or left off the shelf, or deleted; finding series again never
+ * undoes any of that. A book can be in any number of series: a reading list
+ * made by hand takes nothing from the series its books came from.
  */
 export class LibrarySeries {
   constructor(private readonly db: DatabaseSync) {}
@@ -55,38 +56,37 @@ export class LibrarySeries {
 
   /**
    * Look for series among the library's books and put each book found in
-   * one there, unless a person took it out of that series or deleted the
-   * series. A book already in a series stays where it is, and a series found
-   * anew needs MIN_SERIES_BOOKS books that aren't in another. How many books
+   * one there, unless it's there already, a person took it out of that
+   * series, or deleted the series. Being in other series doesn't matter: a
+   * book in a reading list made by hand still goes in the series its tags
+   * name. A series found anew needs MIN_SERIES_BOOKS books. How many books
    * joined a series.
    */
   find(books: readonly ListedBook[], at: number): number {
-    const placed = new Set(this.db.prepare("SELECT book_id FROM series_book").all().map((row) => String(row.book_id)));
+    const pair = (series: string, book: string) => `${series}/${book}`;
+    const placed = new Set(this.db.prepare("SELECT series_id, book_id FROM series_book").all().map((row) => pair(String(row.series_id), String(row.book_id))));
     const dropped = new Set(this.db.prepare("SELECT id FROM series_dropped").all().map((row) => String(row.id)));
-    const left = new Set(this.db.prepare("SELECT series_id, book_id FROM series_left").all().map((row) => `${String(row.series_id)}/${String(row.book_id)}`));
+    const left = new Set(this.db.prepare("SELECT series_id, book_id FROM series_left").all().map((row) => pair(String(row.series_id), String(row.book_id))));
     let joined = 0;
     this.inTransaction(() => {
       // A series whose books were all deleted goes with them.
       this.db.exec("DELETE FROM series WHERE NOT EXISTS (SELECT 1 FROM series_book WHERE series_id = series.id)");
       for (const group of detectSeries(books.map(asFound), "")) {
         if (dropped.has(group.key)) continue;
-        const fresh = group.bookIds.filter((id) => !placed.has(id) && !left.has(`${group.key}/${id}`));
+        const fresh = group.bookIds.filter((id) => !placed.has(pair(group.key, id)) && !left.has(pair(group.key, id)));
         if (fresh.length === 0) continue;
         if (!this.db.prepare("SELECT 1 FROM series WHERE id = ?").get(group.key)) {
           if (fresh.length < MIN_SERIES_BOOKS) continue;
           this.db.prepare("INSERT INTO series (id, name, created_at, changed_at, changed_by) VALUES (?, ?, ?, ?, NULL)").run(group.key, group.name, at, at);
         }
-        for (const id of fresh) {
-          this.place(group.key, id, group.numbers?.[id] ?? null, group.titles?.[id] ?? null);
-          placed.add(id);
-        }
+        for (const id of fresh) this.place(group.key, id, group.numbers?.[id] ?? null, group.titles?.[id] ?? null);
         joined += fresh.length;
       }
     });
     return joined;
   }
 
-  /** A series a person makes: these books, in this order, taken out of any series they were in. */
+  /** A series a person makes: these books, in this order. They stay in any other series they're in. */
   create(name: string, books: readonly SeriesBookChange[], by: string | null, at: number): ServerSeries | null {
     const taken = this.db.prepare("SELECT id FROM series").all().map((row) => String(row.id));
     const id = uniqueKey(name, taken);
@@ -104,8 +104,8 @@ export class LibrarySeries {
   /**
    * A person's change to a series: its name, and its books in order. Books
    * it no longer has stay out of it when series are found again; books
-   * brought in leave the series they were in. Null when there's no such
-   * series.
+   * brought in stay in the series they were in too. Null when there's no
+   * such series.
    */
   save(id: string, name: string, books: readonly SeriesBookChange[], by: string | null, at: number): ServerSeries | null {
     if (!this.db.prepare("SELECT 1 FROM series WHERE id = ?").get(id)) return null;
@@ -146,23 +146,21 @@ export class LibrarySeries {
   }
 
   /**
-   * A series' books as a person ordered them, each out of the series it was
-   * in. A number or title not given keeps the one it had in this series; a
-   * book brought in from another comes without, since its number there (6 in
-   * Siege of Terra) says nothing of its place here.
+   * A series' books as a person ordered them. A number or title not given
+   * keeps the one it had in this series; a book new to it comes without,
+   * since its number in another (6 in Siege of Terra) says nothing of its
+   * place here. The other series a book is in are left as they are.
    */
   private fill(id: string, books: readonly SeriesBookChange[]): void {
     const had = new Map(this.db.prepare("SELECT book_id, number, title FROM series_book WHERE series_id = ?").all(id).map((row) => [String(row.book_id), member(row)]));
     this.db.prepare("DELETE FROM series_book WHERE series_id = ?").run(id);
     let position = 0;
+    const listed = new Set<string>();
     for (const book of books) {
-      if (!this.db.prepare("SELECT 1 FROM book WHERE id = ?").get(book.id)) continue;
-      // Brought in from another series: it stays out of that one when series are found again.
-      const from = this.db.prepare("SELECT series_id FROM series_book WHERE book_id = ?").get(book.id);
-      if (from) {
-        this.db.prepare("INSERT OR IGNORE INTO series_left (series_id, book_id) VALUES (?, ?)").run(String(from.series_id), book.id);
-        this.db.prepare("DELETE FROM series_book WHERE book_id = ?").run(book.id);
-      }
+      // A book named twice is in the series once, where it's named first.
+      if (listed.has(book.id) || !this.db.prepare("SELECT 1 FROM book WHERE id = ?").get(book.id)) continue;
+      listed.add(book.id);
+      // Put back by hand: series found again keep it here.
       this.db.prepare("DELETE FROM series_left WHERE series_id = ? AND book_id = ?").run(id, book.id);
       const number = book.number !== undefined ? book.number : (had.get(book.id)?.number ?? null);
       const title = book.title !== undefined ? book.title : (had.get(book.id)?.title ?? null);

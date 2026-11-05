@@ -1,6 +1,6 @@
 import { BookOpenIcon, BookmarkIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { orderBySeries, hiddenBookIds, seriesNumber } from "@ribbon/core/series";
+import { orderBySeries, hiddenBookIds, seriesNumber, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { NEUTRAL_TONE, type Tone } from "@ribbon/core/tint";
 import { formatLeft } from "@ribbon/core/speed";
 import { chapterAt } from "@ribbon/core/scan/chapters";
@@ -20,13 +20,14 @@ import { SeriesBooks } from "./SeriesPage";
 /**
  * One book's page: the cover, the title in the book's own serif, where
  * you are as a sentence, what you can do, the facts, the description,
- * and the rest of its series as a list. A faint wash of the cover's
+ * and the rest of its series as a list. A book in several series names
+ * each, and lists the one you came from. A faint wash of the cover's
  * colour sits behind the top. Up and down move through the series;
  * Escape goes back to the library.
  */
 export function ReaderPage() {
   // How far along comes from useShelfProgress: by the minute while the book plays.
-  const state = useAppState((s) => ({ books: s.books, readerBookId: s.readerBookId, sources: s.sources, series: s.series, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled, download: s.readerBookId ? s.downloads[s.readerBookId] : undefined }));
+  const state = useAppState((s) => ({ books: s.books, readerBookId: s.readerBookId, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled, download: s.readerBookId ? s.downloads[s.readerBookId] : undefined }));
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();
@@ -35,7 +36,9 @@ export function ReaderPage() {
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const series = useMemo(() => (book ? (c.detectedSeries().find((g) => g.bookIds.includes(book.book.id)) ?? null) : null), [c, book, state.books, state.sources, state.series]);
+  // Every series the book is in, the one you came from first: that one is listed and stepped through.
+  const inSeries = useMemo(() => (book ? c.seriesOfBook(book.book.id) : []), [c, book, state.books, state.sources, state.series, state.seriesKey]);
+  const series = inSeries[0] ?? null;
   const record = series ? state.series[series.key] : undefined;
   const orderedIds = useMemo(() => (series ? orderBySeries(series.bookIds, (id) => id, record ? [record] : []) : []), [series, record]);
   const hidden = useMemo(() => hiddenBookIds(record ? [record] : []), [record]);
@@ -79,9 +82,6 @@ export function ReaderPage() {
 
   const me = progressIn(book, shelf, reading);
   const index = orderedIds.indexOf(book.book.id);
-  const numbers = orderedIds.map((id, i) => seriesNumber(record, id, i + 1, series?.numbers));
-  // "Book 4 of 10" while the numbers are the positions; "Book 9" when the series has gaps or a book in parts.
-  const counted = numbers.every((n, i) => n === String(i + 1));
   const shelfIds = orderedIds.filter((id) => !hidden.has(id));
   const nextId = index >= 0 ? orderedIds.slice(index + 1).find((id) => !hidden.has(id)) : undefined;
   const next = nextId ? byId.get(nextId) : undefined;
@@ -153,13 +153,16 @@ export function ReaderPage() {
         <div className="grid gap-8 md:grid-cols-[16rem_minmax(0,1fr)] md:gap-12 lg:grid-cols-[19rem_minmax(0,1fr)]">
           <Cover url={coverUrl} title={book.book.title} className="w-48 self-start sm:w-56 md:w-full" />
           <div className="min-w-0">
-            {series && index >= 0 && (
-              <p className="text-base/6 text-ink-2 sm:text-sm/5">
-                <button type="button" onClick={() => c.openSeries(series.key)} className="rounded-sm text-left focus-ring hover:text-ink">
-                  {series.name} · Book {numbers[index]}
-                  {counted && ` of ${orderedIds.length}`}
-                </button>
-              </p>
+            {inSeries.length > 0 && (
+              <ul role="list" className="flex flex-wrap gap-x-4 gap-y-1 text-base/6 text-ink-2 sm:text-sm/5" aria-label="Series">
+                {inSeries.map((g) => (
+                  <li key={g.key}>
+                    <button type="button" onClick={() => c.openSeries(g.key)} className="rounded-sm text-left focus-ring hover:text-ink">
+                      {g.name} · Book {bookNumberIn(g, state.series[g.key], book.book.id)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
             <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{(index >= 0 && series?.titles?.[book.book.id]) || book.book.title}</h1>
             {book.book.subtitle && <p className="mt-1 font-serif text-xl/7 text-pretty text-ink-2">{book.book.subtitle}</p>}
@@ -301,3 +304,11 @@ function languageName(code: string): string {
 
 /** The three-letter codes audiobook tags use most, to their two-letter forms. */
 const ISO3: Record<string, string> = { eng: "en", deu: "de", ger: "de", fra: "fr", fre: "fr", spa: "es", ita: "it", jpn: "ja", nld: "nl", dut: "nl", por: "pt", rus: "ru", pol: "pl", swe: "sv", nor: "no", dan: "da", fin: "fi", zho: "zh", chi: "zh" };
+
+/** A book's number in a series, as its page shows it: "4 of 10" while the numbers are the positions; "9" when the series has gaps or a book in parts. */
+function bookNumberIn(group: SeriesGroup, record: SeriesRecord | undefined, bookId: string): string {
+  const ids = orderBySeries(group.bookIds, (id) => id, record ? [record] : []);
+  const numbers = ids.map((id, i) => seriesNumber(record, id, i + 1, group.numbers));
+  const n = numbers[ids.indexOf(bookId)] ?? "";
+  return numbers.every((x, i) => x === String(i + 1)) ? `${n} of ${ids.length}` : n;
+}

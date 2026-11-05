@@ -37,7 +37,9 @@ struct BookView: View {
     var body: some View {
         let library = model.library
         let progress = library?.progress(of: book)
-        let series = library?.series(of: book)
+        // A book can be in several series: each is named, and the one heard most recently is listed.
+        let inSeries = library?.series(of: book) ?? []
+        let series = inSeries.first
         ZStack(alignment: .top) {
             // The ground and the wash reach every edge of the screen, under the safe area, or the system's own backdrop shows at the sides.
             Color.canvas.ignoresSafeArea()
@@ -53,7 +55,7 @@ struct BookView: View {
                 VStack(alignment: .leading, spacing: 80.scaled) {
                     if Look.phone {
                         VStack(alignment: .leading, spacing: 0) {
-                            phoneTop(progress, series)
+                            phoneTop(progress, inSeries)
                             about
                         }
                     } else {
@@ -62,7 +64,7 @@ struct BookView: View {
                         side {
                             CoverView(book: book, size: 440)
                             VStack(alignment: .leading, spacing: 0) {
-                                if let line = seriesLine(series) {
+                                ForEach(seriesLines(inSeries), id: \.self) { line in
                                     Text(line).font(.ui(24)).foregroundStyle(Color.ink2)
                                 }
                                 Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6.scaled)
@@ -129,12 +131,12 @@ struct BookView: View {
     /// one to start on alone across the top, and More a square at the end of the last row, so every edge lines
     /// up with the screen's however many there are.
     @ViewBuilder
-    private func phoneTop(_ progress: BookProgress?, _ series: Library.Series?) -> some View {
+    private func phoneTop(_ progress: BookProgress?, _ inSeries: [Library.Series]) -> some View {
         // Lengths here are the iPhone's own points, as its edges are (Look.swift, `screenEdges`); faces are the TV's sizes.
         VStack(spacing: 0) {
             CoverView(book: book, size: 360)
             VStack(spacing: 6) {
-                if let line = seriesLine(series) {
+                ForEach(seriesLines(inSeries), id: \.self) { line in
                     Text(line).font(.ui(24)).foregroundStyle(Color.ink2)
                 }
                 Text(book.title).font(.book(46, weight: 600)).foregroundStyle(Color.ink).lineLimit(3)
@@ -247,10 +249,12 @@ struct BookView: View {
         .buttonStyle(RibbonButtonStyle(fit: fit))
     }
 
-    /// "The Expanse · Book 2 of 9", for a book in a series.
-    private func seriesLine(_ series: Library.Series?) -> String? {
-        guard let series, let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
-        return "\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)"
+    /// "The Expanse · Book 2 of 9", for each series the book is in.
+    private func seriesLines(_ inSeries: [Library.Series]) -> [String] {
+        inSeries.compactMap { series in
+            guard let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
+            return "\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)"
+        }
     }
 
     /// Who wrote it and who reads it: "Frank Herbert, read by Scott Brick".

@@ -301,6 +301,23 @@ export function hiddenBookIds(records: Iterable<SeriesRecord>): Set<string> {
 }
 
 /**
+ * Books off the shelf, across every series: a book is off when each series
+ * it's in leaves it out. A novella left out of The Horus Heresy but put in a
+ * White Scars reading list is on the shelf. A series with no record leaves
+ * nothing out.
+ */
+export function offTheShelf(groups: readonly SeriesGroup[], records: Readonly<Record<string, SeriesRecord>>): Set<string> {
+  const left = new Set<string>();
+  const kept = new Set<string>();
+  for (const g of groups) {
+    const record = records[g.key];
+    const hidden = hiddenBookIds(record ? [record] : []);
+    for (const id of g.bookIds) (hidden.has(id) ? left : kept).add(id);
+  }
+  return new Set([...left].filter((id) => !kept.has(id)));
+}
+
+/**
  * What to call a book's place in a series: the number the listener gave
  * it, else the one detection found (`SeriesGroup.numbers`), else its
  * position. "Siege of Terra, Book 8, Part 2" is book 8, not the ninth.
