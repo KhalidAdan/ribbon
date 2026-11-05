@@ -3,7 +3,8 @@ import SwiftUI
 /// The end of a book: a quiet card that says when it was started and
 /// finished, and the time spent with it on every device, then what's next in
 /// its series, for the person to start when they choose: there's no
-/// countdown. Menu, or Done, goes back to where it ended.
+/// countdown. A book in several series has the next in each other one under
+/// the buttons, to start instead. Menu, or Done, goes back to where it ended.
 struct FinishedView: View {
     @Environment(AppModel.self) private var model
     let listening: Listening
@@ -16,7 +17,8 @@ struct FinishedView: View {
 
     var body: some View {
         let book = listening.book
-        let next = model.upNext(after: book)
+        let nexts = model.upNext(after: book)
+        let next = nexts.first
         ZStack {
             Color.canvas.ignoresSafeArea()
             // Upright, the iPad has the cover above the rest.
@@ -36,12 +38,12 @@ struct FinishedView: View {
                         .opacity(howItWent == nil ? 0 : 1)
                         .animation(.easeOut(duration: 0.3), value: howItWent)
 
-                    if let next, let series = model.library?.series(of: next) {
-                        UpNext(book: next, series: series).padding(.top, 64.scaled)
+                    if let next {
+                        UpNext(book: next.book, series: next.series).padding(.top, 64.scaled)
                     }
                     HStack(spacing: 24.scaled) {
                         if let next {
-                            Button { Task { await model.listenToNext(next) } } label: {
+                            Button { Task { await model.listenToNext(next.book) } } label: {
                                 Label(model.opening == next.id ? "Opening…" : "Start listening", systemImage: "play.fill")
                             }
                             .buttonStyle(RibbonButtonStyle(kind: .primary))
@@ -52,6 +54,14 @@ struct FinishedView: View {
                             .focused($focused, equals: .done)
                     }
                     .padding(.top, (next == nil ? 56 : 32).scaled)
+                    // What's next in the other series the book is in.
+                    ForEach(nexts.dropFirst()) { other in
+                        Button { Task { await model.listenToNext(other.book) } } label: {
+                            Label(model.opening == other.id ? "Opening…" : "Next in \(other.series.name): \(other.series.title(of: other.book))", systemImage: "play.fill")
+                        }
+                        .buttonStyle(RibbonButtonStyle())
+                        .padding(.top, 24.scaled)
+                    }
                 }
                 .frame(maxWidth: 1000.scaled, alignment: .leading)
             }

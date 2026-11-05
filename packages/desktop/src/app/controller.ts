@@ -3741,6 +3741,17 @@ export class AppController {
     return mergeSeries([...byKey.values()], Object.values(this.state.series), new Set(this.state.books.map((b) => b.book.id)));
   }
 
+  /**
+   * Every series a book is in, the one last opened first. A book can be in
+   * several (The Horus Heresy, and a White Scars reading list made by hand):
+   * its page and the crumbs above it follow the series you came from.
+   */
+  seriesOfBook(bookId: string): SeriesGroup[] {
+    const all = this.detectedSeries().filter((g) => g.bookIds.includes(bookId));
+    const opened = all.findIndex((g) => g.key === this.state.seriesKey);
+    return opened > 0 ? [all[opened]!, ...all.slice(0, opened), ...all.slice(opened + 1)] : all;
+  }
+
   /** Show a series' page: its books in order, and how far you are through it. */
   openSeries(key: string): void {
     this.set({ pane: "series", seriesKey: key, playerExpanded: false });

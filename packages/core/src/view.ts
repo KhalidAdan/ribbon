@@ -39,8 +39,8 @@ export interface BookFacts {
   fraction(b: ScannedBook): number;
   /** Milliseconds since the epoch, 0 when never. */
   listenedAt(b: ScannedBook): number;
-  /** The series the book is in, if any. */
-  seriesOf(b: ScannedBook): string | null;
+  /** The series the book is in, by name: none, one, or several (The Horus Heresy, and a White Scars reading list). */
+  seriesOf(b: ScannedBook): string[];
 }
 
 /** The values a facet can take on a book: several authors, several genres. */
@@ -52,10 +52,8 @@ export function facetValues(b: ScannedBook, kind: FacetKind, facts: Pick<BookFac
       return splitPeople(b.book.narrator);
     case "genre":
       return b.book.genres ?? [];
-    case "series": {
-      const s = facts.seriesOf(b);
-      return s ? [s] : [];
-    }
+    case "series":
+      return facts.seriesOf(b);
   }
 }
 

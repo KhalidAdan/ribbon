@@ -119,9 +119,10 @@ final class Library {
         return books.filter { !inSeries.contains($0.id) && !offShelf.contains($0.id) }.sorted { (lastListened($0), $1.title) > (lastListened($1), $0.title) }
     }
 
-    /// The series a book is in, when it's one the library groups.
-    func series(of book: ServerBook) -> Series? {
-        series.first { group in group.books.contains { $0.id == book.id } }
+    /// Every series a book is in that the library groups, the one heard most recently first: a book can be in
+    /// several (The Horus Heresy, and a White Scars reading list made by hand).
+    func series(of book: ServerBook) -> [Series] {
+        series.filter { group in group.books.contains { $0.id == book.id } }
     }
 
     /// How far through a book, 0 to 1: through its recording, or, for a book that is only its text, through its text.

@@ -5,7 +5,7 @@ import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { formatDuration, formatLeft } from "@ribbon/core/speed";
 import { compareBooks } from "@ribbon/core/order";
 import { chapterAt } from "@ribbon/core/scan/chapters";
-import { hiddenBookIds, orderBySeries, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
+import { offTheShelf, orderBySeries, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { howFar, lengthOf, progressOf, useShelfProgress, type Progress } from "./progress";
 import { readerOnly } from "@ribbon/core/ebook";
 import { shallowEqual, useAppState, useController, useCovers } from "./store";
@@ -47,7 +47,8 @@ export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: {
   const inSeries = useMemo(() => new Set(series.flatMap((g) => g.bookIds)), [series]);
   const standalone = useMemo(() => byShelf.filter((b) => !inSeries.has(b.book.id)), [byShelf, inSeries]);
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
-  const hidden = useMemo(() => hiddenBookIds(Object.values(state.series)), [state.series]);
+  // A book left out of one series but kept in another is still on the shelf.
+  const hidden = useMemo(() => offTheShelf(series, state.series), [series, state.series]);
   const current = progress.current?.book.book.id;
   const inProgress = useMemo(
     () =>

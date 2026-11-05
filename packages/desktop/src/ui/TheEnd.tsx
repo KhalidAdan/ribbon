@@ -1,6 +1,6 @@
 import { readerOnly } from "@ribbon/core/ebook";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
-import { hiddenBookIds, orderBySeries, seriesNumber } from "@ribbon/core/series";
+import { hiddenBookIds, orderBySeries, seriesNumber, type SeriesGroup } from "@ribbon/core/series";
 import { formatLeft } from "@ribbon/core/speed";
 import { listenThrough, readsOf, type ListenThrough } from "@ribbon/core/stats";
 import { Button } from "./Button";
@@ -14,7 +14,8 @@ import { useAppState, useController, useCovers } from "./store";
  * The end of a book: a quiet card that says when it was started and
  * finished, and the time spent listening to it on every device, then the
  * next book in its series, for you to start when you choose: there's no
- * countdown. As the Apple app ends a book
+ * countdown. A book in several series has the next in each, the series you
+ * came from first. As the Apple app ends a book
  * (packages/apple/Ribbon/Listening/FinishedView.swift).
  */
 export function TheEnd() {
@@ -34,12 +35,15 @@ function Card({ book, open, onClose, onClosed }: { book: ScannedBook; open: bool
   const id = book.book.id;
   const last = readsOf(state.history.reads, id).at(-1);
   const went = last?.finished ? listenThrough(last, state.history.sessions, id) : null;
-  const next = upNext(book);
+  // The next in each series the book is in, a book next in two shown once.
+  const nexts = c
+    .seriesOfBook(id)
+    .flatMap((g) => upNext(book, g) ?? [])
+    .filter((n, i, all) => all.findIndex((x) => x.book.book.id === n.book.book.id) === i);
+  const next = nexts[0];
 
-  /** The next book in its series not finished yet, and its number there. */
-  function upNext(b: ScannedBook): { book: ScannedBook; number: string; series: string } | null {
-    const group = c.detectedSeries().find((g) => g.bookIds.includes(b.book.id));
-    if (!group) return null;
+  /** The next book in a series not finished yet, and its number there. */
+  function upNext(b: ScannedBook, group: SeriesGroup): { book: ScannedBook; number: string; series: string } | null {
     const record = state.series[group.key];
     const records = record ? [record] : [];
     const ids = orderBySeries(group.bookIds, (x) => x, records);
@@ -89,21 +93,34 @@ function Card({ book, open, onClose, onClosed }: { book: ScannedBook; open: bool
           <p className="text-base/6 text-ink-2 sm:text-sm/5">{book.book.author || "Author unknown"}</p>
         </div>
       </div>
-      {next && (
-        <section aria-labelledby="up-next-title" className="border-t border-line px-5 py-4">
-          <h3 id="up-next-title" className="text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">
-            Up next in {next.series}
+      {nexts.map((n, i) => (
+        <section key={n.book.book.id} aria-labelledby={`up-next-title-${i}`} className="border-t border-line px-5 py-4">
+          <h3 id={`up-next-title-${i}`} className="text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">
+            Up next in {n.series}
           </h3>
           <div className="mt-3 flex items-center gap-4">
-            <Cover url={c.coverUrl(next.book)} title={next.book.book.title} className="w-14 shrink-0" />
-            <div className="min-w-0">
-              <p className="text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">Book {next.number}</p>
-              <p className="font-serif text-lg/6 font-semibold text-balance text-ink">{next.book.book.title}</p>
-              <p className="text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">{[next.book.book.author, readerOnly(next.book.book) ? "EPUB" : formatLeft(next.book.book.durationMs)].filter(Boolean).join(" · ")}</p>
+            <Cover url={c.coverUrl(n.book)} title={n.book.book.title} className="w-14 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">Book {n.number}</p>
+              <p className="font-serif text-lg/6 font-semibold text-balance text-ink">{n.book.book.title}</p>
+              <p className="text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">{[n.book.book.author, readerOnly(n.book.book) ? "EPUB" : formatLeft(n.book.book.durationMs)].filter(Boolean).join(" · ")}</p>
             </div>
+            {/* The first is the card's own button; the next in another series starts from here. */}
+            {i > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  onClose();
+                  void c.playBook(n.book);
+                }}
+              >
+                {readerOnly(n.book.book) ? "Start reading" : "Start listening"}
+              </Button>
+            )}
           </div>
         </section>
-      )}
+      ))}
     </Dialog>
   );
 }

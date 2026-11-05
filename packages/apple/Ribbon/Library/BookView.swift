@@ -34,7 +34,9 @@ struct BookView: View {
     var body: some View {
         let library = model.library
         let progress = library?.progress(of: book)
-        let series = library?.series(of: book)
+        // A book can be in several series: each is named, and the one heard most recently is listed.
+        let inSeries = library?.series(of: book) ?? []
+        let series = inSeries.first
         ZStack(alignment: .top) {
             // The ground and the wash reach every edge of the screen, under the safe area, or the system's own backdrop shows at the sides.
             Color.canvas.ignoresSafeArea()
@@ -51,8 +53,10 @@ struct BookView: View {
                     side {
                         CoverView(book: book, size: 440)
                         VStack(alignment: .leading, spacing: 0) {
-                            if let series, let index = series.books.firstIndex(where: { $0.id == book.id }) {
-                                Text("\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
+                            ForEach(inSeries) { series in
+                                if let index = series.books.firstIndex(where: { $0.id == book.id }) {
+                                    Text("\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
+                                }
                             }
                             Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6.scaled)
                             Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)

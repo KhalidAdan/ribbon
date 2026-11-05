@@ -115,7 +115,8 @@ function Ready() {
   if (state.phase === "pick") return <PickLibrary />;
 
   const reader = state.pane === "reader" ? (state.books.find((b) => b.book.id === state.readerBookId) ?? null) : null;
-  const series = reader ? c.detectedSeries().find((g) => g.bookIds.includes(reader.book.id)) : state.pane === "series" ? c.detectedSeries().find((g) => g.key === state.seriesKey) : undefined;
+  // A book in several series is under the one you came from.
+  const series = reader ? c.seriesOfBook(reader.book.id)[0] : state.pane === "series" ? c.detectedSeries().find((g) => g.key === state.seriesKey) : undefined;
   const servers = state.sources.filter((s) => s.server).length;
   const counted = (n: number, one: string) => (n === 0 ? "" : `${n} ${one}${n === 1 ? "" : "s"}`);
   const folders = state.sources.length === 1 ? state.sources[0]!.name : [counted(state.sources.length - servers, "folder"), counted(servers, "server")].filter(Boolean).join(" and ");

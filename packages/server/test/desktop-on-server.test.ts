@@ -276,6 +276,23 @@ describe("the desktop on a server", () => {
     await soon(() => Object.values(two.getState().series).map((s) => s.name)).toContain("Colours");
   }, 30_000);
 
+  it("puts a book in a reading list made by hand and leaves it in the series it was in, on every device", async () => {
+    await stocked();
+    const { app: one } = await aDesktop();
+    const { app: two } = await aDesktop();
+    await soon(() => one.getState().canAddFolders).toBe(true);
+    const red = book(one, "Red Book").book.id;
+
+    // As the White Scars list was made from books of The Horus Heresy.
+    await one.createSeries("Colours", [red, book(one, "Long Book").book.id]);
+    await one.createSeries("Favourites", [red]);
+
+    const onServer = await asked<{ series: { name: string; books: unknown[] }[] }>("/api/series");
+    expect(onServer.series.find((s) => s.name === "Colours")?.books).toHaveLength(2);
+    expect(onServer.series.find((s) => s.name === "Favourites")?.books).toHaveLength(1);
+    await soon(() => two.seriesOfBook(book(two, "Red Book").book.id).map((g) => g.name).sort()).toEqual(["Colours", "Favourites"]);
+  }, 30_000);
+
   /** A book that can be transcribed: its narration, and the EPUB it reads along with. */
   const toldBook = (title: string) => {
     const reader = path.join(dir, title);

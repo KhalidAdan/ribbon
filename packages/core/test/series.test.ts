@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, orderBySeries, parseSeriesTitle, seriesToBytes, slug, uniqueKey } from "@ribbon/core/series";
+import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, offTheShelf, orderBySeries, parseSeriesTitle, seriesToBytes, slug, uniqueKey } from "@ribbon/core/series";
 import type { Book } from "@ribbon/core/types";
 
 const book = (path: string, extra: Partial<Book> = {}): Book => ({
@@ -168,6 +168,27 @@ describe("choices", () => {
       { bookId: "b", included: false, order: 2 },
     ]);
     expect([...hiddenBookIds([{ key: "k", name: "n", choices, decidedAt: "" }])]).toEqual(["b"]);
+  });
+
+  it("keep a book on the shelf while any series it's in keeps it", () => {
+    const heresy = { key: "heresy", name: "The Horus Heresy", bookIds: ["horus", "brotherhood", "scars"] };
+    const list = { key: "white-scars", name: "White Scars", bookIds: ["brotherhood", "scars"] };
+    const unread = { key: "unread", name: "Unread", bookIds: ["scars"] };
+    // The novellas are left out of The Horus Heresy; White Scars, made by hand, keeps Brotherhood of the Storm.
+    const records = {
+      heresy: { key: "heresy", name: "The Horus Heresy", decidedAt: "", choices: [
+        { bookId: "horus", included: true, order: 1 },
+        { bookId: "brotherhood", included: false, order: 2 },
+        { bookId: "scars", included: false, order: 3 },
+      ] },
+      "white-scars": { key: "white-scars", name: "White Scars", decidedAt: "", choices: [
+        { bookId: "brotherhood", included: true, order: 1 },
+        { bookId: "scars", included: false, order: 2 },
+      ] },
+    };
+    expect([...offTheShelf([heresy, list], records)]).toEqual(["scars"]);
+    // A series with no record leaves nothing out.
+    expect([...offTheShelf([heresy, list, unread], records)]).toEqual([]);
   });
 });
 
