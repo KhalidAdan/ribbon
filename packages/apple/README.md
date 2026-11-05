@@ -190,9 +190,18 @@ The iPhone is held upright, and on a screen as narrow as a phone's
 sets in a row wraps or says less. The edges are a phone's 20 points; the
 library's bar is Ribbon's mark with Search and the settings as their glyphs,
 and the book playing has a row of its own under it; the cards in a row are
-as wide as the screen and the shelf is two to a row; a book's buttons stack;
-the player has its cover above its title and the sleep timer's choices on
-two rows; and the reader's buttons say From here and To narrator.
+as wide as the screen and the shelf is two to a row; a book's buttons stack
+(an iPad sharing its screen); the player has its cover above its title and
+the sleep timer's choices on two rows; and the reader's buttons say From
+here and To narrator.
+
+On the iPhone a book's page has a top of its own (`Look.phone`, the device,
+so an iPad sharing its screen keeps the iPad's). The cover, the series, the
+title, who wrote and reads it, and where you are run down the middle; the
+buttons are as wide as the screen and 50 points tall, the one to start on
+across the top and More a square at the end of the last row, so every edge
+lines up with the screen's. Under them the facts, the description, the
+history and the series are on the left, as everywhere else.
 
 - **Taps** for the focus and Select: the primary button is in inverted ink, as
   the desktop's is, and a press shrinks a button to 97% and a card to 98%

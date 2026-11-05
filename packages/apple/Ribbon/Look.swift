@@ -13,7 +13,15 @@ enum Look {
     #if os(tvOS)
     static let scale: CGFloat = 1
     #else
-    static let scale: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 0.65 : 0.7
+    static let scale: CGFloat = phone ? 0.65 : 0.7
+    #endif
+
+    /// Whether this is an iPhone, rather than the TV or an iPad, even one sharing its screen: a book's page is
+    /// laid out for the hand there (BookView).
+    #if os(tvOS)
+    static let phone = false
+    #else
+    static let phone = UIDevice.current.userInterfaceIdiom == .phone
     #endif
 
     static let canvas = UIColor(rgb: 0x0a0a0a)

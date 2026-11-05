@@ -154,15 +154,27 @@ struct RibbonButtonStyle: ButtonStyle {
         case primary, secondary
     }
 
+    /// How much room a button takes. As its words need, everywhere but a book's page on the iPhone, where a
+    /// button fills its row or is a square around a glyph alone, either a thumb's height, so the buttons there
+    /// line up with each other and with the edges of the screen.
+    enum Fit {
+        case words, row, glyph
+    }
+
     var kind: Kind = .secondary
+    var fit: Fit = .words
+
+    /// A thumb's height, in points: the iPhone's own, not one of the TV's sizes.
+    static let thumb: CGFloat = 50
 
     func makeBody(configuration: Configuration) -> some View {
-        Lift(configuration: configuration, kind: kind)
+        Lift(configuration: configuration, kind: kind, fit: fit)
     }
 
     private struct Lift: View {
         let configuration: Configuration
         let kind: Kind
+        let fit: Fit
         @Environment(\.isFocused) private var focused
         @Environment(\.isEnabled) private var enabled
         @Environment(\.narrow) private var narrow
@@ -173,14 +185,34 @@ struct RibbonButtonStyle: ButtonStyle {
                 .font(.ui(26, weight: 500))
                 .opacity(enabled ? 1 : 0.45)
                 .foregroundStyle(lit ? Color.canvas : Color.ink)
-                // A phone's own room either side of the words.
-                .padding(.horizontal, narrow ? 16 : 28.scaled)
-                .padding(.vertical, 14.scaled)
+                .modifier(Room(fit: fit, narrow: narrow))
                 .background(RoundedRectangle(cornerRadius: 12.scaled).fill(lit ? Color.ink : kind == .primary ? Color.lineStrong : Color.raised))
                 .overlay(RoundedRectangle(cornerRadius: 12.scaled).stroke(lit ? Color.clear : Color.line))
                 .scaleEffect(configuration.isPressed ? Pressed.button(settlingTo: 1.02) : focused ? 1.08 : 1)
                 .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 18, y: 12)
                 .lifts(focused: focused, pressed: configuration.isPressed)
+        }
+    }
+
+    /// The room around a button's words, by its fit.
+    private struct Room: ViewModifier {
+        let fit: Fit
+        let narrow: Bool
+
+        func body(content: Content) -> some View {
+            switch fit {
+            case .words:
+                content
+                    // A phone's own room either side of the words.
+                    .padding(.horizontal, narrow ? 16 : 28.scaled)
+                    .padding(.vertical, 14.scaled)
+            case .row:
+                content
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, minHeight: RibbonButtonStyle.thumb)
+            case .glyph:
+                content.frame(width: RibbonButtonStyle.thumb, height: RibbonButtonStyle.thumb)
+            }
         }
     }
 }

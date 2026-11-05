@@ -6,6 +6,9 @@ import SwiftUI
 /// description, your history with it, and the rest of its series as a list.
 /// A faint wash of the cover's colour sits behind the top. The focus starts
 /// on listening; Menu goes back to the library.
+///
+/// The TV and the iPad set the cover beside the words, or above them when upright. The iPhone has a top of its
+/// own (`phoneTop`): everything down the middle, and the buttons as wide as the screen.
 struct BookView: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
@@ -38,97 +41,58 @@ struct BookView: View {
         ZStack(alignment: .top) {
             // The ground and the wash reach every edge of the screen, under the safe area, or the system's own backdrop shows at the sides.
             Color.canvas.ignoresSafeArea()
-            RadialGradient(colors: [tone.opacity(0.16), .clear], center: UnitPoint(x: 0.2, y: 0), startRadius: 0, endRadius: 640.scaled)
+            // Behind the cover: to the left, or in the middle on the iPhone.
+            let behindCover = UnitPoint(x: Look.phone ? 0.5 : 0.2, y: 0)
+            RadialGradient(colors: [tone.opacity(0.16), .clear], center: behindCover, startRadius: 0, endRadius: 640.scaled)
                 // An ellipse twice as wide as it is tall, as the desktop's wash is, that has faded out before its frame ends.
-                .scaleEffect(x: 2, y: 1, anchor: UnitPoint(x: 0.2, y: 0))
+                .scaleEffect(x: 2, y: 1, anchor: behindCover)
                 .frame(height: 720.scaled)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
             ScrollView {
                 VStack(alignment: .leading, spacing: 80.scaled) {
-                    // Upright, the iPad has the cover above the rest.
-                    let side = upright ? AnyLayout(VStackLayout(alignment: .leading, spacing: 48.scaled)) : AnyLayout(HStackLayout(alignment: .top, spacing: 72.scaled))
-                    side {
-                        CoverView(book: book, size: 440)
+                    if Look.phone {
                         VStack(alignment: .leading, spacing: 0) {
-                            if let series, let index = series.books.firstIndex(where: { $0.id == book.id }) {
-                                Text("\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)").font(.ui(24)).foregroundStyle(Color.ink2)
-                            }
-                            Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6.scaled)
-                            Text("\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")").font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)
+                            phoneTop(progress, series)
+                            about
+                        }
+                    } else {
+                        // Upright, the iPad has the cover above the rest.
+                        let side = upright ? AnyLayout(VStackLayout(alignment: .leading, spacing: 48.scaled)) : AnyLayout(HStackLayout(alignment: .top, spacing: 72.scaled))
+                        side {
+                            CoverView(book: book, size: 440)
+                            VStack(alignment: .leading, spacing: 0) {
+                                if let line = seriesLine(series) {
+                                    Text(line).font(.ui(24)).foregroundStyle(Color.ink2)
+                                }
+                                Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6.scaled)
+                                Text(byline).font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)
 
-                            Text(sentence(progress))
-                                .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
-                                .frame(maxWidth: 900.scaled, alignment: .leading)
-                                .padding(.leading, 18.scaled)
-                                .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
+                                Text(sentence(progress))
+                                    .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
+                                    .frame(maxWidth: 900.scaled, alignment: .leading)
+                                    .padding(.leading, 18.scaled)
+                                    .overlay(alignment: .leading) { Rectangle().fill(Color.lineStrong).frame(width: 2) }
+                                    .padding(.top, 36.scaled)
+                                if isUnderway(progress) {
+                                    ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480.scaled).padding(.top, 22.scaled)
+                                }
+
+                                // One above the other on an iPad sharing its screen.
+                                let buttons = narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12.scaled)) : AnyLayout(HStackLayout(spacing: 24.scaled))
+                                buttons {
+                                    startButton(progress)
+                                    if book.audio && book.ebook {
+                                        readAlongButton()
+                                    }
+                                    moreMenu(progress)
+                                }
                                 .padding(.top, 36.scaled)
-                            if progress?.started == true && progress?.finished != true {
-                                ProgressLine(fraction: library?.fraction(of: book) ?? 0).frame(maxWidth: 480.scaled).padding(.top, 22.scaled)
-                            }
+                                if let problem = model.problem {
+                                    Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 16.scaled)
+                                }
 
-                            // One above the other on a phone.
-                            let buttons = narrow ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12.scaled)) : AnyLayout(HStackLayout(spacing: 24.scaled))
-                            buttons {
-                                if book.audio {
-                                    Button { Task { await model.listen(to: book) } } label: {
-                                        Label(listenLabel(progress), systemImage: "play.fill")
-                                    }
-                                    .buttonStyle(RibbonButtonStyle(kind: .primary))
-                                    .focused($focused, equals: .listen)
-                                } else {
-                                    // Only its text: reading is the book, as the desktop's page has it.
-                                    Button { Task { await model.read(book) } } label: {
-                                        Label(model.opening == book.id ? "Opening…" : progress?.started == true && progress?.finished != true ? "Continue reading" : "Read", systemImage: "book.fill")
-                                    }
-                                    .buttonStyle(RibbonButtonStyle(kind: .primary))
-                                    .focused($focused, equals: .listen)
-                                }
-                                if book.audio && book.ebook {
-                                    Button { Task { await model.readAlong(book) } } label: {
-                                        Label(model.opening == book.id ? "Opening…" : "Read along", systemImage: "book.fill")
-                                    }
-                                    .buttonStyle(RibbonButtonStyle())
-                                    .focused($focused, equals: .readAlong)
-                                }
-                                // What the desktop's book page has under its own More.
-                                Menu {
-                                    if progress?.finished == true {
-                                        Button("Mark as not finished") { Task { await mark(finished: false) } }
-                                    } else {
-                                        Button("Mark as finished") { Task { await mark(finished: true) } }
-                                    }
-                                    if book.audio && progress?.started == true && progress?.finished != true {
-                                        Button("Start again from the beginning") { Task { await model.startAgain(book) } }
-                                    }
-                                } label: {
-                                    Label("More", systemImage: "ellipsis")
-                                }
-                                .menuStyle(.button)
-                                .buttonStyle(RibbonButtonStyle())
-                            }
-                            .padding(.top, 36.scaled)
-                            if let problem = model.problem {
-                                Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 16.scaled)
-                            }
-
-                            Facts(items: facts)
-                                .padding(.top, 48.scaled)
-
-                            if let description = detail?.book.description, !description.isEmpty {
-                                // Focusable, so the remote reaches it and can open the rest.
-                                Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
-                                    VStack(alignment: .leading, spacing: 10.scaled) {
-                                        Text(description).font(.ui(24)).foregroundStyle(Color.ink2).lineSpacing(8.scaled).lineLimit(moreAbout ? nil : 5).multilineTextAlignment(.leading)
-                                        Text(moreAbout ? "Less" : "More").font(.ui(22, weight: 500)).foregroundStyle(Color.ink3)
-                                    }
-                                    .frame(maxWidth: 1000.scaled, alignment: .leading)
-                                    .padding(18.scaled)
-                                }
-                                .buttonStyle(LiftStyle.row(radius: 14))
-                                .padding(.horizontal, -18.scaled)
-                                .padding(.top, 30.scaled)
-                                .modifier(FadesInPlace(fades: arrivedLate && reduceMotion))
+                                about
                             }
                         }
                     }
@@ -158,6 +122,145 @@ struct BookView: View {
             arrivedLate = true
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { detail = found }
         }
+    }
+
+    /// The top of the page on the iPhone, down the middle: the cover, the series, the title and who wrote and
+    /// reads it, where you are, and the buttons. They fill the width of the screen, a thumb's height each: the
+    /// one to start on alone across the top, and More a square at the end of the last row, so every edge lines
+    /// up with the screen's however many there are.
+    @ViewBuilder
+    private func phoneTop(_ progress: BookProgress?, _ series: Library.Series?) -> some View {
+        // Lengths here are the iPhone's own points, as its edges are (Look.swift, `screenEdges`); faces are the TV's sizes.
+        VStack(spacing: 0) {
+            CoverView(book: book, size: 360)
+            VStack(spacing: 6) {
+                if let line = seriesLine(series) {
+                    Text(line).font(.ui(24)).foregroundStyle(Color.ink2)
+                }
+                Text(book.title).font(.book(46, weight: 600)).foregroundStyle(Color.ink).lineLimit(3)
+                Text(byline).font(.ui(24)).foregroundStyle(Color.ink2)
+            }
+            .padding(.top, 24)
+
+            VStack(spacing: 10) {
+                Text(sentence(progress)).font(.ui(24)).foregroundStyle(Color.ink).monospacedDigit()
+                if isUnderway(progress) {
+                    ProgressLine(fraction: model.library?.fraction(of: book) ?? 0)
+                }
+            }
+            .padding(.top, 24)
+
+            VStack(spacing: 10) {
+                if book.audio && book.ebook {
+                    startButton(progress, fit: .row)
+                    HStack(spacing: 10) {
+                        readAlongButton(fit: .row)
+                        moreMenu(progress, fit: .glyph)
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        startButton(progress, fit: .row)
+                        moreMenu(progress, fit: .glyph)
+                    }
+                }
+            }
+            .padding(.top, 20)
+
+            if let problem = model.problem {
+                Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).padding(.top, 12)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// The facts and the description, under the top of the page on every screen.
+    private var about: some View {
+        Group {
+            Facts(items: facts)
+                .padding(.top, 48.scaled)
+
+            if let description = detail?.book.description, !description.isEmpty {
+                // Focusable, so the remote reaches it and can open the rest.
+                Button { withAnimation(.easeOut(duration: 0.2)) { moreAbout.toggle() } } label: {
+                    VStack(alignment: .leading, spacing: 10.scaled) {
+                        Text(description).font(.ui(24)).foregroundStyle(Color.ink2).lineSpacing(8.scaled).lineLimit(moreAbout ? nil : 5).multilineTextAlignment(.leading)
+                        Text(moreAbout ? "Less" : "More").font(.ui(22, weight: 500)).foregroundStyle(Color.ink3)
+                    }
+                    .frame(maxWidth: 1000.scaled, alignment: .leading)
+                    .padding(18.scaled)
+                }
+                .buttonStyle(LiftStyle.row(radius: 14))
+                .padding(.horizontal, -18.scaled)
+                .padding(.top, 30.scaled)
+                .modifier(FadesInPlace(fades: arrivedLate && reduceMotion))
+            }
+        }
+    }
+
+    /// Listen, or Read for a book that's only its text: the page's one primary button, where the focus starts.
+    @ViewBuilder
+    private func startButton(_ progress: BookProgress?, fit: RibbonButtonStyle.Fit = .words) -> some View {
+        if book.audio {
+            Button { Task { await model.listen(to: book) } } label: {
+                Label(listenLabel(progress), systemImage: "play.fill")
+            }
+            .buttonStyle(RibbonButtonStyle(kind: .primary, fit: fit))
+            .focused($focused, equals: .listen)
+        } else {
+            // Only its text: reading is the book, as the desktop's page has it.
+            Button { Task { await model.read(book) } } label: {
+                Label(model.opening == book.id ? "Opening…" : isUnderway(progress) ? "Continue reading" : "Read", systemImage: "book.fill")
+            }
+            .buttonStyle(RibbonButtonStyle(kind: .primary, fit: fit))
+            .focused($focused, equals: .listen)
+        }
+    }
+
+    private func readAlongButton(fit: RibbonButtonStyle.Fit = .words) -> some View {
+        Button { Task { await model.readAlong(book) } } label: {
+            Label(model.opening == book.id ? "Opening…" : "Read along", systemImage: "book.fill")
+        }
+        .buttonStyle(RibbonButtonStyle(fit: fit))
+        .focused($focused, equals: .readAlong)
+    }
+
+    /// What the desktop's book page has under its own More. As a glyph alone, it's still called More aloud.
+    private func moreMenu(_ progress: BookProgress?, fit: RibbonButtonStyle.Fit = .words) -> some View {
+        Menu {
+            if progress?.finished == true {
+                Button("Mark as not finished") { Task { await mark(finished: false) } }
+            } else {
+                Button("Mark as finished") { Task { await mark(finished: true) } }
+            }
+            if book.audio && isUnderway(progress) {
+                Button("Start again from the beginning") { Task { await model.startAgain(book) } }
+            }
+        } label: {
+            if fit == .glyph {
+                Label("More", systemImage: "ellipsis").labelStyle(.iconOnly)
+            } else {
+                Label("More", systemImage: "ellipsis")
+            }
+        }
+        .menuStyle(.button)
+        .buttonStyle(RibbonButtonStyle(fit: fit))
+    }
+
+    /// "The Expanse · Book 2 of 9", for a book in a series.
+    private func seriesLine(_ series: Library.Series?) -> String? {
+        guard let series, let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
+        return "\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)"
+    }
+
+    /// Who wrote it and who reads it: "Frank Herbert, read by Scott Brick".
+    private var byline: String {
+        "\(book.author.isEmpty ? "Author unknown" : book.author)\(book.narrator.isEmpty ? "" : ", read by \(book.narrator)")"
+    }
+
+    /// Started and not yet finished.
+    private func isUnderway(_ progress: BookProgress?) -> Bool {
+        progress?.started == true && progress?.finished != true
     }
 
     /// Finished, or not after all, on every device; the history then says so.
@@ -239,6 +342,8 @@ private struct History: View {
                         Text(String(index + 1)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44.scaled, alignment: .trailing)
                         Text(line(listen)).font(.ui(24)).foregroundStyle(Color.ink).monospacedDigit()
                     }
+                    // On the iPhone each line's rule runs the width of the screen, as the facts' does above it.
+                    .frame(maxWidth: Look.phone ? .infinity : nil, alignment: .leading)
                     .padding(.vertical, 12.scaled)
                     .overlay(alignment: .top) { Rectangle().fill(Color.line).frame(height: 1) }
                 }
@@ -312,7 +417,8 @@ private struct SeriesList: View {
                             Text(series.number(of: book, at: index)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44.scaled, alignment: .trailing)
                             CoverView(book: book, size: 72)
                             VStack(alignment: .leading, spacing: 4.scaled) {
-                                Text(series.title(of: book)).font(.ui(26, weight: now ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(1)
+                                // Two lines on the iPhone, where one leaves little of a title.
+                                Text(series.title(of: book)).font(.ui(26, weight: now ? 500 : 400)).foregroundStyle(Color.ink).lineLimit(Look.phone ? 2 : 1)
                                 Text(book.author).font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1)
                             }
                             Spacer(minLength: 24.scaled)
