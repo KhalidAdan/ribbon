@@ -62,27 +62,56 @@ pub async fn audio_prepare(paths: Vec<String>) -> Result<(), String> {
 }
 
 /// Bytes `from..=to` of the MP3 at `path` as if it began at the frame where `ms` falls.
-fn serve(path: &Path, ms: f64, range: Option<(u64, Option<u64>)>) -> Result<(Vec<u8>, u64, u64, u64), String> {
+fn serve(path: &Path, ms: f64, range: Option<(u64, Option<u64>)>) -> Result<Part, String> {
     let idx = index_of(path).map_err(|e| e.to_string())?;
     let (start, _) = idx.at(ms);
+    read_part(path, start, range, 0)
+}
+
+/// Part of a file for a media element: its bytes, where they are (`from..=to`), and the length of it all.
+pub(crate) struct Part {
+    pub body: Vec<u8>,
+    pub from: u64,
+    pub to: u64,
+    pub total: u64,
+}
+
+/// Bytes `from..=to` of the file at `path` as if it began at byte `start`, as much of the range asked
+/// for as a media element is given at once: all of it when it's `whole_up_to` bytes or fewer, else a
+/// few megabytes, and the element comes back for more.
+pub(crate) fn read_part(path: &Path, start: u64, range: Option<(u64, Option<u64>)>, whole_up_to: u64) -> Result<Part, String> {
     let len = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    let total = len - start;
+    let total = len.saturating_sub(start);
+    if total == 0 {
+        return Err(format!("{} is empty", path.display()));
+    }
     let (from, to) = match range {
         Some((a, b)) => (a.min(total.saturating_sub(1)), b.unwrap_or(u64::MAX).min(total - 1)),
         None => (0, total - 1),
     };
-    // A media element asks for the rest of the file; it gets it a few megabytes at a time. The first answer is
-    // small (half a megabyte is 25 s of a 168 kbps book): over a share, sound starts as soon as it arrives.
-    let most: u64 = if from == 0 { 512 << 10 } else { 4 << 20 };
+    if to < from {
+        return Err(format!("bytes {from}-{to} of {} are backwards", path.display()));
+    }
+    // A modest range is given whole (an .m4b's index, which WebKit won't take in parts: audio.rs). The rest of
+    // the file, asked for at once, goes a few megabytes at a time. The first answer is small (half a megabyte
+    // is 25 s of a 168 kbps book): over a share, sound starts as soon as it arrives.
+    let most: u64 = if to - from < whole_up_to {
+        to - from + 1
+    } else if from == 0 {
+        512 << 10
+    } else {
+        4 << 20
+    };
     let to = to.min(from + most - 1);
     let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
     f.seek(SeekFrom::Start(start + from)).map_err(|e| e.to_string())?;
     let mut body = vec![0u8; (to - from + 1) as usize];
     f.read_exact(&mut body).map_err(|e| e.to_string())?;
-    Ok((body, from, to, total))
+    Ok(Part { body, from, to, total })
 }
 
-fn query(uri: &str, key: &str) -> Option<String> {
+/// The value of `key` in a protocol request's query, decoded.
+pub(crate) fn query(uri: &str, key: &str) -> Option<String> {
     let q = uri.split_once('?')?.1;
     q.split('&').find_map(|kv| {
         let (k, v) = kv.split_once('=')?;
@@ -113,34 +142,50 @@ fn percent_decode(s: &str) -> String {
 /// The `ribbonmp3` protocol: `?path=<file>&ms=<moment>` is the file from the frame where the
 /// moment falls, with ranges, for a media element. Only files the asset scope allows.
 pub fn respond<R: tauri::Runtime>(app: &tauri::AppHandle<R>, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
-    use tauri::http::{header, Response, StatusCode};
-    use tauri::Manager;
+    use tauri::http::StatusCode;
     let uri = request.uri().to_string();
-    let fail = |status: StatusCode, why: String| Response::builder().status(status).header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*").body(why.into_bytes()).unwrap();
     let (Some(path), Some(ms)) = (query(&uri, "path"), query(&uri, "ms").and_then(|m| m.parse::<f64>().ok())) else {
-        return fail(StatusCode::BAD_REQUEST, "path and ms are needed".into());
+        return failure(StatusCode::BAD_REQUEST, "path and ms are needed".into());
     };
     let path = PathBuf::from(path);
-    if !app.asset_protocol_scope().is_allowed(&path) {
-        return fail(StatusCode::FORBIDDEN, "not in a library".into());
+    if !allowed(app, &path) {
+        return failure(StatusCode::FORBIDDEN, "not in a library".into());
     }
-    let range = request.headers().get(header::RANGE).and_then(|v| v.to_str().ok()).and_then(|v| {
-        let (a, b) = v.strip_prefix("bytes=")?.split_once('-')?;
-        Some((a.trim().parse::<u64>().ok()?, b.trim().parse::<u64>().ok()))
-    });
-    match serve(&path, ms, range) {
-        Ok((body, from, to, total)) => {
-            let head = request.method() == tauri::http::Method::HEAD;
-            Response::builder()
-                .status(if range.is_some() { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK })
-                .header(header::CONTENT_TYPE, "audio/mpeg")
-                .header(header::ACCEPT_RANGES, "bytes")
-                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-                .header(header::CONTENT_RANGE, format!("bytes {from}-{to}/{total}"))
-                .header(header::CONTENT_LENGTH, body.len().to_string())
-                .body(if head { Vec::new() } else { body })
-                .unwrap()
-        }
-        Err(e) => fail(StatusCode::INTERNAL_SERVER_ERROR, e),
+    match serve(&path, ms, requested_range(&request)) {
+        Ok(part) => part_response(&request, part, "audio/mpeg"),
+        Err(e) => failure(StatusCode::INTERNAL_SERVER_ERROR, e),
     }
+}
+
+/// Whether a protocol may read `path`: only files in a library, as the asset scope allows.
+pub(crate) fn allowed<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path: &Path) -> bool {
+    use tauri::Manager;
+    app.asset_protocol_scope().is_allowed(path)
+}
+
+/// The byte range a request asks for (`bytes=a-` or `bytes=a-b`), if it asks for one.
+pub(crate) fn requested_range(request: &tauri::http::Request<Vec<u8>>) -> Option<(u64, Option<u64>)> {
+    let v = request.headers().get(tauri::http::header::RANGE)?.to_str().ok()?;
+    let (a, b) = v.strip_prefix("bytes=")?.split_once('-')?;
+    Some((a.trim().parse::<u64>().ok()?, b.trim().parse::<u64>().ok()))
+}
+
+/// A part of a file as a media element wants it: partial content when a range was asked for, with its type.
+pub(crate) fn part_response(request: &tauri::http::Request<Vec<u8>>, part: Part, content_type: &str) -> tauri::http::Response<Vec<u8>> {
+    use tauri::http::{header, Method, Response, StatusCode};
+    let head = request.method() == Method::HEAD;
+    Response::builder()
+        .status(if requested_range(request).is_some() { StatusCode::PARTIAL_CONTENT } else { StatusCode::OK })
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        .header(header::CONTENT_RANGE, format!("bytes {}-{}/{}", part.from, part.to, part.total))
+        .header(header::CONTENT_LENGTH, part.body.len().to_string())
+        .body(if head { Vec::new() } else { part.body })
+        .unwrap()
+}
+
+/// A request that can't be answered, and why.
+pub(crate) fn failure(status: tauri::http::StatusCode, why: String) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder().status(status).header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*").body(why.into_bytes()).unwrap()
 }

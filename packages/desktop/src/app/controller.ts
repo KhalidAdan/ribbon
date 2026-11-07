@@ -105,6 +105,8 @@ export interface Platform {
   fileUrl(absPath: string): string;
   /** A URL for an MP3 beginning exactly at a moment of it, where the platform can serve one. */
   exactAudioUrl?(absPath: string, ms: number): string;
+  /** Where the player streams a book's audio from, when `fileUrl` won't do for every format (Apple's webview and an .m4b, #226). */
+  audioUrl?(absPath: string): string;
   /** The folders the library is populated from, wherever the platform keeps them. */
   sources: {
     load(): Promise<SourceEntry[]>;
@@ -1891,6 +1893,11 @@ export class AppController {
 
   // Playback ------------------------------------------------------------
 
+  /** The URL the player streams one of a book's audio files from. */
+  audioUrlOf(absPath: string): string {
+    return this.platform.audioUrl ? this.platform.audioUrl(absPath) : this.platform.fileUrl(absPath);
+  }
+
   private ensureEngine(): PlayerEngine | null {
     if (this.engine) return this.engine;
     if (typeof Audio === "undefined") return null;
@@ -1898,7 +1905,7 @@ export class AppController {
       resolveUrl: (rel) => {
         const cur = this.state.current;
         const lib = (cur && this.libOf(cur.book)) ?? this.openedInOrder()[0]?.lib;
-        return lib ? this.platform.fileUrl(lib.absPath(rel)) : "";
+        return lib ? this.audioUrlOf(lib.absPath(rel)) : "";
       },
       onState: (player) => this.onPlayerState(player),
       onEnded: () => this.onBookEnded(),

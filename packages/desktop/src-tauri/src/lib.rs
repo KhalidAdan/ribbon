@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod ebook;
 pub mod frames;
 pub mod awake;
@@ -81,6 +82,11 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("ribbonmp3", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(frames::respond(&app, request)));
+        })
+        // A book's audio, for Apple's webview, which won't play a long .m4b through the asset protocol (audio.rs).
+        .register_asynchronous_uri_scheme_protocol("ribbonaudio", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(audio::respond(&app, request)));
         })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())

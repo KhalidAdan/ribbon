@@ -76,7 +76,7 @@ order:
 | `packages/desktop/src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
 | `packages/desktop/src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
 | `packages/desktop/src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
-| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), the Ribbon folder (`home.rs`). |
+| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), a book's audio for Apple's webview (`audio.rs`), the Ribbon folder (`home.rs`). |
 | `packages/desktop/src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
 | `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
@@ -128,6 +128,11 @@ benchmark in `packages/desktop/src-tauri`).
   off), and so does Apple's player on the TV: `frames.rs` indexes frames and
   serves MP3s from the exact one, and the server does the same for the TV
   (`?ms=`).
+- **WebKit won't play a long .m4b from the asset protocol** (#226): it asks
+  for the book's index (`moov`, 7 MB and more, often at the end) in one
+  request, and the asset protocol gives a megabyte at most. On the Mac and
+  iPhone a book's audio goes through `ribbonaudio:` (`audio.rs`), which gives a
+  modest range whole. WebView2 asks again for the rest, so the PC never shows it.
 - **Muting the player in a test:** route the engine's gain node to a
   `MediaStreamDestination`; disconnecting it freezes playback.
 - **Stacked PRs:** merge without deleting branches until the last is in, or
