@@ -2020,21 +2020,18 @@ export class AppController {
       p.finally(() => {
         steps.push(`${name} ${Math.round(performance.now() - started)}`);
       });
-    // Read-along's records (pairing fixes, what was heard, the transcript), read alongside the text. Kept from an
-    // earlier opening in this session, they are not read again.
-    const known = this.readingData.get(bookId);
-    const records: Promise<ReadingData> = known
-      ? Promise.resolve(known)
-      : Promise.all([timed("pairing", o.lib.readPairing(bookId)), timed("heard", o.lib.readHeard(bookId)), timed("aligned", o.lib.readAligned(bookId))]).then(([fixes, heard, aligned]) => ({
-          ...emptyReading(),
-          fixes,
-          heard: heard.heard,
-          anchors: heard.anchors,
-          spans: aligned.spans,
-          heardBy: aligned.heardBy,
-          said: aligned.said,
-          aligned: transcriptAnchors(aligned.said),
-        }));
+    // Read-along's records (pairing fixes, what was heard, the transcript), read alongside the text, at every opening:
+    // they can have changed since the book was last open, a transcript made whole in the background, say (#219).
+    const records: Promise<ReadingData> = Promise.all([timed("pairing", o.lib.readPairing(bookId)), timed("heard", o.lib.readHeard(bookId)), timed("aligned", o.lib.readAligned(bookId))]).then(([fixes, heard, aligned]) => ({
+      ...emptyReading(),
+      fixes,
+      heard: heard.heard,
+      anchors: heard.anchors,
+      spans: aligned.spans,
+      heardBy: aligned.heardBy,
+      said: aligned.said,
+      aligned: transcriptAnchors(aligned.said),
+    }));
     // A failure is reported where the records are awaited, not as unhandled meanwhile.
     records.catch(() => undefined);
     const [result, withChapters, shared] = await Promise.all([
@@ -2071,11 +2068,10 @@ export class AppController {
     const readAt = Math.max(-Infinity, ...[kept, shared].map((k) => (k ? Date.parse(k.t) : NaN)).filter((t) => !Number.isNaN(t)));
     const early = audio && !following && (!narrator || readAt >= Date.parse(narrator.t));
 
-    /** The records read, kept for this session, and the text paired with the audio; null if the reader moved on meanwhile. */
+    /** The records read, and the text paired with the audio; null if the reader moved on meanwhile. */
     const pair = async (): Promise<{ rd: ReadingData; alignment: Alignment | undefined } | null> => {
       const rd = await records;
       if (this.state.reading?.bookId !== bookId) return null;
-      this.readingData.set(bookId, rd);
       this.rd = rd;
       rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
       if (rd.overlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${rd.overlay.length} passages`);
@@ -2192,10 +2188,11 @@ export class AppController {
    * keeps and saves that book's, never the next one's. (Until 0.10.1 they
    * were the controller's own fields, emptied on close; a transcription
    * still finishing then saved the emptied transcript over the book's.)
-   * Kept for the session, so a book opened again reads none of it again.
+   * Read from beside the book at every opening. It was kept for the session
+   * once, and a book transcribed whole in the background after it was first
+   * opened stayed read only until Ribbon was restarted (#219).
    */
   private rd: ReadingData = emptyReading();
-  private readingData = new Map<string, ReadingData>();
   private readingIndex: { text: BookText; index: WordAt[] } | null = null;
   /** The open book with its text paired. */
   private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData } | null = null;

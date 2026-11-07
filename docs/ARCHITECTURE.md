@@ -251,8 +251,10 @@ sequenceDiagram
   C->>L: aligned/book.csv, merged with what is there
 ```
 
-A book opened again in the same session reuses its `ReadingData` (the
-heard places, transcript and fixes kept in memory) and reads none of it again.
+A book's `ReadingData` (the heard places, transcript and fixes) is read from
+beside it at every opening, even a second opening in the same session, since
+it can change while the book is closed: a transcript made whole in the
+background, or the book downloaded again (#219).
 
 Pairing (step 7) is needed first only when the narrator's place is the newest
 (you listened after you last read): that place is found through the pairing.

@@ -294,9 +294,9 @@ describe("the desktop on a server", () => {
   }, 30_000);
 
   /** A book that can be transcribed: its narration, and the EPUB it reads along with. */
-  const toldBook = (title: string) => {
+  const toldBook = (title: string, seconds = 150) => {
     const reader = path.join(dir, title);
-    mp3(path.join(reader, "An Author", title, "01.mp3"), { title, album: title, artist: "An Author" }, undefined, 150);
+    mp3(path.join(reader, "An Author", title, "01.mp3"), { title, album: title, artist: "An Author" }, undefined, seconds);
     epub(path.join(reader, "An Author", title, `${title}.epub`), "Chapter One", SENTENCES);
     return reader;
   };
@@ -312,17 +312,20 @@ describe("the desktop on a server", () => {
 
   /**
    * A machine that hears. Whisper is the one thing not here, since it needs a
-   * graphics card: everything around it is the app's own.
+   * graphics card: everything around it is the app's own. `before` runs ahead
+   * of each answer, to hold the hearing partway.
    */
-  const aHearingDesktop = async () => {
+  const aHearingDesktop = async (before: () => Promise<void> = async () => undefined) => {
     const heard: number[] = [];
     const host: Host = {
       ...readsEpubs(),
-      speechTranscribe: async (_model, clips, seconds) =>
-        clips.map((clip) => {
+      speechTranscribe: async (_model, clips, seconds) => {
+        await before();
+        return clips.map((clip) => {
           heard.push(clip.startMs);
           return [{ startMs: clip.startMs, endMs: clip.startMs + seconds * 1000, words: SENTENCES.join(" ") }];
-        }),
+        });
+      },
     };
     const settings = memorySettings();
     await settings.write({ speechModel: "ggml-small.bin", speechClipMs: 100 });
@@ -360,6 +363,40 @@ describe("the desktop on a server", () => {
 
     await soon(transcribed).toEqual([expect.objectContaining({ title: "Arrived Later", done: 3, total: 3 })]);
   }, 60_000);
+
+  it("reads along once the transcript is whole, though it wasn't when the book was last opened", async () => {
+    // The High Kâhl's Oath on the PC: opened while it was being transcribed, closed, transcribed whole in the background,
+    // sent and taken off, then downloaded and opened again, it stayed read only until Ribbon was restarted. The reader
+    // had kept the records it read the first time, and never read the whole transcript beside the book (#219).
+    await serverWithTools();
+    // Nine minutes: two calls to the speech model, the second held until the book has been opened and closed.
+    await importAs(server, admin, toldBook("Told Book", 540));
+    let calls = 0;
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const { app } = await aHearingDesktop(async () => {
+      if (++calls > 1) await released;
+    });
+    await soon(() => calls).toBe(2);
+
+    // Opened partway: eight minutes of nine transcribed, so it opens to read only.
+    const id = book(app, "Told Book").book.id;
+    await app.openReading(id);
+    expect(app.getState().reading).toMatchObject({ bookId: id, status: "ready" });
+    expect(app.getState().reading!.readsAlong).toBeFalsy();
+    await app.closeReading();
+
+    // The last minute heard, the whole transcript sent, and the download taken off, as it came.
+    release();
+    await soon(transcribed).toEqual([expect.objectContaining({ done: 9, total: 9 })]);
+    await soon(() => book(app, "Told Book").remote).toBeTruthy();
+
+    // Opened again in the same session: downloaded with the whole transcript, it reads along.
+    await app.openReading(book(app, "Told Book").book.id);
+    expect(app.getState().reading).toMatchObject({ bookId: id, status: "ready" });
+    await soon(() => app.getState().reading!.readsAlong).toBe(true);
+    await app.closeReading();
+  }, 90_000);
 
   it("finds a line in a server's books, as the Apple app does, and opens the reader on it", async () => {
     // A line from The Lion searched on the desktop found thirty books by their titles and no line: the desktop never
