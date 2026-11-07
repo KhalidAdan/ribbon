@@ -3,8 +3,6 @@ import type { SourceEntry } from "@ribbon/core/sources";
 import { browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
-declare const __RIBBON_MEASURE__: boolean;
-
 /** Where the remembered library lived before the Ribbon folder existed. */
 const LEGACY_ROOT_KEY = "ribbon.libraryRoot";
 
@@ -62,15 +60,19 @@ export function memorySources(): Platform["sources"] {
   return { load: async () => list.map((s) => ({ ...s })), save: async (next) => void (list = next.map((s) => ({ ...s }))) };
 }
 
-export async function detectPlatform(): Promise<Platform> {
+/**
+ * The platform this page runs on: Tauri's, or the browser harness's. With
+ * `updates` false, a Tauri build that could update itself doesn't (App.tsx
+ * says when, from how it was built).
+ */
+export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
     const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
     const ios = onIos();
-    // Not while developing, where there's no installed Ribbon to replace, nor in the measurement build, which only measures.
-    const updates = import.meta.env.DEV || __RIBBON_MEASURE__ ? undefined : tauriUpdates();
+    const updates = mayUpdate ? tauriUpdates() : undefined;
     return {
       host: tauriHost(),
       phone: ios,
