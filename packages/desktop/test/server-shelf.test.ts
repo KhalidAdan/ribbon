@@ -20,6 +20,8 @@ const TOKEN = "the-token";
 const COVER = "c0ffee00c0ffee00";
 /** The hash of the cover the admin chooses here, as the server makes it from their picture. */
 const CHOSEN = "c0ffee00c0ffee01";
+/** The book's EPUB, once the server has one. The scanner pairs an EPUB in a book's folder without opening it. */
+const EPUB = Buffer.from("an EPUB, as far as the scanner cares");
 
 /**
  * A stand-in for a Ribbon server: the answers the app's shelf asks for
@@ -161,6 +163,10 @@ describe("a server's shelf on this device", () => {
         res.writeHead(200).end("op,index,start_ms,title\nrename,0,,One\nrename,1,,Two\n");
         return;
       }
+      if (at === `/api/books/${SERVER_ID}/files/book.epub` && detail.book.ebook) {
+        res.writeHead(200).end(EPUB);
+        return;
+      }
       const file = at.match(new RegExp(`^/api/books/${SERVER_ID}/files/audio/(0[12]\\.mp3)$`))?.[1];
       const picture = at.match(new RegExp(`^/covers/(${COVER}|${CHOSEN})-(400|800)\\.jpg$`));
       if (file || picture) {
@@ -257,6 +263,43 @@ describe("a server's shelf on this device", () => {
     } finally {
       delete detail.book.description;
       detail.records = ["heard"];
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("brings down the EPUB the server was given after the book came down, which the scanner pairs with the same book", async () => {
+    const root = folder();
+    const shelf = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    await shelf.refresh();
+    const [remote] = shelf.remote([]);
+    await shelf.download(remote!, () => undefined);
+    const before = (await scanLibrary(nodeHost(), root, { write: false })).books;
+    expect(before[0]!.book.ebook).toBeUndefined();
+    expect(shelf.withoutTheirEbook(before)).toEqual([]);
+
+    // The admin put an EPUB beside the audiobook and added its folder again (packages/server/src/library/importer.ts).
+    listed.ebook = true;
+    listed.ebookBytes = EPUB.length;
+    detail.book.ebook = "book.epub";
+    detail.ebookBytes = EPUB.length;
+    try {
+      expect(await shelf.refresh()).toBe(true);
+      expect(shelf.withoutTheirEbook(before).map((b) => b.book.id)).toEqual([remote!.book.id]);
+      expect(await shelf.downloadEbook(SERVER_ID)).toBe(true);
+      expect(readFileSync(path.join(root, SERVER_ID, "book.epub")).equals(EPUB)).toBe(true);
+      const after = (await scanLibrary(nodeHost(), root, { write: false })).books;
+      expect(after).toHaveLength(1);
+      expect(after[0]!.book).toMatchObject({ id: remote!.book.id, ebook: `${SERVER_ID}/book.epub` });
+      expect(shelf.withoutTheirEbook(after)).toEqual([]);
+      // Here already: not brought down again.
+      asked.length = 0;
+      expect(await shelf.downloadEbook(SERVER_ID)).toBe(false);
+      expect(asked).toEqual([]);
+    } finally {
+      listed.ebook = false;
+      listed.ebookBytes = null;
+      delete detail.book.ebook;
+      delete detail.ebookBytes;
       rmSync(root, { recursive: true, force: true });
     }
   });

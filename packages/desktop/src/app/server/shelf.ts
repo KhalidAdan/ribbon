@@ -224,6 +224,26 @@ export class ServerShelf {
   }
 
   /**
+   * The books downloaded here that the server has an EPUB for and their
+   * folder doesn't: audiobooks the server was given the EPUB of after they
+   * came down (an EPUB put beside one, and its folder added again).
+   */
+  withoutTheirEbook(local: readonly ScannedBook[]): ScannedBook[] {
+    return local.filter((b) => !b.remote && !b.book.ebook && b.files.length > 0 && this.byLocalId.get(b.book.id)?.ebook);
+  }
+
+  /** Download the EPUB of a book downloaded here before the server had one, into its folder, as a download puts it. False when the server has none. */
+  async downloadEbook(serverId: string): Promise<boolean> {
+    const file = this.host.join(this.at(serverId), "book.epub");
+    // Already here, and only waiting for a scan to find it.
+    if (!this.host.serverDownload || (await this.host.exists(file))) return false;
+    const detail = await this.client.book(serverId);
+    if (!detail.book.ebook || detail.ebookBytes === undefined) return false;
+    await this.host.serverDownload(this.client.fileUrl(serverId, detail.book.ebook), this.client.token, file, detail.ebookBytes, () => undefined);
+    return true;
+  }
+
+  /**
    * The records the server keeps with a book (its chapters, what was heard
    * of the narration, its transcript, …), kept beside it here under its id
    * on this device, where Ribbon looks for them. Only the ones not here yet

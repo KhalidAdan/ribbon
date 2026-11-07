@@ -118,6 +118,11 @@ export class BookIndex {
     this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
   }
 
+  /** List a book as having an EPUB of these bytes now: an audiobook given the EPUB beside it in its folder after it was added (importer.ts). */
+  giveEbook(id: string, ebookBytes: number): void {
+    this.db.prepare("UPDATE book SET has_ebook = 1, ebook_bytes = ? WHERE id = ?").run(ebookBytes, id);
+  }
+
   /**
    * Take a book off the server's list, with the ids that also named it, and
    * note that it was deleted, so devices that downloaded it take it off too.
