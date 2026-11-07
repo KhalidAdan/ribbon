@@ -36,12 +36,14 @@ export const SPARE_BYTES = 1024 ** 3;
  * Add a folder of books to the server (docs/SERVER.md, sections 5 and 12):
  * scan it with Ribbon's own scanner, then for each book it finds, skip it
  * if it's here already, else copy its files in, read its chapters, make
- * its covers, and list it. Either way, the person adding the folder's places
- * in the book come in with it. The folder itself is only ever read.
+ * its covers, and list it. A book that's here already without its EPUB is
+ * given the one beside it in the folder now. Either way, the person adding
+ * the folder's places in the book come in with it. The folder itself is
+ * only ever read.
  */
 export async function importFolder(ctx: ImportContext, folder: string, report: (progress: ImportProgress) => void): Promise<ImportProgress> {
   const root = path.resolve(folder);
-  const progress: ImportProgress = { folder: root, found: 0, added: 0, skipped: 0, failed: 0, places: 0, current: null, notes: [] };
+  const progress: ImportProgress = { folder: root, found: 0, added: 0, skipped: 0, ebooks: 0, failed: 0, places: 0, current: null, notes: [] };
   if (!(await stat(root).catch(() => null))?.isDirectory()) throw new Error(`There's no folder at ${root}.`);
   const host = neverWrites(ctx.host, root);
   const scan = await scanLibrary(host, root, { write: false });
@@ -60,6 +62,7 @@ export async function importFolder(ctx: ImportContext, folder: string, report: (
       if (added.added) progress.added++;
       else {
         progress.skipped++;
+        if (added.ebook) progress.ebooks++;
         progress.notes.push(`${scanned.book.title}: already on the server.`);
       }
     } catch (e) {
@@ -72,8 +75,8 @@ export async function importFolder(ctx: ImportContext, folder: string, report: (
   return progress;
 }
 
-/** One book: skipped if it's here already, else copied in whole or not at all. */
-async function importBook(ctx: ImportContext, host: Host, root: string, scanned: ScannedBook): Promise<{ added: boolean; id: string }> {
+/** One book: skipped if it's here already (given its EPUB if it came without one: `ebook`), else copied in whole or not at all. */
+async function importBook(ctx: ImportContext, host: Host, root: string, scanned: ScannedBook): Promise<{ added: boolean; id: string; ebook?: boolean }> {
   const abs = (rel: string) => path.join(root, ...rel.split("/"));
   const claims = claimsOf(scanned.book);
   const fingerprint =
@@ -83,7 +86,7 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
   const existing = ctx.index.find(fingerprint, claims);
   if (existing) {
     await fillRecords(ctx, root, scanned, existing);
-    return { added: false, id: existing };
+    return { added: false, id: existing, ebook: await addEbook(ctx, root, scanned, existing) };
   }
 
   // Checked before anything is copied: a book that won't fit is left out, said why, and the import goes on to smaller ones.
@@ -157,6 +160,36 @@ async function fillRecords(ctx: ImportContext, root: string, scanned: ScannedBoo
   const analysis = stored.analysis ?? (await carriedAnalysis(found)) ?? undefined;
   if (records.length === (stored.records ?? []).length && analysis === stored.analysis) return;
   await writeStored(ctx.dataDir, id, { ...stored, ...(records.length > 0 ? { records } : {}), ...(analysis ? { analysis } : {}) });
+}
+
+/**
+ * An audiobook on the server that came without its EPUB, given the one
+ * beside it in the folder now: an EPUB put there after the book was added
+ * joins it when the folder is added again, and the book is filled in,
+ * searched, transcribed and read along like one that came with it. A book
+ * that has an EPUB keeps the one it has. True when it was given one.
+ */
+async function addEbook(ctx: ImportContext, root: string, scanned: ScannedBook, id: string): Promise<boolean> {
+  if (!scanned.book.ebook || scanned.files.length === 0) return false;
+  const stored = await readStored(ctx.dataDir, id);
+  if (!stored || stored.book.ebook || stored.files.length === 0) return false;
+  const from = path.join(root, ...scanned.book.ebook.split("/"));
+  const bytes = (await stat(from)).size;
+  const free = await (ctx.freeBytes ?? freeBytes)(booksDir(ctx.dataDir));
+  if (free < bytes + SPARE_BYTES) throw new Error(`there isn't room for its EPUB on the server's disk (${Math.round(bytes / 1024 ** 2)} MB, with ${Math.round(free / 1024 ** 2)} MB free).`);
+  const dir = bookDir(ctx.dataDir, id);
+  // Copied beside its place and moved in when whole, so a book never has half an EPUB.
+  const building = path.join(dir, `book.epub.adding-${randomBytes(4).toString("hex")}`);
+  try {
+    await copyIn(from, building, bytes);
+    await rename(building, path.join(dir, "book.epub"));
+  } catch (e) {
+    await rm(building, { force: true });
+    throw e;
+  }
+  await writeStored(ctx.dataDir, id, { ...stored, book: { ...stored.book, ebook: "book.epub" }, ebookBytes: bytes });
+  ctx.index.giveEbook(id, bytes);
+  return true;
 }
 
 /** Bytes free on the disk that holds a folder. */

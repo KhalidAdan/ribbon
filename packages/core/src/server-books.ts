@@ -80,6 +80,8 @@ export interface ImportProgress {
   added: number;
   /** Books already on the server, by their files or by an ISBN or ASIN. */
   skipped: number;
+  /** Of those, audiobooks that came without their EPUB, given the one beside them in the folder now. */
+  ebooks: number;
   failed: number;
   /** Records from the folder's position logs that the server hadn't got yet. */
   places: number;

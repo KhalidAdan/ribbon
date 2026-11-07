@@ -139,7 +139,12 @@ the book index by what identifies it: its identifiers (ISBN, ASIN) when it
 has them, else a fingerprint of its audio files (their sizes and a hash of
 each file's first and last megabyte), and for an EPUB, its package
 identifier and a hash. A book already there is skipped and reported as
-such. An EPUB found later for an audiobook already on the server joins it.
+such. An EPUB found later for an audiobook already on the server joins it
+when its folder is added again (`importer.ts`, `addEbook`): copied in as
+`book.epub`, the book listed with it, and every device told (`books`
+event), so it's filled in, searched and transcribed like a book that came
+with its EPUB. A device that downloaded the audiobook before brings the
+EPUB down beside it. A book that has an EPUB keeps the one it has.
 
 ## 6. Accounts
 

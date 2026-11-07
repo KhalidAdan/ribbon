@@ -1501,7 +1501,8 @@ export class AppController {
     }
     await this.refreshServer(o);
     const p = job.progress;
-    log.info(`added ${name} to the server: ${p.added} added, ${p.skipped} already there, ${p.failed} not added`);
+    // A server from before it gave books their EPUBs doesn't say how many it gave.
+    log.info(`added ${name} to the server: ${p.added} added, ${p.skipped} already there (${p.ebooks ?? 0} given their EPUB), ${p.failed} not added`);
     if (job.state === "failed") {
       const there = /There's no folder at/.test(job.error ?? "");
       this.set({ error: there ? `The server can't see ${name}. It reads a folder at the path it has on ${this.here}, so the folder has to be at that same path on the server's computer too.` : `Couldn't add ${name} to the server: ${job.error ?? "it stopped"}` });
@@ -1579,6 +1580,9 @@ export class AppController {
       if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
     }
     if (!alive()) return;
+    // A book downloaded here that the server has been given the EPUB of since.
+    await this.takeServerEbooks(o, shelf.withoutTheirEbook(o.books));
+    if (!alive()) return;
     // The covers kept here show even when the server is out of reach.
     const found = await shelf.fetchCovers().catch(() => 0);
     // A cover chosen on the server is laid over its book once its picture is here.
@@ -1586,6 +1590,36 @@ export class AppController {
     if (found > 0 && alive()) this.publishBooks({ coverVersion: this.state.coverVersion + 1 });
     // Out of reach or not, what it last said was deleted goes.
     if (alive()) await this.dropDeleted(o);
+  }
+
+  /** The server's books whose EPUB is coming down now, by server id, so it's fetched once at a time. */
+  private takingEbooks = new Set<string>();
+
+  /**
+   * The EPUBs of books downloaded here before the server had them (an EPUB
+   * put beside an audiobook already on the server, and its folder added
+   * again): each into its book's folder, then the folder scanned again, so
+   * the book opens to read, reads along, and can be transcribed here. How
+   * many came down.
+   */
+  private async takeServerEbooks(o: Opened, books: readonly ScannedBook[]): Promise<number> {
+    const shelf = o.server;
+    if (!shelf) return 0;
+    let taken = 0;
+    for (const b of books) {
+      const serverId = serverIdOf(b);
+      if (this.takingEbooks.has(serverId)) continue;
+      this.takingEbooks.add(serverId);
+      try {
+        if (await shelf.downloadEbook(serverId)) taken++;
+      } catch (e) {
+        log.warn(`could not download the EPUB of ${b.book.title}:`, describe(e));
+      } finally {
+        this.takingEbooks.delete(serverId);
+      }
+    }
+    if (taken > 0 && this.opened.get(o.source.id) === o && o.server === shelf) await this.rescanSource(o, true);
+    return taken;
   }
 
   /**
@@ -2547,7 +2581,10 @@ export class AppController {
    */
   private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
     const serverId = serverIdOf(listed);
-    const book = listed.remote ? await this.downloadRemote(listed) : listed;
+    let book: ScannedBook | null = listed;
+    if (listed.remote) book = await this.downloadRemote(listed);
+    // Downloaded here before the server had its EPUB: the EPUB comes down beside it first.
+    else if (!listed.book.ebook) book = await this.withServerEbook(o, listed);
     // No room for it here is the one download failure that waiting doesn't mend.
     if (!book) return this.state.spaceShort?.bookId === listed.book.id ? this.notTranscribed(listed, true, "There isn't room on this computer to download it.") : "retry";
     if (listed.remote) this.downloadedToTranscribe.add(serverId);
@@ -2563,6 +2600,12 @@ export class AppController {
         await this.removeDownload(book.book.id).catch(() => undefined);
       }
     }
+  }
+
+  /** A book downloaded here before the server had its EPUB, as it is with the EPUB beside it; null when that couldn't come down yet. */
+  private async withServerEbook(o: Opened, book: ScannedBook): Promise<ScannedBook | null> {
+    await this.takeServerEbooks(o, [book]);
+    return o.books.find((b) => b.book.id === book.book.id && b.book.ebook) ?? null;
   }
 
   /** A server's book, downloaded here, heard whole and sent. `retry` when it's whole and the server couldn't take it. */

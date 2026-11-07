@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { BookIndex, type StoredBook } from "../src/library/books.ts";
 import { importFolder } from "../src/library/importer.ts";
 import { booksToPrepare, prepareBooks } from "../src/library/prepare.ts";
 import { nodeHost } from "@ribbon/host-node/node";
-import { importAs, makeLibraries, serverWithAdmin } from "./fixture.ts";
+import { epub, importAs, makeLibraries, mp3, serverWithAdmin } from "./fixture.ts";
 
 // Adding folders of books: a book with a cover, a book in two files, and
 // the first book again in another folder, which is never added twice.
@@ -132,5 +132,70 @@ describe("adding a folder", () => {
     ]);
     await fresh.app.close();
     fresh.db.close();
+  });
+});
+
+// An EPUB put beside an audiobook after the book was added, and the folder
+// added again: the book on the server is given it, and so can be transcribed.
+describe("adding a folder again, with an EPUB beside a book already on the server", () => {
+  let dir: string;
+  let folder: string;
+  let server: RibbonServer;
+  let admin = "";
+  let id = "";
+  const book = () => path.join(folder, "Author One", "Red Book");
+  const stored = () => path.join(dir, "data", "books", id);
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "ribbon-import-epub-"));
+    folder = path.join(dir, "shelf");
+    mp3(path.join(book(), "01.mp3"), { title: "Red Book", album: "Red Book", artist: "Author One" });
+    ({ server, admin } = await serverWithAdmin(dir));
+    await importAs(server, admin, folder);
+    id = server.books.list()[0]!.id;
+  }, 60_000);
+  afterAll(async () => {
+    await server.app.close();
+    server.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("gives the book the EPUB, and tells every device", async () => {
+    expect(server.books.get(id)).toMatchObject({ audio: true, ebook: false, ebookBytes: null });
+    const file = path.join(book(), "Red Book.epub");
+    epub(file, "Chapter One", ["It was a bright cold day.", "The clocks were striking."]);
+    const heard: unknown[] = [];
+    server.events.listen("anyone", (e) => heard.push(e));
+
+    const { job } = await importAs(server, admin, folder);
+    expect(job.progress).toMatchObject({ found: 1, added: 0, skipped: 1, ebooks: 1, failed: 0 });
+    expect(heard).toContainEqual({ type: "books", data: { ebooks: 1 } });
+
+    // The same book, listed with its EPUB, which is copied in whole, and nothing half copied left beside it.
+    const bytes = statSync(file).size;
+    expect(server.books.list()).toHaveLength(1);
+    expect(server.books.get(id)).toMatchObject({ audio: true, ebook: true, ebookBytes: bytes });
+    const record = JSON.parse(readFileSync(path.join(stored(), "book.json"), "utf8")) as StoredBook;
+    expect(record.book.ebook).toBe("book.epub");
+    expect(record.ebookBytes).toBe(bytes);
+    expect(readFileSync(path.join(stored(), "book.epub")).equals(readFileSync(file))).toBe(true);
+    expect(readdirSync(stored()).filter((name) => name.includes(".adding-"))).toEqual([]);
+
+    // The admin's devices with a graphics card transcribe it now.
+    const transcripts = await server.app.inject({ method: "GET", url: "/api/library/transcripts", headers: { authorization: `Bearer ${admin}` } });
+    expect((transcripts.json() as { books: unknown[] }).books).toEqual([expect.objectContaining({ id, done: 0 })]);
+  });
+
+  it("keeps the EPUB a book has, whatever is beside it in the folder", async () => {
+    const kept = readFileSync(path.join(stored(), "book.epub"));
+    epub(path.join(book(), "Red Book.epub"), "Another Chapter", ["Something else entirely."]);
+    const { job } = await importAs(server, admin, folder);
+    expect(job.progress).toMatchObject({ found: 1, added: 0, skipped: 1, ebooks: 0, failed: 0 });
+    expect(readFileSync(path.join(stored(), "book.epub")).equals(kept)).toBe(true);
+  });
+
+  it("leaves the folder it reads exactly as it was", () => {
+    expect(readdirSync(book()).sort()).toEqual(["01.mp3", "Red Book.epub"]);
+    expect(existsSync(path.join(folder, ".ribbon"))).toBe(false);
   });
 });

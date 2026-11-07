@@ -364,6 +364,26 @@ describe("the desktop on a server", () => {
     await soon(transcribed).toEqual([expect.objectContaining({ title: "Arrived Later", done: 3, total: 3 })]);
   }, 60_000);
 
+  it("transcribes an audiobook downloaded here before its EPUB was put beside it and its folder added again", async () => {
+    await serverWithTools();
+    const reader = path.join(dir, "EPUB Later");
+    const folder = path.join(reader, "An Author", "EPUB Later");
+    mp3(path.join(folder, "01.mp3"), { title: "EPUB Later", album: "EPUB Later", artist: "An Author" }, undefined, 150);
+    await importAs(server, admin, reader);
+    expect(await transcribed()).toEqual([]);
+    const { app } = await aHearingDesktop();
+    await app.downloadBook(book(app, "EPUB Later").book.id);
+    expect(book(app, "EPUB Later").book.ebook).toBeUndefined();
+
+    epub(path.join(folder, "EPUB Later.epub"), "Chapter One", SENTENCES);
+    await importAs(server, admin, reader);
+
+    await soon(transcribed).toEqual([expect.objectContaining({ title: "EPUB Later", done: 3, total: 3 })]);
+    // The copy here has the EPUB beside it now, and stays: it was downloaded to keep, not only to be heard.
+    expect(book(app, "EPUB Later").book.ebook).toBeDefined();
+    expect(book(app, "EPUB Later").remote).toBeUndefined();
+  }, 60_000);
+
   it("reads along once the transcript is whole, though it wasn't when the book was last opened", async () => {
     // The High Kâhl's Oath on the PC: opened while it was being transcribed, closed, transcribed whole in the background,
     // sent and taken off, then downloaded and opened again, it stayed read only until Ribbon was restarted. The reader

@@ -60,18 +60,24 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       const where = deps.folders.length > 0 ? `in ${deps.folders.join(" or ")}` : "on its machine: give the server the folder your share is mounted at (RIBBON_FOLDERS)";
       return reply.code(400).send({ error: `The server can't find ${picked} ${where}.` });
     }
-    const first: ImportProgress = { folder, found: 0, added: 0, skipped: 0, failed: 0, places: 0, current: null, notes: [] };
+    const first: ImportProgress = { folder, found: 0, added: 0, skipped: 0, ebooks: 0, failed: 0, places: 0, current: null, notes: [] };
     const job = deps.jobs.start(
       "import",
       first,
       async (report) => {
-        // Every device showing the library hears of each book as it's added, so shelves fill as the import goes.
+        // Every device showing the library hears of each book as it's added, or given its EPUB, so shelves fill as the import
+        // goes, and the admin's devices with a graphics card start transcribing what can be now.
         let added = 0;
+        let ebooks = 0;
         const done = await importFolder({ host, dataDir: deps.dataDir, index: deps.books, addedBy: me.id, places: deps.places }, folder, (progress) => {
           report(progress);
           if (progress.added > added) {
             added = progress.added;
             deps.events.toEveryone({ type: "books", data: { added } });
+          }
+          if (progress.ebooks > ebooks) {
+            ebooks = progress.ebooks;
+            deps.events.toEveryone({ type: "books", data: { ebooks } });
           }
         });
         // What the folder knew of their places is theirs now, on every device they have.
