@@ -52,8 +52,11 @@ first, roughly in this order:
   PATH; `lib.rs` adds Homebrew's folders (`/opt/homebrew/bin`, `/usr/local/bin`)
   before anything starts. Check a built `Ribbon.app`, not only `tauri:dev`,
   which inherits the terminal's PATH.
-- **WKWebView, not Chromium.** The custom protocols (`asset:`, `ribbonmp3:`) are
-  in the CSP as schemes, which is how WebKit names them. The layout worker
+- **WKWebView, not Chromium.** The custom protocols (`asset:`, `ribbonmp3:`,
+  `ribbonaudio:`) are in the CSP as schemes, which is how WebKit names them.
+  A book's audio reaches the player through `ribbonaudio:` here (`audio.rs`):
+  WebKit asks for a long .m4b's index in one request of several megabytes and
+  won't play it from the asset protocol, which gives a megabyte at most (#226). The layout worker
   needs OffscreenCanvas (macOS 13.3 and later); without it the engine lays out
   on the page. Check: MP3, M4B and FLAC play; bookmark clips (Opus) play; the
   Media Session keys work; read-along follows.

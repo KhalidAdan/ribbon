@@ -67,7 +67,7 @@ export function memorySources(): Platform["sources"] {
  */
 export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, tauriUpdates }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -96,6 +96,8 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
       allowFolder: allowLibrary,
       fileUrl,
       exactAudioUrl,
+      // Only where the asset protocol won't play every book: WebView2 plays them all through `fileUrl` (#226).
+      ...(onApple() ? { audioUrl } : {}),
       // The sources live in the Ribbon folder. A root remembered by an
       // older build in the webview's storage becomes the first source once.
       sources: {

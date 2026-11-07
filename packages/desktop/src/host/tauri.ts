@@ -212,6 +212,16 @@ export function exactAudioUrl(absPath: string, ms: number): string {
   return `${convertFileSrc("", "ribbonmp3")}?path=${encodeURIComponent(absPath)}&ms=${Math.max(0, Math.round(ms))}`;
 }
 
+/**
+ * A URL the player streams a book's audio file from, served by Ribbon
+ * (audio.rs). Apple's webview won't play a long .m4b through `fileUrl`:
+ * it asks for the book's index in one request, several megabytes, and the
+ * asset protocol gives a megabyte at most (#226). From here it gets it whole.
+ */
+export function audioUrl(absPath: string): string {
+  return `${convertFileSrc("", "ribbonaudio")}?path=${encodeURIComponent(absPath)}`;
+}
+
 /** Milliseconds since the Rust process started. */
 export function uptimeMs(): Promise<number> {
   return invoke<number>("uptime_ms");
@@ -228,6 +238,8 @@ export function envLibrary(): Promise<string | null> {
  * no folder picker there.
  */
 export const onIos = (): boolean => platform() === "ios";
+/** Apple's webview, WebKit: the Mac's and the iPhone's. */
+export const onApple = (): boolean => platform() === "macos" || platform() === "ios";
 
 /** iOS: choose a folder of books, opened in place and remembered; null when the picker is cancelled. */
 export function pickFolderOnIos(): Promise<string | null> {

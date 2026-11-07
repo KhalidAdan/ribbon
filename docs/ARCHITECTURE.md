@@ -60,7 +60,7 @@ flowchart LR
     Scan["scan.rs<br/>walk and probe a library"]
     Ebook["ebook/<br/>EPUB → block model, the export"]
     Speech["speech.rs<br/>whisper.cpp on the GPU"]
-    Frames["frames.rs<br/>exact MP3 frames, ribbonmp3://"]
+    Frames["frames.rs · audio.rs<br/>exact MP3 frames, ribbonmp3://<br/>a book's audio on Apple's, ribbonaudio://"]
     Home["home.rs<br/>the Ribbon folder"]
   end
   subgraph Disk["Files"]
@@ -73,7 +73,7 @@ flowchart LR
   C --> Lib
   Lib --> Host
   Host -- "tauri.ts: invoke() over IPC" --> Scan & Ebook & Speech & Home
-  Eng -- "asset:// and ribbonmp3://" --> Frames
+  Eng -- "asset://, ribbonmp3://, ribbonaudio://" --> Frames
   Scan & Ebook & Speech & Frames --> Books
   Home & Ebook & Frames --> App
 ```
@@ -441,7 +441,7 @@ same folder on another machine gets the same id.
 | Text ↔ time | `core/reading/align.ts` (`alignBook`, `textToMs`, `msToText`) |
 | Read-along's transcript | `core/reading/transcript.ts`, `packages/desktop/src-tauri/src/speech.rs` |
 | The reader on screen | `reader/ReadingView.tsx`, `core/reading/pages.ts`, `reader/typeset.ts`, `reader/layout-engine.ts` |
-| Playback | `player/engine.ts`, `packages/desktop/src-tauri/src/frames.rs` |
+| Playback | `player/engine.ts`, `packages/desktop/src-tauri/src/frames.rs`, `packages/desktop/src-tauri/src/audio.rs` (Apple's webview) |
 | The EPUB parser | `packages/desktop/src-tauri/ebook/src/content.rs` (its own crate, which the server runs too) |
 | The export | `core/reading/export.ts`, `packages/desktop/src-tauri/src/ebook/export.rs`, `packages/desktop/src-tauri/ebook/src/source.rs` |
 | Read-along on the Apple TV and the iPad | `core/reading/readalong.ts`, `packages/server/src/readalong-routes.ts`, `packages/apple/` (packages/apple/README.md) |
