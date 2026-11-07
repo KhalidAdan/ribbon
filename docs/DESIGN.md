@@ -71,6 +71,15 @@ greys.
 - A top bar carries the app mark, where you are (a breadcrumb), search
   and the few global actions. Pages are tabs under it, plain text, the
   current one in `ink` with a 1px underline.
+- Work going on behind everything (transcribing a server's books) says
+  so in the top bar in `ink-2`, with a ring for how far it has got, and
+  opens the page that says more. `ink-3` there was too easy to miss.
+- Notes float over the page (`packages/desktop/src/ui/Notices.tsx`, drawn
+  by Sonner). What asks nothing of you (the daily goal met, a book's
+  transcribing begun or done) comes in at the top and goes on its own in
+  a few seconds; what asks something (an error, an offer, a book that
+  couldn't be transcribed) waits above the player until it's answered.
+  Each shows whole, one above another, never tucked behind the newest.
 - Content sits in a centred column. Lists and settings at 48rem, grids
   at 80rem, the full player at 28rem.
 - Section header pattern: a 15px title and one muted line under it on

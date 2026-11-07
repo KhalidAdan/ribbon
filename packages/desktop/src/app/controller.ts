@@ -57,6 +57,8 @@ const HEAR_SECONDS = 8;
 const SEARCH_MS = 4 * 60_000;
 /** A clip heard this fast (a graphics card) is cheap enough to transcribe whole books: a machine that hears slower transcribes nothing (#152). */
 const FAST_CLIP_MS = 1_200;
+/** Why a book couldn't be transcribed when whisper heard nothing in a batch of its minutes (transcribing.ts). */
+const NOTHING_HEARD = "The speech model heard nothing in its narration.";
 /** "Listen from here" and "Go to the narrator" hear the place first unless a checkpoint is this close. */
 const PINPOINT_MS = 45_000;
 /** What is heard, transcribed and fixed for one book's text: see AppController.rd. */
@@ -176,6 +178,19 @@ export interface SourceStatus {
   readOnly: boolean;
 }
 
+/**
+ * Something transcribing did that's worth a note of its own (ui/Notices.tsx):
+ * a book begun, a book that reads along now its narration is all heard, or
+ * one that couldn't be transcribed, and why. `forServer` when it was a
+ * server's book, transcribed on this computer for every device.
+ */
+export type Notice =
+  | { id: number; what: "transcribing" | "reads-along"; title: string; forServer: boolean }
+  | { id: number; what: "not-transcribed"; title: string; forServer: boolean; why: string };
+
+/** Each kind of a union without its `id`: what's given before it's numbered. */
+type Unnumbered<T> = T extends unknown ? Omit<T, "id"> : never;
+
 export interface AppState {
   phase: "boot" | "pick" | "loading" | "ready";
   /** The folders the library is populated from, in the order they were added. */
@@ -262,6 +277,8 @@ export interface AppState {
   speechNudge: boolean;
   /** A server's book this machine is transcribing for the server, in the background (#152): which, and how far it has got, in minutes. */
   transcribingForServer: { title: string; done: number; total: number } | null;
+  /** Notes about transcribing (ui/Notices.tsx), oldest first, each until its note goes. */
+  notices: Notice[];
   /** Speed measurements are summarised in the log (app/perf.ts). */
   perfLog: boolean;
 }
@@ -531,6 +548,7 @@ export class AppController {
       speech: { model: null, downloading: null },
       speechNudge: false,
       transcribingForServer: null,
+      notices: [],
       perfLog: false,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
@@ -2345,6 +2363,7 @@ export class AppController {
       if (this.clipMs() === null) await this.timeClips(ctx, model, language);
       if (!this.transcribesHere(host) || !still()) return;
       await this.hearOpenings(ctx, model, language, still);
+      if (still()) this.noteTranscribing(book, false);
       const result = await transcribeWhole({
         transcript: rd,
         files: book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
@@ -2365,8 +2384,10 @@ export class AppController {
         this.placeWhole(rd, this.wordsOf(text));
         await this.keepAligned(ctx, true, true);
         show({ alignment: this.realign(text, book, rd), readsAlong: true });
+        this.notify({ what: "reads-along", title: book.book.title, forServer: false });
         await this.sendTranscript(o, book, rd);
       }
+      if (result === "failed") this.notTranscribed(book, false, NOTHING_HEARD);
     } catch (e) {
       log.warn("could not hear the narrator:", describe(e));
       // The speech model stopped answering (#158): tried again in a minute, from what's kept, if the book is still open.
@@ -2490,7 +2511,10 @@ export class AppController {
         if (!book) return this.transcribeForServerLater();
         const result = await this.transcribeServerBook(o, book, model);
         if (result === "failed") this.untranscribable.add(next.id);
-        if (result === "whole") this.serverRetryMs = 0;
+        if (result === "whole") {
+          this.serverRetryMs = 0;
+          this.notify({ what: "reads-along", title: book.book.title, forServer: true });
+        }
         if (result === "retry") return this.transcribeForServerLater();
         if (result === "stopped") return;
       }
@@ -2525,7 +2549,7 @@ export class AppController {
     const serverId = serverIdOf(listed);
     const book = listed.remote ? await this.downloadRemote(listed) : listed;
     // No room for it here is the one download failure that waiting doesn't mend.
-    if (!book) return this.state.spaceShort?.bookId === listed.book.id ? "failed" : "retry";
+    if (!book) return this.state.spaceShort?.bookId === listed.book.id ? this.notTranscribed(listed, true, "There isn't room on this computer to download it.") : "retry";
     if (listed.remote) this.downloadedToTranscribe.add(serverId);
     // A stall or an error leaves it as it is, transcript so far and all, for the next try.
     let result: "whole" | "stopped" | "failed" | "retry" = "retry";
@@ -2543,24 +2567,26 @@ export class AppController {
 
   /** A server's book, downloaded here, heard whole and sent. `retry` when it's whole and the server couldn't take it. */
   private async hearServerBook(o: Opened, book: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
-    if (!book.book.ebook) return "failed";
+    if (!book.book.ebook) return this.notTranscribed(book, true, "This book has no EPUB beside it.");
     const host = o.lib.host;
     const transcribe = host.speechTranscribe!;
     // What the server has of it comes first: its transcript so far, with what this machine heard itself.
     await this.takeServerRecords(book);
     const [opened, withChapters, fixes, heard, aligned] = await Promise.all([openEbook(host, o.lib.root, book.book), this.chaptersOf(o, book), o.lib.readPairing(book.book.id), o.lib.readHeard(book.book.id), o.lib.readAligned(book.book.id)]);
-    if (!opened.ok) return "failed";
+    if (!opened.ok) return this.notTranscribed(book, true, opened.message);
     const language = narrationLanguage(opened.ebook.meta.language, book.book.language);
     if (this.clipMs() === null) await this.timeClips({ o, book }, model, language);
     if (!this.transcribesHere(host)) return "stopped";
     const text = new BookText(opened.ebook);
     const rd: ReadingData = { ...emptyReading(), fixes, heard: heard.heard, anchors: heard.anchors, spans: aligned.spans, heardBy: aligned.heardBy, said: aligned.said, aligned: transcriptAnchors(aligned.said) };
     rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
-    // A Media Overlay places it exactly: nothing to transcribe.
+    // A Media Overlay places it exactly: nothing to transcribe, and nothing to say.
     if (rd.overlay) return "failed";
     let alignment = this.pairUp(text, withChapters, rd);
     const index = wordIndex(text);
     const started = performance.now();
+    // Heard whole already and only waiting to be sent: there's nothing to begin.
+    if (untranscribed(withChapters.files, rd.spans).length > 0) this.noteTranscribing(book, true);
     const outcome = await transcribeWhole({
       transcript: rd,
       files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
@@ -2577,6 +2603,7 @@ export class AppController {
       still: () => !this.hearing,
     });
     log.info(`transcribing ${book.book.title} for the server ${outcome} after ${Math.round((performance.now() - started) / 1000)} s`);
+    if (outcome === "failed") return this.notTranscribed(book, true, NOTHING_HEARD);
     if (outcome !== "whole") return outcome;
     this.placeWhole(rd, index);
     await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, true).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
@@ -4060,6 +4087,33 @@ export class AppController {
 
   clearError(): void {
     this.set({ error: null });
+  }
+
+  /** The books whose transcribing has been noted as begun, so it's said once a session however often it stops and starts again. */
+  private noted = new Set<string>();
+  private lastNoticeId = 0;
+
+  /** A note to show, numbered here. */
+  private notify(notice: Unnumbered<Notice>): void {
+    this.set({ notices: [...this.state.notices, { ...notice, id: ++this.lastNoticeId } as Notice] });
+  }
+
+  /** A book's transcribing begun, noted the first time this session. */
+  private noteTranscribing(book: ScannedBook, forServer: boolean): void {
+    if (this.noted.has(book.book.id)) return;
+    this.noted.add(book.book.id);
+    this.notify({ what: "transcribing", title: book.book.title, forServer });
+  }
+
+  /** A book that couldn't be transcribed, and why, as the worker's outcome. */
+  private notTranscribed(book: ScannedBook, forServer: boolean, why: string): "failed" {
+    this.notify({ what: "not-transcribed", title: book.book.title, forServer, why });
+    return "failed";
+  }
+
+  /** A note gone: dismissed, or its time up. */
+  dismissNotice(id: number): void {
+    if (this.state.notices.some((n) => n.id === id)) this.set({ notices: this.state.notices.filter((n) => n.id !== id) });
   }
 
   destroy(): void {
