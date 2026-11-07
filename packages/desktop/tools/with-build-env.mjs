@@ -16,9 +16,16 @@
  * libclang serves bindgen, and whisper.cpp runs on Metal (Cargo.toml).
  *
  * Anything already set in the environment wins over these.
+ *
+ * The installers carry the files Ribbon updates itself from, signed with the
+ * release key (tauri.conf.json, `createUpdaterArtifacts`), which only the
+ * release workflow has (docs/RELEASING.md, section 6). Built without the key,
+ * they leave those files out rather than fail: the app still updates itself
+ * from the releases, and nothing updates to this build.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 function buildEnv() {
   if (process.platform !== "win32") return {};
@@ -35,11 +42,20 @@ function buildEnv() {
   };
 }
 
-const [command, ...args] = process.argv.slice(2);
+/** `tauri build`'s arguments, with the update files turned off when there's no key to sign them with. */
+function withoutKey(command, args) {
+  const installers = command === "tauri" && args[0] === "build" && !args.includes("--no-bundle");
+  if (!installers || process.env.TAURI_SIGNING_PRIVATE_KEY) return args;
+  console.log("No TAURI_SIGNING_PRIVATE_KEY: building the installers without the files Ribbon updates itself from.");
+  return [...args, "--config", fileURLToPath(new URL("../src-tauri/tauri.no-update-files.conf.json", import.meta.url))];
+}
+
+const [command, ...given] = process.argv.slice(2);
 if (!command) {
   console.error("Usage: node packages/desktop/tools/with-build-env.mjs <command> [args…]");
   process.exit(2);
 }
+const args = withoutKey(command, given);
 const quoted = [command, ...args].map((a) => (/[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)).join(" ");
 const run = spawnSync(quoted, { stdio: "inherit", shell: true, env: { ...buildEnv(), ...process.env } });
 process.exit(run.status ?? 1);

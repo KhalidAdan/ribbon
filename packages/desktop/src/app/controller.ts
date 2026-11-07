@@ -50,6 +50,7 @@ import { locate as locate_ } from "@ribbon/core/timeline";
 import { locate, wordIndex, type Anchor, type WordAt } from "@ribbon/core/reading/anchors";
 import { placeTranscript } from "@ribbon/core/reading/placing";
 import { foundSentence } from "@ribbon/core/reading/readalong";
+import { Updater, type UpdateSource } from "./updates";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
 const HEAR_SECONDS = 8;
@@ -130,6 +131,8 @@ export interface Platform {
   onWindowClose?: (flush: () => Promise<void>, mayClose: () => Promise<boolean>) => () => void;
   /** Ask the person whether to close anyway, saying `why` not to; true to close. */
   askToClose?: (why: string) => Promise<boolean>;
+  /** New versions of Ribbon, where it installs them itself: Windows and the Mac, not a phone (updates.ts). */
+  updates?: UpdateSource;
   /** The one folder the app owns on this machine, when there is one. */
   home?: {
     path(): Promise<string>;
@@ -281,6 +284,13 @@ export interface AppState {
   notices: Notice[];
   /** Speed measurements are summarised in the log (app/perf.ts). */
   perfLog: boolean;
+  /**
+   * Ribbon updating itself (app/updates.ts): whether it looks for new
+   * versions, when GitHub last answered, a newer version once it's
+   * downloaded, and whether its offer to restart was put off. Null where
+   * Ribbon doesn't update itself: a phone, the browser harness.
+   */
+  update: { on: boolean; checkedAt: number | null; ready: string | null; putOff: boolean } | null;
 }
 
 /** The same history record, written here and read back from the log. */
@@ -422,6 +432,9 @@ interface Opened {
  *   kept per book so a closed book's work never lands on another.
  *   Following the narrator, listening from a place, highlights, the
  *   read-along export.
+ * - **Updates.** On Windows and the Mac, Ribbon looks for a newer version
+ *   on GitHub, downloads it, and offers to restart into it when nothing
+ *   plays and nothing is transcribed; closing installs it too (updates.ts).
  * - **Sleep timer, Bookmarks, Chapter corrections, Navigation** (which
  *   pane is showing), **History** (listen-throughs and sessions from the
  *   position log), **Series**, **Descriptions** (book details from online
@@ -550,6 +563,7 @@ export class AppController {
       transcribingForServer: null,
       notices: [],
       perfLog: false,
+      update: null,
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
@@ -708,6 +722,7 @@ export class AppController {
     this.goalTimer = setInterval(() => this.checkGoal(), GOAL_CHECK_MS);
     // Under Node (the tests, the tools) it never holds the process open.
     (this.goalTimer as { unref?: () => void }).unref?.();
+    this.startUpdates();
     const asked = performance.now();
     void this.platform.uptimeMs?.().then((ms) => {
       this.clockOffset = ms - asked;
@@ -3182,7 +3197,7 @@ export class AppController {
    */
   installLifecycle(): () => void {
     const offs: (() => void)[] = [];
-    if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.flushPositions(), () => this.mayClose()));
+    if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.beforeClose(), () => this.mayClose()));
     if (typeof document !== "undefined") {
       const onVisibility = () => {
         if (document.visibilityState === "hidden") void this.checkpoint();
@@ -3210,12 +3225,7 @@ export class AppController {
 
   /** What Ribbon is transcribing now, said for a person: the book and how far it has got. Null when nothing. */
   transcribingNow(): string | null {
-    const percent = (done: number, total: number) => `${Math.floor((100 * done) / Math.max(1, total))}%`;
-    const server = this.state.transcribingForServer;
-    if (server) return `${server.title} for the server, ${percent(server.done, server.total)} of the way`;
-    const r = this.state.reading;
-    const open = r?.listening?.what === "aligning" ? this.state.books.find((b) => b.book.id === r.bookId) : undefined;
-    return open && r?.listening ? `${open.book.title}, ${percent(r.listening.done, r.listening.total)} of the way` : null;
+    return transcribingIn(this.state);
   }
 
   /** Whether to let Ribbon close: asked first while it transcribes (#158), which closing stops until it's next open. */
@@ -3223,6 +3233,12 @@ export class AppController {
     const what = this.transcribingNow();
     if (!what || !this.platform.askToClose) return true;
     return this.platform.askToClose(`Ribbon is transcribing ${what}. Closing stops it, and it carries on from there the next time Ribbon is open.`);
+  }
+
+  /** The window is closing, or Ribbon quitting: every place written, then a new version that's ready put in place for the next start. */
+  private async beforeClose(): Promise<void> {
+    await this.flushPositions();
+    if (this.state.update?.ready) await this.updater?.install(false);
   }
 
   /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
@@ -3252,6 +3268,63 @@ export class AppController {
     const ch = cur.book.chapters[this.state.player.chapterIndex];
     const story = cur.book.parts[partAt(cur.book.parts, this.state.player.positionMs)] ?? null;
     updateMediaMetadata(cur.book, ch?.title ?? "", this.coverUrl(cur.book), story);
+  }
+
+  // Updates -------------------------------------------------------------
+
+  /** New versions of Ribbon, where it installs them itself (updates.ts). */
+  private updater: Updater | null = null;
+
+  /** Begin looking for new versions, unless that was turned off: a little after start, then every few hours. */
+  private startUpdates(): void {
+    if (!this.platform.updates || this.updater) return;
+    const kept = this.appSettings.updateCheckedAt;
+    const checkedAt = typeof kept === "number" ? kept : null;
+    const on = this.appSettings.checkForUpdates !== false;
+    this.updater = new Updater(this.platform.updates, (status) => this.onUpdate(status), checkedAt);
+    this.set({ update: { on, checkedAt, ready: null, putOff: false } });
+    if (on) this.updater.start();
+  }
+
+  private onUpdate(status: { checkedAt: number | null; ready: string | null }): void {
+    const was = this.state.update;
+    if (!was) return;
+    if (status.checkedAt !== was.checkedAt) {
+      this.appSettings = { ...this.appSettings, updateCheckedAt: status.checkedAt };
+      this.saveAppSettingsSoon();
+    }
+    // A version newer than the one put off is offered afresh.
+    this.set({ update: { ...was, ...status, putOff: was.putOff && status.ready === was.ready } });
+  }
+
+  /** Whether Ribbon looks for new versions online (Settings, Online). Turned off, one already downloaded stays ready. */
+  async setUpdateChecks(on: boolean): Promise<void> {
+    const was = this.state.update;
+    if (!was || !this.updater) return;
+    this.appSettings = { ...this.appSettings, checkForUpdates: on };
+    this.set({ update: { ...was, on } });
+    if (on) this.updater.start();
+    else this.updater.stop();
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** "Later": no offer to restart for the version that's ready, this session. It still installs when Ribbon closes. */
+  putOffUpdate(): void {
+    const was = this.state.update;
+    if (was?.ready && !was.putOff) this.set({ update: { ...was, putOff: true } });
+  }
+
+  /**
+   * Restart into the version that's ready, when the person asks. Asked first
+   * while Ribbon transcribes, as closing is; a playing book is paused and every
+   * place written before anything is installed. Says so if it couldn't.
+   */
+  async restartToUpdate(): Promise<void> {
+    const version = this.state.update?.ready;
+    if (!version || !this.updater) return;
+    if (!(await this.mayClose().catch(() => true))) return;
+    await this.flushPositions();
+    if (!(await this.updater.install(true))) this.set({ error: `Ribbon couldn't update itself to ${version}. It tries again later; the log says why.` });
   }
 
   // Sleep timer ---------------------------------------------------------
@@ -4161,6 +4234,7 @@ export class AppController {
 
   destroy(): void {
     if (this.goalTimer) clearInterval(this.goalTimer);
+    this.updater?.stop();
     for (const o of this.opened.values()) {
       void o.keeper.flush();
       o.lookup?.stop();
@@ -4172,6 +4246,16 @@ export class AppController {
     this.jobs.cancelAll();
     this.chapterProbe?.abort();
   }
+}
+
+/** What Ribbon is transcribing in this state, said for a person: the book and how far it has got. Null when nothing. */
+export function transcribingIn(state: AppState): string | null {
+  const percent = (done: number, total: number) => `${Math.floor((100 * done) / Math.max(1, total))}%`;
+  const server = state.transcribingForServer;
+  if (server) return `${server.title} for the server, ${percent(server.done, server.total)} of the way`;
+  const r = state.reading;
+  const open = r?.listening?.what === "aligning" ? state.books.find((b) => b.book.id === r.bookId) : undefined;
+  return open && r?.listening ? `${open.book.title}, ${percent(r.listening.done, r.listening.total)} of the way` : null;
 }
 
 /**

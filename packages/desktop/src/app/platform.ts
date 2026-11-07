@@ -3,6 +3,8 @@ import type { SourceEntry } from "@ribbon/core/sources";
 import { browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
+declare const __RIBBON_MEASURE__: boolean;
+
 /** Where the remembered library lived before the Ribbon folder existed. */
 const LEGACY_ROOT_KEY = "ribbon.libraryRoot";
 
@@ -62,11 +64,13 @@ export function memorySources(): Platform["sources"] {
 
 export async function detectPlatform(): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
     const ios = onIos();
+    // Not while developing, where there's no installed Ribbon to replace, nor in the measurement build, which only measures.
+    const updates = import.meta.env.DEV || __RIBBON_MEASURE__ ? undefined : tauriUpdates();
     return {
       host: tauriHost(),
       phone: ios,
@@ -146,6 +150,7 @@ export async function detectPlatform(): Promise<Platform> {
       },
       askToClose: (why) => dialog.ask(why, { title: "Ribbon is transcribing", kind: "warning", okLabel: "Close anyway", cancelLabel: "Keep transcribing" }),
       appSettings: { read: appSettingsRead, write: appSettingsWrite },
+      ...(updates ? { updates } : {}),
       home: {
         path: async () => (await homeInfo()).path,
         reveal: revealHome,

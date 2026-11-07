@@ -144,6 +144,47 @@ describe("the notes over the page", () => {
   });
 });
 
+describe("the note that a new version is ready", () => {
+  const ready = { on: true, checkedAt: 1, ready: "0.30.0", putOff: false };
+
+  it("offers to restart while nothing plays, goes while a book plays, and comes back when it stops", async () => {
+    const { c, set } = app();
+    await drawn(c);
+    set({ update: ready });
+    await shows("Ribbon 0.30.0 is ready");
+    expect(text()).toContain("Restart to update now, or it updates the next time you close Ribbon.");
+    set({ player: { ...c.getState().player, playing: true } });
+    await gone("Ribbon 0.30.0 is ready");
+    // Gone for the book playing, not put off.
+    expect(c.getState().update?.putOff).toBe(false);
+    set({ player: { ...c.getState().player, playing: false } });
+    await shows("Ribbon 0.30.0 is ready");
+  });
+
+  it("isn't offered while a book is transcribed", async () => {
+    const { c, set } = app();
+    await drawn(c);
+    set({ update: ready, transcribingForServer: { title: "Voidscarred", done: 302, total: 612 } });
+    await act(() => new Promise((r) => setTimeout(r, 100)));
+    expect(text()).not.toContain("is ready");
+    set({ transcribingForServer: null });
+    await shows("Ribbon 0.30.0 is ready");
+  });
+
+  it("puts the offer off on Later, and restarts on Restart to update", async () => {
+    const { c, set } = app();
+    const restart = vi.spyOn(c, "restartToUpdate").mockResolvedValue();
+    await drawn(c);
+    set({ update: ready });
+    await shows("Ribbon 0.30.0 is ready");
+    await act(async () => button("Restart to update")!.click());
+    expect(restart).toHaveBeenCalledOnce();
+    await act(async () => button("Later")!.click());
+    await gone("Ribbon 0.30.0 is ready");
+    expect(c.getState().update?.putOff).toBe(true);
+  });
+});
+
 describe("what a transcribing note says", () => {
   it("says what's going on, for the server or for this computer", () => {
     expect(noticeWords(transcribing)).toEqual({ title: "Transcribing Night Lords", line: "For the server, so every device reads it along. The top bar says how far it has got." });
