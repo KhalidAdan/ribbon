@@ -16,15 +16,13 @@ import { SeriesPage } from "./SeriesPage";
 import { useKeys } from "./useKeys";
 import { ScanProgress } from "./ScanProgress";
 import { TopBar, Tabs, type Crumb } from "./Shell";
-import { Button } from "./Button";
 import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
 import { useKept } from "./modal";
 import { MoveToServer, SpaceShort } from "./Servers";
-import { SpeechNudge } from "./SpeechNudge";
 import { StatsPane } from "./StatsPane";
 import { TheEnd } from "./TheEnd";
-import { GoalMet } from "./GoalMet";
+import { Notices } from "./Notices";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
 import { preloadFaces } from "../reader/typeset";
@@ -98,7 +96,6 @@ function Ready() {
     seriesKey: s.seriesKey,
     problems: s.problems,
     playerExpanded: s.playerExpanded,
-    error: s.error,
     reading: s.reading !== null,
   }));
   const c = useController();
@@ -137,21 +134,15 @@ function Ready() {
 
   // The reader covers the window: nothing under it is drawn, so a page turn never waits on the shelf.
   // The full player opens over it from the dock on a phone; closed, it draws nothing.
-  if (state.reading) {
-    return (
-      <>
-        <ReadingView />
-        <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
-          <PlayerPane />
-        </PlayerSheet>
-        <TheEnd />
-        <GoalMet />
-        <SpeechNudge />
-      </>
-    );
-  }
-
-  return (
+  const screen = state.reading ? (
+    <>
+      <ReadingView />
+      <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
+        <PlayerPane />
+      </PlayerSheet>
+      <TheEnd />
+    </>
+  ) : (
     <main className="flex h-full flex-col">
       <SeriesSetup />
       <NewSeries />
@@ -159,7 +150,6 @@ function Ready() {
       <SpaceShort />
       <MoveToServer />
       <TheEnd />
-      <GoalMet />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={matchCount} onSubmit={openFirst} />
       <Tabs
         current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}
@@ -185,17 +175,15 @@ function Ready() {
       <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
         <PlayerPane />
       </PlayerSheet>
-
-      <SpeechNudge />
-      {state.error && (
-        <div role="alert" className="fixed inset-x-4 bottom-20 z-40 mx-auto flex max-w-lg items-start gap-3 rounded-[10px] bg-surface p-3 pl-4 shadow-lg ring-1 ring-line transition-[translate,opacity] duration-200 ease-out starting:opacity-0 motion-safe:starting:translate-y-4 dark:shadow-none dark:ring-line-strong">
-          <p className="min-w-0 flex-1 py-0.5 text-base/6 text-pretty text-ink sm:text-sm/5">{state.error}</p>
-          <Button size="sm" variant="ghost" onClick={() => c.clearError()}>
-            Dismiss
-          </Button>
-        </div>
-      )}
     </main>
+  );
+
+  // One set of notes over either, so a note keeps its place and its time as the reader opens and closes.
+  return (
+    <>
+      {screen}
+      <Notices />
+    </>
   );
 }
 

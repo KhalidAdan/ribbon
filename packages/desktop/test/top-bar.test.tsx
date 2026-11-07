@@ -21,8 +21,8 @@ describe("the top bar", () => {
     root = null;
   });
 
-  /** The bar with the app's state as given, and what it says about what's going on. */
-  const said = (state: Partial<AppState>) => {
+  /** The bar with the app's state as given. */
+  const bar = (state: Partial<AppState>) => {
     const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources() };
     const app = new AppController(platform);
     (app as unknown as { set(s: Partial<AppState>): void }).set(state);
@@ -36,8 +36,10 @@ describe("the top bar", () => {
         </ControllerContext.Provider>,
       ),
     );
-    return host.querySelector("[role=status]")?.textContent ?? null;
+    return { app, status: host.querySelector("[role=status]") };
   };
+  /** What the bar says about what's going on. */
+  const said = (state: Partial<AppState>) => bar(state).status?.textContent ?? null;
 
   it("says nothing when nothing's going on", () => {
     expect(said({})).toBeNull();
@@ -45,6 +47,12 @@ describe("the top bar", () => {
 
   it("says which book is being transcribed, and how far along it is", () => {
     expect(said({ transcribingForServer: { title: "Era of Ruin", done: 40, total: 100 } })).toBe("Transcribing Era of Ruin…40%");
+  });
+
+  it("opens Settings, which says more, when the book being transcribed is clicked", () => {
+    const { app, status } = bar({ transcribingForServer: { title: "Era of Ruin", done: 40, total: 100 } });
+    act(() => status!.querySelector("button")!.click());
+    expect(app.getState().pane).toBe("settings");
   });
 
   it("gives way to a check of the folders, which ends soon", () => {

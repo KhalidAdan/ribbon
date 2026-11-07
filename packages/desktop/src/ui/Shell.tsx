@@ -52,10 +52,14 @@ export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Cr
         </p>
       ) : (
         transcribing && (
-          // At most a third of the bar, whatever the title, so it never runs over where you are. The percentage stays when the title is cut short.
-          <p className="flex max-w-1/3 min-w-0 gap-1 text-[0.8125rem]/5 text-ink-3 tabular-nums max-md:hidden" role="status">
-            <span className="truncate">Transcribing {transcribing.title}…</span>
-            <span className="shrink-0">{Math.floor((100 * transcribing.done) / Math.max(1, transcribing.total))}%</span>
+          // At most a third of the bar, whatever the title, so it never runs over where you are. The percentage stays when the
+          // title is cut short, and on a narrow window it's the ring and the percentage alone. Settings says more.
+          <p className="flex max-w-1/3 min-w-0" role="status">
+            <button type="button" onClick={() => c.showSettings()} className="flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[0.8125rem]/5 text-ink-2 tabular-nums focus-ring hover:text-ink">
+              <Ring fraction={transcribing.done / Math.max(1, transcribing.total)} />
+              <span className="truncate max-md:hidden">Transcribing {transcribing.title}…</span>
+              <span className="shrink-0">{Math.floor((100 * transcribing.done) / Math.max(1, transcribing.total))}%</span>
+            </button>
           </p>
         )
       )}
@@ -66,6 +70,17 @@ export function TopBar({ crumbs, query, onQuery, count, onSubmit }: { crumbs: Cr
       )}
       <IconButton label={scanning ? "Checking your folders" : "Check your folders for changes"} icon={ArrowPathIcon} size="sm" onClick={() => void c.rescan()} disabled={scanning !== null} className={clsx(scanning && "[&>svg]:animate-spin")} />
     </header>
+  );
+}
+
+/** How far along something is, as a ring filling clockwise from the top: in the text's own ink, not amber, which is your place. */
+function Ring({ fraction }: { fraction: number }) {
+  const around = 2 * Math.PI * 6;
+  return (
+    <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 -rotate-90" aria-hidden="true">
+      <circle cx="8" cy="8" r="6" fill="none" strokeWidth="2" className="stroke-line-strong" />
+      <circle cx="8" cy="8" r="6" fill="none" strokeWidth="2" stroke="currentColor" strokeLinecap="round" strokeDasharray={around} strokeDashoffset={around * (1 - Math.min(1, fraction))} />
+    </svg>
   );
 }
 

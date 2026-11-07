@@ -170,3 +170,24 @@ body {
 [data-river] [data-picture] {
   opacity: 0.4;
 }
+
+/*
+ * Notes (src/ui/Notices.tsx) come and go at Ribbon's pace rather than
+ * Sonner's 400ms (docs/DESIGN.md, Controls): in over 200ms, easing out,
+ * and back out the way they came in 150ms. Sonner adds its own rules after
+ * this sheet, so these name the toaster too, to outrank them. With reduced
+ * motion, Sonner turns every transition off and a note would just appear:
+ * it fades instead, and doesn't move.
+ */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition-duration: 200ms;
+  transition-timing-function: ease-out;
+}
+[data-sonner-toaster] [data-sonner-toast][data-removed="true"] {
+  transition-duration: 150ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster] [data-sonner-toast] {
+    transition: opacity 150ms ease-out !important;
+  }
+}
