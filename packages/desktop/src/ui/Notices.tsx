@@ -1,7 +1,8 @@
 import { clsx } from "clsx";
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 import { Toaster, toast } from "sonner";
-import type { Notice } from "../app/controller";
+import { transcribingIn, type AppState, type Notice } from "../app/controller";
+import { offersRestart } from "../app/updates";
 import { Button } from "./Button";
 import { useAppState, useController } from "./store";
 
@@ -20,18 +21,19 @@ const BOTTOM_GAP = "calc(env(safe-area-inset-bottom) + 5rem)";
  * times them, holds them while the pointer is over them, lets a phone swipe
  * them away and has a screen reader say them.
  *
- * The controller keeps what's true (`error`, `speechNudge`, `goalMet`,
- * `notices`); this shows each as a toast, and tells the controller when one
- * goes. They come in two places. At the top, for a few seconds, what asks
- * nothing of you: the daily goal met, a book's transcribing begun or done.
- * At the bottom, above the player, until you answer, what does: an error,
- * the offer of a speech model, a book that couldn't be transcribed. Every
+ * The controller keeps what's true (`error`, `speechNudge`, `update`,
+ * `goalMet`, `notices`); this shows each as a toast, and tells the
+ * controller when one goes. They come in two places. At the top, for a few
+ * seconds, what asks nothing of you: the daily goal met, a book's
+ * transcribing begun or done. At the bottom, above the player, until you
+ * answer, what does: an error, the offer of a speech model, a new version of
+ * Ribbon ready to restart into, a book that couldn't be transcribed. Every
  * note shows whole, one above another, rather than tucked behind the newest
  * as Sonner stacks them by default: a note you can't read is easy to miss.
  */
 export function Notices() {
   const c = useController();
-  const { error, nudge, goalMet, notices } = useAppState((s) => ({ error: s.error, nudge: s.speechNudge, goalMet: s.goalMet, notices: s.notices }));
+  const { error, nudge, restart, goalMet, notices } = useAppState((s) => ({ error: s.error, nudge: s.speechNudge, restart: restartOffered(s), goalMet: s.goalMet, notices: s.notices }));
 
   // An error, until it's dismissed or put right; a new one takes its place.
   useNoteWhile(
@@ -80,6 +82,34 @@ export function Notices() {
         { id, duration: Infinity, onDismiss: gone },
       ),
     () => c.dismissSpeechNudge(),
+  );
+
+  // A new version of Ribbon, downloaded: offered while restarting would cut nothing short, and gone while a book plays or
+  // a book is transcribed (app/updates.ts). "Later" puts it off for the session; closing Ribbon installs it regardless.
+  useNoteWhile(
+    "update",
+    restart,
+    (version, id, gone) =>
+      toast.custom(
+        () => (
+          <Note
+            title={`Ribbon ${version} is ready`}
+            line="Restart to update now, or it updates the next time you close Ribbon. Your place is kept either way."
+            actions={
+              <>
+                <Button size="sm" variant="ghost" onClick={() => c.putOffUpdate()}>
+                  Later
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => void c.restartToUpdate()}>
+                  Restart to update
+                </Button>
+              </>
+            }
+          />
+        ),
+        { id, duration: Infinity, onDismiss: gone },
+      ),
+    () => c.putOffUpdate(),
   );
 
   // The daily goal just met, as Apple Books says it, once a day (core/goal.ts): the book plays on.
@@ -156,6 +186,13 @@ function useNoteWhile<T>(name: string, value: T | null, show: (value: T, id: str
     });
     // What's shown follows the value alone: `show` and `clear` are made anew on every render.
   }, [value]);
+}
+
+/** The new version to offer restarting into now, or null: see `offersRestart`. */
+export function restartOffered(s: AppState): string | null {
+  const u = s.update;
+  if (!u) return null;
+  return offersRestart({ ready: u.ready, putOff: u.putOff, playing: s.player.playing, transcribing: transcribingIn(s) !== null }) ? u.ready : null;
 }
 
 /** What a transcribing note says: a line in bold, and one under it. */

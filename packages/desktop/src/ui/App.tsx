@@ -38,7 +38,8 @@ export function App() {
   useEffect(() => {
     let live = true;
     let created: AppController | null = null;
-    void detectPlatform().then(async (platform) => {
+    // No updating itself while developing, where there's no installed Ribbon to replace, nor in the measurement build, which only measures.
+    void detectPlatform({ updates: !(import.meta.env.DEV || __RIBBON_MEASURE__) }).then(async (platform) => {
       if (!live) return;
       await attachTauriLog();
       log.info("web side up");

@@ -33,6 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -48,6 +49,17 @@
       "frameworks": [
         "Accelerate"
       ]
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBQjNGNEIwQ0M0OUI2RUUKUldUdXRrbk1zUFN6dXNFUGZFOTFSb2ZxdXJEYUwzZGh1dG5FOEh1UUhoRWFTa1ZVVHdCSEh1bFUK",
+      "endpoints": [
+        "https://github.com/KhalidAdan/ribbon/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

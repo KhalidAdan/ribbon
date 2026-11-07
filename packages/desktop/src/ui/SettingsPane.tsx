@@ -8,12 +8,14 @@ import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";
 import { ConnectServer } from "./Servers";
+import { settingsLine } from "../app/updates";
 
 declare const __APP_VERSION__: string;
 
 /**
  * Settings: the folders the library is made of, the files a scan could
- * not read, the series, the one online lookup, and Ribbon's own folder.
+ * not read, the series, what Ribbon asks online (descriptions and chapter
+ * names, new versions of itself), and Ribbon's own folder.
  */
 export function SettingsPane() {
   const state = useAppState((s) => ({
@@ -31,6 +33,7 @@ export function SettingsPane() {
     perfLog: s.perfLog,
     canAddFolders: s.canAddFolders,
     transcribing: s.transcribingForServer,
+    update: s.update,
   }));
   const c = useController();
   const groups = groupProblems(state.problems);
@@ -248,7 +251,7 @@ export function SettingsPane() {
         </section>
 
         <section aria-labelledby="settings-online" className="flex flex-col gap-4">
-          <SectionHeader id="settings-online" title="Online" description="The only things Ribbon ever asks the internet, and only if you turn it on." />
+          <SectionHeader id="settings-online" title="Online" description="The only things Ribbon ever asks the internet, each only while it’s on." />
           <Group footer="Sends a book's title and author once, in the background: to Open Library for a description, and, for a book whose chapters are only numbered, to Audible's catalog and Audnexus for the names the publisher gave them. Names go on only when the count and the times match, and undo like any chapter change. Answers are kept beside the book.">
             <Row
               title="Descriptions and chapter names"
@@ -256,6 +259,24 @@ export function SettingsPane() {
               aside={<Toggle label="Look up descriptions and chapter names online" checked={state.lookup.enabled} onChange={(on) => void c.setLookup(on)} />}
             />
           </Group>
+          {state.update && (
+            <Group footer="Asks Ribbon’s releases on GitHub for a newer version a little after Ribbon starts and every few hours, and downloads it in the background. It installs when you restart Ribbon or close it, never on its own.">
+              <Row
+                title="New versions of Ribbon"
+                description={settingsLine(state.update, __APP_VERSION__, Date.now())}
+                aside={
+                  <>
+                    {state.update.ready && (
+                      <Button size="sm" variant="primary" onClick={() => void c.restartToUpdate()}>
+                        Restart to update
+                      </Button>
+                    )}
+                    <Toggle label="Look for new versions of Ribbon" checked={state.update.on} onChange={(on) => void c.setUpdateChecks(on)} />
+                  </>
+                }
+              />
+            </Group>
+          )}
         </section>
 
         <section aria-labelledby="settings-history" className="flex flex-col gap-4">

@@ -1,8 +1,8 @@
 # Releasing Ribbon
 
 A release is a version number, the installers on GitHub (two for Windows, a
-disk image for the Mac), and the end-to-end checks passing on the commit they
-came from. GitHub runs the checks and the end-to-end checks on every change
+disk image for the Mac) with the files installed Ribbons update themselves
+from, and the end-to-end checks passing on the commit they came from. GitHub runs the checks and the end-to-end checks on every change
 ([checks.yml](../.github/workflows/checks.yml), [e2e.yml](../.github/workflows/e2e.yml))
 and builds the installers from a version tag
 ([release.yml](../.github/workflows/release.yml)). In order:
@@ -85,7 +85,15 @@ The release workflow checks that the tag is the version in `package.json`,
 makes a draft release, "Ribbon X.Y.Z", and builds on Windows and on a Mac
 (Apple Silicon), without `RIBBON_PROFILE`: the installers are the plain build.
 It attaches `Ribbon_X.Y.Z_x64-setup.exe`, `Ribbon_X.Y.Z_x64_en-US.msi` and
-`Ribbon_X.Y.Z_aarch64.dmg` to the draft. Follow it with `gh run watch`. `main`
+`Ribbon_X.Y.Z_aarch64.dmg` to the draft, and with them what installed Ribbons
+update from (section 6): each Windows installer's signature (`.exe.sig`,
+`.msi.sig`), and the Mac's update, the app itself packed,
+`Ribbon_X.Y.Z_aarch64.app.tar.gz`, with its `.sig`. They're signed with the
+update key, which the workflow takes from the repository's secrets; without
+them it stops. Once both systems are built, a last job writes `latest.json`,
+which names each system's file and signature
+([tools/latest-json.mjs](../tools/latest-json.mjs)), and attaches it too.
+Follow it with `gh run watch`. `main`
 builds the installers too, as downloads on its run, whenever what they're built
 from changes, as the version's commit does, so the tag's build finds Rust's work
 in the cache: a tag can read only `main`'s caches.
@@ -110,6 +118,21 @@ installed lacks `VULKAN_SDK`: set it to the SDK's folder and put its `Bin` on th
 `target/release/bundle/msi` (`.msi`); on a Mac, in `target/release/bundle/dmg`.
 Attach them to the draft with `gh release upload vX.Y.Z <files> --clobber`.
 
+The update files are made only with the update key (section 6) in
+`TAURI_SIGNING_PRIVATE_KEY` (the key, or its file's path) and its password in
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Without them the installers are built
+without update files, and the build says so
+([with-build-env.mjs](../packages/desktop/tools/with-build-env.mjs)). With
+them, the signatures are beside the installers, and the Mac's update is
+`target/release/bundle/macos/Ribbon.app.tar.gz`: attach it as
+`Ribbon_X.Y.Z_aarch64.app.tar.gz`, with its `.sig` renamed to match. Then put
+every `.sig` in one folder, write the manifest, and attach it:
+
+```bash
+node tools/latest-json.mjs vX.Y.Z <folder of .sig files> > latest.json
+gh release upload vX.Y.Z latest.json --clobber
+```
+
 The tag also publishes the server's image, for Intel and ARM machines, as
 `ghcr.io/khalidadan/ribbon-server` at the version and at `latest`
 ([server-image.yml](../.github/workflows/server-image.yml)). Each kind is built
@@ -126,16 +149,76 @@ over." Then publish the draft:
 gh release edit vX.Y.Z --notes-file notes.md --draft=false
 ```
 
+Publishing is what ships the update. Every installed Ribbon asks for the
+newest published release's manifest,
+`https://github.com/KhalidAdan/ribbon/releases/latest/download/latest.json`,
+and a draft isn't one; nor is a pre-release.
+
 ## 6. Installed
 
-The setup installs over the running version only when Ribbon is closed. Run
-`Ribbon_X.Y.Z_x64-setup.exe` (or `/S` for a silent install) and check the
-version in Settings.
+Ribbon updates itself on Windows and the Mac, from 0.30 on
+([updates.ts](../packages/desktop/src/app/updates.ts)). Half a minute after it
+starts, and every four hours while it's open, it asks for the newest published
+release's `latest.json`. When that names a newer version, it downloads the
+file for its system in the background, and Tauri's updater checks that the
+update key signed it. Then a note says "Ribbon X.Y.Z is ready", with
+**Restart to update**, whenever nothing plays and nothing is transcribed. It
+never restarts on its own: **Later** puts the note off, and closing Ribbon
+installs the new version for the next time it opens (on Windows the setup
+shows its progress for a moment as it does). Settings, under Online, says
+which version is ready or when Ribbon last looked, and turns the looking off.
+A check that fails, offline or with GitHub down, says nothing; the next one
+tries again.
 
-On a Mac, close Ribbon, open the `.dmg` and drag Ribbon to Applications. The
-build is not signed with an Apple Developer ID, so the first time a downloaded
-version opens, macOS refuses: open it from System Settings → Privacy & Security
-→ Open Anyway.
+So once a release is published, an open Ribbon has it within four hours, and
+one opened later within a minute. Check the version at the foot of Settings
+after it restarts.
+
+A Ribbon from before 0.30 is updated by hand, once. On Windows, close it and
+run `Ribbon_X.Y.Z_x64-setup.exe` (or `/S` for a silent install). On a Mac,
+close it, open the `.dmg` and drag Ribbon to Applications. The build is not
+signed with an Apple Developer ID, so the first time a downloaded version
+opens, macOS refuses: open it from System Settings → Privacy & Security → Open
+Anyway. An update Ribbon installs itself isn't asked about: it isn't
+downloaded by a browser, so macOS doesn't hold it back, and Tauri checks the
+update key's signature, not Apple's.
+
+### The update key
+
+**What it is.** A pair of keys of Ribbon's own (minisign, which Tauri makes),
+made on 2026-11-07, key id `BAB3F4B0CC49B6EE`. The private half signs each
+release's update files; the public half, in every installed Ribbon, checks
+them. Nothing to do with Apple's or Microsoft's signing.
+
+**Why it's needed.** An installed Ribbon replaces itself with whatever it
+downloads, so it must be sure the download is Ribbon's: it installs only what
+this key signed, and a file signed with anything else is refused. Without the
+key, a release has no update files and no installed Ribbon hears of it.
+
+**Where it is.**
+
+- The public half: `plugins.updater.pubkey` in
+  [tauri.conf.json](../packages/desktop/src-tauri/tauri.conf.json). Public, like
+  the rest of this repository.
+- The private half and its password: the repository's secrets
+  `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, which the
+  release workflow signs with. A tag without them fails.
+- A copy of both, kept by the owner outside the repository: `ribbon.key` and
+  `ribbon.key.password`, with `ribbon.key.pub` beside them. The private key and
+  its password are never committed, printed or pasted anywhere else.
+
+The secrets are set from that copy:
+
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ribbon.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD < ribbon.key.password
+```
+
+**If it's lost.** GitHub never shows a secret again, so the copy is the only
+way back. Without it, no installed Ribbon can be updated again: make a new pair
+(`npx tauri signer generate -w ribbon.key`), put the new public half in
+`tauri.conf.json`, set the secrets, and install the next release by hand on
+every machine, once. The same steps replace a key that has leaked.
 
 ## A change meant to change nothing
 

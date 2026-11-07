@@ -60,13 +60,19 @@ export function memorySources(): Platform["sources"] {
   return { load: async () => list.map((s) => ({ ...s })), save: async (next) => void (list = next.map((s) => ({ ...s }))) };
 }
 
-export async function detectPlatform(): Promise<Platform> {
+/**
+ * The platform this page runs on: Tauri's, or the browser harness's. With
+ * `updates` false, a Tauri build that could update itself doesn't (App.tsx
+ * says when, from how it was built).
+ */
+export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
     const ios = onIos();
+    const updates = mayUpdate ? tauriUpdates() : undefined;
     return {
       host: tauriHost(),
       phone: ios,
@@ -146,6 +152,7 @@ export async function detectPlatform(): Promise<Platform> {
       },
       askToClose: (why) => dialog.ask(why, { title: "Ribbon is transcribing", kind: "warning", okLabel: "Close anyway", cancelLabel: "Keep transcribing" }),
       appSettings: { read: appSettingsRead, write: appSettingsWrite },
+      ...(updates ? { updates } : {}),
       home: {
         path: async () => (await homeInfo()).path,
         reveal: revealHome,

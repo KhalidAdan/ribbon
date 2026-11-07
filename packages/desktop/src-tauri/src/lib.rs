@@ -138,7 +138,14 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            log::info!("ribbon starting; home folder {}", home::home_dir().display());
+            log::info!("ribbon {} starting; home folder {}", app.package_info().version, home::home_dir().display());
+            // Updating itself from Ribbon's GitHub releases, and starting again once it has (src/app/updates.ts).
+            // Only on a computer: a phone updates from its store.
+            #[cfg(desktop)]
+            {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
             // Cmd-Q asks the page first, in case Ribbon is transcribing (quit.rs).
             #[cfg(target_os = "macos")]
             {

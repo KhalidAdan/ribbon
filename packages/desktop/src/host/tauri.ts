@@ -4,11 +4,14 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { hostname, platform } from "@tauri-apps/plugin-os";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { channel, type Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "@ribbon/core/host";
 import { joinPath } from "@ribbon/core/paths";
 import type { SourceEntry } from "@ribbon/core/sources";
 import { log } from "../app/log";
+import type { UpdateSource } from "../app/updates";
 
 const BATCH_EVENT = "ribbon://scan-batch";
 
@@ -298,4 +301,35 @@ export async function onQuitAsked(asked: () => Promise<boolean>): Promise<() => 
       if (await asked().catch(() => true)) await invoke("quit");
     });
   });
+}
+
+/** How long asking GitHub for latest.json may take, and fetching the new version, before either counts as failed. */
+const CHECK_TIMEOUT_MS = 30_000;
+const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * New versions of Ribbon from its GitHub releases, through Tauri's updater
+ * (app/updates.ts): on Windows and the Mac, where the release has an
+ * installer for it. A phone updates from its store, and has no updater.
+ */
+export function tauriUpdates(): UpdateSource | undefined {
+  const os = platform();
+  if (os !== "windows" && os !== "macos") return undefined;
+  return {
+    async check() {
+      const found = await check({ timeout: CHECK_TIMEOUT_MS });
+      if (!found) return null;
+      return {
+        version: found.version,
+        download: () => found.download(undefined, { timeout: DOWNLOAD_TIMEOUT_MS }),
+        async install(restart) {
+          // Windows: the installer takes over from here and Ribbon ends, starting again after only if asked to.
+          await found.install({ restartAfterInstall: restart });
+          // The Mac: the new version is in place of this one, and starts when this one does again.
+          if (restart) await relaunch();
+        },
+        forget: () => found.close(),
+      };
+    },
+  };
 }

@@ -24,10 +24,13 @@ from [Releases](https://github.com/KhalidAdan/ribbon/releases). Install
 reads chapters, measures loudness and makes bookmark clips with it, and it
 isn't in the download.
 
-The builds aren't signed yet. The first time you open a new version on a Mac,
-macOS refuses it: open it from System Settings → Privacy & Security → Open
-Anyway. Windows may warn that it doesn't know the publisher. To update, close
-Ribbon and install the new version over it; everything carries over.
+The builds aren't signed yet. The first time you open Ribbon on a Mac, macOS
+refuses it: open it from System Settings → Privacy & Security → Open Anyway.
+Windows may warn that it doesn't know the publisher. From 0.30 on, Ribbon
+updates itself: it downloads each new version in the background and installs
+it when you restart or close it (Settings, Online, turns that off). To update
+an older version, close Ribbon and install the new one over it; everything
+carries over.
 
 **The server** runs on a machine of your own, in Docker or with Node:
 [packages/server/README.md](packages/server/README.md).

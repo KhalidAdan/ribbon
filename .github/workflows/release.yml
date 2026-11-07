@@ -1,6 +1,10 @@
 # The installers for a release. Pushing a version tag (vX.Y.Z) makes a draft
-# release and attaches the Windows installers and the Mac disk image to it;
-# publishing stays by hand, after the end-to-end checks (docs/RELEASING.md).
+# release and attaches the Windows installers and the Mac disk image to it,
+# with the files installed Ribbons update themselves from and latest.json,
+# which says where they are; publishing stays by hand, after the end-to-end
+# checks (docs/RELEASING.md). Publishing is what ships the update: every
+# install asks for the newest published release's latest.json, and a draft
+# isn't one.
 name: Release
 
 on:
@@ -84,12 +88,14 @@ jobs:
       fail-fast: false
       matrix:
         # The same systems as the checks (checks.yml says why Windows is 2022).
-        # The files are in BUNDLES, which the setup step sets.
+        # The files are in BUNDLES, which the setup step sets. Each update file
+        # has its signature beside it (.sig): on Windows the installers are the
+        # updates, and the Mac's is the app itself, packed (.app.tar.gz).
         include:
           - os: windows-2022
-            files: nsis/*.exe msi/*.msi
+            files: nsis/*.exe nsis/*.exe.sig msi/*.msi msi/*.msi.sig
           - os: macos-26
-            files: dmg/*.dmg
+            files: dmg/*.dmg macos/*.app.tar.gz macos/*.app.tar.gz.sig
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -113,9 +119,38 @@ jobs:
         run: |
           find "$BUNDLES" -maxdepth 2 -name 'Ribbon_*' -exec echo "From an earlier build: {}" \; 2>/dev/null || true
           rm -rf "$BUNDLES"
+      # A release without the key would have no update files, and no
+      # installed Ribbon would ever hear of it.
+      - name: The release key is here
+        if: env.RELEASING == 'true'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::The TAURI_SIGNING_PRIVATE_KEY secret is missing: the release's updates can't be signed (docs/RELEASING.md, section 6)"
+            exit 1
+          fi
       # The plain build: no RIBBON_PROFILE. On the Mac, GitHub's CI=true makes
-      # the disk image without scripting Finder.
+      # the disk image without scripting Finder. The update files are signed
+      # with the release key; without it (a pull request from a fork) they're
+      # left out (packages/desktop/tools/with-build-env.mjs).
       - run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # Tauri names the Mac's update Ribbon.app.tar.gz, for every version: it's
+      # named here as the disk image is, so a release's files say what they are.
+      - name: The Mac's update, by its version
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: ${{ env.BUNDLES }}/macos
+        run: |
+          version="$(node -p "require('$GITHUB_WORKSPACE/packages/desktop/package.json').version")"
+          for f in Ribbon.app.tar.gz Ribbon.app.tar.gz.sig; do
+            if [ -f "$f" ]; then mv "$f" "Ribbon_${version}_aarch64${f#Ribbon}"; fi
+          done
+          ls -l
       - name: Attach to the release
         if: env.RELEASING == 'true'
         shell: bash
@@ -131,6 +166,35 @@ jobs:
           name: installers-${{ matrix.os }}
           path: |
             ${{ env.BUNDLES }}/nsis/*.exe
+            ${{ env.BUNDLES }}/nsis/*.exe.sig
             ${{ env.BUNDLES }}/msi/*.msi
+            ${{ env.BUNDLES }}/msi/*.msi.sig
             ${{ env.BUNDLES }}/dmg/*.dmg
+            ${{ env.BUNDLES }}/macos/*.app.tar.gz
+            ${{ env.BUNDLES }}/macos/*.app.tar.gz.sig
           if-no-files-found: error
+
+  # latest.json, once both systems' files are on the draft: the version, and
+  # for each system the file to fetch and its signature (tools/latest-json.mjs).
+  # Only when both built, so a manifest never leaves a system out.
+  latest:
+    name: Update manifest (latest.json)
+    needs: installers
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      # The script as this workflow has it, as with the setup step above.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools
+      - name: Write latest.json and attach it
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/signatures"
+          gh release download "$TAG" --pattern '*.sig' --dir "$RUNNER_TEMP/signatures" --clobber
+          node tools/latest-json.mjs "$TAG" "$RUNNER_TEMP/signatures" > "$RUNNER_TEMP/latest.json"
+          cat "$RUNNER_TEMP/latest.json"
+          gh release upload "$TAG" "$RUNNER_TEMP/latest.json" --clobber
