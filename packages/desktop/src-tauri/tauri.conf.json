@@ -53,7 +53,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "OWNER-PUBLIC-KEY",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBQjNGNEIwQ0M0OUI2RUUKUldUdXRrbk1zUFN6dXNFUGZFOTFSb2ZxdXJEYUwzZGh1dG5FOEh1UUhoRWFTa1ZVVHdCSEh1bFUK",
       "endpoints": [
         "https://github.com/KhalidAdan/ribbon/releases/latest/download/latest.json"
       ],

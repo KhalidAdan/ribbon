@@ -185,27 +185,40 @@ update key's signature, not Apple's.
 
 ### The update key
 
-Updates are signed with Ribbon's own key (a minisign key, which Tauri makes),
-and an installed Ribbon installs nothing else. Its public half is
-`plugins.updater.pubkey` in
-[tauri.conf.json](../packages/desktop/src-tauri/tauri.conf.json), and public
-like the rest of this repository. The private half and its password are the
-repository's secrets `TAURI_SIGNING_PRIVATE_KEY` and
-`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, which the release workflow signs with.
-The private key is never committed, printed or pasted anywhere else.
+**What it is.** A pair of keys of Ribbon's own (minisign, which Tauri makes),
+made on 2026-11-07, key id `BAB3F4B0CC49B6EE`. The private half signs each
+release's update files; the public half, in every installed Ribbon, checks
+them. Nothing to do with Apple's or Microsoft's signing.
 
-It was made once, by the owner, on their own machine:
+**Why it's needed.** An installed Ribbon replaces itself with whatever it
+downloads, so it must be sure the download is Ribbon's: it installs only what
+this key signed, and a file signed with anything else is refused. Without the
+key, a release has no update files and no installed Ribbon hears of it.
+
+**Where it is.**
+
+- The public half: `plugins.updater.pubkey` in
+  [tauri.conf.json](../packages/desktop/src-tauri/tauri.conf.json). Public, like
+  the rest of this repository.
+- The private half and its password: the repository's secrets
+  `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, which the
+  release workflow signs with. A tag without them fails.
+- A copy of both, kept by the owner outside the repository: `ribbon.key` and
+  `ribbon.key.password`, with `ribbon.key.pub` beside them. The private key and
+  its password are never committed, printed or pasted anywhere else.
+
+The secrets are set from that copy:
 
 ```bash
-npx tauri signer generate -w ~/.tauri/ribbon.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/ribbon.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ribbon.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD < ribbon.key.password
 ```
 
-and `~/.tauri/ribbon.key.pub` went into `tauri.conf.json`. Keep the key file
-and its password somewhere safe as well, a password manager: lost, no
-installed Ribbon can be updated again, and each has to be installed by hand
-from a release that carries a new public key.
+**If it's lost.** GitHub never shows a secret again, so the copy is the only
+way back. Without it, no installed Ribbon can be updated again: make a new pair
+(`npx tauri signer generate -w ribbon.key`), put the new public half in
+`tauri.conf.json`, set the secrets, and install the next release by hand on
+every machine, once. The same steps replace a key that has leaked.
 
 ## A change meant to change nothing
 
