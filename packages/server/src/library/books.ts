@@ -222,9 +222,9 @@ export interface KeptEdits {
 /** The fields of a book the library answer lists, and so the ones whose files' values it gives with the edits. */
 const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex"] as const;
 
-/** The book table with each book's edits and the cover chosen for it, if it has them. */
-const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at
-  FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id LEFT JOIN book_cover ON book_cover.book_id = book.id`;
+/** The book table with each book's edits and the cover chosen for it, if it has them, and its words, once its text is indexed (search.ts). */
+const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at, sentence_index.words
+  FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id LEFT JOIN book_cover ON book_cover.book_id = book.id LEFT JOIN sentence_index ON sentence_index.book_id = book.id`;
 
 /** A row of the book table as the library answer gives it, with its edits laid over it and the cover chosen for it. */
 function listed(row: Record<string, SQLOutputValue>): ListedBook {
@@ -277,6 +277,7 @@ function filed(row: Record<string, SQLOutputValue>): ListedBook {
     audio: row.has_audio === 1,
     ebook: row.has_ebook === 1,
     ebookBytes: row.ebook_bytes === null ? null : Number(row.ebook_bytes),
+    words: row.words === null || row.words === undefined ? null : Number(row.words),
     cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
     addedAt: new Date(Number(row.added_at)).toISOString(),
   };
@@ -300,6 +301,8 @@ export interface ListedBook {
   ebook: boolean;
   /** The EPUB's bytes, when there is one. */
   ebookBytes: number | null;
+  /** How many words its EPUB has, counted from its text once the server has read it; null until then, and for a book with no EPUB. */
+  words: number | null;
   cover: Cover | null;
   addedAt: string;
   /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */

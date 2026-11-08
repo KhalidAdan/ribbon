@@ -23,10 +23,14 @@ struct ShelfBook: Hashable {
     /// Whole days since it came, counted from now.
     var days: Int { added.map { max(0, Int(Date().timeIntervalSince($0) / 86_400)) } ?? .max }
 
-    /// How long a book is in words: its narration's length at the pace narrators read, or, for a book that is only its
-    /// text, its EPUB's size at about five bytes a word (compressed text, a cover and a little styling). The server
-    /// doesn't count a book's words yet; when it does, that count belongs here.
+    /// How long a book is in words, which is how thick it stands (`thickness`):
+    /// - its EPUB's words, as the server counted them from its text;
+    /// - for an audiobook with no EPUB, or one the server hasn't read yet, its narration's length at the pace narrators
+    ///   read, which is right to about a fifth, as narrators' paces differ;
+    /// - for an EPUB not counted yet (a server older than 0.32), its size at about five bytes a word;
+    /// - and a novel's length when there's nothing to go by.
     var words: Double {
+        if let counted = book.words, counted > 0 { return Double(counted) }
         if book.audio, book.durationMs > 0 { return hours * Self.wordsPerHour }
         if let bytes = book.ebookBytes { return min(400_000, max(20_000, Double(bytes) / 5)) }
         return 90_000

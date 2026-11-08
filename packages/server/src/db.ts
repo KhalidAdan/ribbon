@@ -17,7 +17,17 @@ export function openDatabase(dataDir: string): DatabaseSync {
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA);
   letBooksIntoManySeries(db);
+  countWordsToo(db);
   return db;
+}
+
+/**
+ * A database from before books' words were counted gets the column for them, empty: the books indexed then are
+ * counted from their sentences at start (SearchIndex, `countMissing`).
+ */
+function countWordsToo(db: DatabaseSync): void {
+  const columns = db.prepare("SELECT name FROM pragma_table_info('sentence_index')").all();
+  if (!columns.some((c) => c.name === "words")) db.exec("ALTER TABLE sentence_index ADD COLUMN words INTEGER");
 }
 
 /**
@@ -228,11 +238,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS sentence_text USING fts5(
   tokenize = 'porter unicode61 remove_diacritics 2'
 );
 
--- Which read-along each book's sentences were indexed from (its stamp), so a changed one is indexed again.
+-- Which read-along each book's sentences were indexed from (its stamp), so a changed one is indexed again,
+-- and how many sentences and words it has: the words are how thick the book stands on the bookcase.
 CREATE TABLE IF NOT EXISTS sentence_index (
   book_id TEXT PRIMARY KEY,
   stamp TEXT NOT NULL,
-  sentences INTEGER NOT NULL
+  sentences INTEGER NOT NULL,
+  words INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS job (

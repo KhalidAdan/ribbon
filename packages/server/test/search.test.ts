@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { READ_ALONG_FORMAT, type ReadAlong } from "@ribbon/core/reading/readalong";
 import { openDatabase } from "../src/db.ts";
@@ -68,6 +68,16 @@ describe("searching books' sentences", () => {
     expect(best!.matches.map(([start, length]) => best!.text.slice(start, start + length))).toEqual(["get", "brains"]);
   });
 
+  it("counts a book's words as it indexes them, and counts a book indexed before it did from its sentences, once", async () => {
+    const words = (book: string) => db.prepare("SELECT words FROM sentence_index WHERE book_id = ?").get(book)?.words;
+    // Every heading and sentence of the read-along: 5 + 7 + 12, then 7 + 10 + 11 + 15.
+    expect(words("oz")).toBe(67);
+    db.prepare("UPDATE sentence_index SET words = NULL WHERE book_id = 'oz'").run();
+    expect(await search.countMissing()).toBe(1);
+    expect(words("oz")).toBe(67);
+    expect(await search.countMissing()).toBe(0);
+  });
+
   it("finds a line said word for word first, however common its words are", () => {
     // "say" is in two dozen short sentences; alone it would rank the long one with the line last, past the limit.
     const plenty = Array.from({ length: 24 }, (_, i) => [`I say it ${i}.`]);
@@ -106,5 +116,26 @@ describe("searching books' sentences", () => {
     search.remove("other");
     expect(search.search("woodman")).toEqual([]);
     expect(search.isCurrent("other", "stamp-2")).toBe(false);
+  });
+});
+
+describe("a database from before books' words were counted", () => {
+  it("gets the column for them, empty, and keeps what it had indexed", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "ribbon-search-old-"));
+    try {
+      // The index as it was: no words.
+      const old = new DatabaseSync(path.join(dir, "ribbon.db"));
+      old.exec("CREATE TABLE sentence_index (book_id TEXT PRIMARY KEY, stamp TEXT NOT NULL, sentences INTEGER NOT NULL)");
+      old.exec("INSERT INTO sentence_index VALUES ('oz', 'stamp-1', 1)");
+      old.close();
+      const db = openDatabase(dir);
+      expect(db.prepare("SELECT stamp, sentences, words FROM sentence_index WHERE book_id = 'oz'").get()).toEqual({ stamp: "stamp-1", sentences: 1, words: null });
+      db.prepare("INSERT INTO sentence_text (text, book_id, n, ms, chapter) VALUES (?, 'oz', 0, 0, NULL)").run("Dorothy listened to this speech with wonder.");
+      expect(await new SearchIndex(db).countMissing()).toBe(1);
+      expect(db.prepare("SELECT words FROM sentence_index WHERE book_id = 'oz'").get()?.words).toBe(7);
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

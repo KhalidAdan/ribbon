@@ -12,6 +12,7 @@
       "audio": true,
       "ebook": true,
       "ebookBytes": 1000,
+      "words": 1000,
       "cover": {
         "hash": "0123456789abcdef",
         "aspect": 0.5,

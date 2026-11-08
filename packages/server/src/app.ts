@@ -149,8 +149,9 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // Then, when the admin has turned it on, the books still without a description get the catalog's (describe.ts).
   const catalog = config.descriptions ? audibleCatalog(config.descriptions.store) : null;
   if (catalog) jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, config.dataDir, await booksToDescribe(config.dataDir, books), report), null);
-  // Books added before the server searched sentences are indexed once, in the background, after the MP3s.
-  if (readAlongs.available) jobs.start("search", { indexed: 0 }, async () => ({ indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
+  // Books added before the server searched sentences are indexed once, in the background, after the MP3s; and the ones
+  // indexed before it counted their words are counted, from the sentences it has, for the bookcase.
+  if (readAlongs.available) jobs.start("search", { indexed: 0, counted: 0 }, async () => ({ counted: await search.countMissing(), indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   // The narration isn't transcribed here: a device with a graphics card transcribes each book whole and sends it (records.ts, `keepTranscript`).
   libraryRoutes(app, { auth, jobs, books, places, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir, folders: config.folders ?? [] });
   await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames, readAlongs });

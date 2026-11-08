@@ -22,6 +22,8 @@ export interface ServerBook {
   ebook: boolean;
   /** The EPUB's bytes, when there is one. */
   ebookBytes: number | null;
+  /** How many words its EPUB has, counted by the server from its text; null until it's read, and for a book with no EPUB. A server from before 0.32 doesn't send it. */
+  words?: number | null;
   cover: { hash: string; aspect: number; colour: string } | null;
   addedAt: string;
   /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */
