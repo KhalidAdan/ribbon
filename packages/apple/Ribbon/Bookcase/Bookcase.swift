@@ -40,6 +40,9 @@ final class Bookcase {
         let width = 400
         #endif
         hand = BookInHand { hash in try? await server.cover(hash, width: width).cgImage }
+        #if MEASURE
+        SpeedPass.shared.watch(self)
+        #endif
     }
 
     /// Every book on the library's shelf, with how far you are in it.
@@ -63,6 +66,7 @@ final class Bookcase {
         let books = self.books
         let cloths = await CoverCloths.cloths(for: books.map(\.book), server: library.server)
         guard builtFor == key else { return }
+        measured("cloths from the covers")
         if long {
             let line = layoutLine(books, k: k, cloths: cloths)
             rows = []
@@ -72,6 +76,7 @@ final class Bookcase {
             shelf = nil
             rows = shelves.enumerated().map { ShelfRow(id: $0.offset, items: $0.element, width: width, k: k, scale: scale) }
         }
+        measured("laid out")
         let keep = selected.flatMap { s in everything.first { $0.id == s.id } }
         selected = nil
         // The shelf opens at its start, on the newest book.

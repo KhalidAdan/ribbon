@@ -110,6 +110,7 @@ final class ShelfRow: ObservableObject, Identifiable {
 
     /// The 3D view has drawn its first frame: keep a still picture of it, and let the view go unless the shelf is in use.
     func drawn(_ v: SCNView) {
+        measured("first shelf in 3D")
         if still == nil { still = v.snapshot() }
         if !active { live = false }
     }
@@ -306,6 +307,8 @@ struct SceneHost: UIViewRepresentable {
         var onDrawn: ((SCNView) -> Void)?
         private var fired = false
         func renderer(_ renderer: SCNSceneRenderer, didRenderScene scene: SCNScene, atTime time: TimeInterval) {
+            // A shelf's frames, not the book in hand's.
+            if onDrawn != nil { measuredFrame() }
             guard !fired, let v = renderer as? SCNView else { return }
             fired = true
             DispatchQueue.main.async {

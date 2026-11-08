@@ -68,6 +68,7 @@ final class BookInHand {
     }
 
     private func present(_ node: SCNNode) {
+        measured("book in hand")
         book?.removeFromParentNode()
         node.eulerAngles = SCNVector3(0, 0, 0)
         scene.rootNode.addChildNode(node)

@@ -140,6 +140,7 @@ final class LongShelf {
                 group.wait()
             }
             DispatchQueue.main.async {
+                measured("every book made")
                 self?.everyBookPlaced = true
                 self?.walkIfReady()
             }
@@ -172,6 +173,7 @@ final class LongShelf {
             guard i < stops.count else {
                 walking = false
                 ready = true
+                measured("shown")
                 look(from: scroller?.contentOffset.x ?? 0, width: viewWidth)
                 onReady?()
                 return
@@ -361,6 +363,7 @@ final class ShelfScroller: UIView, UIScrollViewDelegate {
 final class FrameWatch: NSObject, SCNSceneRendererDelegate {
     var onFrame: () -> Void = {}
     func renderer(_ renderer: SCNSceneRenderer, didRenderScene scene: SCNScene, atTime time: TimeInterval) {
+        measuredFrame()
         onFrame()
     }
 }
