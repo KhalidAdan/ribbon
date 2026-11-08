@@ -10,7 +10,7 @@ final class ListeningTests: XCTestCase {
     /// Half an hour in two chapters, paused a minute in.
     private func listening(at ms: Int = 60_000) -> Listening {
         let account = Account(url: URL(string: "http://127.0.0.1:9")!, name: "test", token: "", cookieName: "", cookieValue: "")
-        let book = ServerBook(id: "book", title: "A Book", author: "", narrator: "", series: "", seriesIndex: nil, durationMs: 1_800_000, audio: true, ebook: false, cover: nil)
+        let book = ServerBook(id: "book", title: "A Book", author: "", narrator: "", series: "", seriesIndex: nil, durationMs: 1_800_000, audio: true, ebook: false, ebookBytes: nil, cover: nil, addedAt: nil)
         let detail = ServerBookDetail(
             files: [.init(path: "01.mp3", durationMs: 1_800_000)],
             chapters: [.init(startMs: 0, endMs: 900_000, title: "One"), .init(startMs: 900_000, endMs: 1_800_000, title: "Two")],

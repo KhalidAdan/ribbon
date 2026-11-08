@@ -33,10 +33,12 @@
 	</dict>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
-	<!-- The iPhone, held upright. -->
+	<!-- The iPhone, held upright; on its side in the library only, for the bookcase (Bookcase/Turning.swift). -->
 	<key>UISupportedInterfaceOrientations~iphone</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<!-- The iPad, held either way up. -->
 	<key>UISupportedInterfaceOrientations</key>

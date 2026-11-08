@@ -19,7 +19,11 @@ struct ServerBook: Decodable, Identifiable, Hashable {
     let durationMs: Int
     let audio: Bool
     let ebook: Bool
+    /// The EPUB's size in bytes, when there is one; the bookcase reads a book that is only its text as this long.
+    let ebookBytes: Int?
     let cover: Cover?
+    /// When it came to the library, as ISO 8601: the bookcase stands the newest first.
+    let addedAt: String?
 }
 
 /// A series of the library, as the server keeps it (packages/server/src/library/series.ts, `ServerSeries`): its books in order.
