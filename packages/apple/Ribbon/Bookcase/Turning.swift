@@ -1,8 +1,8 @@
 #if os(iOS)
 import UIKit
 
-/// Which ways the iPhone may turn. Ribbon on the iPhone stands upright, but in the library it may lie on its side,
-/// which shows the bookcase (PhoneBookcase); anywhere else it turns back upright. The iPad turns every way, always.
+/// Which ways the iPhone may turn. Ribbon on the iPhone stands upright, but on the bookcase's page it may lie on its
+/// side, which shows the long shelf; anywhere else it turns back upright. The iPad turns every way, always.
 final class Turning: NSObject, UIApplicationDelegate {
     private static var sideways = false
 
@@ -11,7 +11,7 @@ final class Turning: NSObject, UIApplicationDelegate {
         return Self.sideways ? .allButUpsideDown : .portrait
     }
 
-    /// Let the phone lie on its side, in the library, or stand it upright again, anywhere else.
+    /// Let the phone lie on its side, on the bookcase's page, or stand it upright again, anywhere else.
     static func allowSideways(_ allowed: Bool) {
         guard Look.phone, allowed != sideways else { return }
         sideways = allowed
@@ -20,8 +20,8 @@ final class Turning: NSObject, UIApplicationDelegate {
         if !allowed { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { _ in } }
     }
 
-    /// Turn the screen on its side for the bookcase, as turning the phone would.
-    static func toBookcase() {
+    /// Turn the screen on its side, as turning the phone would: for a phone whose screen is locked upright.
+    static func turnSideways() {
         guard sideways, let scene = windowScene else { return }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) { _ in }
     }

@@ -51,7 +51,6 @@ struct RibbonApp: App {
 /// listening?, the end of the book, and the passages while it's paused.
 private struct Screens: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.upright) private var upright
 
     var body: some View {
         @Bindable var model = model
@@ -67,7 +66,8 @@ private struct Screens: View {
                         case .search: SearchView().wayBack()
                         case .settings: SettingsView().wayBack()
                         case .stats: StatsView().wayBack()
-                        case .bookcase: BookcaseView().wayBack()
+                        // The bookcase puts its own way back where it wants it: on an iPhone on its side, beside the shelf.
+                        case .bookcase: BookcaseView()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -78,13 +78,8 @@ private struct Screens: View {
                 }
         }
         #if os(iOS)
-        // An iPhone turned on its side in the library: the bookcase, one long shelf, over it. Upright again, the library.
-        .overlay {
-            if Look.phone, !upright, model.path.isEmpty, model.library != nil { PhoneBookcase().transition(.opacity) }
-        }
-        .animation(.easeOut(duration: 0.25), value: upright)
-        // It may turn only in the library, where turning it is the way into the bookcase.
-        .onChange(of: model.path.isEmpty, initial: true) { _, inLibrary in Turning.allowSideways(inLibrary) }
+        // An iPhone may turn on its side only on the bookcase's page, where turning it shows the long shelf.
+        .onChange(of: model.path.last == .bookcase, initial: true) { _, onBookcase in Turning.allowSideways(onBookcase) }
         .onDisappear { Turning.allowSideways(false) }
         #endif
         .overlay(alignment: .bottom) {
@@ -339,12 +334,8 @@ final class AppModel {
         }
     }
 
-    /// The bookcase: a page of its own on the TV and the iPad. An iPhone shows it on its side, over the library, so there
-    /// the screen turns instead.
+    /// The bookcase: a page of its own on every device. On an iPhone it asks to be turned on its side.
     func openBookcase() {
-        #if os(iOS)
-        if Look.phone { return Turning.toBookcase() }
-        #endif
         if path.last != .bookcase { path.append(.bookcase) }
     }
 
@@ -360,18 +351,19 @@ final class AppModel {
 
     // Listening ------------------------------------------------------------
 
-    /// Listen to a book, in the player: from your place, or, when it's finished, again from the start.
-    func listen(to book: ServerBook) async {
-        if library?.progress(of: book)?.finished == true { return await startAgain(book) }
-        await play(book) { listening in
+    /// Listen to a book, in the player: from your place, or, when it's finished, again from the start. From the bookcase,
+    /// it plays where you are (`showingPlayer` false), so you can carry on looking along the shelf.
+    func listen(to book: ServerBook, showingPlayer: Bool = true) async {
+        if library?.progress(of: book)?.finished == true { return await startAgain(book, showingPlayer: showingPlayer) }
+        await play(book, showingPlayer: showingPlayer) { listening in
             if !listening.playing { await listening.carryOn() }
         }
     }
 
     /// Start a book again from the beginning, as a new listen-through, as the desktop's Listen again and Start again
     /// from the beginning do; the one before stays in the history.
-    func startAgain(_ book: ServerBook) async {
-        await play(book) { listening in
+    func startAgain(_ book: ServerBook, showingPlayer: Bool = true) async {
+        await play(book, showingPlayer: showingPlayer) { listening in
             // The stretch playing ends first, so the next one opens the new listen-through.
             if listening.playing { listening.pause() }
             listening.startingAgain = true
@@ -391,15 +383,15 @@ final class AppModel {
         }
     }
 
-    /// A book's narration made ready and started as asked, in the player.
-    private func play(_ book: ServerBook, _ start: (Listening) async -> Void) async {
+    /// A book's narration made ready and started as asked, in the player unless `showingPlayer` is false.
+    private func play(_ book: ServerBook, showingPlayer: Bool, _ start: (Listening) async -> Void) async {
         guard opening == nil else { return }
         opening = book.id
         problem = nil
         defer { opening = nil }
         do {
             await start(try await listening(for: book))
-            if path.last != .player { path.append(.player) }
+            if showingPlayer, path.last != .player { path.append(.player) }
         } catch {
             problem = error.localizedDescription
         }
