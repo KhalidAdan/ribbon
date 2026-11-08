@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ReadAlong } from "@ribbon/core/reading/readalong";
+import { countWords } from "@ribbon/core/reading/wordcount";
 import type { BookIndex } from "./books.ts";
 import { readStored } from "./prepare.ts";
 import type { ReadAlongs } from "./readalong.ts";
@@ -36,7 +37,9 @@ const LIMIT = 20;
  *
  * A book's sentences are indexed when its read-along is made from something
  * new (ReadAlongs, by its stamp), as books are added, and at start-up for any
- * not indexed yet. A book that's deleted leaves the index.
+ * not indexed yet. A book that's deleted leaves the index. Its words are
+ * counted as they're indexed: how many it has is how thick it stands on the
+ * bookcase (BookIndex lists it with the book).
  */
 export class SearchIndex {
   constructor(private readonly db: DatabaseSync) {}
@@ -46,26 +49,50 @@ export class SearchIndex {
     return this.db.prepare("SELECT 1 FROM sentence_index WHERE book_id = ? AND stamp = ?").get(book, stamp) !== undefined;
   }
 
-  /** Index a book's read-along, in place of what was indexed of it before. */
+  /** Index a book's read-along, in place of what was indexed of it before, and count its words. */
   index(book: string, stamp: string, readAlong: ReadAlong): void {
     const insert = this.db.prepare("INSERT INTO sentence_text (text, book_id, n, ms, chapter) VALUES (?, ?, ?, ?, ?)");
     this.db.exec("BEGIN");
     try {
       this.db.prepare("DELETE FROM sentence_text WHERE book_id = ?").run(book);
       let n = 0;
+      let words = 0;
       let entry = -1;
       for (const [b, block] of readAlong.blocks.entries()) {
         while (entry + 1 < readAlong.contents.length && readAlong.contents[entry + 1]!.block <= b) entry++;
         const chapter = entry >= 0 ? readAlong.contents[entry]!.title : null;
-        const words = (block.runs ?? []).map((r) => r.t).join("");
-        for (const s of block.sentences ?? []) insert.run(words.slice(s.start, s.end), book, n++, s.ms, chapter);
+        const text = (block.runs ?? []).map((r) => r.t).join("");
+        for (const s of block.sentences ?? []) {
+          const sentence = text.slice(s.start, s.end);
+          insert.run(sentence, book, n++, s.ms, chapter);
+          words += countWords(sentence);
+        }
       }
-      this.db.prepare("INSERT INTO sentence_index (book_id, stamp, sentences) VALUES (?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET stamp = excluded.stamp, sentences = excluded.sentences").run(book, stamp, n);
+      this.db
+        .prepare("INSERT INTO sentence_index (book_id, stamp, sentences, words) VALUES (?, ?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET stamp = excluded.stamp, sentences = excluded.sentences, words = excluded.words")
+        .run(book, stamp, n, words);
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");
       throw e;
     }
+  }
+
+  /**
+   * Count the words of the books indexed before words were counted, from the sentences indexed of them: once, at
+   * start, a book at a time so requests are answered in between. How many books were counted.
+   */
+  async countMissing(): Promise<number> {
+    const books = this.db.prepare("SELECT book_id FROM sentence_index WHERE words IS NULL").all().map((row) => String(row.book_id));
+    const sentences = this.db.prepare("SELECT text FROM sentence_text WHERE book_id = ?");
+    const keep = this.db.prepare("UPDATE sentence_index SET words = ? WHERE book_id = ? AND words IS NULL");
+    for (const book of books) {
+      let words = 0;
+      for (const row of sentences.iterate(book)) words += countWords(String(row.text));
+      keep.run(words, book);
+      await new Promise((settle) => setImmediate(settle));
+    }
+    return books.length;
   }
 
   /** A deleted book leaves the index. */

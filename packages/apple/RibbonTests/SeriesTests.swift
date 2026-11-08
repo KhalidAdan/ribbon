@@ -4,7 +4,7 @@ import XCTest
 /// A book's number in a series: a reading list doesn't take the number its files give it in another series.
 final class SeriesTests: XCTestCase {
     private func book(_ id: String, _ index: Double?) -> ServerBook {
-        ServerBook(id: id, title: id, author: "", narrator: "", series: "The Horus Heresy", seriesIndex: index, durationMs: 1000, audio: true, ebook: false, ebookBytes: nil, cover: nil, addedAt: nil)
+        ServerBook(id: id, title: id, author: "", narrator: "", series: "The Horus Heresy", seriesIndex: index, durationMs: 1000, audio: true, ebook: false, ebookBytes: nil, words: nil, cover: nil, addedAt: nil)
     }
 
     func testAReadingListCountsByPlaceNotByTheFilesNumber() {

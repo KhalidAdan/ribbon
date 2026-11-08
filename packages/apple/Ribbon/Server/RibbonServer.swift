@@ -19,8 +19,11 @@ struct ServerBook: Decodable, Identifiable, Hashable {
     let durationMs: Int
     let audio: Bool
     let ebook: Bool
-    /// The EPUB's size in bytes, when there is one; the bookcase reads a book that is only its text as this long.
+    /// The EPUB's size in bytes, when there is one.
     let ebookBytes: Int?
+    /// How many words its EPUB has, counted by the server from its text: how thick it stands on the bookcase. Absent
+    /// until the server has read it, for a book with no EPUB, and from a server older than 0.32.
+    let words: Int?
     let cover: Cover?
     /// When it came to the library, as ISO 8601: the bookcase stands the newest first.
     let addedAt: String?

@@ -43,7 +43,8 @@ for listening without a network.
   one tipped out towards you: the bookcase's own scene, drawn once into a
   picture. Each book is a 3D hardback or paperback (SceneKit, built from
   code: boards, a rounded spine, pages, headbands), as thick as it is long
-  (its narration's length at 9,350 words an hour, 500 words a page), bound
+  at 500 words a page: its EPUB's words, as the server counted them, or for
+  an audiobook alone its narration's length at 9,350 words an hour, bound
   in the one of eighteen cloths nearest its cover's own colour, its title in
   Newsreader capitals with the volume number at its head. The book you're on
   comes off the shelf into your hand at the left, tipped towards you then

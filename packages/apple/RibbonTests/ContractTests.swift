@@ -15,6 +15,8 @@ final class ContractTests: XCTestCase {
         struct Books: Decodable { let books: [ServerBook] }
         struct Series: Decodable { let series: [ServerSeries] }
         XCTAssertEqual(try answer("books", as: Books.self).books.first?.title, "The Waygate")
+        // Its words, counted from its EPUB, which the bookcase stands it by.
+        XCTAssertNotNil(try answer("books", as: Books.self).books.first?.words)
         XCTAssertEqual(try answer("series", as: Series.self).series.first?.name, "The Waygates")
     }
 
