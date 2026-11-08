@@ -115,6 +115,12 @@ describe("loudness job", () => {
   it("returns null for a missing record", async () => {
     expect(await lib.readLoudness("nope")).toBeNull();
   });
+
+  it("returns null for a server's reading that measured nothing, kept as 0 LUFS and a 12 dB cut (#228)", async () => {
+    await fs.mkdir(path.join(FIXTURE_ROOT, ".ribbon", "loudness"), { recursive: true });
+    await fs.writeFile(path.join(FIXTURE_ROOT, ".ribbon", "loudness", "nothing.csv"), "book_id,integrated_lufs,true_peak_dbtp,gain_db\nnothing,0,,-12\n");
+    expect(await lib.readLoudness("nothing")).toBeNull();
+  });
 });
 
 describe("silence job", () => {

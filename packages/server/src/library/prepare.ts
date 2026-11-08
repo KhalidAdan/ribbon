@@ -2,6 +2,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Host } from "@ribbon/core/host";
 import { analyzeFiles, type BookAnalysis } from "@ribbon/core/analysis";
+import { nothingMeasured } from "@ribbon/core/loudness";
 import { bookDir, type BookIndex, type StoredAnalysis, type StoredBook } from "./books.ts";
 
 /** A book's loudness and silences as `book.json` keeps them: plain JSON, the silences by the file's place in the book. */
@@ -25,13 +26,22 @@ export interface PrepareProgress {
   current: string | null;
 }
 
-/** The books with audio that haven't been measured yet: added before the server measured them. */
+/**
+ * Whether a book wants measuring: it never was (added before the server measured books), or it was
+ * measured as nothing, by an ffmpeg that refused the scan (#228). One that can't be measured at all
+ * keeps no loudness and isn't tried again.
+ */
+export function unmeasured(stored: StoredBook): boolean {
+  return !stored.analysis || nothingMeasured(stored.analysis.loudness);
+}
+
+/** The books with audio that want measuring (`unmeasured`). */
 export async function booksToPrepare(dataDir: string, index: BookIndex): Promise<string[]> {
   const out: string[] = [];
   for (const b of index.list()) {
     if (!b.audio) continue;
     const stored = await readStored(dataDir, b.id);
-    if (stored && !stored.analysis) out.push(b.id);
+    if (stored && unmeasured(stored)) out.push(b.id);
   }
   return out;
 }
@@ -45,7 +55,7 @@ export async function prepareBooks(host: Host, dataDir: string, ids: readonly st
   const progress: PrepareProgress = { books: ids.length, done: 0, current: null };
   for (const id of ids) {
     const stored = await readStored(dataDir, id);
-    if (stored && !stored.analysis) {
+    if (stored && unmeasured(stored)) {
       progress.current = stored.book.title;
       report(progress);
       try {

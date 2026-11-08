@@ -8,7 +8,7 @@ import { defaultSettings, parseSettings, serializeSettings } from "@ribbon/core/
 import { clipArgs, clipName, clipRange, parseBookmarks, serializeBookmarks } from "@ribbon/core/bookmarks";
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "@ribbon/core/scan/chapters";
 import { bytesToRows, rowsToBytes, num, int } from "@ribbon/core/csv";
-import { LOUDNESS_HEADERS, gainDb } from "@ribbon/core/loudness";
+import { LOUDNESS_HEADERS, gainDb, nothingMeasured } from "@ribbon/core/loudness";
 import { bytesToProblems, problemsToBytes, type Problem } from "@ribbon/core/problems";
 import { bytesToSeries, seriesToBytes, type SeriesRecord } from "@ribbon/core/series";
 import { aboutToBytes, bytesToAbout, type BookAbout } from "@ribbon/core/about";
@@ -672,6 +672,8 @@ export class LibraryService {
       const r = rows[0];
       if (!r || r.integrated_lufs === undefined || r.integrated_lufs === "") return null;
       const measurement = { integratedLufs: num(r.integrated_lufs), truePeakDbtp: r.true_peak_dbtp ? num(r.true_peak_dbtp) : null };
+      // Kept from a server that measured nothing (#228): no reading, so the book plays as it is and takes the next.
+      if (nothingMeasured(measurement)) return null;
       return { measurement, gainDb: r.gain_db ? num(r.gain_db) : gainDb(measurement) };
     } catch {
       return null;

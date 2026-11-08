@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { combineLoudness, dbToLinear, gainDb, parseEbur128 } from "@ribbon/core/loudness";
+import { combineLoudness, dbToLinear, gainDb, nothingMeasured, parseEbur128 } from "@ribbon/core/loudness";
+import { analyzeArgs } from "@ribbon/core/analysis";
 
 const SUMMARY = `
 [Parsed_ebur128_0 @ 000001] Summary:
@@ -18,7 +19,28 @@ const SUMMARY = `
     Peak:       -1.2 dBFS
 `;
 
+/** What ffmpeg 5.1 printed on the server for every book, refusing `framelog=quiet` (#228): a summary from a filter that never ran. */
+const REFUSED = `
+[ebur128 @ 0x5a13fea9bf40] Unable to parse option value "quiet"
+[ebur128 @ 0x5a13fea9bf40] Error setting option framelog to value quiet.
+[AVFilterGraph @ 0x5a13fe960e80] Error initializing filter 'ebur128' with args 'peak=true:framelog=quiet'
+[Parsed_ebur128_1 @ 0x5a13fea114c0] Summary:
+
+  Integrated loudness:
+    I:           0.0 LUFS
+    Threshold:   0.0 LUFS
+
+  True peak:
+    Peak:       -inf dBFS
+Error initializing complex filters.
+Invalid argument
+`;
+
 describe("parseEbur128", () => {
+  it("takes the summary of a scan ffmpeg refused for no measurement, not 0 LUFS (#228)", async () => {
+    expect(await parseEbur128(REFUSED)).toBeNull();
+  });
+
   it("reads integrated loudness and true peak", async () => {
     expect(await parseEbur128(SUMMARY)).toEqual({ integratedLufs: -23.4, truePeakDbtp: -1.2 });
   });
@@ -93,5 +115,20 @@ describe("combineLoudness", () => {
   it("ignores zero-length parts and returns null for nothing", async () => {
     expect(combineLoudness([{ integratedLufs: -20, truePeakDbtp: null, durationMs: 0 }])).toBeNull();
     expect(combineLoudness([])).toBeNull();
+  });
+});
+
+describe("a reading that measured nothing (#228)", () => {
+  it("is 0 LUFS or more, which no recording is", () => {
+    expect(nothingMeasured({ integratedLufs: 0, truePeakDbtp: null })).toBe(true);
+    expect(nothingMeasured({ integratedLufs: -17.6, truePeakDbtp: -1.4 })).toBe(false);
+    expect(nothingMeasured(null)).toBe(false);
+    expect(nothingMeasured(undefined)).toBe(false);
+  });
+
+  it("isn't asked for: the scan hides each tenth of a second in a way ffmpeg 5.1 knows", () => {
+    const filter = analyzeArgs("/books/a.m4b").join(" ");
+    expect(filter).toContain("framelog=verbose");
+    expect(filter).not.toContain("framelog=quiet");
   });
 });
