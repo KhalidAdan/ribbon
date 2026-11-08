@@ -46,15 +46,14 @@ struct LibraryView: View {
                             .scrollClipDisabled()
                         }
                     }
-                    // Then every book, on the bookcase: at the foot of the library, and a page of its own.
-                    if !library.shelved.isEmpty { BookcaseDoorway(library: library) }
+                    // Then every book, on the bookcase: a page of its own, which the foot of the library invites you to.
+                    if !library.shelved.isEmpty { BookcaseInvitation(library: library) }
                 } else {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
                 }
             }
             .screenEdges(horizontal: 96, vertical: 56)
         }
-        .modifier(PullsIntoTheBookcase())
         .background(Color.canvas.ignoresSafeArea())
         #if os(tvOS)
         .onExitCommand(perform: model.people.count > 1 ? { model.switchReader() } : nil)
@@ -69,30 +68,6 @@ struct LibraryView: View {
             // The cards arrive after the screen is up: the focus goes to the book you were in the middle of.
             if loaded == true, let first = model.library?.inProgress.first { focused = "continue-\(first.id)" }
         }
-    }
-}
-
-/// Scrolling on past the foot of the library carries on into the bookcase: pulled up well past the end, it opens.
-/// Where the system can't say how far the library is scrolled (before iOS 18) and on the TV, the doorway is pressed instead.
-private struct PullsIntoTheBookcase: ViewModifier {
-    @Environment(AppModel.self) private var model
-
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if #available(iOS 18, *) {
-            content.onScrollGeometryChange(for: Bool.self) { g in
-                // Pulled further than a fling's bounce past where the library rests at its end, or at its top when it's shorter than the screen.
-                let end = max(-g.contentInsets.top, g.contentSize.height + g.contentInsets.bottom - g.containerSize.height)
-                return g.contentOffset.y - end > 110
-            } action: { _, pulled in
-                if pulled, model.path.isEmpty, model.library?.shelved.isEmpty == false { model.openBookcase() }
-            }
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
     }
 }
 

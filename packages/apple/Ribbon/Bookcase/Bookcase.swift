@@ -4,8 +4,9 @@ import UIKit
 
 /// The bookcase: every book in the library standing spine-out on shelves, the newest first, each in a cloth matched
 /// to its cover, under lamplight. The book you're on comes off the shelf into your hand at the left, with what it is
-/// and how far you are; choosing it again opens its page, where play is. On the TV and the iPad the shelves stack in a
-/// case; on the iPhone, turned on its side, they make one long shelf. A search finds a book and brings it into view.
+/// and how far you are; by touch it plays right there, and choosing it again opens its page. On the TV and the iPad the
+/// shelves stack in a case; on the iPhone, turned on its side, they make one long shelf. A search finds a book and brings
+/// it into view.
 @MainActor
 @Observable
 final class Bookcase {
@@ -55,7 +56,8 @@ final class Bookcase {
     /// Lay the books out for a screen and build the shelves: stacked in a case `width` wide, or, with `long`, one long
     /// shelf. The cloths come from the covers first, so every spine is drawn once, in its own colour.
     func build(width: CGFloat, k: CGFloat, scale: CGFloat, long: Bool) async {
-        let key = "\(Int(width)) \(k) \(long)"
+        // The long shelf is as long as its books, whatever the screen's width, so a phone held upright can make it for its side.
+        let key = long ? "long \(k)" : "\(Int(width)) \(k)"
         guard width > 100, key != builtFor else { return }
         builtFor = key; self.k = k; self.scale = scale
         let books = self.books

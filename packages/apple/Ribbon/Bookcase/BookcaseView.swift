@@ -1,15 +1,22 @@
 import SceneKit
 import SwiftUI
 
-/// The bookcase as a page of its own, on the TV and the iPad: the book you're on at the left, the shelves stacked in a
-/// case at the right. Reached from the doorway at the foot of the library.
+/// The bookcase as a page of its own, reached from the invitation at the foot of the library. On the TV and the iPad,
+/// the book you're on at the left and the shelves stacked in a case at the right; on an iPhone, one long shelf, seen with
+/// the phone on its side.
 struct BookcaseView: View {
     @Environment(AppModel.self) private var app
     @State private var bookcase: Bookcase?
 
     var body: some View {
         ZStack {
-            if let bookcase { StackedBookcase(bookcase: bookcase) }
+            if let bookcase {
+                #if os(iOS)
+                if Look.phone { PhoneBookcase(bookcase: bookcase) } else { StackedBookcase(bookcase: bookcase).wayBack() }
+                #else
+                StackedBookcase(bookcase: bookcase)
+                #endif
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.canvas.ignoresSafeArea())
@@ -127,47 +134,118 @@ private struct StackedBookcase: View {
 }
 
 #if os(iOS)
-/// The iPhone on its side, in the library: one long shelf to scroll along, with the search and the book you're on at the left.
-/// Turned upright again, it's the library.
-struct PhoneBookcase: View {
+/// The bookcase on an iPhone. On its side, one long shelf to scroll along, with the way back, the search and the book
+/// you're on at the left. Held upright, the page asks to be turned, and meanwhile makes the shelf, so it's ready when you do.
+private struct PhoneBookcase: View {
+    let bookcase: Bookcase
+    @Environment(\.upright) private var upright
+
+    var body: some View {
+        if upright { TurnThePhone(bookcase: bookcase).wayBack() } else { PhoneShelf(bookcase: bookcase) }
+    }
+}
+
+/// The page held upright: the bookcase's picture, and a word to turn the phone, or to turn the screen for a phone
+/// whose screen is locked upright.
+private struct TurnThePhone: View {
+    let bookcase: Bookcase
     @Environment(AppModel.self) private var app
     @Environment(\.displayScale) private var displayScale
-    @State private var bookcase: Bookcase?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var turned = false
 
     var body: some View {
         GeometryReader { geo in
-            if let bookcase {
-                let left: CGFloat = 190, gap: CGFloat = 14
-                let shelfWidth = (geo.size.width - left - gap).rounded(.down)
-                // As large as the phone's height allows: a phone is held close, but a spine still needs room for its words.
-                let k = (min(1.5, (geo.size.height - 8) / ShelfRow.height(k: 1)) * 100).rounded(.down) / 100
-                HStack(alignment: .top, spacing: gap) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SearchField(bookcase: bookcase, compact: true)
-                        // The book takes what the search, the words about it and Open leave.
-                        Lectern(bookcase: bookcase, width: left, height: max(110, geo.size.height - 36 - 8 - 176), compact: true)
-                    }
-                    .frame(width: left, alignment: .leading)
-                    ZStack(alignment: .topLeading) {
-                        if let shelf = bookcase.shelf {
-                            // A finger drawn along the shelf scrolls it; a tap takes a book down, and a tap on the book you're on opens it.
-                            LongShelfView(shelf: shelf) { choose($0, in: bookcase, app: app) }
-                                .id(ObjectIdentifier(shelf))
-                                .frame(width: shelfWidth, height: shelf.height)
-                                .mask(edgeFade(.horizontal))
-                        }
-                        SearchResults(bookcase: bookcase)
-                    }
-                    .frame(width: shelfWidth, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 28) {
+                if let library = app.library { BookcasePicture(library: library, aspect: BookcasePicture.narrow) }
+                VStack(alignment: .leading, spacing: 6.scaled) {
+                    // A phone turning on its side, now and then.
+                    Image(systemName: "iphone")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(Color.ink2)
+                        .rotationEffect(.degrees(turned ? -90 : 0))
+                        .frame(width: 44, height: 44)
+                        .padding(.bottom, 10)
+                        .accessibilityHidden(true)
+                    Text("Turn your phone on its side").font(.ui(30, weight: 600)).foregroundStyle(Color.ink)
+                    Text("The bookcase is one long shelf: all \(bookcase.books.count) books, newest first.")
+                        .font(.ui(24)).foregroundStyle(Color.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Turn the screen") { Turning.turnSideways() }
+                        .buttonStyle(RibbonButtonStyle())
+                        .padding(.top, 22.scaled)
                 }
-                .task(id: "\(Int(shelfWidth)) \(k)") { await bookcase.build(width: shelfWidth, k: k, scale: displayScale, long: true) }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            // The shelf is made for the phone on its side while this is read: as tall as the phone is wide, less the home bar.
+            .task(id: Int(geo.size.width)) {
+                await bookcase.build(width: geo.size.height, k: PhoneShelf.size(height: geo.size.width - 21), scale: displayScale, long: true)
+            }
+        }
+        .task {
+            guard !reduceMotion else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1.4))
+                withAnimation(.easeInOut(duration: 0.6)) { turned.toggle() }
+            }
+        }
+    }
+}
+
+/// The page on its side: the long shelf.
+private struct PhoneShelf: View {
+    let bookcase: Bookcase
+    @Environment(AppModel.self) private var app
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.dismiss) private var dismiss
+
+    /// The books' size: as large as the phone's height allows. A phone is held close, but a spine still needs room for its words.
+    static func size(height: CGFloat) -> CGFloat {
+        (min(1.5, (height - 8) / ShelfRow.height(k: 1)) * 100).rounded(.down) / 100
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let left: CGFloat = 190, gap: CGFloat = 14
+            let shelfWidth = (geo.size.width - left - gap).rounded(.down)
+            let k = Self.size(height: geo.size.height)
+            HStack(alignment: .top, spacing: gap) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Button { dismiss() } label: {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Color.ink2)
+                                .frame(width: 36, height: 36)
+                                .background(Color.raised, in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Back")
+                        SearchField(bookcase: bookcase, compact: true)
+                    }
+                    // The book takes what the search and the words and buttons about it leave.
+                    Lectern(bookcase: bookcase, width: left, height: max(96, geo.size.height - 36 - 8 - Lectern.compactWords), compact: true)
+                }
+                .frame(width: left, alignment: .leading)
+                ZStack(alignment: .topLeading) {
+                    if let shelf = bookcase.shelf {
+                        // A finger drawn along the shelf scrolls it; a tap takes a book down, and a tap on the book you're on opens it.
+                        LongShelfView(shelf: shelf) { choose($0, in: bookcase, app: app) }
+                            .id(ObjectIdentifier(shelf))
+                            .frame(width: shelfWidth, height: shelf.height)
+                            .mask(edgeFade(.horizontal))
+                    }
+                    SearchResults(bookcase: bookcase)
+                }
+                .frame(width: shelfWidth, alignment: .topLeading)
+            }
+            .task(id: "\(Int(shelfWidth)) \(k)") { await bookcase.build(width: shelfWidth, k: k, scale: displayScale, long: true) }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .ignoresSafeArea(.keyboard)
-        .background(Color.canvas.ignoresSafeArea())
-        .task { if bookcase == nil, let library = app.library { bookcase = Bookcase(library: library) } }
     }
 }
 #endif
@@ -180,6 +258,9 @@ private struct Lectern: View {
     let height: CGFloat
     let compact: Bool
     @Environment(AppModel.self) private var app
+
+    /// The room the words and buttons under the book take on a phone on its side.
+    static let compactWords: CGFloat = 196
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 8 : tv ? 24 : 14) {
@@ -203,7 +284,18 @@ private struct Lectern: View {
         let title: CGFloat = compact ? 25 : 30, body: CGFloat = compact ? 20 : 22, small: CGFloat = compact ? 18 : 19
         let bar: CGFloat = tv ? 300 : compact ? 170 : 240
         return VStack(alignment: .leading, spacing: tv ? 6 : 3) {
-            Text(b.title).font(.ui(title, weight: 600)).foregroundStyle(Color.ink).lineLimit(compact ? 2 : 3).fixedSize(horizontal: false, vertical: true)
+            #if os(iOS)
+            // By touch, the title is the way to the book's page, as the book in your hand is.
+            Button { app.open(b.book) } label: {
+                (Text(b.title) + Text("  \(Image(systemName: "chevron.right"))").font(.system(size: compact ? 12 : 14, weight: .semibold)).foregroundColor(Color.ink3))
+                    .font(.ui(title, weight: 600)).foregroundStyle(Color.ink).lineLimit(compact ? 2 : 3).fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens its page")
+            #else
+            Text(b.title).font(.ui(title, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            #endif
             Text(b.author).font(.ui(body)).foregroundStyle(Color.ink2).lineLimit(1)
             Text(b.textOnly ? "EPUB" : "Audiobook · \(Format.left(b.book.durationMs))")
                 .font(.ui(small)).foregroundStyle(Color.ink3).monospacedDigit().padding(.top, tv ? 8 : 4)
@@ -218,13 +310,61 @@ private struct Lectern: View {
                 .padding(.top, tv ? 10 : 6)
             }
             #if os(iOS)
-            Button("Open") { app.open(b.book) }
-                .buttonStyle(RibbonButtonStyle(kind: .primary))
-                .padding(.top, compact ? 6 : 12)
+            InHand(book: b.book, compact: compact).padding(.top, compact ? 6 : 12)
             #endif
         }
     }
 }
+
+#if os(iOS)
+/// What you can do with the book in your hand, there on the shelf: start it or carry on with it without leaving the
+/// bookcase (on an iPhone, without turning the phone back upright), or read along with it. Its title, or the book
+/// itself, opens its page. On the TV, Select opens the page, where listening has the focus.
+private struct InHand: View {
+    let book: ServerBook
+    let compact: Bool
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let progress = app.library?.progress(of: book)
+        let started = progress?.started == true, finished = progress?.finished == true
+        let here = app.listening?.book.id == book.id
+        let playing = here && app.listening?.playing == true
+        VStack(alignment: .leading, spacing: 8) {
+            Group {
+                if app.opening == book.id {
+                    Button {} label: { Label("Opening…", systemImage: book.audio ? "play.fill" : "book.fill").frame(maxWidth: .infinity) }
+                        .buttonStyle(RibbonButtonStyle(kind: .primary))
+                        .disabled(true)
+                } else if book.audio {
+                    Button {
+                        if playing { app.listening?.pause() } else { Task { await app.listen(to: book, showingPlayer: false) } }
+                    } label: {
+                        // Short on a phone, where the button is as wide as the book in your hand.
+                        Label(playing ? "Pause" : finished ? "Listen again" : started ? (compact ? "Continue" : "Continue listening") : (compact ? "Listen" : "Start listening"),
+                              systemImage: playing ? "pause.fill" : "play.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                } else {
+                    Button { Task { await app.read(book) } } label: {
+                        Label(started && !finished ? (compact ? "Continue" : "Continue reading") : "Read", systemImage: "book.fill").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(RibbonButtonStyle(kind: .primary))
+                }
+            }
+            if book.audio && book.ebook, app.opening != book.id {
+                Button { Task { await app.readAlong(book) } } label: { Label("Read along", systemImage: "book").frame(maxWidth: .infinity) }
+                    .buttonStyle(RibbonButtonStyle())
+            }
+            if let problem = app.problem {
+                Text(problem).font(.ui(19)).foregroundStyle(Color.ink2).lineLimit(2)
+            }
+        }
+        .lineLimit(1)
+    }
+}
+#endif
 
 /// Finding a book on the shelves by what you remember of it.
 private struct SearchField: View {
@@ -361,65 +501,6 @@ private struct FlatShelf: View {
         .frame(width: row.width, height: row.height, alignment: .topLeading)
         .clipped()
         .accessibilityHidden(true)
-    }
-}
-
-/// The way into the bookcase, at the foot of the library below the series: the top of the bookcase, its first spines
-/// standing under the lamp. Choosing it opens the bookcase. An iPhone shows the bookcase on its side, so there,
-/// choosing it turns the screen, and turning the phone does the same.
-struct BookcaseDoorway: View {
-    let library: Library
-    @Environment(AppModel.self) private var app
-    @Environment(\.displayScale) private var displayScale
-    @State private var spines: [(id: String, image: UIImage, width: CGFloat, height: CGFloat)] = []
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 28.scaled) {
-            let count = library.shelved.count
-            SectionHeader(title: "Bookcase", description: Look.phone ? "All \(count) books, newest first. Turn your phone on its side to browse them." : "All \(count) books, newest first.")
-            Button { app.openBookcase() } label: { strip }
-                .buttonStyle(LiftStyle(radius: 20))
-                .accessibilityLabel("Open the bookcase")
-        }
-        .task(id: library.shelved.count) { await drawSpines() }
-    }
-
-    /// A strip of the shelf: dark walnut, its board, the first spines, lit from above and fading out to the right.
-    private var strip: some View {
-        let k = 1.1 * Look.scale, board = (12 * k).rounded()
-        return ZStack(alignment: .bottomLeading) {
-            // The wood sets the strip's size, as wide as the library; the spines run on past its edge, cut off there.
-            Color(uiColor: Lamplight.caseBack.ui)
-                .overlay(alignment: .bottomLeading) {
-                    HStack(alignment: .bottom, spacing: max(1, (1.5 * k).rounded())) {
-                        ForEach(spines, id: \.id) { s in Image(uiImage: s.image).resizable().frame(width: s.width, height: s.height) }
-                    }
-                    .fixedSize()
-                    .padding(.leading, (12 * k).rounded())
-                    .padding(.bottom, board)
-                }
-            Color(uiColor: Lamplight.caseBoard.ui).frame(height: board)
-            // The lamp: warm light falling on the spines from above, and the dark it leaves at the edges.
-            RadialGradient(colors: [Color(red: 1, green: 0.78, blue: 0.5).opacity(0.18), .clear], center: .top, startRadius: 0, endRadius: 520.scaled)
-                .blendMode(.plusLighter)
-            LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom).opacity(0.5)
-        }
-        .frame(height: ((16 + shelfHeight) * k + board).rounded())
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 20.scaled))
-        .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7), .init(color: .clear, location: 1)], startPoint: .leading, endPoint: .trailing))
-    }
-
-    /// The newest books' spines, drawn flat as the bookcase draws them, once their cloths are known.
-    private func drawSpines() async {
-        // Enough to run past the edge of a TV's screen.
-        let newest = Array(shelfOrder(library.shelfBooks).prefix(90))
-        let cloths = await CoverCloths.cloths(for: newest.map(\.book), server: library.server)
-        let k = 1.1 * Look.scale, scale = displayScale
-        let line = layoutLine(newest, k: k, cloths: cloths).items
-        spines = line.map { it in
-            (it.id, picture(it.w, it.h, scale: scale) { it.spine.draw($0, cloth: it.cloth, k: k) }, it.w, it.h)
-        }
     }
 }
 

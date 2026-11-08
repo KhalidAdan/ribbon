@@ -31,27 +31,31 @@ for listening without a network.
   and their places stay on the server.
 - **The library**, as the desktop's: Continue (the books you're in the
   middle of, most recent first), each series as a card with where you are in
-  it, then the bookcase. The series are the server's (`GET
+  it, then an invitation to the bookcase. The series are the server's (`GET
   /api/series`), the same on every device, with each book's number and its
   title as the series lists it. A card is one button, which opens the
   book's page; play is there. While a book plays, its title at the top opens the
   player. Menu goes back to Who's reading, when there's more than one person.
-- **The bookcase**, at the foot of the library, under the series: every
-  book standing spine-out on shelves of dark walnut under 3000 K lamps,
-  the newest first, with a label on the shelf's edge where each month
-  begins. Each book is a 3D hardback or paperback (SceneKit, built from
+- **The bookcase**, a page of its own on every device: every book standing
+  spine-out on shelves of dark walnut under 3000 K lamps, the newest first,
+  with a label on the shelf's edge where each month begins. The foot of the
+  library invites you in, with a picture of your newest books under the lamp,
+  one tipped out towards you: the bookcase's own scene, drawn once into a
+  picture. Each book is a 3D hardback or paperback (SceneKit, built from
   code: boards, a rounded spine, pages, headbands), as thick as it is long
   (its narration's length at 9,350 words an hour, 500 words a page), bound
   in the one of eighteen cloths nearest its cover's own colour, its title in
   Newsreader capitals with the volume number at its head. The book you're on
   comes off the shelf into your hand at the left, tipped towards you then
-  drawn out, and turns to its cover; choosing it again opens its page. A
-  search finds a book by a few letters of its title or author, forgiving a
-  slip, and brings it into view. On the TV and the iPad it's a page of its
-  own, reached from the library's foot (on the iPad, scrolling on past the
-  end opens it too), with three shelves stacked in a case. On the iPhone,
-  turn the phone on its side in the library: one long shelf, scrolled with a
-  finger, one camera walking along it (`Ribbon/Bookcase/`). The cloth is
+  drawn out, and turns to its cover. By touch, it can be played (or read)
+  right there, without leaving the shelf, and its title, or the book itself,
+  opens its page; on the TV, Select opens its page. A search finds a book by
+  a few letters of its title or author, forgiving a slip, and brings it into
+  view. On the TV and the iPad, three shelves are stacked in a case. On the
+  iPhone, the page asks you to turn the phone on its side (or to turn the
+  screen, for a phone locked upright), and makes the shelf meanwhile: one
+  long shelf, scrolled with a finger, one camera walking along it. The phone
+  may turn sideways only there (`Ribbon/Bookcase/`). The cloth is
   ambientCG's Fabric082A and the light Poly Haven's Studio Small 09, both
   CC0.
 - **Stats**, at the top of the library, as the desktop's Stats has them:
