@@ -114,11 +114,14 @@ export function Bookcase({ books, order }: { books: ScannedBook[]; order: ShelfO
   );
   const hues = useCoverHues(books);
   const now = useMemo(() => Date.now(), [books]);
+  // The shelves are laid out again only when a book is finished or not: a playing book's place moves its own spine.
+  const finished = useMemo(() => books.filter((b) => progress.get(b.book.id)?.finished).map((b) => b.book.id).join("\n"), [books, progress]);
 
   // What stands on the shelves, in order: this week's books face-out, as many as fit on the first shelf beside a few
   // spines, then a bookend, then every other book's spine.
   const layout = useMemo(() => {
     if (!fonts || width === 0) return null;
+    const finishedIds = new Set(finished.split("\n"));
     const side = Math.round(12 * scale);
     const avail = width - 2 * side;
     const faceWidth = Math.round(SHELF_HEIGHT * scale * 0.64);
@@ -130,13 +133,13 @@ export function Bookcase({ books, order }: { books: ScannedBook[]; order: ShelfO
       ...fresh.map((b, i): Item => ({ kind: "face", book: b, width: faceWidth, gapAfter: Math.round(8 * scale), label: i === 0 ? "This week" : null })),
       ...(fresh.length ? [{ kind: "end", width: Math.round(26 * scale), gapAfter: Math.round(4 * scale), label: null } as Item] : []),
       ...rest.map((b, i): Item => {
-        const spine = spineOf(b, progress.get(b.book.id)?.finished ?? false, scale);
+        const spine = spineOf(b, finishedIds.has(b.book.id), scale);
         const label = i === 0 || shelfLabel(b, order, now) !== shelfLabel(rest[i - 1]!, order, now) ? shelfLabel(b, order, now) : null;
         return { kind: "spine", book: b, spine, width: spine.width, gapAfter: gap, label };
       }),
     ];
     return { side, shelves: packShelves(items, avail), first: fresh[0] ?? rest[0] ?? null, avail };
-  }, [books, order, progress, fonts, width, scale, now]);
+  }, [books, order, finished, fonts, width, scale, now]);
 
   const [chosen, setChosen] = useState<string | null>(null);
   const active = (chosen && books.some((b) => b.book.id === chosen) ? chosen : layout?.first?.book.id) ?? null;

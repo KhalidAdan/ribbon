@@ -48,8 +48,10 @@ export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: {
   const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);
   const inSeries = useMemo(() => new Set(series.flatMap((g) => g.bookIds)), [series]);
   const standalone = useMemo(() => byShelf.filter((b) => !inSeries.has(b.book.id)), [byShelf, inSeries]);
-  // The books outside a series, in the order their tabs chose: newest first unless you chose otherwise.
-  const shelved = useMemo(() => orderShelf(standalone, state.shelf.order), [standalone, state.shelf.order]);
+  // The books outside a series, in the order their tabs chose: newest first unless you chose otherwise. Taken from the
+  // library, not from `standalone`, which is reordered every time a place is saved: the bookcase's order doesn't
+  // change while a book plays, so neither should the list it lays out.
+  const shelved = useMemo(() => orderShelf(state.books.filter((b) => !inSeries.has(b.book.id)), state.shelf.order), [state.books, inSeries, state.shelf.order]);
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
   // A book left out of one series but kept in another is still on the shelf.
   const hidden = useMemo(() => offTheShelf(series, state.series), [series, state.series]);
