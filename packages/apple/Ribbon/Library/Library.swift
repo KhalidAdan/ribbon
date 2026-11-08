@@ -116,11 +116,10 @@ final class Library {
         return found.sorted { (lastListened(in: $0), $1.name) > (lastListened(in: $1), $0.name) }
     }
 
-    /// Every book outside a series and on the shelf, most recently listened first, then by title.
-    var standalone: [ServerBook] {
-        let inSeries = Set(series.flatMap { $0.books.map(\.id) })
+    /// Every book on the shelf, for the bookcase: all but those a series leaves off it.
+    var shelved: [ServerBook] {
         let offShelf = Set(serverSeries?.flatMap { $0.books.filter { !$0.shelved }.map(\.id) } ?? [])
-        return books.filter { !inSeries.contains($0.id) && !offShelf.contains($0.id) }.sorted { (lastListened($0), $1.title) > (lastListened($1), $0.title) }
+        return books.filter { !offShelf.contains($0.id) }
     }
 
     /// Every series a book is in that the library groups, the one heard most recently first: a book can be in

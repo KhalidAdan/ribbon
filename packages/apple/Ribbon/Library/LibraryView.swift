@@ -2,12 +2,11 @@ import SwiftUI
 
 /// The library, as the desktop's (packages/desktop/src/ui/LibraryPane.tsx): what you're in
 /// the middle of, then each series as a card that knows where you are in it,
-/// then every book outside a series. Each card is one button, which opens the
-/// book's page, where play is. The focus starts on the book you were in the
-/// middle of.
+/// then the way into the bookcase, where every book stands. Each card is one
+/// button, which opens the book's page, where play is. The focus starts on the
+/// book you were in the middle of.
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.narrow) private var narrow
     @FocusState private var focused: String?
 
     var body: some View {
@@ -47,25 +46,15 @@ struct LibraryView: View {
                             .scrollClipDisabled()
                         }
                     }
-                    let standalone = library.standalone
-                    if !standalone.isEmpty {
-                        VStack(alignment: .leading, spacing: 32.scaled) {
-                            SectionHeader(
-                                title: series.isEmpty ? "All books" : "Books",
-                                description: series.isEmpty ? "\(standalone.count) \(standalone.count == 1 ? "book" : "books"), most recently listened first." : "\(standalone.count) \(standalone.count == 1 ? "book" : "books") outside a series."
-                            )
-                            // Two to a row on a phone.
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: BookCard.width(narrow).scaled, maximum: (BookCard.width(narrow) + 20).scaled), spacing: narrow ? 20 : 48.scaled, alignment: .top)], alignment: .leading, spacing: 64.scaled) {
-                                ForEach(standalone) { book in BookCard(book: book) }
-                            }
-                        }
-                    }
+                    // Then every book, on the bookcase: at the foot of the library, and a page of its own.
+                    if !library.shelved.isEmpty { BookcaseDoorway(library: library) }
                 } else {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
                 }
             }
             .screenEdges(horizontal: 96, vertical: 56)
         }
+        .modifier(PullsIntoTheBookcase())
         .background(Color.canvas.ignoresSafeArea())
         #if os(tvOS)
         .onExitCommand(perform: model.people.count > 1 ? { model.switchReader() } : nil)
@@ -80,6 +69,30 @@ struct LibraryView: View {
             // The cards arrive after the screen is up: the focus goes to the book you were in the middle of.
             if loaded == true, let first = model.library?.inProgress.first { focused = "continue-\(first.id)" }
         }
+    }
+}
+
+/// Scrolling on past the foot of the library carries on into the bookcase: pulled up well past the end, it opens.
+/// Where the system can't say how far the library is scrolled (before iOS 18) and on the TV, the doorway is pressed instead.
+private struct PullsIntoTheBookcase: ViewModifier {
+    @Environment(AppModel.self) private var model
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 18, *) {
+            content.onScrollGeometryChange(for: Bool.self) { g in
+                // Pulled further than a fling's bounce past where the library rests at its end, or at its top when it's shorter than the screen.
+                let end = max(-g.contentInsets.top, g.contentSize.height + g.contentInsets.bottom - g.containerSize.height)
+                return g.contentOffset.y - end > 110
+            } action: { _, pulled in
+                if pulled, model.path.isEmpty, model.library?.shelved.isEmpty == false { model.openBookcase() }
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 
@@ -257,47 +270,6 @@ private struct SeriesCard: View {
         }
         .buttonStyle(LiftStyle(radius: 20))
         .fillsNarrowRow(room: 24)
-    }
-}
-
-/// A book on the shelf: the cover, the title, the author, and how far along.
-private struct BookCard: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.narrow) private var narrow
-    let book: ServerBook
-
-    /// How wide a card is, at the TV's size: a little narrower on a phone, so two fit side by side.
-    static func width(_ narrow: Bool) -> CGFloat {
-        narrow ? 230 : 250
-    }
-
-    var body: some View {
-        let library = model.library
-        let progress = library?.progress(of: book)
-        VStack(alignment: .leading, spacing: 6.scaled) {
-            Button { model.open(book) } label: {
-                CoverView(book: book, size: Self.width(narrow))
-                    .overlay(alignment: .topTrailing) {
-                        if progress?.finished == true {
-                            Image(systemName: "checkmark").font(.system(size: 18.scaled, weight: .bold)).foregroundStyle(Color.ink)
-                                .frame(width: 36.scaled, height: 36.scaled).background(Circle().fill(Color.canvas.opacity(0.8))).padding(10.scaled)
-                        }
-                    }
-            }
-            #if os(tvOS)
-            .buttonStyle(.card)
-            #else
-            .buttonStyle(LiftStyle(radius: 6))
-            #endif
-            .padding(.bottom, 18.scaled)
-            Text(book.title).font(.ui(24, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
-            Text(book.author.isEmpty ? "Unknown author" : book.author).font(.ui(22)).foregroundStyle(Color.ink2).lineLimit(1)
-            Text(library?.standing(of: book) ?? "").font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().lineLimit(1)
-            if progress?.started == true && progress?.finished != true {
-                ProgressLine(fraction: library?.fraction(of: book) ?? 0).padding(.top, 8.scaled)
-            }
-        }
-        .frame(width: Self.width(narrow).scaled)
     }
 }
 

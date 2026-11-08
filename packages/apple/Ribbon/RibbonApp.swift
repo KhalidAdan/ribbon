@@ -11,6 +11,9 @@ import SwiftUI
 struct RibbonApp: App {
     @State private var model = AppModel()
     @Environment(\.scenePhase) private var phase
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(Turning.self) private var turning
+    #endif
 
     var body: some Scene {
         WindowGroup {
@@ -48,6 +51,7 @@ struct RibbonApp: App {
 /// listening?, the end of the book, and the passages while it's paused.
 private struct Screens: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.upright) private var upright
 
     var body: some View {
         @Bindable var model = model
@@ -63,6 +67,7 @@ private struct Screens: View {
                         case .search: SearchView().wayBack()
                         case .settings: SettingsView().wayBack()
                         case .stats: StatsView().wayBack()
+                        case .bookcase: BookcaseView().wayBack()
                         case .reader:
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
@@ -72,6 +77,16 @@ private struct Screens: View {
                     .toolbar(.hidden, for: .navigationBar)
                 }
         }
+        #if os(iOS)
+        // An iPhone turned on its side in the library: the bookcase, one long shelf, over it. Upright again, the library.
+        .overlay {
+            if Look.phone, !upright, model.path.isEmpty, model.library != nil { PhoneBookcase().transition(.opacity) }
+        }
+        .animation(.easeOut(duration: 0.25), value: upright)
+        // It may turn only in the library, where turning it is the way into the bookcase.
+        .onChange(of: model.path.isEmpty, initial: true) { _, inLibrary in Turning.allowSideways(inLibrary) }
+        .onDisappear { Turning.allowSideways(false) }
+        #endif
         .overlay(alignment: .bottom) {
             if let listening, listening.dozing.asked != nil {
                 StillListening().padding(.bottom, 72.scaled).transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -144,6 +159,7 @@ final class AppModel {
         case reader
         case settings
         case stats
+        case bookcase
     }
 
     struct Reading {
@@ -215,6 +231,7 @@ final class AppModel {
         case .search: return "Search"
         case .settings: return "Settings"
         case .stats: return "Stats"
+        case .bookcase: return "Bookcase"
         case .reader: return "Read along"
         }
     }
@@ -320,6 +337,15 @@ final class AppModel {
         } catch {
             signInAgain(server.account)
         }
+    }
+
+    /// The bookcase: a page of its own on the TV and the iPad. An iPhone shows it on its side, over the library, so there
+    /// the screen turns instead.
+    func openBookcase() {
+        #if os(iOS)
+        if Look.phone { return Turning.toBookcase() }
+        #endif
+        if path.last != .bookcase { path.append(.bookcase) }
     }
 
     /// A book's page. From another book's page, as from its series list, it takes that page's place.
