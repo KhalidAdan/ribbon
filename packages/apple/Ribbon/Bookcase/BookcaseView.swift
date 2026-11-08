@@ -85,7 +85,7 @@ private struct StackedBookcase: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4.scaled) {
             Text("Bookcase").font(.ui(30, weight: 600)).foregroundStyle(Color.ink)
-            Text("All \(bookcase.books.count) books, newest first.").font(.ui(22)).foregroundStyle(Color.ink2)
+            Text("All \(bookcase.count) books, newest first.").font(.ui(22)).foregroundStyle(Color.ink2)
         }
     }
 
@@ -168,7 +168,7 @@ private struct TurnThePhone: View {
                         .padding(.bottom, 10)
                         .accessibilityHidden(true)
                     Text("Turn your phone on its side").font(.ui(30, weight: 600)).foregroundStyle(Color.ink)
-                    Text("The bookcase is one long shelf: all \(bookcase.books.count) books, newest first.")
+                    Text("The bookcase is one long shelf: all \(bookcase.count) books, newest first.")
                         .font(.ui(24)).foregroundStyle(Color.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Turn the screen") { Turning.turnSideways() }

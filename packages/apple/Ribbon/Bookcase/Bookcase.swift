@@ -48,6 +48,9 @@ final class Bookcase {
     /// Every book on the library's shelf, with how far you are in it.
     var books: [ShelfBook] { library.shelfBooks }
 
+    /// How many books are on the shelf, without making each one: the page asks every time it's drawn.
+    var count: Int { library.shelved.count }
+
     /// Every book on the shelves, in order.
     var everything: [ShelfItem] { shelf?.items ?? rows.flatMap(\.items) }
 
