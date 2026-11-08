@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -7,6 +7,8 @@ import { openDatabase } from "../src/db.ts";
 import { BookIndex, type StoredBook } from "../src/library/books.ts";
 import { importFolder } from "../src/library/importer.ts";
 import { booksToPrepare, prepareBooks } from "../src/library/prepare.ts";
+import { servedBook } from "../src/library/chapters.ts";
+import { carriedAnalysis } from "../src/library/records.ts";
 import { nodeHost } from "@ribbon/host-node/node";
 import { epub, importAs, makeLibraries, mp3, serverWithAdmin } from "./fixture.ts";
 
@@ -81,6 +83,35 @@ describe("adding a folder", () => {
     expect(done).toMatchObject({ books: 1, done: 1, current: null });
     expect((JSON.parse(readFileSync(file, "utf8")) as StoredBook).analysis?.loudness).not.toBeNull();
     expect(await booksToPrepare(dataDir, server.books)).toEqual([]);
+  });
+
+  it("measures again a book measured as nothing, and gives devices no such reading meanwhile (#228)", async () => {
+    const dataDir = path.join(dir, "data");
+    const id = readdirSync(path.join(dataDir, "books"))[0]!;
+    const bookFolder = path.join(dataDir, "books", id);
+    const file = path.join(bookFolder, "book.json");
+    const read = () => JSON.parse(readFileSync(file, "utf8")) as StoredBook;
+    // As ffmpeg 5.1 left 107 books, refusing the scan: 0 LUFS and no silences.
+    writeFileSync(file, JSON.stringify({ ...read(), analysis: { loudness: { integratedLufs: 0, truePeakDbtp: null }, silence: [] } }));
+    expect(await booksToPrepare(dataDir, server.books)).toEqual([id]);
+    expect((await servedBook(bookFolder, read())).analysis).toBeUndefined();
+    await prepareBooks(nodeHost(), dataDir, [id], () => undefined);
+    const measured = read().analysis!;
+    expect(measured.loudness!.integratedLufs).toBeLessThan(0);
+    expect((await servedBook(bookFolder, read())).analysis).toEqual(measured);
+    expect(await booksToPrepare(dataDir, server.books)).toEqual([]);
+  });
+
+  it("doesn't carry in a device's copy of a reading that measured nothing (#228)", async () => {
+    const records = path.join(dir, "carried");
+    for (const [kind, rows] of [
+      ["loudness", "book_id,integrated_lufs,true_peak_dbtp,gain_db\nb1,0,,-12\n"],
+      ["silence", "book_id,file_index,start_ms,end_ms\n"],
+    ] as const) {
+      mkdirSync(path.join(records, kind), { recursive: true });
+      writeFileSync(path.join(records, kind, "b1.csv"), rows);
+    }
+    expect(await carriedAnalysis({ dir: records, id: "b1" })).toBeNull();
   });
 
   it("never adds the same book twice", async () => {

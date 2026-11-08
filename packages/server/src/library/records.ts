@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/prom
 import path from "node:path";
 import { bookId } from "@ribbon/core/bookid";
 import { bytesToRows, int, num, rowsToBytes, type Row } from "@ribbon/core/csv";
+import { nothingMeasured } from "@ribbon/core/loudness";
 import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, type Transcript } from "@ribbon/core/reading/narration";
 import { untranscribed } from "@ribbon/core/reading/transcript";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
@@ -207,10 +208,10 @@ export async function carriedAnalysis(found: FoundRecords): Promise<StoredAnalys
     const file = int(r.file_index);
     byFile.set(file, [...(byFile.get(file) ?? []), { startMs: int(r.start_ms), endMs: int(r.end_ms) }]);
   }
-  return {
-    loudness: { integratedLufs: num(l.integrated_lufs), truePeakDbtp: l.true_peak_dbtp ? num(l.true_peak_dbtp) : null },
-    silence: [...byFile].map(([file, ranges]) => ({ file, ranges })),
-  };
+  const measured = { integratedLufs: num(l.integrated_lufs), truePeakDbtp: l.true_peak_dbtp ? num(l.true_peak_dbtp) : null };
+  // A device's copy of a reading that measured nothing (#228): measured here instead.
+  if (nothingMeasured(measured)) return null;
+  return { loudness: measured, silence: [...byFile].map(([file, ranges]) => ({ file, ranges })) };
 }
 
 async function exists(p: string): Promise<boolean> {

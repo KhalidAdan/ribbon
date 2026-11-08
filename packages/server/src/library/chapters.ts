@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { bytesToRows, rowsToBytes, type Row } from "@ribbon/core/csv";
 import { applyCorrections, buildChapters, correctionsToRows, rowsToCorrections, CORRECTION_HEADERS, type Correction } from "@ribbon/core/scan/chapters";
+import { nothingMeasured } from "@ribbon/core/loudness";
 import type { Chapter } from "@ribbon/core/types";
 import type { StoredBook } from "./books.ts";
 
@@ -52,7 +53,10 @@ export function servedRecords(stored: StoredBook): string[] {
 /** The book as devices are given it (`GET /api/books/:id`): its chapters corrected, and every record they can fetch. */
 export async function servedBook(dir: string, stored: StoredBook): Promise<StoredBook> {
   const records = servedRecords(stored);
-  return { ...stored, chapters: chaptersWith(stored, await correctionsOf(dir, stored)), ...(records.length > 0 ? { records } : {}) };
+  const served: StoredBook = { ...stored, chapters: chaptersWith(stored, await correctionsOf(dir, stored)), ...(records.length > 0 ? { records } : {}) };
+  // A reading that measured nothing (#228) isn't given: devices play the book as it is until it's measured again.
+  if (nothingMeasured(served.analysis?.loudness)) delete served.analysis;
+  return served;
 }
 
 /** `records/corrections.csv` as devices are given it when the server named the chapters: the hand corrections, then the names (`correctionsOf`). Null otherwise: the file is sent as it is. */

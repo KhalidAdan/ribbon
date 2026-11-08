@@ -26,6 +26,15 @@ export interface Ebur128Fold {
   result(): LoudnessMeasurement | null;
 }
 
+/**
+ * Whether a reading is ebur128's starting value rather than a measurement: a
+ * filter that never ran still prints its summary, 0.0 LUFS (#228), and no
+ * recording is that loud. Such a reading is no measurement at all.
+ */
+export function nothingMeasured(m: LoudnessMeasurement | null | undefined): boolean {
+  return !!m && m.integratedLufs >= 0;
+}
+
 export function ebur128Fold(): Ebur128Fold {
   let integrated: string | null = null;
   let peak: string | null = null;
@@ -41,7 +50,8 @@ export function ebur128Fold(): Ebur128Fold {
       const lufs = integrated === "-inf" ? -70 : Number(integrated);
       if (!Number.isFinite(lufs)) return null;
       const truePeak = peak === null || peak === "-inf" ? null : Number(peak);
-      return { integratedLufs: lufs, truePeakDbtp: truePeak !== null && Number.isFinite(truePeak) ? truePeak : null };
+      const m = { integratedLufs: lufs, truePeakDbtp: truePeak !== null && Number.isFinite(truePeak) ? truePeak : null };
+      return nothingMeasured(m) ? null : m;
     },
   };
 }

@@ -7,9 +7,12 @@ import { lines } from "./lines";
 
 /**
  * One ffmpeg pass that measures loudness and finds silences together. The
- * loudness of each tenth of a second isn't printed (`framelog=quiet`): only
- * the summary is read, and for a long book those lines run to hundreds of
- * thousands, enough to make playback stutter while they're read.
+ * loudness of each tenth of a second is logged as verbose (`framelog=verbose`),
+ * below what ffmpeg prints by default: only the summary is read, and for a
+ * long book those lines run to hundreds of thousands, enough to make playback
+ * stutter while they're read. Not `quiet`, which ffmpeg 5.1 (the server's,
+ * Debian's) doesn't know: it refuses the whole filter graph, and the books it
+ * measured that way read 0 LUFS with no silences (#228).
  */
 export function analyzeArgs(inputPath: string, noiseDb = NOISE_DB, minGapMs = MIN_GAP_MS): string[] {
   return [
@@ -18,7 +21,7 @@ export function analyzeArgs(inputPath: string, noiseDb = NOISE_DB, minGapMs = MI
     "-i",
     inputPath,
     "-filter_complex",
-    `[0:a]silencedetect=noise=${noiseDb}dB:d=${(minGapMs / 1000).toFixed(2)},ebur128=peak=true:framelog=quiet`,
+    `[0:a]silencedetect=noise=${noiseDb}dB:d=${(minGapMs / 1000).toFixed(2)},ebur128=peak=true:framelog=verbose`,
     "-f",
     "null",
     "-",

@@ -5,6 +5,7 @@ import type { Problem } from "@ribbon/core/problems";
 import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import type { BookAbout } from "@ribbon/core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "@ribbon/core/sources";
+import { nothingMeasured } from "@ribbon/core/loudness";
 import { ServerClient, ServerError, type ServerJob } from "./server/client";
 import { NotEnoughSpace, ServerShelf, serverIdOf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
@@ -1875,6 +1876,8 @@ export class AppController {
 
   /** The server's measurements of a book, kept beside it here as if measured here. */
   private async keepMeasurements(o: Opened, bookId: string, analysis: NonNullable<ServerBookDetail["analysis"]>): Promise<{ gainDb: number | null; silence: Map<number, SilenceRange[]> }> {
+    // A server older than #228 hands over a reading that measured nothing, and silences found by nothing: neither is kept.
+    if (nothingMeasured(analysis.loudness)) return { gainDb: null, silence: new Map() };
     const gainDb = analysis.loudness ? await o.lib.writeLoudness(bookId, analysis.loudness) : null;
     const silence = new Map(analysis.silence.map((s) => [s.file, s.ranges]));
     await o.lib.writeSilence(bookId, silence);
