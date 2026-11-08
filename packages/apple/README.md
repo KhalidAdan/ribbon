@@ -410,7 +410,9 @@ xcrun devicectl device process launch --console --terminate-existing --device <d
 The report gives how long after opening each part appeared, the memory
 before, at rest and at its most (and how much of it is the graphics card's),
 what the shelves hold, the frame times while moving, and the longest stalls
-of the main thread. The device has to be unlocked and its screen on, and on
+of the main thread. On the TV and the iPad it also says where the main thread
+was while it stalled: the functions most often on its stack, the app's own as
+places for `atos -o measure/Build/Products/Release-appletvos/Ribbon.app/Ribbon -l 0x100000000`. The device has to be unlocked and its screen on, and on
 the Apple TV nothing else playing: the pass brings Ribbon to the front.
 Without `MEASURE`, none of it is in the app.
 

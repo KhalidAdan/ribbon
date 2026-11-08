@@ -157,6 +157,7 @@ final class SpeedPass: @unchecked Sendable {
 
     /// The first book of each shelf in turn, which brings each shelf into use: where a new 3D view is made, the hitch.
     @MainActor private func takeFromEachShelf(_ bookcase: Bookcase) async {
+        let sampler = StallSampler(heartbeat: { [weak self] in self?.lastTick ?? 0 })
         resetFrames()
         var hitches: [Double] = []
         for row in bookcase.rows.prefix(8) {
@@ -171,6 +172,7 @@ final class SpeedPass: @unchecked Sendable {
             report(what, "\(times.count) times, longest \(String(format: "%.0f", (times.max() ?? 0) * 1000)) ms, in all \(String(format: "%.0f", times.reduce(0, +) * 1000)) ms")
         }
         summarise("moving from shelf to shelf", frames: takeFrames())
+        report("where the main thread was in its stalls", sampler.stop())
         // A still drawn off screen now, against the view's own picture of the same shelf: they have to match, or a shelf
         // would change as it came into use.
         if let row = bookcase.rows.first(where: { $0.live && $0.view != nil }), let v = row.view {
@@ -288,6 +290,88 @@ final class SpeedPass: @unchecked Sendable {
     }
 
     static func megabytes(_ bytes: UInt64) -> String { String(format: "%.0f MB", Double(bytes) / 1_048_576) }
+}
+
+/// Where the main thread is while it's stalled: a thread of its own looks at the main thread's stack every 5 ms while
+/// the screen's heartbeat is late, and counts the functions it finds there, by name where the system can say and by
+/// place in the app otherwise (for `atos`). Made on the main thread. On a device only: the simulator takes no samples.
+private final class StallSampler: @unchecked Sendable {
+    private let main = mach_thread_self()
+    private let stackTop = UInt(bitPattern: pthread_get_stackaddr_np(pthread_self()))
+    private let stackSize = UInt(pthread_get_stacksize_np(pthread_self()))
+    private let heartbeat: () -> CFTimeInterval
+    private var running = true
+    private var counts: [String: Int] = [:]
+    private var stacks: [String: Int] = [:]
+    private var samples = 0
+    private let lock = NSLock()
+
+    init(heartbeat: @escaping () -> CFTimeInterval) {
+        self.heartbeat = heartbeat
+        let thread = Thread { [self] in loop() }
+        thread.qualityOfService = .userInteractive
+        thread.start()
+    }
+
+    func stop() -> String {
+        lock.lock(); running = false
+        let top = counts.sorted { $0.value > $1.value }.prefix(30), whole = stacks.sorted { $0.value > $1.value }.prefix(8), n = samples
+        lock.unlock()
+        return "\(n) samples\n" + top.map { "    \($0.value)  \($0.key)" }.joined(separator: "\n")
+            + "\n  the commonest stacks, innermost first:\n" + whole.map { "    \($0.value)x: \($0.key)" }.joined(separator: "\n")
+    }
+
+    private func loop() {
+        let frames = UnsafeMutablePointer<UInt>.allocate(capacity: 48)
+        while true {
+            lock.lock(); let go = running; lock.unlock()
+            guard go else { break }
+            usleep(2000)
+            let beat = heartbeat()
+            guard beat > 0, CACurrentMediaTime() - beat > 0.03 else { continue }
+            // Nothing that could take a lock while the main thread is stopped: it may hold it.
+            var count = 0
+            #if arch(arm64) && !targetEnvironment(simulator)
+            if thread_suspend(main) == KERN_SUCCESS {
+                var state = arm_thread_state64_t()
+                var size = mach_msg_type_number_t(MemoryLayout<arm_thread_state64_t>.size / MemoryLayout<UInt32>.size)
+                let got = withUnsafeMutablePointer(to: &state) {
+                    $0.withMemoryRebound(to: natural_t.self, capacity: Int(size)) { thread_get_state(main, ARM_THREAD_STATE64, $0, &size) }
+                }
+                if got == KERN_SUCCESS {
+                    frames[0] = UInt(state.__pc); frames[1] = UInt(state.__lr); count = 2
+                    var fp = UInt(state.__fp)
+                    while count < 48, fp >= stackTop - stackSize, fp + 16 <= stackTop, fp % 8 == 0 {
+                        let record = UnsafePointer<UInt>(bitPattern: fp)!
+                        frames[count] = record[1]; count += 1
+                        let next = record[0]
+                        guard next > fp else { break }
+                        fp = next
+                    }
+                }
+                thread_resume(main)
+            }
+            #endif
+            var seen = Set<String>(), names: [String] = []
+            for i in 0 ..< count {
+                // The signing bits off the top of a return address.
+                let address = frames[i] & 0x0000_000F_FFFF_FFFF
+                var info = Dl_info()
+                guard address > 0, dladdr(UnsafeRawPointer(bitPattern: address), &info) != 0 else { continue }
+                let image = info.dli_fname.map { String(cString: $0).split(separator: "/").last.map(String.init) ?? "" } ?? "?"
+                let name: String
+                if image == "Ribbon" || info.dli_sname == nil {
+                    name = "\(image)+0x\(String(address - UInt(bitPattern: info.dli_fbase), radix: 16))"
+                } else {
+                    name = "\(image) \(String(cString: info.dli_sname!))"
+                }
+                if names.count < 22 { names.append(name) }
+                if seen.insert(name).inserted { lock.lock(); counts[name, default: 0] += 1; lock.unlock() }
+            }
+            if count > 0 { lock.lock(); samples += 1; stacks[names.joined(separator: " < "), default: 0] += 1; lock.unlock() }
+        }
+        frames.deallocate()
+    }
 }
 
 private final class Tick: NSObject {
