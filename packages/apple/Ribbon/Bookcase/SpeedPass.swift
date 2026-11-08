@@ -28,7 +28,7 @@ import UIKit
 /// on its side), waits for the shelf, notes the memory, drags the whole long shelf (a phone) or takes a book from each shelf
 /// in turn (the TV and the iPad), notes the memory again, prints a report and quits.
 ///
-///     xcrun devicectl device process launch --console --terminate-existing --device <id> app.ribbon.tv -measure bookcase
+///     xcrun devicectl device process launch --console --terminate-existing --device <id> app.ribbon.tv -measure bookcase [-cold]
 final class SpeedPass: @unchecked Sendable {
     static let shared = SpeedPass()
 
@@ -62,6 +62,10 @@ final class SpeedPass: @unchecked Sendable {
 
     @MainActor func run(_ app: AppModel) async {
         guard Self.wanted else { return }
+        // `-cold`: as the first time ever, with no cover's colour kept from before.
+        if ProcessInfo.processInfo.arguments.contains("-cold"), let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            try? FileManager.default.removeItem(at: caches.appendingPathComponent("cover-colours.json"))
+        }
         while app.library?.books.isEmpty ?? true { try? await Task.sleep(for: .milliseconds(100)) }
         // The library on screen, settled: what the app holds before the bookcase.
         try? await Task.sleep(for: .seconds(3))
@@ -71,16 +75,15 @@ final class SpeedPass: @unchecked Sendable {
 
         opened = CACurrentMediaTime()
         app.openBookcase()
-        #if os(iOS)
-        if Look.phone {
-            try? await Task.sleep(for: .milliseconds(300))
-            Turning.turnSideways()
-        }
-        #endif
         while bookcase == nil { try? await Task.sleep(for: .milliseconds(50)) }
         guard let bookcase else { return }
+        var turned = CACurrentMediaTime()
         while !(bookcase.shelf?.ready ?? false) && !bookcase.rows.contains(where: { $0.still != nil }) {
             try? await Task.sleep(for: .milliseconds(50))
+            #if os(iOS)
+            // The phone on its side, as soon as the page lets it turn, and again until the shelf is on screen.
+            if Look.phone, bookcase.shelf?.view == nil, CACurrentMediaTime() - turned > 0.25 { Turning.turnSideways(); turned = CACurrentMediaTime() }
+            #endif
             if CACurrentMediaTime() - opened > 30 { report("shown", "not within 30 s"); break }
         }
         try? await Task.sleep(for: .seconds(1))
