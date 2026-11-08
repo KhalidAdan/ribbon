@@ -13,7 +13,7 @@ final class BookInHand {
     private var book: SCNNode?
     private var turn: DispatchWorkItem?
     private let queue = DispatchQueue(label: "app.ribbon.book-in-hand", qos: .userInitiated)
-    /// The books made lately, the newest last; a few are kept.
+    /// The books made lately, the newest last: the one in hand and the three made ahead of it.
     private var made: [String: SCNNode] = [:]
     private var order: [String] = []
     private var making: Set<String> = []
@@ -60,7 +60,7 @@ final class BookInHand {
                     self.made[it.id] = node
                     self.order.removeAll { $0 == it.id }
                     self.order.append(it.id)
-                    while self.order.count > 8 { self.made[self.order.removeFirst()] = nil }
+                    while self.order.count > 4 { self.made[self.order.removeFirst()] = nil }
                     if self.wanted == it.id { self.present(node) } else { self.view?.prepare([node], completionHandler: nil) }
                 }
             }
@@ -96,7 +96,8 @@ final class BookInHand {
         // Drawn at the screen's own density: the book in hand is about twice its size on the shelf.
         let W = it.w, H = it.h, D = (H * 0.68).rounded(), s = min(3, scale * 1.25)
         let front = picture(D, H, scale: s) { drawFront($0, D, H, b, cover: cover, cloth: it.cloth) }
-        let model = BookModel.make(T: W, H: H, D: D, look: spineDress(it, front: front, k: k, scale: s), paperback: b.paperback)
+        let look = spineDress(it, front: GraphicsCard.colour(front) ?? front, k: k, scale: s).look
+        let model = BookModel.make(T: W, H: H, D: D, look: look, paperback: b.paperback)
         // Turned about its own middle.
         let R = BookModel.roundness(W, paperback: b.paperback)
         model.position = SCNVector3(Float(-W / 2), Float(-H / 2), Float((D - R) / 2))

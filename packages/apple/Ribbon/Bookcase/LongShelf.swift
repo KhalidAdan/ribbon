@@ -123,14 +123,16 @@ final class LongShelf {
         build(scale: scale, front: front)
     }
 
-    /// Make every book off the main thread, a dozen at a time from the left, where the shelf opens. Each dozen goes on the
-    /// shelf, out of sight to the right of the screen, and its pictures go to the graphics card before the next is made.
+    /// Make every book off the main thread, a dozen at a time from the left, where the shelf opens, side by side on the
+    /// device's cores. Each dozen goes on the shelf, out of sight to the right of the screen, and is made ready to draw
+    /// before the next is made. Their spines are drawn side by side on a few large textures (SpineSheets).
     private func build(scale: CGFloat, front: CGFloat) {
         let batches = stride(from: 0, to: items.count, by: 12).map { Array(items[$0 ..< min(items.count, $0 + 12)]) }
+        let sheets = SpineSheets(items, scale: scale)
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             for batch in batches {
                 guard let self else { return }
-                let books = batch.map { standingBook($0, k: self.k, scale: scale, front: front) }
+                let books = standingBooks(batch, k: self.k, scale: scale, front: front, sheets: sheets)
                 let group = DispatchGroup()
                 group.enter()
                 DispatchQueue.main.async {

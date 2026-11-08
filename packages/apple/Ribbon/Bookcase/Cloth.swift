@@ -77,10 +77,10 @@ struct Cloth {
         return first
     }
 
-    /// The cloth for a cover, from its pixels (RGBA, a small sample of the picture): the cover's most characteristic
-    /// colour, not its commonest, which is the strongest hue that covers real area. Set a little deeper than print,
-    /// as cloth is, unless the cover itself is pale.
-    static func forCover(pixels px: [UInt8]) -> Cloth {
+    /// The colour a cover is bound in, from its pixels (RGBA, a small sample of the picture): its most characteristic
+    /// colour, not its commonest, which is the strongest hue that covers real area. Set a little deeper than print, as
+    /// cloth is, unless the cover itself is pale. Its cloth is the swatch nearest this colour.
+    static func coverColour(pixels px: [UInt8]) -> RGB {
         let buckets = 24, n = px.count / 4
         var weight = [Double](repeating: 0, count: buckets)
         var sums = [(Double, Double, Double)](repeating: (0, 0, 0), count: buckets)
@@ -98,7 +98,7 @@ struct Cloth {
         }
         let averageLightness = lightness / Double(max(1, n))
         // A cover with hardly any colour: the neutral cloth nearest its lightness.
-        if coloured < n / 12 { return nearest(RGB(h: 0.08, s: 0.06, l: averageLightness < 0.5 ? 0.2 : 0.82)) }
+        if coloured < n / 12 { return RGB(h: 0.08, s: 0.06, l: averageLightness < 0.5 ? 0.2 : 0.82) }
         func around(_ b: Int) -> Double { weight[(b + buckets - 1) % buckets] + weight[b] + weight[(b + 1) % buckets] }
         let best = (0 ..< buckets).max { around($0) < around($1) }!
         var total = (0.0, 0.0, 0.0), w = 0.0
@@ -107,7 +107,7 @@ struct Cloth {
             total.0 += sums[k].0; total.1 += sums[k].1; total.2 += sums[k].2; w += weight[k]
         }
         let (h, s, l) = RGB(r: Int(total.0 / w), g: Int(total.1 / w), b: Int(total.2 / w)).hsl
-        return nearest(RGB(h: h, s: s, l: l * (averageLightness > 0.55 ? 1 : 0.8)))
+        return RGB(h: h, s: s, l: l * (averageLightness > 0.55 ? 1 : 0.8))
     }
 
     /// The cloth for a book with no cover to read: a quiet colour of its own, the same on every device.

@@ -1,6 +1,7 @@
 import Foundation
 import QuartzCore
 #if MEASURE
+import SceneKit
 import SwiftUI
 import UIKit
 #endif
@@ -14,6 +15,15 @@ import UIKit
     #if MEASURE
     SpeedPass.shared.mark(moment)
     #endif
+}
+
+/// How long something on the main thread took, timed around it: "making a 3D view", "a shelf's still picture".
+@inline(__always) func measured<T>(_ what: String, _ work: () -> T) -> T {
+    #if MEASURE
+    let start = CACurrentMediaTime()
+    defer { SpeedPass.shared.took(what, CACurrentMediaTime() - start) }
+    #endif
+    return work()
 }
 
 /// A 3D view has drawn a frame. Called on SceneKit's drawing thread.
@@ -42,6 +52,7 @@ final class SpeedPass: @unchecked Sendable {
     private var ticker: CADisplayLink?
     private var peak: UInt64 = 0
     private var lines: [String] = []
+    private var spans: [String: [CFTimeInterval]] = [:]
 
     static var wanted: Bool { ProcessInfo.processInfo.arguments.contains("-measure") }
 
@@ -51,6 +62,10 @@ final class SpeedPass: @unchecked Sendable {
             guard self.opened > 0, !self.moments.contains(where: { $0.0 == moment }) else { return }
             self.moments.append((moment, now - self.opened))
         }
+    }
+
+    func took(_ what: String, _ seconds: CFTimeInterval) {
+        DispatchQueue.main.async { self.spans[what, default: []].append(seconds) }
     }
 
     func frame() {
@@ -70,7 +85,7 @@ final class SpeedPass: @unchecked Sendable {
         // The library on screen, settled: what the app holds before the bookcase.
         try? await Task.sleep(for: .seconds(3))
         report("books on the server", "\(app.library?.books.count ?? 0), \(app.library?.shelfBooks.count ?? 0) on the shelf")
-        report("memory, the library", Self.megabytes(Self.footprint()))
+        report("memory, the library", Self.megabytes(Self.footprint()) + ", of it graphics " + Self.megabytes(Self.graphics()))
         startWatchingTheMainThread()
 
         opened = CACurrentMediaTime()
@@ -90,7 +105,9 @@ final class SpeedPass: @unchecked Sendable {
         for (moment, at) in moments.sorted(by: { $0.1 < $1.1 }) { report(moment, String(format: "%.2f s", at)) }
         stalls = []
         try? await Task.sleep(for: .seconds(3))
-        report("memory, the bookcase at rest", Self.megabytes(Self.footprint()))
+        report("memory, the bookcase at rest", Self.megabytes(Self.footprint()) + ", of it graphics " + Self.megabytes(Self.graphics()))
+        report("what the shelves hold", Self.inventory([bookcase.shelf?.scene].compactMap { $0 } + bookcase.rows.map(\.scene)))
+        report("what the book in hand holds", Self.inventory([bookcase.hand.scene]))
 
         if let shelf = bookcase.shelf, let scroll = shelf.scroller {
             await drag(scroll, shelf: shelf)
@@ -150,7 +167,43 @@ final class SpeedPass: @unchecked Sendable {
             hitches.append(stalls.dropFirst(before).max() ?? 0)
         }
         report("moving to each shelf, the longest stall each time", hitches.map { String(format: "%.0f", $0 * 1000) }.joined(separator: ", ") + " ms")
+        for (what, times) in spans.sorted(by: { $0.key < $1.key }) {
+            report(what, "\(times.count) times, longest \(String(format: "%.0f", (times.max() ?? 0) * 1000)) ms, in all \(String(format: "%.0f", times.reduce(0, +) * 1000)) ms")
+        }
         summarise("moving from shelf to shelf", frames: takeFrames())
+        // A still drawn off screen now, against the view's own picture of the same shelf: they have to match, or a shelf
+        // would change as it came into use.
+        if let row = bookcase.rows.first(where: { $0.live && $0.view != nil }), let v = row.view {
+            let own = v.snapshot()
+            let offScreen = await withCheckedContinuation { done in
+                ShelfStills.draw(row.scene, camera: row.camera, size: CGSize(width: row.width, height: row.height), scale: v.contentScaleFactor) { done.resume(returning: $0) }
+            }
+            report("a still drawn off screen, against the view's own picture", Self.difference(own, offScreen))
+        }
+    }
+
+    /// How far apart two pictures are, pixel by pixel, in sRGB: the mean, the worst, and how many differ by more than 2 of 255.
+    static func difference(_ a: UIImage, _ b: UIImage?) -> String {
+        guard let a = a.cgImage, let b = b?.cgImage, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return "no picture" }
+        let w = a.width, h = a.height
+        func pixels(_ image: CGImage) -> [UInt8] {
+            var px = [UInt8](repeating: 0, count: w * h * 4)
+            px.withUnsafeMutableBytes { buffer in
+                CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            }
+            return px
+        }
+        let p = pixels(a), q = pixels(b)
+        var worst = 0, total = 0, over = 0
+        for i in 0 ..< w * h {
+            var d = 0
+            for c in 0 ..< 3 { d = max(d, abs(Int(p[i * 4 + c]) - Int(q[i * 4 + c]))) }
+            worst = max(worst, d); total += d
+            if d > 2 { over += 1 }
+        }
+        return String(format: "%dx%d against %dx%d: mean %.2f, worst %d, %.2f%% differ by more than 2", a.width, a.height, b.width, b.height,
+                      Double(total) / Double(w * h), worst, 100 * Double(over) / Double(w * h))
     }
 
     @MainActor private func summarise(_ what: String, frames times: [CFTimeInterval]) {
@@ -193,6 +246,45 @@ final class SpeedPass: @unchecked Sendable {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
         }
         return result == KERN_SUCCESS ? info.phys_footprint : 0
+    }
+
+    /// The part of the footprint that is the graphics card's: textures, the 3D views' pictures, shadows, buffers.
+    static func graphics() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return result == KERN_SUCCESS ? UInt64(max(0, info.ledger_tag_graphics_footprint)) : 0
+    }
+
+    /// What some scenes hold, each thing counted once however many books share it: their books' shapes, the pictures
+    /// given to the graphics card, and the pictures given as images (kept twice, as the image and as the card's copy).
+    @MainActor static func inventory(_ scenes: [SCNScene]) -> String {
+        var seen = Set<ObjectIdentifier>(), nodes = 0, shapes = 0, shapeBytes = 0
+        var cards = 0, cardBytes = 0, cardPixels = 0, images = 0, imageBytes = 0, lights = 0, shadowBytes = 0
+        for scene in scenes {
+            scene.rootNode.enumerateHierarchy { node, _ in
+                nodes += 1
+                if let l = node.light, l.castsShadow { lights += 1; shadowBytes += Int(l.shadowMapSize.width * l.shadowMapSize.height) * 4 }
+                guard let g = node.geometry, seen.insert(ObjectIdentifier(g)).inserted else { return }
+                shapes += 1
+                shapeBytes += g.sources.reduce(0) { $0 + $1.data.count } + g.elements.reduce(0) { $0 + $1.data.count }
+                for m in g.materials {
+                    for p in [m.diffuse, m.normal, m.roughness, m.metalness, m.multiply, m.emission, m.ambientOcclusion] {
+                        guard let c = p.contents.map({ $0 as AnyObject }), seen.insert(ObjectIdentifier(c)).inserted else { continue }
+                        if let t = c as? MTLTexture {
+                            cards += 1; cardBytes += t.allocatedSize
+                            let bytes = t.pixelFormat == .rg8Unorm ? 2 : 4
+                            cardPixels += t.width * t.height * bytes * (t.mipmapLevelCount > 1 ? 4 : 3) / 3
+                        }
+                        if let i = c as? UIImage, let cg = i.cgImage { images += 1; imageBytes += cg.bytesPerRow * cg.height }
+                    }
+                }
+            }
+        }
+        return "\(nodes) nodes; \(shapes) shapes \(megabytes(UInt64(shapeBytes))); \(cards) pictures on the card \(megabytes(UInt64(cardBytes))) (their pixels \(megabytes(UInt64(cardPixels)))); "
+            + "\(images) as images \(megabytes(UInt64(imageBytes))); \(lights) lamps with shadows \(megabytes(UInt64(shadowBytes)))"
     }
 
     static func megabytes(_ bytes: UInt64) -> String { String(format: "%.0f MB", Double(bytes) / 1_048_576) }

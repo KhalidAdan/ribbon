@@ -391,6 +391,29 @@ xcrun devicectl device install app --device <device> build/Build/Products/Releas
 The first time, trust the developer on the device (Settings → General → VPN &
 Device Management). A free Apple ID signs it for seven days.
 
+### Measuring the bookcase
+
+A measurement build times the bookcase on a real device and counts its memory
+(`Bookcase/SpeedPass.swift`). Build it with `MEASURE` set, then launch it with
+`-measure bookcase`: once the library is in, it opens the bookcase, turning a
+phone on its side, and waits for the shelf. Then it drags the long shelf from
+end to end on a phone, or takes a book from each shelf in turn on the TV and
+the iPad, prints a report and quits. Add `-cold` to forget every cover's
+colour first, as on the first launch.
+
+```bash
+xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -configuration Release -destination 'generic/platform=iOS' -derivedDataPath measure DEVELOPMENT_TEAM=<team> -allowProvisioningUpdates SWIFT_ACTIVE_COMPILATION_CONDITIONS=MEASURE build
+xcrun devicectl device install app --device <device> measure/Build/Products/Release-iphoneos/Ribbon.app
+xcrun devicectl device process launch --console --terminate-existing --device <device> app.ribbon.tv -- -measure bookcase
+```
+
+The report gives how long after opening each part appeared, the memory
+before, at rest and at its most (and how much of it is the graphics card's),
+what the shelves hold, the frame times while moving, and the longest stalls
+of the main thread. The device has to be unlocked and its screen on, and on
+the Apple TV nothing else playing: the pass brings Ribbon to the front.
+Without `MEASURE`, none of it is in the app.
+
 ## The contract with the server
 
 `RibbonTests/Contract/` holds the server's real answer to everything this app
