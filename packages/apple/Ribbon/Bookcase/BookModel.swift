@@ -8,10 +8,11 @@ import UIKit
 /// fore-edge a little hollow as a rounded spine makes it. Sizes in points: T thick (the spine's width), H tall, D deep
 /// (a cover's width). The spine faces +z; the back board's outer face is x = 0, the front board's x = T; it stands on y = 0.
 struct BookLook {
-    /// The spine's art, and its foil: what's metal, and how rough each part is.
-    var spine: UIImage
-    var spineMetal: UIImage?
-    var spineRough: UIImage?
+    /// The spine's art, on the graphics card (or as an image), and its foil: how metal each point is (red) and how rough (green).
+    var spine: Any
+    var spineFoil: MTLTexture?
+    /// Where on its texture the spine's art is, when it shares one with the rest of its shelf (SpineSheets).
+    var spinePlace: SCNMatrix4?
     /// The front cover: its art, or a colour.
     var front: Any
     var cloth: UIColor
@@ -148,9 +149,21 @@ enum BookModel {
             clothMat.normal.intensity = 0.12
             spineMat.normal.intensity = 0.12
         } else {
-            clothMat = material(look.cloth, rough: BookTextures.clothRough ?? 0.86 as NSNumber, normal: BookTextures.clothNormal, scale: weave, fibres: true)
-            spineMat = material(look.spine, rough: look.spineRough ?? 0.86 as NSNumber, metal: look.spineMetal ?? 0 as NSNumber, normal: BookTextures.clothNormal, scale: weave, fibres: true)
+            clothMat = material(look.cloth, rough: BookTextures.clothRough as Any? ?? 0.86 as NSNumber, normal: BookTextures.clothNormal, scale: weave, fibres: true)
+            spineMat = material(look.spine, rough: 0.86 as NSNumber, normal: BookTextures.clothNormal, scale: weave, fibres: true)
+            if let foil = look.spineFoil {
+                spineMat.metalness.contents = foil
+                spineMat.metalness.textureComponents = .red
+                // The roughness repeats at the weave's scale, as the scanned cloth's does, and has since the look was chosen:
+                // the lettering, tiny and many times over, is the faint check of the weave catching the lamp.
+                spineMat.roughness.contents = foil
+                spineMat.roughness.textureComponents = .green
+                spineMat.roughness.wrapS = .repeat
+                spineMat.roughness.wrapT = .repeat
+                spineMat.roughness.contentsTransform = SCNMatrix4MakeScale(weave.0, weave.1, 1)
+            }
         }
+        if let place = look.spinePlace { spineMat.diffuse.contentsTransform = place }
         // A printed cover is paper over the board: the cloth only just shows through it.
         let frontMat = material(look.front, rough: paperback ? 0.6 : 0.7, normal: BookTextures.clothNormal, scale: coverWeave)
         frontMat.normal.intensity = paperback ? 0.1 : 0.25
@@ -173,7 +186,7 @@ enum BookModel {
     }
 
     /// `fibres` lays the scanned cloth's own light and dark threads faintly over the colour.
-    static func material(_ diffuse: Any, rough: Any, metal: Any = 0 as NSNumber, normal: UIImage? = nil, scale: (Float, Float)? = nil, fibres: Bool = false) -> SCNMaterial {
+    static func material(_ diffuse: Any, rough: Any, metal: Any = 0 as NSNumber, normal: Any? = nil, scale: (Float, Float)? = nil, fibres: Bool = false) -> SCNMaterial {
         let m = SCNMaterial()
         m.lightingModel = .physicallyBased
         m.diffuse.contents = diffuse
@@ -182,7 +195,7 @@ enum BookModel {
         m.roughness.contents = rough
         m.metalness.contents = metal
         let tile = scale.map { SCNMatrix4MakeScale($0.0, $0.1, 1) } ?? SCNMatrix4Identity
-        if rough is UIImage { m.roughness.wrapS = .repeat; m.roughness.wrapT = .repeat; m.roughness.contentsTransform = tile }
+        if !(rough is NSNumber) { m.roughness.wrapS = .repeat; m.roughness.wrapT = .repeat; m.roughness.contentsTransform = tile }
         if let normal {
             m.normal.contents = normal
             m.normal.intensity = 0.7
@@ -301,9 +314,10 @@ enum BookTextures {
         Bundle.main.path(forResource: name, ofType: "jpg").flatMap(UIImage.init(contentsOfFile:))
     }
 
-    static let clothNormal = bundled("cloth-normal")
-    static let clothColour = bundled("cloth-colour")
-    static let clothRough = bundled("cloth-rough")
+    /// The scanned cloth, on the graphics card alone: as images, every one was kept twice, the image and the card's copy.
+    static let clothNormal = bundled("cloth-normal").flatMap(GraphicsCard.values)
+    static let clothColour = bundled("cloth-colour").flatMap(GraphicsCard.colour)
+    static let clothRough = bundled("cloth-rough").flatMap(GraphicsCard.values)
     /// The studio, in high dynamic range: decoded here, as SceneKit won't read an EXR from a file itself, and decoded at
     /// once, whole. Left to decode when first drawn, the shelves and the book in hand, each drawing on a thread of its
     /// own, sometimes read it at the same moment, and every scene went without its light for as long as the app ran.

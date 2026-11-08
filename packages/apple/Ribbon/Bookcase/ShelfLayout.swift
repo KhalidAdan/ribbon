@@ -40,9 +40,11 @@ func spineSize(_ b: ShelfBook, _ k: CGFloat) -> (CGFloat, CGFloat) {
     return (thickness(b, k).rounded(), (shelfHeight * k * height).rounded())
 }
 
-/// Newest first; books that came together by their authors' surnames.
+/// Newest first; books that came together by their authors' surnames. Each book's day and surname found once.
 func shelfOrder(_ books: [ShelfBook]) -> [ShelfBook] {
-    books.sorted { a, b in a.days != b.days ? a.days < b.days : surnameOf(a.author) < surnameOf(b.author) }
+    books.map { (book: $0, days: $0.days, surname: surnameOf($0.author)) }
+        .sorted { a, b in a.days != b.days ? a.days < b.days : a.surname < b.surname }
+        .map(\.book)
 }
 
 private let month: DateFormatter = {
@@ -58,13 +60,15 @@ private func shelfLabel(_ b: ShelfBook) -> String? {
     return b.days < 14 ? "Last two weeks" : month.string(from: added)
 }
 
-/// Every book spine-out, in the shelf's order, packed into shelves of a width. Made on any thread.
+/// Every book spine-out, in the shelf's order, packed into shelves of a width. Made on any thread; in a task that's been
+/// cancelled, for a size the page has left, it stops early, as what it has will be thrown away.
 func layoutCase(_ books: [ShelfBook], width caseWidth: CGFloat, k: CGFloat, cloths: [String: Cloth]) -> [[ShelfItem]] {
     let gap = max(1, (1.5 * k).rounded()), side = (12 * k).rounded(), room = caseWidth - 2 * side
     let ordered = shelfOrder(books)
     var shelves: [[ShelfItem]] = [[]]
     var x: CGFloat = 0
     for (i, b) in ordered.enumerated() {
+        if Task.isCancelled { break }
         let label = shelfLabel(b)
         var item = ShelfItem(book: b, spine: SpineLayout(b, k: k), label: i == 0 || label != shelfLabel(ordered[i - 1]) ? label : nil,
                              cloth: (b.coverHash.flatMap { cloths[$0] }) ?? Cloth.forBook(b.id))

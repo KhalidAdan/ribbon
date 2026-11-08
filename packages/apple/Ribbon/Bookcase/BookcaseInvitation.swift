@@ -105,6 +105,8 @@ struct BookcasePicture: View {
         guard let drawn, !Task.isCancelled else { return }
         Vignette.keep(drawn, as: key)
         withAnimation(.easeOut(duration: 0.4)) { picture = drawn }
+        // Then every other book's cloth, so the bookcase, if it's chosen, has them all.
+        _ = await CoverCloths.cloths(for: library.shelved, server: library.server)
     }
 
     private func fade(_ axis: Axis, _ edge: CGFloat) -> some View {

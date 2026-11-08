@@ -77,6 +77,9 @@ private struct Screens: View {
                     .toolbar(.hidden, for: .navigationBar)
                 }
         }
+        #if MEASURE
+        .task { await SpeedPass.shared.run(model) }
+        #endif
         #if os(iOS)
         // An iPhone may turn on its side only on the bookcase's page, where turning it shows the long shelf.
         .onChange(of: model.path.last == .bookcase, initial: true) { _, onBookcase in Turning.allowSideways(onBookcase) }

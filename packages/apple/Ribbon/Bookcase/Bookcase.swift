@@ -40,6 +40,9 @@ final class Bookcase {
         let width = 400
         #endif
         hand = BookInHand { hash in try? await server.cover(hash, width: width).cgImage }
+        #if MEASURE
+        SpeedPass.shared.watch(self)
+        #endif
     }
 
     /// Every book on the library's shelf, with how far you are in it.
@@ -54,7 +57,9 @@ final class Bookcase {
     }
 
     /// Lay the books out for a screen and build the shelves: stacked in a case `width` wide, or, with `long`, one long
-    /// shelf. The cloths come from the covers first, so every spine is drawn once, in its own colour.
+    /// shelf. The cloths come from the covers first, so every spine is drawn once, in its own colour. The laying out and
+    /// the making are done off the main thread, so the page answers meanwhile; a build for a size the page has since left
+    /// (the TV's page changes size once as it opens) stops between shelves, rather than taking the cores from the next.
     func build(width: CGFloat, k: CGFloat, scale: CGFloat, long: Bool) async {
         // The long shelf is as long as its books, whatever the screen's width, so a phone held upright can make it for its side.
         let key = long ? "long \(k)" : "\(Int(width)) \(k)"
@@ -63,15 +68,29 @@ final class Bookcase {
         let books = self.books
         let cloths = await CoverCloths.cloths(for: books.map(\.book), server: library.server)
         guard builtFor == key else { return }
+        measured("cloths from the covers")
         if long {
-            let line = layoutLine(books, k: k, cloths: cloths)
+            let line = await Task.detached(priority: .userInitiated) { layoutLine(books, k: k, cloths: cloths) }.value
+            guard builtFor == key else { return }
             rows = []
             shelf = LongShelf(items: line.items, width: line.width, k: k, scale: scale)
         } else {
-            let shelves = layoutCase(books, width: width, k: k, cloths: cloths)
+            let making = Task.detached(priority: .userInitiated) { () -> [ShelfRow]? in
+                let shelves = layoutCase(books, width: width, k: k, cloths: cloths)
+                let sheets = measured("planning the sheets") { SpineSheets(shelves.flatMap { $0 }, scale: scale) }
+                var made: [ShelfRow] = []
+                for (i, items) in shelves.enumerated() {
+                    if Task.isCancelled { return nil }
+                    made.append(ShelfRow(id: i, items: items, width: width, k: k, scale: scale, sheets: sheets))
+                }
+                return made
+            }
+            let built = await withTaskCancellationHandler { await making.value } onCancel: { making.cancel() }
+            guard let made = built, builtFor == key else { return }
             shelf = nil
-            rows = shelves.enumerated().map { ShelfRow(id: $0.offset, items: $0.element, width: width, k: k, scale: scale) }
+            rows = made
         }
+        measured("laid out")
         let keep = selected.flatMap { s in everything.first { $0.id == s.id } }
         selected = nil
         // The shelf opens at its start, on the newest book.
@@ -111,37 +130,67 @@ final class Bookcase {
     }
 }
 
-/// Each cover's cloth, worked out once from the server's smallest copy of the cover and kept while the app runs:
-/// the bookcase draws every spine in its own colour from the start, and the pictures themselves aren't kept.
+/// Each cover's cloth, worked out once from the server's smallest copy of the cover and kept, on this device, from one
+/// launch to the next: the bookcase draws every spine in its own colour from the start, and the pictures themselves aren't
+/// kept. A cover's hash names its picture, so a new cover is a new hash and is worked out again.
 @MainActor
 enum CoverCloths {
-    private static var known: [String: Cloth] = [:]
+    /// Each cover's own colour, by its hash; its cloth is the swatch nearest that.
+    private static var colours: [String: RGB] = load()
+    private static var known: [String: Cloth] = colours.mapValues(Cloth.nearest)
+    /// Covers being sampled now: a second ask waits for these rather than asking the server again.
+    private static var sampling: Task<Void, Never>?
 
     /// The cloths of these books' covers, fetching those not yet known, six at a time.
     static func cloths(for books: [ServerBook], server: RibbonServer) async -> [String: Cloth] {
-        var wanted = Set(books.compactMap { $0.cover?.hash }).subtracting(known.keys).makeIterator()
-        await withTaskGroup(of: (String, Cloth?).self) { group in
-            func next() {
-                guard let hash = wanted.next() else { return }
-                group.addTask { (hash, await sample(hash, server: server)) }
-            }
-            for _ in 0 ..< 6 { next() }
-            for await (hash, cloth) in group {
-                if let cloth { known[hash] = cloth }
-                next()
-            }
-        }
+        while let running = sampling { await running.value }
+        let wanted = Set(books.compactMap { $0.cover?.hash }).subtracting(known.keys)
+        guard !wanted.isEmpty else { return known }
+        let task = Task { await sample(wanted, server: server) }
+        sampling = task
+        await task.value
+        sampling = nil
+        save()
         return known
     }
 
-    /// A cover's cloth, from a 24 by 24 sample of it, as the desktop samples a cover for its colour.
-    private nonisolated static func sample(_ hash: String, server: RibbonServer) async -> Cloth? {
+    private static func sample(_ hashes: Set<String>, server: RibbonServer) async {
+        var wanted = hashes.makeIterator()
+        await withTaskGroup(of: (String, RGB?).self) { group in
+            func next() {
+                guard let hash = wanted.next() else { return }
+                group.addTask { (hash, await colour(hash, server: server)) }
+            }
+            for _ in 0 ..< 6 { next() }
+            for await (hash, colour) in group {
+                if let colour { colours[hash] = colour; known[hash] = Cloth.nearest(colour) }
+                next()
+            }
+        }
+    }
+
+    /// A cover's colour, from a 24 by 24 sample of it, as the desktop samples a cover for its colour.
+    private nonisolated static func colour(_ hash: String, server: RibbonServer) async -> RGB? {
         guard let cover = try? await server.cover(hash, width: 200).cgImage else { return nil }
         let n = 24
         var px = [UInt8](repeating: 0, count: n * n * 4)
         guard let ctx = CGContext(data: &px, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4, space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.draw(cover, in: CGRect(x: 0, y: 0, width: n, height: n))
-        return Cloth.forCover(pixels: px)
+        return Cloth.coverColour(pixels: px)
+    }
+
+    /// Kept with the app's caches, which the system may clear: then the covers are sampled again.
+    private static let file = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("cover-colours.json")
+
+    private static func load() -> [String: RGB] {
+        guard let file, let data = try? Data(contentsOf: file), let hex = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return hex.compactMapValues { UInt32($0, radix: 16).map(RGB.init) }
+    }
+
+    private static func save() {
+        guard let file else { return }
+        let hex = colours.mapValues { String(format: "%02x%02x%02x", $0.r, $0.g, $0.b) }
+        try? JSONEncoder().encode(hex).write(to: file, options: .atomic)
     }
 }
