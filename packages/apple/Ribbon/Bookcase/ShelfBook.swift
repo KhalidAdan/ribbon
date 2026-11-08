@@ -6,6 +6,13 @@ struct ShelfBook: Hashable {
     let book: ServerBook
     let fraction: Double
     let finished: Bool
+    /// When it came to the library, where the server says: read once, as the shelf's order asks for it many times over.
+    let added: Date?
+
+    init(book: ServerBook, fraction: Double, finished: Bool) {
+        self.book = book; self.fraction = fraction; self.finished = finished
+        added = book.addedAt.flatMap { Self.withFraction.date(from: $0) ?? Self.plain.date(from: $0) }
+    }
 
     var id: String { book.id }
     var title: String { book.title }
@@ -13,12 +20,6 @@ struct ShelfBook: Hashable {
     var hours: Double { Double(book.durationMs) / 3_600_000 }
     var textOnly: Bool { !book.audio }
     var coverHash: String? { book.cover?.hash }
-
-    /// When it came to the library, where the server says.
-    var added: Date? {
-        guard let at = book.addedAt else { return nil }
-        return Self.withFraction.date(from: at) ?? Self.plain.date(from: at)
-    }
 
     /// Whole days since it came, counted from now.
     var days: Int { added.map { max(0, Int(Date().timeIntervalSince($0) / 86_400)) } ?? .max }

@@ -36,7 +36,8 @@ enum GraphicsCard {
     /// A spine's foil, as one texture: how metal each point is (red) and how rough (green), both from one drawing of where
     /// the foil and lettering are. Lettering is stamped foil, metal 0.7 and smooth (0.36) against the cloth's 0.86, and an
     /// edge part covered by a letter is part metal: both follow from how much of each point the lettering covers.
-    static func foil(_ w: CGFloat, _ h: CGFloat, scale: CGFloat, _ draw: (CGContext) -> Void) -> MTLTexture? {
+    /// `copies`, if given, makes its smaller copies later, with others' (Copies).
+    static func foil(_ w: CGFloat, _ h: CGFloat, scale: CGFloat, copies: Copies? = nil, _ draw: (CGContext) -> Void) -> MTLTexture? {
         let pw = max(1, Int((w * scale).rounded(.up))), ph = max(1, Int((h * scale).rounded(.up)))
         guard let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: pw, space: CGColorSpaceCreateDeviceGray(),
                                   bitmapInfo: CGImageAlphaInfo.none.rawValue), let covered = ctx.data else { return nil }
@@ -53,22 +54,41 @@ enum GraphicsCard {
             pixels[2 * i] = UInt8((Self.metal * m + 127) / 255)
             pixels[2 * i + 1] = UInt8(Self.cloth + ((Self.lettering - Self.cloth) * m) / 255)
         }
-        return upload(pixels, width: pw, height: ph, bytesPerRow: pw * 2, as: .rg8Unorm)
+        return upload(pixels, width: pw, height: ph, bytesPerRow: pw * 2, as: .rg8Unorm, copies: copies)
     }
 
-    /// Pixels to the card, with the smaller copies SceneKit draws a texture with when it's small on the screen.
-    private static func upload(_ bytes: UnsafeRawPointer, width: Int, height: Int, bytesPerRow: Int, as format: MTLPixelFormat) -> MTLTexture? {
+    /// Pixels to the card, with the smaller copies SceneKit draws a texture with when it's small on the screen: made now,
+    /// or with `copies`, later.
+    private static func upload(_ bytes: UnsafeRawPointer, width: Int, height: Int, bytesPerRow: Int, as format: MTLPixelFormat, copies: Copies? = nil) -> MTLTexture? {
         let described = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format, width: width, height: height, mipmapped: true)
         described.usage = .shaderRead
         described.storageMode = .shared
         guard let texture = device.makeTexture(descriptor: described) else { return nil }
         texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: bytes, bytesPerRow: bytesPerRow)
-        guard let commands = queue.makeCommandBuffer(), let blit = commands.makeBlitCommandEncoder() else { return texture }
-        blit.generateMipmaps(for: texture)
-        blit.endEncoding()
-        commands.commit()
-        commands.waitUntilCompleted()
+        let later = copies ?? Copies()
+        later.add(texture)
+        if copies == nil { later.make() }
         return texture
+    }
+
+    /// Textures whose smaller copies the card makes together, in one go, before any of them is drawn. Each made alone, the
+    /// card had to be waited on a hundred times for a shelf, and on the Apple TV, busy drawing the screen, that took most
+    /// of a second. Safe from any thread.
+    final class Copies: @unchecked Sendable {
+        private var textures: [MTLTexture] = []
+        private let lock = NSLock()
+
+        func add(_ texture: MTLTexture) { lock.lock(); textures.append(texture); lock.unlock() }
+
+        /// Make them all, and wait until they're made.
+        func make() {
+            lock.lock(); let all = textures; textures = []; lock.unlock()
+            guard !all.isEmpty, let commands = queue.makeCommandBuffer(), let blit = commands.makeBlitCommandEncoder() else { return }
+            for texture in all { blit.generateMipmaps(for: texture) }
+            blit.endEncoding()
+            commands.commit()
+            measured("waiting for the card's smaller copies") { commands.waitUntilCompleted() }
+        }
     }
 
     /// The foil's metal, and the roughness of the cloth and of the lettering, as bytes.

@@ -25,15 +25,22 @@ struct SpineFace {
 private let titleSize: CGFloat = 12, smallestTitle: CGFloat = 7.5, authorTarget: CGFloat = 6.4
 
 private var widths: [String: CGFloat] = [:]
+/// Each face at 100 points, to measure with, made once: a font with its weight and its fallback is slow to make, and
+/// laying out a case measures thousands of runs of text (2.3 s on the Apple TV, each making its own).
+private var measuring: [String: UIFont] = [:]
 private let widthsLock = NSLock()
 
 /// How long a run of text is per point of type, tracking included. Safe from any thread.
 func measure(_ text: String, _ face: SpineFace) -> CGFloat {
-    let key = "\(face.serif)\(face.weight)|\(text)"
+    let named = "\(face.serif)\(face.weight)", key = "\(named)|\(text)"
     widthsLock.lock(); let cached = widths[key]; widthsLock.unlock()
     let w: CGFloat
     if let cached { w = cached } else {
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: face.font(100)]))
+        widthsLock.lock()
+        let font = measuring[named] ?? face.font(100)
+        measuring[named] = font
+        widthsLock.unlock()
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font]))
         w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) / 100
         widthsLock.lock(); widths[key] = w; widthsLock.unlock()
     }

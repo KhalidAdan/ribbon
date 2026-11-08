@@ -162,7 +162,7 @@ final class SpeedPass: @unchecked Sendable {
         for row in bookcase.rows.prefix(8) {
             guard let first = row.items.first else { continue }
             let before = stalls.count
-            bookcase.choose(first)
+            measured("choosing a book") { bookcase.choose(first) }
             try? await Task.sleep(for: .milliseconds(1200))
             hitches.append(stalls.dropFirst(before).max() ?? 0)
         }

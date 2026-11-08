@@ -10,6 +10,8 @@ final class ShelfRow: ObservableObject, Identifiable {
     let items: [ShelfItem]
     let width: CGFloat
     let k: CGFloat
+    /// The screen's pixels to a point.
+    private let scale: CGFloat
     let scene = SCNScene()
     let camera = SCNNode()
     /// Where the books' bottom edge sits, from the row's top, and the row's height, in points.
@@ -34,7 +36,7 @@ final class ShelfRow: ObservableObject, Identifiable {
 
     /// `sheets`, if given, holds the spines' art: those of every shelf in the case, planned together.
     init(id: Int, items: [ShelfItem], width W: CGFloat, k: CGFloat, scale: CGFloat, sheets: SpineSheets? = nil) {
-        self.id = id; self.items = items; self.width = W; self.k = k
+        self.id = id; self.items = items; self.width = W; self.k = k; self.scale = scale
         let a = shelfTilt * .pi / 180, ca = cos(a), sa = sin(a)
         tilt = a
         let pad = (16 * k).rounded(), shelfH = (shelfHeight * k).rounded(), boardH = (12 * k).rounded()
@@ -90,7 +92,7 @@ final class ShelfRow: ObservableObject, Identifiable {
             root.addChildNode(wall)
         }
 
-        for (it, book) in zip(items, standingBooks(items, k: k, scale: scale, front: front, sheets: sheets)) {
+        for (it, book) in zip(items, measured("making a shelf's books") { standingBooks(items, k: k, scale: scale, front: front, sheets: sheets) }) {
             flat[it.id] = book.spine
             root.addChildNode(book.node)
             pivots[it.id] = (book.pivot, book.pivot.position, book.depth)
@@ -112,9 +114,15 @@ final class ShelfRow: ObservableObject, Identifiable {
     }
 
     /// The 3D view has drawn its first frame: unless the shelf is in use, picture it at rest and let the view go.
+    /// On the Apple TV, picture it now even in use, as each still costs it the most later (pictureAtRest).
     func drawn(_ v: SCNView) {
         measured("first shelf in 3D")
-        if !active { pictureAtRest(scale: v.contentScaleFactor) }
+        #if os(tvOS)
+        if still == nil { still = v.snapshot() }
+        if !active { live = false }
+        #else
+        if !active { pictureAtRest(from: v) }
+        #endif
         // Once the flat shelf has faded out under the 3D one.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.flat = [:] }
     }
@@ -126,7 +134,7 @@ final class ShelfRow: ObservableObject, Identifiable {
         // Let the book settle back before the view goes; the still picture is of the shelf at rest.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self, !self.active else { return }
-            if self.still == nil { self.pictureAtRest(scale: self.view?.contentScaleFactor ?? 2) } else { self.live = false }
+            if self.still == nil { self.pictureAtRest(from: self.view) } else { self.live = false }
         }
     }
 
@@ -134,8 +142,15 @@ final class ShelfRow: ObservableObject, Identifiable {
     /// Taken from the view itself, on the main thread, it held up the screen for a twelfth of a second each time a shelf
     /// came into use. A book taken down from the shelf meanwhile would spoil it: then it's thrown away, and the shelf is
     /// pictured again when the book goes back.
-    private func pictureAtRest(scale: CGFloat) {
+    ///
+    /// Not on the Apple TV, whose graphics chip is busy drawing a 4K screen: there a still drawn beside the view took up
+    /// to 0.7 s and made the book coming off the shelf stutter, and one taken from the view held the screen 0.3 s. So the
+    /// TV pictures each shelf as soon as it's first drawn (drawn), while the page is still coming in, as it always has.
+    private func pictureAtRest(from view: SCNView?) {
         guard still == nil, !picturing else { return }
+        #if os(tvOS)
+        if let view { still = view.snapshot(); live = false; return }
+        #endif
         picturing = true
         let begun = uses
         ShelfStills.draw(scene, camera: camera, size: CGSize(width: width, height: height), scale: scale) { [weak self] image in
@@ -216,20 +231,22 @@ struct StandingBook {
 /// Books made side by side, one to each of the device's cores, in their order. Made on any thread.
 func standingBooks(_ items: [ShelfItem], k: CGFloat, scale: CGFloat, front: CGFloat, sheets: SpineSheets? = nil) -> [StandingBook] {
     var made = [StandingBook?](repeating: nil, count: items.count)
-    let lock = NSLock()
+    let lock = NSLock(), copies = GraphicsCard.Copies()
     DispatchQueue.concurrentPerform(iterations: items.count) { i in
-        let book = standingBook(items[i], k: k, scale: scale, front: front, sheets: sheets)
+        let book = standingBook(items[i], k: k, scale: scale, front: front, sheets: sheets, copies: copies)
         lock.lock(); made[i] = book; lock.unlock()
     }
+    copies.make()
     return made.map { $0! }
 }
 
 /// Made on any thread: it touches no scene. `front` is how far the shelf's board stands in front of the spines;
-/// `sheets`, if given, is where the shelf's spines are drawn.
-func standingBook(_ it: ShelfItem, k: CGFloat, scale: CGFloat, front: CGFloat, sheets: SpineSheets? = nil) -> StandingBook {
+/// `sheets`, if given, is where the shelf's spines are drawn, and `copies`, if given, makes its textures' smaller copies
+/// with the rest of the shelf's, and it isn't ready to draw until they're made.
+func standingBook(_ it: ShelfItem, k: CGFloat, scale: CGFloat, front: CGFloat, sheets: SpineSheets? = nil, copies: GraphicsCard.Copies? = nil) -> StandingBook {
     let b = it.book
     let d = min((it.h * 0.66).rounded(), (144 * k).rounded())
-    let dress = spineDress(it, front: it.cloth.ground.ui, k: k, scale: scale, sheets: sheets)
+    let dress = spineDress(it, front: it.cloth.ground.ui, k: k, scale: scale, sheets: sheets, copies: copies)
     let box = BookModel.make(T: it.w, H: it.h, D: d, look: dress.look, paperback: b.paperback)
     // The spine's crown at the shelf's front line, where the flat spine stood.
     box.position = SCNVector3(0, 0, Float(-BookModel.roundness(it.w, paperback: b.paperback)))
@@ -258,7 +275,7 @@ func standingBook(_ it: ShelfItem, k: CGFloat, scale: CGFloat, front: CGFloat, s
 /// A paperback's spine is printed, so it has no foil; a hardback's headband is in its foil's colour and cream.
 /// The art goes to the graphics card, onto the shelf's sheets if it has them, and `flat`, if wanted, is the same art as
 /// an image, for drawing the shelf flat.
-func spineDress(_ it: ShelfItem, front: Any, k: CGFloat, scale: CGFloat, sheets: SpineSheets? = nil) -> (look: BookLook, flat: UIImage) {
+func spineDress(_ it: ShelfItem, front: Any, k: CGFloat, scale: CGFloat, sheets: SpineSheets? = nil, copies: GraphicsCard.Copies? = nil) -> (look: BookLook, flat: UIImage) {
     let s = it.spine, p = it.cloth
     let art = picture(s.width, s.height, scale: scale) { s.draw($0, cloth: p, k: k) }
     let shared = sheets?.put(art, for: it.id)
@@ -266,7 +283,7 @@ func spineDress(_ it: ShelfItem, front: Any, k: CGFloat, scale: CGFloat, sheets:
     dress.spinePlace = shared?.place
     if !it.book.paperback {
         let white = RGB(0xffffff)
-        dress.spineFoil = GraphicsCard.foil(s.width, s.height, scale: max(1, scale / 2)) {
+        dress.spineFoil = GraphicsCard.foil(s.width, s.height, scale: max(1, scale / 2), copies: copies) {
             s.draw($0, cloth: Cloth(ground: RGB(0x000000), ink: white, foil: white), k: k, mask: true)
         }
     }
@@ -336,20 +353,31 @@ let shelfSmoothing = SCNAntialiasingMode.multisampling2X
 let shelfSmoothing = SCNAntialiasingMode.multisampling4X
 #endif
 
-/// The shelves' still pictures, drawn off screen as their views would draw them, one at a time.
+/// The shelves' still pictures, drawn off screen as their views would draw them, one at a time, by one renderer while
+/// there are pictures to draw: a renderer of its own for each spent most of its time readying the lamplight and every
+/// texture again, and on the Apple TV took 0.7 s a picture. It goes once the last is drawn, and its memory with it.
 enum ShelfStills {
     private static let queue = DispatchQueue(label: "app.ribbon.shelf-stills", qos: .userInitiated)
+    /// Touched only on the queue.
+    private static var renderer: SCNRenderer?
+    private static var waiting = 0
+    private static let counting = NSLock()
 
     /// A shelf's scene through its camera at a size in points, then `done` on the main thread with the picture.
     static func draw(_ scene: SCNScene, camera: SCNNode, size: CGSize, scale: CGFloat, done: @escaping (UIImage?) -> Void) {
+        counting.lock(); waiting += 1; counting.unlock()
         queue.async {
-            let renderer = SCNRenderer(device: GraphicsCard.device, options: nil)
-            renderer.scene = scene
-            renderer.pointOfView = camera
+            let drawing = renderer ?? SCNRenderer(device: GraphicsCard.device, options: nil)
+            renderer = drawing
+            drawing.scene = scene
+            drawing.pointOfView = camera
             let pixels = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
             let image = measured("a shelf's still picture, off the main thread") {
-                renderer.snapshot(atTime: 0, with: pixels, antialiasingMode: shelfSmoothing).cgImage
+                drawing.snapshot(atTime: 0, with: pixels, antialiasingMode: shelfSmoothing).cgImage
             }
+            drawing.scene = nil
+            counting.lock(); waiting -= 1; let last = waiting == 0; counting.unlock()
+            if last { renderer = nil }
             DispatchQueue.main.async { done(image.map { UIImage(cgImage: $0, scale: scale, orientation: .up) }) }
         }
     }

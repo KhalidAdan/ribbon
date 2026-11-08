@@ -58,7 +58,8 @@ final class Bookcase {
 
     /// Lay the books out for a screen and build the shelves: stacked in a case `width` wide, or, with `long`, one long
     /// shelf. The cloths come from the covers first, so every spine is drawn once, in its own colour. The laying out and
-    /// the making are done off the main thread, so the page answers meanwhile.
+    /// the making are done off the main thread, so the page answers meanwhile; a build for a size the page has since left
+    /// (the TV's page changes size once as it opens) stops between shelves, rather than taking the cores from the next.
     func build(width: CGFloat, k: CGFloat, scale: CGFloat, long: Bool) async {
         // The long shelf is as long as its books, whatever the screen's width, so a phone held upright can make it for its side.
         let key = long ? "long \(k)" : "\(Int(width)) \(k)"
@@ -74,12 +75,18 @@ final class Bookcase {
             rows = []
             shelf = LongShelf(items: line.items, width: line.width, k: k, scale: scale)
         } else {
-            let made = await Task.detached(priority: .userInitiated) {
+            let making = Task.detached(priority: .userInitiated) { () -> [ShelfRow]? in
                 let shelves = layoutCase(books, width: width, k: k, cloths: cloths)
-                let sheets = SpineSheets(shelves.flatMap { $0 }, scale: scale)
-                return shelves.enumerated().map { ShelfRow(id: $0.offset, items: $0.element, width: width, k: k, scale: scale, sheets: sheets) }
-            }.value
-            guard builtFor == key else { return }
+                let sheets = measured("planning the sheets") { SpineSheets(shelves.flatMap { $0 }, scale: scale) }
+                var made: [ShelfRow] = []
+                for (i, items) in shelves.enumerated() {
+                    if Task.isCancelled { return nil }
+                    made.append(ShelfRow(id: i, items: items, width: width, k: k, scale: scale, sheets: sheets))
+                }
+                return made
+            }
+            let built = await withTaskCancellationHandler { await making.value } onCancel: { making.cancel() }
+            guard let made = built, builtFor == key else { return }
             shelf = nil
             rows = made
         }
