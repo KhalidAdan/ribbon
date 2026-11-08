@@ -43,6 +43,11 @@
   --primary: #0a0a0a;
   --on-primary: #fafafa;
   --place: #d97706;
+  /* The bookcase (ui/bookcase.css): its back, its boards, the lettering on their edges, the bookend. */
+  --case-back: #ecebe7;
+  --board: #d3cfc7;
+  --board-ink: rgb(0 0 0 / 0.5);
+  --bookend: #8f8a80;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -58,6 +63,10 @@
     --primary: #ededed;
     --on-primary: #0a0a0a;
     --place: #f5a524;
+    --case-back: #121212;
+    --board: #262626;
+    --board-ink: rgb(255 255 255 / 0.5);
+    --bookend: #4d4d4d;
   }
 }
 
