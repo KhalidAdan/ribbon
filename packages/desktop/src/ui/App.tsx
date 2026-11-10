@@ -1,4 +1,4 @@
-import { Profiler, useEffect, useState } from "react";
+import { lazy, Profiler, Suspense, useEffect, useState } from "react";
 import { AppController } from "../app/controller";
 import { detectPlatform } from "../app/platform";
 import { attachTauriLog, log } from "../app/log";
@@ -26,6 +26,9 @@ import { Notices } from "./Notices";
 import { ReadingView } from "../reader/ReadingView";
 import { onRender, startPerf } from "../app/perf";
 import { preloadFaces } from "../reader/typeset";
+
+// The lamp-lit bookcase brings the 3D library with it, so it is fetched when the page is first opened, not at launch.
+const BookcasePage = lazy(() => import("./BookcasePage"));
 
 declare const __RIBBON_MEASURE__: boolean;
 
@@ -94,6 +97,7 @@ function Ready() {
     series: s.series,
     pane: s.pane,
     readerBookId: s.readerBookId,
+    readerFromBookcase: s.readerFromBookcase,
     seriesKey: s.seriesKey,
     problems: s.problems,
     playerExpanded: s.playerExpanded,
@@ -124,9 +128,13 @@ function Ready() {
       : state.pane === "stats"
         ? [{ label: "Stats" }]
       : reader
-        ? [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name, onClick: () => c.openSeries(series.key) }] : []), { label: series?.titles?.[reader.book.id] ?? reader.book.title }]
+        ? state.readerFromBookcase
+          ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: "Bookcase", onClick: () => c.openBookcase() }, { label: reader.book.title }]
+          : [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name, onClick: () => c.openSeries(series.key) }] : []), { label: series?.titles?.[reader.book.id] ?? reader.book.title }]
         : state.pane === "series"
           ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: series?.name ?? "Series" }]
+          : state.pane === "bookcase"
+            ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: "Bookcase" }]
           : [{ label: folders }];
   const onQuery = (q: string) => {
     setQuery(q);
@@ -168,6 +176,10 @@ function Ready() {
           <ReaderPage />
         ) : state.pane === "series" ? (
           <SeriesPage />
+        ) : state.pane === "bookcase" ? (
+          <Suspense fallback={<div className="lamplit h-full bg-canvas" />}>
+            <BookcasePage />
+          </Suspense>
         ) : (
           <LibraryPane query={query} onQuery={onQuery} found={found} lines={foundLines} count={matchCount} onSubmit={openFirst} />
         )}

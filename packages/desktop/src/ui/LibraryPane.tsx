@@ -18,20 +18,20 @@ import { EmptyState, Menu, ProgressLine, SectionHeader, SegmentedProgress } from
 import { Downloads } from "./Servers";
 import { describeFilter, useShelfFacts, ViewBar } from "./ShelfView";
 import { applyView, filterCount, SORT_LABELS } from "@ribbon/core/view";
-import { orderShelf } from "@ribbon/core/shelf";
 import { seriesStanding } from "./SeriesPage";
-import { Bookcase, shelfDescription, ShelfLookSwitch, ShelfOrderTabs } from "./Bookcase";
+import { BookcaseInvitation } from "./BookcaseInvitation";
 
 /**
  * The library: what you are in the middle of, then each series as a card
- * that knows where you are in it, then every book outside a series.
+ * that knows where you are in it, then the way into the bookcase, where
+ * every book stands (BookcaseInvitation).
  * A search replaces all of it with the matches, in rank order: the books
  * whose details have every word, then the lines in the books that have
  * them (`lines`, null while they're still being asked for).
  */
 export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null; lines: FoundLine[] | null; count: number | null; onSubmit: () => void }) {
   // Not the player's place: the shelf follows it by the minute (useShelfProgress).
-  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, shelf: s.shelf, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null, canAddFolders: s.canAddFolders }));
+  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null, canAddFolders: s.canAddFolders }));
   useCovers();
   const progress = useShelfProgress();
   const c = useController();
@@ -46,12 +46,6 @@ export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.books, state.positions, state.series]);
   const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);
-  const inSeries = useMemo(() => new Set(series.flatMap((g) => g.bookIds)), [series]);
-  const standalone = useMemo(() => byShelf.filter((b) => !inSeries.has(b.book.id)), [byShelf, inSeries]);
-  // The books outside a series, in the order their tabs chose: newest first unless you chose otherwise. Taken from the
-  // library, not from `standalone`, which is reordered every time a place is saved: the bookcase's order doesn't
-  // change while a book plays, so neither should the list it lays out.
-  const shelved = useMemo(() => orderShelf(state.books.filter((b) => !inSeries.has(b.book.id)), state.shelf.order), [state.books, inSeries, state.shelf.order]);
   const byId = useMemo(() => new Map(state.books.map((b) => [b.book.id, b])), [state.books]);
   // A book left out of one series but kept in another is still on the shelf.
   const hidden = useMemo(() => offTheShelf(series, state.series), [series, state.series]);
@@ -193,23 +187,7 @@ export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: {
               </section>
             )}
 
-            {standalone.length > 0 && (
-              <section aria-labelledby="books-title" className="flex flex-col gap-5">
-                <div className="flex flex-col gap-3">
-                  <SectionHeader id="books-title" title={series.length > 0 ? "Books" : "All books"} description={shelfDescription(standalone.length, series.length > 0, state.shelf)} actions={<ShelfLookSwitch />} />
-                  <ShelfOrderTabs />
-                </div>
-                {state.shelf.look === "spines" ? (
-                  <Bookcase books={shelved} order={state.shelf.order} />
-                ) : (
-                  <BookGrid>
-                    {shelved.map((b) => (
-                      <BookCard key={b.book.id} book={b} coverUrl={c.coverUrl(b)} progress={progressOf(b, progress, reading)} />
-                    ))}
-                  </BookGrid>
-                )}
-              </section>
-            )}
+            <BookcaseInvitation />
           </>
         )}
       </div>

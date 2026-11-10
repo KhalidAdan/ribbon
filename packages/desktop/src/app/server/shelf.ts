@@ -135,6 +135,18 @@ export class ServerShelf {
     return this.listed.filter((b) => !here.has(localIdOf(b))).map(filedBook);
   }
 
+  /**
+   * What the server knows of a book that its files here don't say: when it came to the library, how many words its
+   * EPUB has (null until the server has counted them), and the EPUB's size. The lamp-lit bookcase orders and sizes
+   * its books by these, so a book stands in the same place, as thick, on every device. Null for a book it doesn't list.
+   */
+  listedFacts(localId: string): { addedAt: number | null; words: number | null; ebookBytes: number | null } | null {
+    const listed = this.byLocalId.get(localId);
+    if (!listed) return null;
+    const added = Date.parse(listed.addedAt);
+    return { addedAt: Number.isFinite(added) ? added : null, words: listed.words ?? null, ebookBytes: listed.ebookBytes };
+  }
+
   /** Every listed book by its id here, with the edits the server keeps for it, if any, and the cover it's listed with. */
   listedEdits(): { localId: string; edited: SharedEdits | undefined; cover: ServerBook["cover"] }[] {
     return this.listed.map((b) => ({ localId: localIdOf(b), edited: b.edited, cover: b.cover }));

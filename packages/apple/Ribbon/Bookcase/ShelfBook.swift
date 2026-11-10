@@ -58,7 +58,8 @@ extension Library {
     }
 }
 
-/// FNV-1a over UTF-16, as the desktop's shelf hashes, so a book's height and binding are the same on every device.
+/// FNV-1a over UTF-16, as the desktop's bookcase hashes (`hashOf` in packages/core/src/bookcase/cloth.ts), so a book's
+/// height and binding are the same on every device.
 func stableHash(_ s: String) -> UInt32 {
     var h: UInt32 = 2_166_136_261
     for c in s.utf16 { h = (h ^ UInt32(c)) &* 16_777_619 }

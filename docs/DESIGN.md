@@ -29,10 +29,10 @@ greys.
   covers 4px. Never pills except play buttons, toggles and badges.
 - No shadows in dark mode. In light mode only floating things (menus,
   dialogs) get one, paired with a `line` ring, never a border.
-- The bookcase (`packages/desktop/src/ui/bookcase.css`) has four tokens
-  of its own beside these: `case-back` behind the shelves, `board` for
-  the shelves themselves, `board-ink` for the lettering on their edges,
-  and `bookend`.
+- The bookcase's page (`.lamplit` in `packages/desktop/src/index.css`)
+  is a room at night whatever the app's own light or dark: it takes the
+  dark tokens for itself, and its wood and lamps are the 3D scene's
+  (`packages/desktop/src/bookcase3d/lamplight.ts`).
 
 ## 2. Ink
 
@@ -70,9 +70,10 @@ greys.
 - Red only for something destructive that is about to happen.
 - A book's colour belongs to the book. A book's page may take a faint
   wash of its cover's colour behind the header, and on the bookcase each
-  spine is bound in its cover's hue (`spineColours` in
-  `packages/core/src/shelf.ts`). Those are the only decoration in the
-  app, and they are matte: flat colour, no shine, no shadows.
+  spine is bound in the cloth nearest its cover's colour (`nearestCloth`
+  in `packages/core/src/bookcase/cloth.ts`). Those are the only
+  decoration in the app, and they are matte: no gloss anywhere, and the
+  only shadows are the ones the bookcase's lamps cast.
 
 ## 5. Layout
 

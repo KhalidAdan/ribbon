@@ -1,0 +1,572 @@
+[
+ {
+  "book": {
+   "id": "proof-00",
+   "title": "Pride and Prejudice",
+   "author": "Jane Austen",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 122000,
+   "cover": null,
+   "addedAt": "2024-06-28T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-01",
+   "title": "Wuthering Heights",
+   "author": "Emily Brontë",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 107000,
+   "cover": null,
+   "addedAt": "2024-06-26T10:00:00Z"
+  },
+  "fraction": 0.4,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-02",
+   "title": "Moby-Dick: or, The Whale",
+   "author": "Herman Melville",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 209000,
+   "cover": null,
+   "addedAt": "2024-06-24T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-03",
+   "title": "Middlemarch",
+   "author": "George Eliot",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 316000,
+   "cover": null,
+   "addedAt": "2024-06-22T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": true
+ },
+ {
+  "book": {
+   "id": "proof-04",
+   "title": "The Hound of the Baskervilles",
+   "author": "Arthur Conan Doyle",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 59000,
+   "cover": null,
+   "addedAt": "2024-06-20T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-05",
+   "title": "Bleak House",
+   "author": "Charles Dickens",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 355000,
+   "cover": null,
+   "addedAt": "2024-06-18T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-06",
+   "title": "Dracula",
+   "author": "Bram Stoker",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 160000,
+   "cover": null,
+   "addedAt": "2024-06-16T10:00:00Z"
+  },
+  "fraction": 0.7,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-07",
+   "title": "2. Through the Looking-Glass",
+   "author": "Lewis Carroll",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 30000,
+   "cover": null,
+   "addedAt": "2024-06-14T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-08",
+   "title": "The Count of Monte Cristo",
+   "author": "Alexandre Dumas",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 464000,
+   "cover": null,
+   "addedAt": "2024-06-12T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-09",
+   "title": "Frankenstein",
+   "author": "Mary Shelley",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 75000,
+   "cover": null,
+   "addedAt": "2024-06-10T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": true
+ },
+ {
+  "book": {
+   "id": "proof-10",
+   "title": "The Moonstone",
+   "author": "Wilkie Collins",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 196000,
+   "cover": null,
+   "addedAt": "2024-06-08T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-11",
+   "title": "Heart of Darkness",
+   "author": "Joseph Conrad",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 38000,
+   "cover": null,
+   "addedAt": "2024-05-28T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-12",
+   "title": "Jane Eyre",
+   "author": "Charlotte Brontë",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 183000,
+   "cover": null,
+   "addedAt": "2024-05-26T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-13",
+   "title": "The Time Machine",
+   "author": "H. G. Wells",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 32000,
+   "cover": null,
+   "addedAt": "2024-05-24T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-14",
+   "title": "War and Peace",
+   "author": "Leo Tolstoy",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 561000,
+   "cover": null,
+   "addedAt": "2024-05-22T10:00:00Z"
+  },
+  "fraction": 0.1,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-15",
+   "title": "The Picture of Dorian Gray",
+   "author": "Oscar Wilde",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 78000,
+   "cover": null,
+   "addedAt": "2024-05-20T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-16",
+   "title": "Treasure Island",
+   "author": "Robert Louis Stevenson",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 67000,
+   "cover": null,
+   "addedAt": "2024-05-18T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-17",
+   "title": "Crime and Punishment",
+   "author": "Fyodor Dostoevsky",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 203000,
+   "cover": null,
+   "addedAt": "2024-05-16T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-18",
+   "title": "Emma",
+   "author": "Jane Austen",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 156000,
+   "cover": null,
+   "addedAt": "2024-05-14T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-19",
+   "title": "The Woman in White",
+   "author": "Wilkie Collins",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 245000,
+   "cover": null,
+   "addedAt": "2024-05-12T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-20",
+   "title": "Great Expectations",
+   "author": "Charles Dickens",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 184000,
+   "cover": null,
+   "addedAt": "2024-05-10T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": true
+ },
+ {
+  "book": {
+   "id": "proof-21",
+   "title": "Kidnapped: Book 2",
+   "author": "Robert Louis Stevenson",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 82000,
+   "cover": null,
+   "addedAt": "2024-04-08T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-22",
+   "title": "The Mill on the Floss",
+   "author": "George Eliot",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 207000,
+   "cover": null,
+   "addedAt": "2024-04-28T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-23",
+   "title": "A Study in Scarlet",
+   "author": "Arthur Conan Doyle",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 43000,
+   "cover": null,
+   "addedAt": "2024-04-26T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-24",
+   "title": "Persuasion",
+   "author": "Jane Austen",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 83000,
+   "cover": null,
+   "addedAt": "2024-04-24T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-25",
+   "title": "Les Misérables",
+   "author": "Victor Hugo",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 530000,
+   "cover": null,
+   "addedAt": "2024-04-22T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-26",
+   "title": "The Secret Agent",
+   "author": "Joseph Conrad",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 91000,
+   "cover": null,
+   "addedAt": "2024-04-20T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-27",
+   "title": "Vanity Fair",
+   "author": "William Makepeace Thackeray",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 296000,
+   "cover": null,
+   "addedAt": "2024-04-18T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-28",
+   "title": "Tess of the d'Urbervilles",
+   "author": "Thomas Hardy",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 150000,
+   "cover": null,
+   "addedAt": "2024-04-16T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ },
+ {
+  "book": {
+   "id": "proof-29",
+   "title": "The Odyssey",
+   "author": "Homer",
+   "narrator": "",
+   "series": "",
+   "seriesIndex": null,
+   "durationMs": 0,
+   "audio": false,
+   "ebook": true,
+   "ebookBytes": null,
+   "words": 120000,
+   "cover": null,
+   "addedAt": "2024-04-14T10:00:00Z"
+  },
+  "fraction": 0,
+  "finished": false
+ }
+]

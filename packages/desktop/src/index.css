@@ -43,11 +43,6 @@
   --primary: #0a0a0a;
   --on-primary: #fafafa;
   --place: #d97706;
-  /* The bookcase (ui/bookcase.css): its back, its boards, the lettering on their edges, the bookend. */
-  --case-back: #ecebe7;
-  --board: #d3cfc7;
-  --board-ink: rgb(0 0 0 / 0.5);
-  --bookend: #8f8a80;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -63,10 +58,6 @@
     --primary: #ededed;
     --on-primary: #0a0a0a;
     --place: #f5a524;
-    --case-back: #121212;
-    --board: #262626;
-    --board-ink: rgb(255 255 255 / 0.5);
-    --bookend: #4d4d4d;
   }
 }
 
@@ -98,6 +89,37 @@ body {
     outline: 2px solid var(--place);
     outline-offset: 2px;
   }
+}
+
+/*
+ * The lamp-lit bookcase (ui/BookcasePage.tsx) is a room at night whatever the app's own light or dark: its page takes
+ * the dark tokens for itself, so the lettering beside the shelves reads on the dark the lamps fall into.
+ */
+.lamplit {
+  color-scheme: dark;
+  --canvas: #0a0a0a;
+  --surface: #141414;
+  --raised: #1c1c1c;
+  --line: rgb(255 255 255 / 0.08);
+  --line-strong: rgb(255 255 255 / 0.14);
+  --ink: #ededed;
+  --ink-2: #a1a1a1;
+  --ink-3: #6e6e6e;
+  --primary: #ededed;
+  --on-primary: #0a0a0a;
+  --place: #f5a524;
+}
+
+/* The bookcase's edges dissolve into its page, so it reads as a pool of light and not a box pasted on. */
+@utility case-fade {
+  mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent), linear-gradient(to bottom, transparent, #000 3.5%, #000 96.5%, transparent);
+  mask-composite: intersect;
+}
+
+/* The invitation's picture of the bookcase (ui/BookcaseInvitation.tsx) dissolves into its card the same way. */
+@utility picture-fade {
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent), linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent);
+  mask-composite: intersect;
 }
 
 /* Thin scrollbars that sit on the canvas instead of fighting it. */

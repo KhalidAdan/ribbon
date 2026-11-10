@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>One shelf, many angles</title>
+    <style>
+      body { margin: 0; padding: 12px; background: #0a0a0a; color: #ededed; font: 14px/1.4 system-ui, sans-serif; }
+      h2 { margin: 18px 0 6px; font-size: 14px; font-weight: 600; }
+      .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .pair canvas, .pair img { display: block; width: 100%; height: auto; }
+      .names { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; color: #a3a3a3; position: sticky; top: 0; background: #0a0a0a; padding: 4px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="names"><span>The desktop app (three.js, WebGL)</span><span>The Apple app (SceneKit)</span></div>
+    <main id="views"></main>
+    <script type="module" src="./angles.ts"></script>
+  </body>
+</html>
