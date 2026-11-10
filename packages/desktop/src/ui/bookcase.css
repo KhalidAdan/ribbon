@@ -1,0 +1,255 @@
+/*
+ * The bookcase (Bookcase.tsx): matte and flat, like a printed illustration.
+ * No shine and no shadows; a hairline where one book meets the next. Every
+ * size scales with --k, the screen's scale, and a spine's words are set in
+ * the face core/shelf.ts measured them in (--face, --weight, --size, …), so
+ * what is drawn is what was fitted.
+ */
+
+.bookcase {
+  background: var(--case-back);
+  border-radius: calc(6px * var(--k));
+  padding-bottom: calc(12px * var(--k));
+  overflow: hidden;
+  /* Up and down scrolls the page; along a shelf, a finger chooses books. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.bookcase-shelf {
+  position: relative;
+  padding-top: calc(16px * var(--k));
+}
+
+.bookcase-books {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  height: var(--shelf);
+  padding-inline: var(--side);
+}
+
+.bookcase-board {
+  position: relative;
+  z-index: 1;
+  height: calc(12px * var(--k));
+  background: var(--board);
+}
+
+/* Where a run of books begins: a letter, a month, a length. */
+.bookcase-label {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  font: 600 calc(8px * var(--k)) / 1 var(--font-sans);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--board-ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The bookend between this week's books and the rest. */
+.bookcase-end {
+  position: relative;
+  flex-shrink: 0;
+  width: calc(14px * var(--k));
+  height: 56%;
+  margin-left: calc(6px * var(--k));
+}
+.bookcase-end::before,
+.bookcase-end::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  background: var(--bookend);
+}
+.bookcase-end::before {
+  width: calc(4px * var(--k));
+  height: 100%;
+}
+.bookcase-end::after {
+  width: 100%;
+  height: calc(3px * var(--k));
+}
+
+.spine,
+.bookcase-face {
+  position: relative;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.bookcase-face {
+  aspect-ratio: 1;
+}
+
+/* The book under the pointer, or chosen, slides up out of the shelf. */
+.bookcase-lift {
+  position: absolute;
+  inset: 0;
+  transition: transform 150ms ease-out;
+}
+.spine:hover .bookcase-lift,
+.spine[data-active] .bookcase-lift {
+  transform: translateY(calc(-10px * var(--k)));
+}
+.bookcase-face:hover .bookcase-lift,
+.bookcase-face[data-active] .bookcase-lift {
+  transform: translateY(calc(-6px * var(--k)));
+}
+@media (prefers-reduced-motion: reduce) {
+  .bookcase-lift,
+  .spine-body {
+    transition: none;
+  }
+}
+
+/* A shelf with room at its end lets its last book lean on the one before, resting on its lower left corner. */
+.spine-lean {
+  transform-origin: bottom left;
+  rotate: var(--lean);
+}
+
+/* The spine: its zones top to bottom, so decoration never crosses the words. */
+.spine-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--spine-ground);
+  color: var(--spine-ink);
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.22);
+  /* A cover's colour arrives after the shelf has drawn: it fades in. */
+  transition: background-color 200ms ease-out;
+}
+.spine-zone {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.spine-words {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Sideways, as a printed spine turns its words: every glyph rotated, apostrophes included. */
+.spine-title,
+.spine-author {
+  writing-mode: vertical-rl;
+  text-orientation: sideways;
+  white-space: nowrap;
+  text-align: center;
+  font-family: var(--face);
+  font-weight: var(--weight);
+  font-size: var(--size);
+  letter-spacing: var(--tracking);
+  line-height: var(--leading);
+}
+.spine-author {
+  opacity: 0.82;
+}
+
+/* A finished book wears a sticker, light on a dark spine and dark on a light one. */
+.spine-sticker {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fbfaf7;
+  color: #1a1a1a;
+}
+.spine-sticker-dark {
+  background: #1d1b18;
+  color: #fbfaf7;
+}
+.spine-sticker svg {
+  width: 70%;
+  height: 70%;
+  fill: currentColor;
+}
+
+/* Cloth: gilt rules at the head and foot. */
+.spine-cloth .spine-head::after,
+.spine-cloth .spine-foot::after {
+  content: "";
+  width: 100%;
+  height: calc(5px * var(--k));
+  border-block: max(1px, calc(1px * var(--k))) solid color-mix(in srgb, var(--spine-ink) 70%, transparent);
+}
+
+/* Leather: a band at the head and foot, and the title on a label. */
+.spine-leather .spine-head::after,
+.spine-leather .spine-foot::after {
+  content: "";
+  width: 100%;
+  height: calc(4px * var(--k));
+  border-block: max(1px, calc(1px * var(--k))) solid color-mix(in srgb, var(--spine-ink) 60%, transparent);
+}
+.spine-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--spine-ink);
+  color: var(--spine-ground);
+}
+
+/* Paperback: the cover's colour in bands at the head and foot, paper between. */
+.spine-paperback .spine-body {
+  background: var(--spine-paper);
+}
+.spine-paperback .spine-head,
+.spine-paperback .spine-foot {
+  background: var(--spine-ground);
+}
+.spine-paperback .spine-author {
+  opacity: 0.65;
+}
+
+/* Modern: a strong colour and a dot at the head (the sticker takes its place on a finished book). */
+.spine-modern:not(.spine-finished) .spine-head::after {
+  content: "";
+  width: 38%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--spine-ink);
+  opacity: 0.9;
+}
+
+/* Plain: a small diamond at the head and a rule at the foot. */
+.spine-plain .spine-head::after {
+  content: "";
+  width: calc(5px * var(--k));
+  height: calc(5px * var(--k));
+  background: currentColor;
+  rotate: 45deg;
+  opacity: 0.8;
+}
+.spine-plain .spine-foot::after {
+  content: "";
+  width: 46%;
+  height: max(1px, calc(1px * var(--k)));
+  background: currentColor;
+  opacity: 0.6;
+}
+
+/* Your place: the ribbon of a hardback, hanging over the shelf's edge. Amber is your place. */
+.spine-ribbon {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  z-index: 5;
+  width: calc(5px * var(--k));
+  height: calc(22px * var(--k));
+  margin-top: calc(-3px * var(--k));
+  translate: -50% 0;
+  background: var(--place);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%);
+}

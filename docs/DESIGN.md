@@ -29,6 +29,10 @@ greys.
   covers 4px. Never pills except play buttons, toggles and badges.
 - No shadows in dark mode. In light mode only floating things (menus,
   dialogs) get one, paired with a `line` ring, never a border.
+- The bookcase (`packages/desktop/src/ui/bookcase.css`) has four tokens
+  of its own beside these: `case-back` behind the shelves, `board` for
+  the shelves themselves, `board-ink` for the lettering on their edges,
+  and `bookend`.
 
 ## 2. Ink
 
@@ -58,13 +62,17 @@ greys.
 
 - **Amber is your place.** The ribbon in a hardback marks where you are;
   amber does the same: the played part of a scrubber, a progress
-  hairline, the current chapter's tick, the focus ring. Nothing else is
-  amber.
+  hairline, the current chapter's tick, the focus ring, and the ribbon
+  hanging from a book you're in the middle of on the bookcase. Nothing
+  else is amber.
 - **The primary action is inverted ink**: white on black in dark, black
   on white in light. One per screen (play, Save, Continue).
 - Red only for something destructive that is about to happen.
-- A book's page may take a faint wash of its cover's colour behind the
-  header. That is the only decoration in the app.
+- A book's colour belongs to the book. A book's page may take a faint
+  wash of its cover's colour behind the header, and on the bookcase each
+  spine is bound in its cover's hue (`spineColours` in
+  `packages/core/src/shelf.ts`). Those are the only decoration in the
+  app, and they are matte: flat colour, no shine, no shadows.
 
 ## 5. Layout
 
