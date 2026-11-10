@@ -74,6 +74,7 @@ order:
 | `packages/host-node/` | `@ribbon/host-node`: the `Host` on Node, for the server, the tests and the tools. The app's own hosts are in `packages/desktop/src/host/`. |
 | `packages/desktop/src/app/controller.ts` | `AppController`: the app's state and every action; its doc comment is the map. |
 | `packages/desktop/src/reader/` | The reader: layout in a worker (`layout-engine.ts`), pages, scroll, swipes, snapshots. |
+| `packages/desktop/src/bookcase3d/` | The lamp-lit bookcase in 3D (three.js), made to match the Apple app's: `lamplit-case.ts` is the map, and `packages/desktop/tools/shelf-proof` sets the two side by side. |
 | `packages/desktop/src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
 | `packages/desktop/src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
 | `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), a book's audio for Apple's webview (`audio.rs`), the Ribbon folder (`home.rs`). |

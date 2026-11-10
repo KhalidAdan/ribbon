@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>One shelf, two renderers</title>
+    <style>
+      body { margin: 0; background: #0a0a0a; color: #ededed; font: 13px/1.4 system-ui, sans-serif; }
+      figure { margin: 0 0 14px; }
+      figcaption { padding: 6px 12px; color: #a3a3a3; }
+      canvas, img { display: block; }
+    </style>
+  </head>
+  <body>
+    <figure><figcaption>The desktop app (three.js, WebGL)</figcaption><canvas id="web"></canvas></figure>
+    <figure><figcaption>The Apple app (SceneKit)</figcaption><img id="apple" src="./ref/scenekit-shelf.jpg" /></figure>
+    <script type="module" src="./proof.ts"></script>
+  </body>
+</html>

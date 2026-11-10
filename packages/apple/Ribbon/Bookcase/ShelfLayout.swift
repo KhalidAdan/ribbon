@@ -1,7 +1,8 @@
 import UIKit
 
-// The bookcase's rules, as the desktop's 2D bookcase has them: every book spine-out, newest first under a label on
-// the shelf's edge where each month begins, spines as thick as the books are long, titles fitted and never cut.
+// The bookcase's rules, as the desktop's bookcase has them (packages/core/src/bookcase/case.ts): every book
+// spine-out, newest first under a label on the shelf's edge where each month begins, spines as thick as the books
+// are long, titles fitted and never cut.
 // Sizes are in points at k = 1, the desktop's size; k scales them for each screen.
 
 /// A shelf's height, from the board to the shelf above.

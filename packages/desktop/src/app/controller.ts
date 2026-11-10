@@ -18,7 +18,6 @@ import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
 import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
-import { DEFAULT_SHELF, parseShelf, type ShelfChoice } from "@ribbon/core/shelf";
 import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 import { finishedByRead, openRead } from "@ribbon/core/stats";
 import { goalToday, GoalWatch, newerGoal, NO_GOAL, type DailyGoal } from "@ribbon/core/goal";
@@ -251,9 +250,11 @@ export interface AppState {
   coverVersion: number;
   error: string | null;
   /** What fills the window above the player bar. */
-  pane: "library" | "settings" | "reader" | "stats" | "series";
+  pane: "library" | "settings" | "reader" | "stats" | "series" | "bookcase";
   /** The book the reader page shows. */
   readerBookId: string | null;
+  /** The book's page was opened from the bookcase, so the way back from it leads there. */
+  readerFromBookcase: boolean;
   /** The series the series page shows, by key. */
   seriesKey: string | null;
   /** The full player is open over everything. */
@@ -264,8 +265,6 @@ export interface AppState {
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
   view: LibraryView;
-  /** The order of the books outside a series, and whether they stand as spines or covers; remembered between sessions. */
-  shelf: ShelfChoice;
   /** Listen-throughs, listening sessions and time spent reading, from every device's log. */
   history: { reads: ReadRecord[]; sessions: SessionRecord[]; readings: ReadingRecord[]; recording: boolean };
   /** A book that has just played to its end, while its card shows (ui/TheEnd.tsx), by id. */
@@ -552,12 +551,12 @@ export class AppController {
       error: null,
       pane: "library",
       readerBookId: null,
+      readerFromBookcase: false,
       seriesKey: null,
       playerExpanded: false,
       playerDrawer: null,
       editBook: null,
       view: DEFAULT_VIEW,
-      shelf: DEFAULT_SHELF,
       history: { reads: [], sessions: [], readings: [], recording: true },
       theEnd: null,
       goal: NO_GOAL,
@@ -709,7 +708,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), shelf: parseShelf(this.appSettings.bookcase), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
       perf.setLogging(this.appSettings.perfLog === true);
       // Ribbon's model was whisper base until it was small (#152): one downloaded then is replaced, once, in the background,
       // where it hears (not a phone).
@@ -1015,13 +1014,6 @@ export class AppController {
   setView(view: LibraryView): void {
     this.set({ view });
     this.appSettings = { ...this.appSettings, libraryView: view };
-    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
-  }
-
-  /** Order the books outside a series, or stand them as spines or covers, and remember it for next time. */
-  setShelf(shelf: ShelfChoice): void {
-    this.set({ shelf });
-    this.appSettings = { ...this.appSettings, bookcase: shelf };
     void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
   }
 
@@ -3004,7 +2996,7 @@ export class AppController {
 
   /** Show a book's page, with its series along the side when it has one. */
   openReader(bookId: string): void {
-    this.set({ pane: "reader", readerBookId: bookId, playerExpanded: false });
+    this.set({ pane: "reader", readerBookId: bookId, readerFromBookcase: this.state.pane === "bookcase" || (this.state.pane === "reader" && this.state.readerFromBookcase), playerExpanded: false });
     this.maybeNudgeSpeech(bookId);
   }
 
@@ -3911,6 +3903,16 @@ export class AppController {
     const all = this.detectedSeries().filter((g) => g.bookIds.includes(bookId));
     const opened = all.findIndex((g) => g.key === this.state.seriesKey);
     return opened > 0 ? [all[opened]!, ...all.slice(0, opened), ...all.slice(opened + 1)] : all;
+  }
+
+  /** Show the bookcase: every book on the shelf standing spine-out under the lamp (ui/BookcasePage.tsx). */
+  openBookcase(): void {
+    this.set({ pane: "bookcase", playerExpanded: false });
+  }
+
+  /** What a server knows of one of its books that the files here don't say: when it came, and how long its text is. Null for a book from a folder. */
+  listedFacts(book: ScannedBook): { addedAt: number | null; words: number | null; ebookBytes: number | null } | null {
+    return this.openedOf(book)?.server?.listedFacts(book.book.id) ?? null;
   }
 
   /** Show a series' page: its books in order, and how far you are through it. */

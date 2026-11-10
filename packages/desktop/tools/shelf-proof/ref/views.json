@@ -1,0 +1,9 @@
+[
+  { "name": "from-the-right", "says": "The left end of the shelf, seen from the right", "target": [190, 95, 0], "distance": 430, "yaw": 35, "pitch": 8, "fov": 30 },
+  { "name": "from-the-left", "says": "The same books, seen from the left", "target": [190, 95, 0], "distance": 430, "yaw": -35, "pitch": 8, "fov": 30 },
+  { "name": "from-above", "says": "Looking down on the tops and the pages", "target": [480, 95, 0], "distance": 460, "yaw": 15, "pitch": 35, "fov": 30 },
+  { "name": "close-on-spines", "says": "Close on the cloth and the lettering", "target": [330, 110, 0], "distance": 240, "yaw": 0, "pitch": 6, "fov": 30 },
+  { "name": "low-and-close", "says": "Low, along the shelf's edge", "target": [700, 60, 0], "distance": 300, "yaw": -25, "pitch": 2, "fov": 30 },
+  { "name": "pulled-out", "says": "Bleak House tipped and pulled out, from the right", "target": [264, 95, 20], "distance": 380, "yaw": 40, "pitch": 12, "fov": 30, "lift": "proof-05" },
+  { "name": "pulled-out-left", "says": "Bleak House pulled out, from the left", "target": [264, 95, 20], "distance": 380, "yaw": -40, "pitch": 12, "fov": 30, "lift": "proof-05" }
+]
