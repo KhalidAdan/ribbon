@@ -1,7 +1,7 @@
-import { CanvasTexture, Group, PerspectiveCamera, Scene, SRGBColorSpace } from "three";
+import { CanvasTexture, Group, PerspectiveCamera, Scene, SRGBColorSpace, type WebGLRenderer } from "three";
 import { CASE_SHELF_HEIGHT, SPINE_FACES, type CaseItem, type SpineFace } from "@ribbon/core/bookcase/case";
-import { hexOf, type Cloth } from "@ribbon/core/bookcase/cloth";
-import { makeBook, roundness } from "./book-model";
+import { CREAM, hexOf, type Cloth } from "@ribbon/core/bookcase/cloth";
+import { makeBook, roundness, type BookLook } from "./book-model";
 import { letGo, lightInHand, type Develop } from "./lamplight";
 import { spineDress, swallowtail } from "./shelf-row";
 import { baselineAbout, drawRun, measureRun } from "./spine-art";
@@ -24,9 +24,33 @@ export class BookInHand {
   /** How far round it is now, and the turn to its cover it is in the middle of. */
   private yaw = 0;
   private turning: { start: number; from: number } | null = null;
+  /**
+   * A hardback and a paperback that are never drawn, kept so the shader programs every book in hand is drawn with stay
+   * compiled. Three.js lets a program go once no material uses it, so without them each book put down took its
+   * programs with it, and the next was compiled afresh in the frame it was taken down: on Windows, where WebGL runs on
+   * Direct3D and compiling is slow, half a second the first time and a tenth of a second every time after.
+   */
+  private readonly standIns = new Group();
 
   constructor(private readonly textures: BookTextures, develop: Develop) {
     lightInHand(this.scene, textures.studio, develop);
+  }
+
+  /**
+   * Compile the programs every book in hand is drawn with, before any is taken down: with the stand-ins, under this
+   * scene's lights. The browser compiles them alongside the page where it can (KHR_parallel_shader_compile).
+   */
+  prepare(renderer: WebGLRenderer): Promise<unknown> {
+    // The stand-ins wear plain pictures: what a program is depends on which pictures a book wears, not what is on them.
+    const plain = new CanvasTexture(canvasOf(1, 1).canvas);
+    for (const paperback of [false, true]) {
+      const look: BookLook = { spine: plain, front: plain, cloth: CREAM, headband: [CREAM, CREAM] };
+      if (!paperback) look.spineFoil = plain;
+      this.standIns.add(makeBook(30, 200, 136, look, this.textures, paperback));
+    }
+    // And the ribbon of your place.
+    this.standIns.add(swallowtail(5, 30));
+    return renderer.compileAsync(this.standIns, this.camera, this.scene);
   }
 
   /** The book now in hand, by its id. */
@@ -54,6 +78,12 @@ export class BookInHand {
     letGo(this.book);
     this.book = null;
     this.shown = null;
+  }
+
+  /** Put everything down for good, the stand-ins too. */
+  dispose(): void {
+    this.clear();
+    letGo(this.standIns);
   }
 
   /** Turn the book to where it should be at this time. True while it is still turning, so it needs drawing again. */
