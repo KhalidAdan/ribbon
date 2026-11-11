@@ -33,10 +33,10 @@ export interface SeriesBookChange {
 /**
  * The library's series: rows of the database, the same for every device
  * and every person, rather than something each device works out from tags
- * (docs/SERVER.md, section 7). The server finds them as books arrive, by the
- * rules the desktop has always used (packages/core/src/series.ts): a series tag,
- * else a series named in the titles ("…, Book 7"). After that a series is
- * what people make of it: renamed, reordered, numbered, books brought in or
+ * (docs/SERVER.md, section 7). The server finds one as books arrive only
+ * where their files name it, by a series tag (packages/core/src/series.ts);
+ * it never guesses one from titles. After that a series is what people make
+ * of it: renamed, reordered, numbered, books brought in or
  * taken out or left off the shelf, or deleted; finding series again never
  * undoes any of that. A book can be in any number of series: a reading list
  * made by hand takes nothing from the series its books came from.
@@ -205,10 +205,10 @@ function member(row: Record<string, SQLOutputValue>): SeriesBook {
 }
 
 /**
- * A book as series are found from it: its series tag and its title. The
- * server doesn't keep the folder a book came from, so a number with no
- * series named says nothing, and the title stands in for the folder when
- * books without a number are put in order.
+ * A book as series are found from it: by its series tag. The server
+ * doesn't keep the folder a book came from, so a number with no series
+ * named says nothing, and the title stands in for the folder when books
+ * without a number are put in order.
  */
 function asFound(b: ListedBook): Book {
   return { ...remoteBook(b).book, id: b.id, path: b.title, seriesIndex: b.series.trim() ? b.seriesIndex : null };

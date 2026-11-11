@@ -9,7 +9,7 @@ import { BookIndex } from "../src/library/books.ts";
 import { LibrarySeries, type ServerSeries } from "../src/library/series.ts";
 import { serverWithAdmin } from "./fixture.ts";
 
-/** The owner's shelf as their server lists it: Siege of Terra named only in its titles, in two orders, and two books of no series. */
+/** The owner's shelf as their server lists it: Siege of Terra, its titles as a store writes them, and two books of no series. */
 const SHELF = [
   "Echoes of Eternity: The Horus Heresy: Siege of Terra, Book 7",
   "Master of Rites: Warhammer 40,000",
@@ -33,6 +33,16 @@ function addBook(db: DatabaseSync, title: string, tags: { series?: string; index
   ).run(title, title, title, tags.series ?? "", tags.index ?? null);
 }
 
+/** The shelf with Siege of Terra's books tagged as the series they are, each with its number; the other two with no tag. */
+function addShelf(db: DatabaseSync, titles: readonly string[] = SHELF): void {
+  for (const title of titles) {
+    const number = /, Book (\d+)/.exec(title);
+    addBook(db, title, number ? { series: "Siege of Terra", index: Number(number[1]) } : {});
+  }
+}
+
+const SIEGE = "siege-of-terra";
+
 const titlesOf = (s: ServerSeries | null | undefined) => s?.books.map((b) => b.title ?? b.id) ?? [];
 
 describe("the library's series", () => {
@@ -52,61 +62,60 @@ describe("the library's series", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("finds Siege of Terra in its titles, in order, as the list shows it, and nothing in the books of no series", () => {
-    for (const title of SHELF) addBook(db, title);
+  it("finds Siege of Terra by its series tag, in the order of its numbers, and nothing in the books of no series", () => {
+    addShelf(db);
     expect(series.find(books.list(), 1)).toBe(10);
     const [siege, ...others] = series.list();
     expect(others).toEqual([]);
-    // Most of its titles put The Horus Heresy first.
-    expect(siege).toMatchObject({ id: "siege-of-terra-the-horus-heresy", name: "The Horus Heresy: Siege of Terra" });
-    expect(titlesOf(siege)).toEqual([
-      "The Solar War",
-      "The Lost and the Damned",
-      "The First Wall",
-      "Saturnine",
-      "Mortis",
-      "Warhawk",
-      "Echoes of Eternity",
-      "The End and the Death: Volume I",
-      "The End and the Death: Volume II",
-      "The End and the Death: Volume III",
-    ]);
+    expect(siege).toMatchObject({ id: SIEGE, name: "Siege of Terra" });
+    expect(siege!.books.map((b) => b.id)).toEqual([SHELF[9], SHELF[8], SHELF[7], SHELF[3], SHELF[2], SHELF[11], SHELF[0], SHELF[4], SHELF[5], SHELF[6]]);
     expect(siege!.books.map((b) => b.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 8, 8]);
     expect(siege!.books.every((b) => b.shelved)).toBe(true);
     // Found once: looking again changes nothing.
     expect(series.find(books.list(), 2)).toBe(0);
   });
 
+  it("never guesses a series from titles: books with no series tag are in none", () => {
+    for (const title of SHELF) addBook(db, title);
+    expect(series.find(books.list(), 1)).toBe(0);
+    expect(series.list()).toEqual([]);
+  });
+
   it("puts a book that arrives later among the others by its number", () => {
-    for (const title of SHELF.filter((t) => !t.startsWith("Saturnine"))) addBook(db, title);
+    addShelf(
+      db,
+      SHELF.filter((t) => !t.startsWith("Saturnine")),
+    );
     series.find(books.list(), 1);
-    addBook(db, SHELF[3]!);
+    addShelf(db, [SHELF[3]!]);
     expect(series.find(books.list(), 2)).toBe(1);
-    expect(titlesOf(series.get("siege-of-terra-the-horus-heresy")).slice(2, 5)).toEqual(["The First Wall", "Saturnine", "Mortis"]);
+    expect(titlesOf(series.get(SIEGE)).slice(2, 5)).toEqual([SHELF[7], SHELF[3], SHELF[2]]);
   });
 
   it("keeps a person's changes when series are found again", () => {
-    for (const title of SHELF) addBook(db, title);
+    addShelf(db);
     series.find(books.list(), 1);
-    const siege = series.get("siege-of-terra-the-horus-heresy")!;
+    const siege = series.get(SIEGE)!;
     // Renamed, Echoes of Eternity taken out, and the last volume left off the shelf.
     // Saved without numbers, as a device that didn't change them saves: each keeps its own.
-    const kept = siege.books.filter((b) => !b.id.startsWith("Echoes")).map((b) => ({ id: b.id, ...(b.title?.endsWith("III") ? { shelved: false } : {}) }));
-    series.save(siege.id, "Siege of Terra", kept, "admin", 2);
+    const kept = siege.books.filter((b) => !b.id.startsWith("Echoes")).map((b) => ({ id: b.id, ...(b.id === SHELF[6] ? { shelved: false } : {}) }));
+    series.save(siege.id, "The Siege", kept, "admin", 2);
     expect(series.find(books.list(), 3)).toBe(0);
     const after = series.get(siege.id)!;
-    expect(after.name).toBe("Siege of Terra");
+    expect(after.name).toBe("The Siege");
     expect(after.books.map((b) => b.id)).not.toContain(SHELF[0]);
-    expect(after.books.find((b) => b.title === "The End and the Death: Volume III")!.shelved).toBe(false);
+    expect(after.books.find((b) => b.id === SHELF[6])!.shelved).toBe(false);
     expect(after.books.map((b) => b.number)).toEqual([1, 2, 3, 4, 5, 6, 8, 8, 8]);
   });
 
   it("brings a book into a series without the number and title it has in another, and leaves it in that one as it was", () => {
-    for (const title of SHELF) addBook(db, title);
+    addShelf(db);
     series.find(books.list(), 1);
-    const siege = series.get("siege-of-terra-the-horus-heresy")!;
+    // Warhawk, given the title the series' list shows it by.
+    const found = series.get(SIEGE)!;
+    const siege = series.save(found.id, found.name, found.books.map((b) => (b.number === 6 ? { id: b.id, title: "Warhawk" } : { id: b.id })), "admin", 1)!;
     const sixth = siege.books.find((b) => b.number === 6)!;
-    expect(sixth.title).not.toBeNull();
+    expect(sixth.title).toBe("Warhawk");
     // Put in a series a person made, saved with no number for it, as White Scars was.
     const made = series.create("White Scars", [{ id: "Voidscarred: Warhammer 40,000" }], "admin", 2)!;
     const brought = series.save(made.id, made.name, [{ id: "Voidscarred: Warhammer 40,000" }, { id: sixth.id }], "admin", 3)!;
@@ -122,14 +131,14 @@ describe("the library's series", () => {
   });
 
   it("doesn't find a series again once a person deleted it, and keeps a book in its series when a person puts it in one they make", () => {
-    for (const title of SHELF) addBook(db, title);
+    addShelf(db);
     series.find(books.list(), 1);
     const made = series.create("Warhammer 40,000", [{ id: "Voidscarred: Warhammer 40,000" }, { id: "Master of Rites: Warhammer 40,000" }, { id: SHELF[0]! }], "admin", 2)!;
     expect(made.books.map((b) => b.id)).toEqual(["Voidscarred: Warhammer 40,000", "Master of Rites: Warhammer 40,000", SHELF[0]]);
     // Echoes of Eternity is in both.
-    expect(series.get("siege-of-terra-the-horus-heresy")!.books).toHaveLength(10);
+    expect(series.get(SIEGE)!.books).toHaveLength(10);
     expect(series.find(books.list(), 3)).toBe(0);
-    expect(series.drop("siege-of-terra-the-horus-heresy", "admin", 4)).toBe(true);
+    expect(series.drop(SIEGE, "admin", 4)).toBe(true);
     expect(series.find(books.list(), 5)).toBe(0);
     expect(series.list().map((s) => s.id)).toEqual(["warhammer-40-000"]);
     expect(series.create("Nothing here", [{ id: "no such book" }], "admin", 6)).toBeNull();
@@ -137,7 +146,7 @@ describe("the library's series", () => {
   });
 
   it("goes with its books when they're all deleted", () => {
-    for (const title of SHELF) addBook(db, title);
+    addShelf(db);
     series.find(books.list(), 1);
     for (const title of SHELF) books.remove(title, "admin", 2);
     expect(series.list()).toEqual([]);
@@ -146,11 +155,11 @@ describe("the library's series", () => {
   });
 
   it("finds a series among books already in a reading list a person made, and keeps both", () => {
-    for (const title of SHELF) addBook(db, title);
+    addShelf(db);
     // The list is made before the server ever looked for series, as on a server where books arrive after it.
     const list = series.create("White Scars", [{ id: SHELF[11]! }, { id: SHELF[0]! }, { id: "Voidscarred: Warhammer 40,000" }], "admin", 1)!;
     expect(series.find(books.list(), 2)).toBe(10);
-    expect(titlesOf(series.get("siege-of-terra-the-horus-heresy"))).toContain("Warhawk");
+    expect(titlesOf(series.get(SIEGE))).toContain(SHELF[11]);
     expect(series.get(list.id)!.books.map((b) => b.id)).toEqual([SHELF[11], SHELF[0], "Voidscarred: Warhammer 40,000"]);
   });
 
@@ -158,14 +167,6 @@ describe("the library's series", () => {
     for (const title of SHELF) addBook(db, title);
     const made = series.create("White Scars", [{ id: SHELF[11]! }, { id: SHELF[0]! }, { id: SHELF[11]! }], "admin", 1)!;
     expect(made.books.map((b) => b.id)).toEqual([SHELF[11], SHELF[0]]);
-  });
-
-  it("goes by a series tag over a title", () => {
-    addBook(db, "Horus Rising", { series: "The Horus Heresy", index: 1 });
-    addBook(db, "False Gods", { series: "The Horus Heresy", index: 2 });
-    addBook(db, "Galaxy in Flames", { series: "The Horus Heresy", index: 3 });
-    series.find(books.list(), 1);
-    expect(series.list().map((s) => [s.name, titlesOf(s)])).toEqual([["The Horus Heresy", ["Horus Rising", "False Gods", "Galaxy in Flames"]]]);
   });
 });
 
@@ -198,27 +199,27 @@ describe("a database from when a book could be in one series at most", () => {
 
   it("lets a book into many series, and puts back the books a reading list took, but not those taken out by hand", () => {
     const old = databaseAsItWas();
-    for (const title of SHELF) addBook(old, title);
+    addShelf(old);
     new LibrarySeries(old).find(new BookIndex(old).list(), 1);
     // What the server did then: Warhawk put in White Scars left Siege of Terra for it, and Mortis was taken out by hand.
     old.exec(`
       INSERT INTO series (id, name, created_at, changed_at, changed_by) VALUES ('white-scars', 'White Scars', 2, 2, 'admin');
       DELETE FROM series_book WHERE book_id IN ('${WARHAWK}', '${MORTIS}');
       INSERT INTO series_book (series_id, book_id, position, number, title, shelved) VALUES ('white-scars', '${WARHAWK}', 1, NULL, NULL, 1);
-      INSERT INTO series_left (series_id, book_id) VALUES ('siege-of-terra-the-horus-heresy', '${WARHAWK}'), ('siege-of-terra-the-horus-heresy', '${MORTIS}');`);
+      INSERT INTO series_left (series_id, book_id) VALUES ('siege-of-terra', '${WARHAWK}'), ('siege-of-terra', '${MORTIS}');`);
     old.close();
 
     const db = openDatabase(dir);
     const series = new LibrarySeries(db);
     // Found again, as the server does when it starts: Warhawk goes back by its number, and Mortis stays out.
     expect(series.find(new BookIndex(db).list(), 3)).toBe(1);
-    const siege = series.get("siege-of-terra-the-horus-heresy")!;
+    const siege = series.get(SIEGE)!;
     expect(siege.books.map((b) => b.number)).toEqual([1, 2, 3, 4, 6, 7, 8, 8, 8]);
-    expect(siege.books.find((b) => b.number === 6)).toMatchObject({ id: WARHAWK, title: "Warhawk" });
+    expect(siege.books.find((b) => b.number === 6)).toMatchObject({ id: WARHAWK });
     expect(series.get("white-scars")!.books.map((b) => b.id)).toEqual([WARHAWK]);
     // And from now on a book can be in both.
     series.save("white-scars", "White Scars", [{ id: WARHAWK }, { id: SHELF[0]! }], "admin", 4);
-    expect(series.get("siege-of-terra-the-horus-heresy")!.books).toHaveLength(9);
+    expect(series.get(SIEGE)!.books).toHaveLength(9);
     expect(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'series_book_by_book'").get()).toBeDefined();
     const rows = db.prepare("SELECT count(*) AS n FROM series_book").get()!.n;
     db.close();

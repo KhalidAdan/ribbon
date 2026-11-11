@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { bytesToSeries, hiddenBookIds, mergeSeries, orderBySeries, seriesNumber, seriesToBytes, sortByNumber, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { nodeHost } from "@ribbon/host-node/node";
@@ -121,5 +122,45 @@ describe("editing a series through the app", () => {
     // file: on a slow runner vitest failed the run ("Closing rpc while onUserConsoleLog was pending").
     await rescanned(c);
     await rescanned(again);
+  });
+});
+
+describe("deleting a series its folders make", () => {
+  let root = "";
+  afterAll(async () => {
+    if (root) await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("deletes it for good, though the folders still say it's there, and leaves the books on the shelf", async () => {
+    // Three numbered folders straight under the library folder: a series named after it.
+    root = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "ribbon-delete-series-")), "The Primarchs");
+    for (const name of ["01. Lion", "02. Fulgrim", "03. Perturabo"]) await fs.cp(path.join(FIXTURE_ROOT, "20. The Primarchs"), path.join(root, name), { recursive: true });
+    const c = new AppController(platform(root));
+    await c.pickLibrary();
+    await rescanned(c);
+    expect(c.detectedSeries().map((g) => [g.key, g.bookIds.length])).toEqual([["the-primarchs", 3]]);
+    // Found, and never set up: there's no record of it yet.
+    expect(c.getState().series["the-primarchs"]).toBeUndefined();
+
+    c.openSeries("the-primarchs");
+    await c.deleteSeries("the-primarchs");
+    expect(c.detectedSeries()).toEqual([]);
+    expect(c.getState()).toMatchObject({ pane: "library", seriesSetup: null });
+    expect(c.getState().books).toHaveLength(3);
+    const kept = await bytesToSeries("the-primarchs", await fs.readFile(path.join(root, ".ribbon", "series", "the-primarchs.csv")));
+    expect(kept).toMatchObject({ name: "The Primarchs", deleted: true, choices: [] });
+
+    // A fresh start reads the same folders and doesn't bring it back, or offer to set it up.
+    const again = new AppController(platform(root));
+    await again.pickLibrary();
+    await rescanned(again);
+    expect(again.getState().books).toHaveLength(3);
+    expect(again.detectedSeries()).toEqual([]);
+    expect(again.getState().seriesSetup).toBeNull();
+
+    // A series made by hand under the same name is its own, with only the books it's given.
+    const [first] = again.getState().books.map((b) => b.book.id);
+    await again.createSeries("The Primarchs", [first!]);
+    expect(again.detectedSeries()).toEqual([{ key: "the-primarchs-2", name: "The Primarchs", bookIds: [first], added: [first] }]);
   });
 });

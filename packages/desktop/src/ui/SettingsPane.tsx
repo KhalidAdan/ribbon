@@ -181,7 +181,7 @@ export function SettingsPane() {
           <SectionHeader
             id="settings-series"
             title="Series"
-            description={series.length === 0 ? "No series yet. Numbered folders or a series tag make one, or make your own from any books." : "Which books belong, in what order, and which to leave off the shelf. Nothing is deleted."}
+            description={series.length === 0 ? "No series yet. A series tag or numbered folders make one, or make your own from any books." : "Which books belong, in what order, and which to leave off the shelf. Change… is also where a series is deleted; its books stay."}
             actions={
               <Button size="sm" leading={PlusIcon} onClick={() => c.openNewSeries()} disabled={state.books.length === 0}>
                 New series

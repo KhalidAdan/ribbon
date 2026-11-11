@@ -2,7 +2,7 @@ import type { Host, ScanProgress } from "@ribbon/core/host";
 import { extractMissingCovers, type ScannedBook } from "@ribbon/core/scan/scan";
 import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "@ribbon/core/types";
 import type { Problem } from "@ribbon/core/problems";
-import { defaultChoices, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
+import { defaultChoices, deletedSeriesRecord, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import type { BookAbout } from "@ribbon/core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "@ribbon/core/sources";
 import { nothingMeasured } from "@ribbon/core/loudness";
@@ -3865,8 +3865,9 @@ export class AppController {
   // Series ----------------------------------------------------------------
 
   /**
-   * The series on the shelf: what tags and folder numbers suggest,
-   * source by source, plus what the records beside the books say. Books
+   * The series on the shelf: what series tags and numbered folders make,
+   * source by source, plus what the records beside the books say, which
+   * can also say a series was deleted. Books
    * numbered straight under a source's folder make a series named after
    * that folder. A series named the same in two sources is one series.
    * A record can add books to a series, or be a series on its own. A
@@ -3876,13 +3877,7 @@ export class AppController {
   detectedSeries(): SeriesGroup[] {
     const byKey = new Map<string, SeriesGroup>();
     for (const o of this.openedInOrder()) {
-      const found = o.server?.keepsSeries
-        ? o.server.seriesOnShelf().groups
-        : detectSeries(
-            o.books.map((b) => b.book),
-            o.source.name,
-          );
-      for (const g of found) {
+      for (const g of this.seriesFoundIn(o)) {
         const have = byKey.get(g.key);
         if (have) {
           have.bookIds.push(...g.bookIds.filter((id) => !have.bookIds.includes(id)));
@@ -3892,6 +3887,15 @@ export class AppController {
       }
     }
     return mergeSeries([...byKey.values()], Object.values(this.state.series), new Set(this.state.books.map((b) => b.book.id)));
+  }
+
+  /** One source's series, before the listener's records: a server's own, or what a folder's tags and numbered folders make. */
+  private seriesFoundIn(o: Opened): SeriesGroup[] {
+    if (o.server?.keepsSeries) return o.server.seriesOnShelf().groups;
+    return detectSeries(
+      o.books.map((b) => b.book),
+      o.source.name,
+    );
   }
 
   /**
@@ -3940,27 +3944,55 @@ export class AppController {
     await this.writeSeriesRecord(record);
   }
 
-  /** Forget a series: its record goes, its books stay. Detection may still find it. */
+  /**
+   * Whether this person may delete a series: yes for one in their own
+   * folders; for one a server keeps, only that server's admin, as the
+   * series is everyone's there.
+   */
+  canDeleteSeries(key: string): boolean {
+    return this.openedInOrder().every((o) => !o.server?.hasSeries(key) || o.serverAdmin);
+  }
+
+  /**
+   * Delete a series for good: its books stay where they are, on the shelf
+   * and in any other series. A server deletes it for every device and
+   * doesn't find it again; only its admin may (canDeleteSeries). A folder whose books would make the series
+   * again (a series tag, numbered folders) keeps a record beside them that
+   * says it was deleted; a series made by hand just loses its record.
+   */
   async deleteSeries(key: string): Promise<void> {
-    const { [key]: gone, ...series } = this.state.series;
-    if (!gone) return;
-    log.info("delete series:", gone.name);
+    const name = this.state.series[key]?.name || this.detectedSeries().find((g) => g.key === key)?.name;
+    if (name === undefined || !this.canDeleteSeries(key)) return;
+    log.info("delete series:", name);
     this.seriesOffered.add(key);
+    const foundIn = (o: Opened) => !o.server?.keepsSeries && this.seriesFoundIn(o).some((g) => g.key === key);
+    const deleted = deletedSeriesRecord(key, name);
+    const { [key]: _record, ...others } = this.state.series;
+    const series = this.openedInOrder().some(foundIn) ? { ...others, [key]: deleted } : others;
     this.set({ series, seriesSetup: this.state.seriesSetup?.key === key ? null : this.state.seriesSetup });
-    // A series made by hand is gone with its record: its page has nothing left to show.
-    if (this.state.pane === "series" && this.state.seriesKey === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
+    this.leaveDeletedSeries(key);
     for (const o of this.openedInOrder()) {
       o.seriesKeys.delete(key);
       try {
-        if (o.server?.hasSeries(key)) {
+        if (o.server?.keepsSeries) {
+          if (!o.server.hasSeries(key)) continue;
           await o.server.client.deleteSeries(key);
           await this.refreshServerSeries(o);
+        } else if (foundIn(o)) {
+          o.seriesKeys.add(key);
+          await o.lib.writeSeries(deleted);
         } else await o.lib.deleteSeries(key);
       } catch (e) {
-        this.serverSeriesRefused(o, gone.name, e);
+        this.serverSeriesRefused(o, name, e);
         log.warn("could not delete series:", o.source.name, describe(e));
       }
     }
+    this.leaveDeletedSeries(key);
+  }
+
+  /** The page of a series that's gone has nothing left to show: back to the library. */
+  private leaveDeletedSeries(key: string): void {
+    if (this.state.pane === "series" && this.state.seriesKey === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
   }
 
   /** Write a record beside the books in every source that holds one of its members; a server that keeps series keeps it, for every device. */
@@ -4201,11 +4233,6 @@ export class AppController {
     this.set({ series, seriesSetup: null });
     await this.writeSeriesRecord(record);
     for (const r of others) await this.writeSeriesRecord(r);
-  }
-
-  /** Forget the listener's decisions about a series: detection, or nothing, takes over again. */
-  async forgetSeries(key: string): Promise<void> {
-    return this.deleteSeries(key);
   }
 
   /** Skip: everything stays on the shelf in detected order, and the question is not asked again. */
