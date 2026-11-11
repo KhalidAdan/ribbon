@@ -1,0 +1,4404 @@
+// The controller as it was before the desktop's state machines were written down (docs/STATE-MACHINES.md):
+// kept, unchanged but for where its imports point, so the before-and-after tests run the old against the new.
+
+import type { Host, ScanProgress } from "@ribbon/core/host";
+import { extractMissingCovers, type ScannedBook } from "@ribbon/core/scan/scan";
+import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "@ribbon/core/types";
+import type { Problem } from "@ribbon/core/problems";
+import { defaultChoices, deletedSeriesRecord, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
+import type { BookAbout } from "@ribbon/core/about";
+import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "@ribbon/core/sources";
+import { nothingMeasured } from "@ribbon/core/loudness";
+import { ServerClient, ServerError, type ServerJob } from "../../src/app/server/client";
+import { NotEnoughSpace, ServerShelf, serverIdOf } from "../../src/app/server/shelf";
+import { ServerLog } from "../../src/app/server/server-log";
+import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@ribbon/core/server-books";
+import { AboutLookup, type LookupStatus } from "../../src/app/about";
+import { ChapterNamer, wantsNames, type NameRecord } from "../../src/app/chapternames";
+import { PlayerEngine, type EngineState } from "../../src/player/engine";
+import { isPlaying, wantsToPlay } from "@ribbon/core/playback";
+import { LibraryService } from "../../src/app/library";
+import { PositionKeeper } from "../../src/app/positions";
+import { isReadOnly } from "../../src/app/read-only";
+import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
+import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
+import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
+import { finishedByRead, openRead } from "@ribbon/core/stats";
+import { goalToday, GoalWatch, newerGoal, NO_GOAL, type DailyGoal } from "@ribbon/core/goal";
+import { chaptersUrl, parseChapters, type LookedUp, type Region } from "@ribbon/core/audnexus";
+import { JobQueue, type JobStatus } from "../../src/app/jobs";
+import { installMediaSession, updateMediaMetadata, updateMediaPlayback } from "../../src/app/media-session";
+import { resumePosition, rewindFor } from "@ribbon/core/resume";
+import { snapSpeed } from "@ribbon/core/speed";
+import { defaultSettings, lastSpeed, speedToPlay } from "@ribbon/core/settings";
+import { bookmarksOf, clipRange, highlightId, highlightsOf, markFields, markId, type MarkFields } from "@ribbon/core/bookmarks";
+import { highlightOf, trimRange } from "@ribbon/core/reading/highlights";
+import { chapterAt } from "@ribbon/core/scan/chapters";
+import { partAt } from "@ribbon/core/scan/parts";
+import * as sleep from "@ribbon/core/sleep";
+import type { Correction } from "@ribbon/core/scan/chapters";
+import { log } from "../../src/app/log";
+import { openEbook, readerOnly, type Ebook } from "@ribbon/core/ebook";
+import type { Why } from "@ribbon/core/poslog";
+import { BookText, type TextPlace } from "@ribbon/core/reading/booktext";
+import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typography";
+import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
+import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
+import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
+import { rowsToBytes } from "@ribbon/core/csv";
+import { overlayAnchors } from "@ribbon/core/reading/overlay";
+import { exportPlan } from "@ribbon/core/reading/export";
+import * as perf from "../../src/app/perf";
+import { narrationLanguage, STRETCH_MS, stretchesOf, untranscribed, type PlacedPhrase } from "@ribbon/core/reading/transcript";
+import { HearingStalled, modelName, transcribeWhole } from "../../src/app/transcribing";
+import { locate as locate_ } from "@ribbon/core/timeline";
+import { locate, wordIndex, type Anchor, type WordAt } from "@ribbon/core/reading/anchors";
+import { placeTranscript } from "@ribbon/core/reading/placing";
+import { foundSentence } from "@ribbon/core/reading/readalong";
+import { Updater, type UpdateSource } from "../../src/app/updates";
+import { Latest } from "@ribbon/core/latest";
+import { Rerun } from "@ribbon/core/rerun";
+
+/** How much of each chapter's start is heard: a heading and a sentence or two. */
+const HEAR_SECONDS = 8;
+/** Heard words are looked for this far either side of where the pairing puts them. */
+const SEARCH_MS = 4 * 60_000;
+/** A clip heard this fast (a graphics card) is cheap enough to transcribe whole books: a machine that hears slower transcribes nothing (#152). */
+const FAST_CLIP_MS = 1_200;
+/** Why a book couldn't be transcribed when whisper heard nothing in a batch of its minutes (transcribing.ts). */
+const NOTHING_HEARD = "The speech model heard nothing in its narration.";
+/** "Listen from here" and "Go to the narrator" hear the place first unless a checkpoint is this close. */
+const PINPOINT_MS = 45_000;
+/** What is heard, transcribed and fixed for one book's text: see AppController.rd. */
+interface ReadingData {
+  fixes: PairingFix[];
+  /** What the narrator was heard saying, by time, and where each was found in the text. */
+  heard: Map<number, string>;
+  anchors: Map<number, number>;
+  /** The stretches transcribed (start to end, ms), the model that heard each, every phrase heard in them, and where each was found. */
+  spans: Map<number, number>;
+  heardBy: Map<number, string>;
+  said: PlacedPhrase[];
+  aligned: Map<number, number>;
+  overlay: Anchor[] | null;
+  /** The transcript changed since it was last kept beside the book, and when that was. */
+  dirty: boolean;
+  written: number;
+}
+
+function emptyReading(): ReadingData {
+  return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), heardBy: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0 };
+}
+
+/** A stretch of reading ends after this long without the page moving: the reader has looked away. */
+const READING_IDLE_MS = 5 * 60_000;
+/** After the last move, this long still counts as reading: the page moved to is read. */
+const READING_LINGER_MS = 60_000;
+/** A stretch of listening or reading shorter than this isn't kept. */
+const STRETCH_MIN_MS = 30_000;
+/** How often today is checked against the daily goal. */
+const GOAL_CHECK_MS = 15_000;
+
+/** The transcript is kept beside the book at most this often while it grows, and when it is done. */
+const ALIGNED_WRITE_MS = 30_000;
+
+export interface Platform {
+  host: Host;
+  /** Ask the user for a folder of books, opening near `near`. Null when cancelled. */
+  pickFolder(near?: string | null): Promise<string | null>;
+  /** Grant access to a folder before any read. */
+  allowFolder(path: string): Promise<void>;
+  /** Streamable URL for an absolute path. */
+  fileUrl(absPath: string): string;
+  /** A URL for an MP3 beginning exactly at a moment of it, where the platform can serve one. */
+  exactAudioUrl?(absPath: string, ms: number): string;
+  /** Where the player streams a book's audio from, when `fileUrl` won't do for every format (Apple's webview and an .m4b, #226). */
+  audioUrl?(absPath: string): string;
+  /** The folders the library is populated from, wherever the platform keeps them. */
+  sources: {
+    load(): Promise<SourceEntry[]>;
+    save(list: SourceEntry[]): Promise<void>;
+  };
+  /** A folder to add automatically without picking (dev harness, command line). */
+  defaultRoot?: () => Promise<string | null>;
+  /** Milliseconds since the host process started, when the host knows. */
+  uptimeMs?: () => Promise<number>;
+  /** A phone, which the app's sentences call "this phone"; any other device is "this machine". */
+  phone?: boolean;
+  /** App-level settings that outlive a library, when the platform keeps them. */
+  appSettings?: {
+    read(): Promise<Record<string, unknown>>;
+    write(settings: Record<string, unknown>): Promise<void>;
+  };
+  /** Ask for one file, of the given kinds. Hosts without a file dialog leave it out. */
+  pickFile?: (title: string, filters: { name: string; extensions: string[] }[]) => Promise<string | null>;
+  /**
+   * Run `flush` before the window closes or the app quits, and wait for it;
+   * first ask `mayClose`, and stay open when it says no. Returns an
+   * unsubscribe. Hosts without a window of their own leave it out.
+   */
+  onWindowClose?: (flush: () => Promise<void>, mayClose: () => Promise<boolean>) => () => void;
+  /** Ask the person whether to close anyway, saying `why` not to; true to close. */
+  askToClose?: (why: string) => Promise<boolean>;
+  /** New versions of Ribbon, where it installs them itself: Windows and the Mac, not a phone (updates.ts). */
+  updates?: UpdateSource;
+  /** The one folder the app owns on this machine, when there is one. */
+  home?: {
+    path(): Promise<string>;
+    reveal(): Promise<void>;
+    /** Asks first. Resolves true when the reset happened. */
+    reset(): Promise<boolean>;
+  };
+}
+
+/** A sentence a server's search found, with the id of its book on this machine's shelf. */
+export interface FoundLine extends FoundSentence {
+  bookId: string;
+}
+
+export interface CurrentBook {
+  book: ScannedBook;
+  settings: BookSettings;
+  bookmarks: Bookmark[];
+  loudnessGainDb: number | null;
+  silence: Map<number, SilenceRange[]> | null;
+  corrections: Correction[];
+}
+
+export interface ScanStatus {
+  /** Files seen so far and files finished; both zero while walking. */
+  walked: number;
+  done: number;
+  /** Files discovered so far while the walk is still running. */
+  found?: number;
+  /** What is happening after the tag read. */
+  stage?: string;
+  /** True while a rescan runs behind an already visible library. */
+  background: boolean;
+  /** A folder being added to a server, which copies its books in, rather than read where it is. */
+  copying?: boolean;
+}
+
+/** What the shelf knows about one source beyond its books. */
+export interface SourceStatus {
+  scanning: ScanStatus | null;
+  /** How long the last scan took, or null before the first finishes. */
+  lastScanMs: number | null;
+  /** Why the source could not be opened, or null. */
+  error: string | null;
+  /** The folder is read-only from this device: places in its books are kept on this device alone (read-only.ts). */
+  readOnly: boolean;
+}
+
+/**
+ * Something transcribing did that's worth a note of its own (ui/Notices.tsx):
+ * a book begun, a book that reads along now its narration is all heard, or
+ * one that couldn't be transcribed, and why. `forServer` when it was a
+ * server's book, transcribed on this computer for every device.
+ */
+export type Notice =
+  | { id: number; what: "transcribing" | "reads-along"; title: string; forServer: boolean }
+  | { id: number; what: "not-transcribed"; title: string; forServer: boolean; why: string };
+
+/** Each kind of a union without its `id`: what's given before it's numbered. */
+type Unnumbered<T> = T extends unknown ? Omit<T, "id"> : never;
+
+export interface AppState {
+  phase: "boot" | "pick" | "loading" | "ready";
+  /** The folders the library is populated from, in the order they were added. */
+  sources: Source[];
+  sourceStatus: Record<string, SourceStatus>;
+  /** Folders found read-only from this device that the library has not said so about yet: it says so once per folder. */
+  readOnlyNotice: string[];
+  /** Whether this person adds folders: anyone without a server; with one, only its admin, and into it. */
+  canAddFolders: boolean;
+  /** The folders being offered a move to the server, by source id, while the question is open. */
+  moveOffer: string[] | null;
+  /** Books downloading from a server now, by id: bytes done of the total (docs/SERVER.md, section 8). */
+  downloads: Record<string, { done: number; total: number }>;
+  /** A book that won't fit on this device, waiting for the person to choose what to remove, or not to download it. */
+  spaceShort: { bookId: string; title: string; neededBytes: number; freeBytes: number } | null;
+  /** Every book from every source, in source order. */
+  books: ScannedBook[];
+  positions: Record<string, Position | null>;
+  current: CurrentBook | null;
+  player: EngineState;
+  sleep: { state: sleep.SleepState; gain: number; remainingMs: number | null };
+  resumeOffer: { chapterStartMs: number; awayMs: number } | null;
+  /** The bookmark whose lead-in is playing through the main player. */
+  previewing: number | null;
+  jobs: Record<string, JobStatus>;
+  /** Progress across every source being scanned, or null when none is. */
+  scanning: ScanStatus | null;
+  /** Files the last scans could not read. */
+  scanErrors: { path: string; message: string }[];
+  /** The same, as recorded beside the books, so yesterday's are still visible. */
+  problems: Problem[];
+  /** Series decisions beside the books, by key. */
+  series: Record<string, SeriesRecord>;
+  /** The series whose setup is open, or null. */
+  seriesSetup: SeriesGroup | null;
+  /** The dialog for making a series by hand is open. */
+  seriesNew: boolean;
+  /** What the book database said, by book id. */
+  about: Record<string, BookAbout>;
+  /** Whether descriptions are looked up online, and how the current run is going. */
+  lookup: { enabled: boolean } & LookupStatus;
+  /** How long the last scan to finish took, for the header. */
+  lastScanMs: number | null;
+  /**
+   * True once the host will serve files from every source: covers and
+   * audio. Granting that access canonicalises the folder, which on a
+   * network volume is several round trips, so the shelf paints first.
+   */
+  assetsReady: boolean;
+  /** Bumped when the set of locally mirrored covers changes. */
+  coverVersion: number;
+  error: string | null;
+  /** What fills the window above the player bar. */
+  pane: "library" | "settings" | "reader" | "stats" | "series" | "bookcase";
+  /** The book the reader page shows. */
+  readerBookId: string | null;
+  /** The book's page was opened from the bookcase, so the way back from it leads there. */
+  readerFromBookcase: boolean;
+  /** The series the series page shows, by key. */
+  seriesKey: string | null;
+  /** The full player is open over everything. */
+  playerExpanded: boolean;
+  /** Which drawer the full player shows, if any. */
+  playerDrawer: "chapters" | "bookmarks" | "speed" | null;
+  /** The book whose details are open for editing, or null. */
+  editBook: string | null;
+  /** How the shelf is filtered and sorted; remembered between sessions. */
+  view: LibraryView;
+  /** Listen-throughs, listening sessions and time spent reading, from every device's log. */
+  history: { reads: ReadRecord[]; sessions: SessionRecord[]; readings: ReadingRecord[]; recording: boolean };
+  /** A book that has just played to its end, while its card shows (ui/TheEnd.tsx), by id. */
+  theEnd: string | null;
+  /** The person's daily goal, minutes a day with their books (core/goal.ts): this machine's, or a server's chosen later. */
+  goal: DailyGoal;
+  /** The goal just met, while its note shows (ui/GoalMet.tsx): the minutes, and the days in a row. */
+  goalMet: { minutes: number; streakDays: number } | null;
+  /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
+  namedChapters: Record<string, string>;
+  /** The book open in the reader, over everything but the player bar. */
+  reading: ReadingState | null;
+  /** How the reader sets text on this machine. */
+  readingSettings: ReadingSettings;
+  /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
+  speech: { model: string | null; downloading: { done: number; total: number } | null };
+  /** Say, once, that a speech model makes read-along follow the sentence: shown the first time a book with both editions opens on a computer without one. */
+  speechNudge: boolean;
+  /** A server's book this machine is transcribing for the server, in the background (#152): which, and how far it has got, in minutes. */
+  transcribingForServer: { title: string; done: number; total: number } | null;
+  /** Notes about transcribing (ui/Notices.tsx), oldest first, each until its note goes. */
+  notices: Notice[];
+  /** Speed measurements are summarised in the log (app/perf.ts). */
+  perfLog: boolean;
+  /**
+   * Ribbon updating itself (app/updates.ts): whether it looks for new
+   * versions, when GitHub last answered, a newer version once it's
+   * downloaded, and whether its offer to restart was put off. Null where
+   * Ribbon doesn't update itself: a phone, the browser harness.
+   */
+  update: { on: boolean; checkedAt: number | null; ready: string | null; putOff: boolean } | null;
+}
+
+/** The same history record, written here and read back from the log. */
+function sameRecord(a: LogRecord, b: LogRecord): boolean {
+  if (a.k !== b.k || a.t !== b.t) return false;
+  if (a.k === "read" && b.k === "read") return a.id === b.id && a.finished === b.finished && a.started === b.started;
+  if (a.k === "del" && b.k === "del") return a.of === b.of;
+  if (a.k === "session" && b.k === "session") return a.start === b.start;
+  if (a.k === "reading" && b.k === "reading") return a.start === b.start;
+  if (a.k === "mark" && b.k === "mark") return a.id === b.id && a.modified === b.modified && a.body === b.body;
+  return false;
+}
+
+/**
+ * The folder picker opens inside the last source, where `.ribbon` is the
+ * first thing to click. Choosing it means the folder it belongs to.
+ */
+export function libraryRootOf(picked: string): string {
+  const trimmed = picked.replace(/[\\/]+$/, "");
+  const m = trimmed.match(/^(.*)[\\/]\.ribbon$/i);
+  return m && m[1] ? m[1] : trimmed;
+}
+
+/** Tauri rejects with plain strings; everything else with Errors. */
+function describe(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try {
+    return JSON.stringify(e);
+  } catch {
+    return String(e);
+  }
+}
+
+const SKIP_BACK_MS = 30_000;
+const SKIP_FORWARD_MS = 30_000;
+/** How often a playing book hands its place to the keeper, which throttles the writes. */
+const POSITION_WRITE_INTERVAL_MS = 1_000;
+
+/** What a scan is asked to do: whether it runs behind a visible shelf, and the folders to read again whatever their records say. */
+interface ScanAsk {
+  background: boolean;
+  forget: string[];
+}
+
+/** Two asks for one scan: it's behind the shelf only if both were, and forgets what either did. */
+function bothScans(a: ScanAsk, b: ScanAsk): ScanAsk {
+  return { background: a.background && b.background, forget: [...new Set([...a.forget, ...b.forget])] };
+}
+
+/** One source, open: its records service and everything the shelf needs from it. */
+interface Opened {
+  source: Source;
+  lib: LibraryService;
+  books: ScannedBook[];
+  /** Every position of this source's books, kept on this machine first and beside the books after. */
+  keeper: PositionKeeper;
+  /** Hand edits to books' details, by book id. */
+  edits: Map<string, BookEdits>;
+  /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
+  log: LogRecord[];
+  /** What came of asking about each book's chapter names; read once, on the first ask. */
+  names: Map<string, NameRecord> | null;
+  /** Records written here that a read of the log has not shown yet. */
+  pendingLog: LogRecord[];
+  /** Series keys whose record lives beside this source's books. */
+  seriesKeys: Set<string>;
+  assetsReady: boolean;
+  scanning: ScanStatus | null;
+  /** Its scans, one at a time: one asked for while another runs runs once more after (core/rerun.ts). */
+  scans: Rerun<ScanAsk>;
+  /** The last scan's record write, which the shelf does not wait for. */
+  saving: Promise<void>;
+  coverJob: AbortController | null;
+  lookup: AboutLookup | null;
+  /** Covers copied into the local mirror, and where they are. */
+  mirrorCovers: Set<string>;
+  mirrorCoversDir: string | null;
+  /** For a Ribbon server's source: what the server lists, and its downloads (server/shelf.ts). */
+  server: ServerShelf | null;
+  /** For a Ribbon server's source: the position log carried to and from the server, and the event stream that says when. */
+  serverPlaces: { log: ServerLog; soon: ReturnType<typeof setTimeout> | null; events: AbortController } | null;
+  /** The person signed in to this server is its admin, who adds its folders. */
+  serverAdmin: boolean;
+  /** A refresh of the server's list waiting to run: books arriving one at a time are fetched a few at once. */
+  serverRefreshSoon: ReturnType<typeof setTimeout> | null;
+  /** The ask of the server under way, if any: asks follow one another, and the source waits for the last before it goes. */
+  serverRefresh: Promise<void> | null;
+  /**
+   * Folders being added to this server, each with its job as last seen. Kept
+   * apart from `scanning`: a scan of the downloads underneath never takes
+   * over the import's progress, and covers don't hide while it runs.
+   */
+  serverImports: Map<number, { name: string; job: ServerJob | null }>;
+}
+
+/**
+ * The app. One instance, made in `ui/App.tsx`, holds every piece of state
+ * the screens show and every action they can take. React only draws it:
+ * components read the state with `useAppState()` and call methods on
+ * `useController()` (`ui/store.ts`), and nothing else changes anything.
+ * The tests make one with a test platform and drive it the same way.
+ *
+ * ## How state moves
+ *
+ * `state` is one immutable `AppState`. Every change goes through
+ * `set(patch)`, which makes a new object and calls the listeners
+ * `subscribe` collected; React's `useSyncExternalStore` redraws whoever
+ * reads it. The player sets `player` five times a second, so a component
+ * selects what it draws, `useAppState((s) => …)`, and redraws only when
+ * that changes; `useAppState()` with no selector redraws on every tick.
+ * Nothing else holds state the screens see: the private fields below are
+ * working parts (the audio engine, open libraries, timers, caches), never
+ * what is shown.
+ *
+ * ## What it talks to
+ *
+ * ```
+ *  Platform ── what the host gives: files and processes (Host), the folder
+ *  │           picker, app settings, file URLs, window events (platform.ts)
+ *  ├─ LibraryService ── one per library folder: reads and writes the
+ *  │                    records in its .ribbon/ (library.ts)
+ *  ├─ PositionKeeper ── one per library folder: where each book is
+ *  │                    (positions.ts)
+ *  ├─ PlayerEngine ──── the audio (player/engine.ts), made on the first play
+ *  ├─ JobQueue ──────── loudness and silence, one ffmpeg at a time (jobs.ts)
+ *  └─ core/ ─────────── every decision that needs no file: grouping books,
+ *                       pairing text with audio, merging logs, search…
+ * ```
+ *
+ * ## The sections, in file order
+ *
+ * - **Sources.** The library is any number of folders (`Source`). Each one
+ *   opened becomes an `Opened`: its `LibraryService`, its books, its
+ *   position keeper, its log. `libOf(book)` finds a book's.
+ * - **Lifecycle.** `boot()` reads the app settings, opens every source
+ *   (painting the shelf from cached records first, then scanning), and
+ *   lands in `phase: "ready"`, or `"pick"` when there is no library yet.
+ *   Adding, rescanning and removing folders live here too, and editing a
+ *   book's details.
+ * - **Playback.** `openBook` loads a book into the engine at its place
+ *   (or where it was read to, if reading got further: `readAhead`).
+ *   `play`, `pause`, `seek`, `skip`, chapters, speed. `onPlayerState`
+ *   hears the engine five times a second, keeps the place and the
+ *   listening session, and updates the system's media controls.
+ * - **Reading.** The EPUB reader and read-along (docs/READING.md).
+ *   `openReading` makes the book's `BookText`, pairs its chapters with the
+ *   audio, and starts `hearPlaces`, the background work that makes the
+ *   pairing precise: chapter openings heard, the narration transcribed,
+ *   all kept beside the book. `ReadingData` is one book's share of that,
+ *   kept per book so a closed book's work never lands on another.
+ *   Following the narrator, listening from a place, highlights, the
+ *   read-along export.
+ * - **Updates.** On Windows and the Mac, Ribbon looks for a newer version
+ *   on GitHub, downloads it, and offers to restart into it when nothing
+ *   plays and nothing is transcribed; closing installs it too (updates.ts).
+ * - **Sleep timer, Bookmarks, Chapter corrections, Navigation** (which
+ *   pane is showing), **History** (listen-throughs and sessions from the
+ *   position log), **Series**, **Descriptions** (book details from online
+ *   catalogs, only when turned on), **Chapter names** (Audible's names
+ *   for a book's numbered chapters).
+ *
+ * ## Habits worth knowing
+ *
+ * - **Records first, scan after.** Anything shown at start comes from the
+ *   records beside the books (or this machine's mirror of them); work
+ *   on files happens behind it.
+ * - **Places are never lost.** The keeper writes a place to memory at
+ *   once, to this machine within 2 s and beside the books within 15 s (at
+ *   once for a pause or a seek); `flushPositions` runs when the window closes.
+ * - **Slow work checks it is still wanted.** Opening a book, for the
+ *   player or the reader, is an ask where only the newest counts
+ *   (`Latest`, core/latest.ts): one that lost the race stops, even after
+ *   a download. Background reading work checks `still()` after every
+ *   await; the engine carries an intent number for the same reason.
+ * - **State machines are written down.** Whether a book plays
+ *   (core/playback.ts), the sleep timer (core/sleep.ts) and the others in
+ *   docs/STATE-MACHINES.md each keep their state as one status and change
+ *   it in one place; read the map there before adding a flag.
+ * - **Failures become a sentence.** A record that cannot be read or
+ *   written is logged and, when it matters to the listener, put in
+ *   `state.error` in plain words; the rest of the app carries on.
+ *
+ * To add a feature: put the decision in `core/` (tested on its own), the
+ * file it keeps in `LibraryService`, the state in `AppState`, and the
+ * action here, in its section.
+ */
+export class AppController {
+  private state: AppState;
+  private listeners = new Set<() => void>();
+  private opened = new Map<string, Opened>();
+  private jobs: JobQueue;
+  private engine: PlayerEngine | null = null;
+  private pausedAt: number | null = null;
+  /** The moment a Listen from here began from, before its lead-in: the text holds there until the narrator reaches it (followedMs). */
+  private listenedFrom: number | null = null;
+  /** Opening a book for the player: only the book asked for last opens, so a slow open that lost the race stops. */
+  private opening = new Latest();
+  /** Opening a book in the reader, likewise. */
+  private readerOpening = new Latest();
+  /** Downloads of a server's book begun to open it, by id: a second ask for the book while it downloads waits for the same one. */
+  private downloadsToOpen = new Map<string, Promise<ScannedBook | null>>();
+  /** Sequence for history shown before the log is read back; only ever increases. */
+  private localSeq = 0;
+  /** Rows of each book's bookmarks CSV, by book id, once read. */
+  private bookmarkRows = new Map<string, Bookmark[]>();
+  /** The stretch of playing going on now, for the session record. */
+  private listening: { bookId: string; start: number; fromMs: number; speed: number } | null = null;
+  /** Whether to say the daily goal was met: once a day, when it's met here (core/goal.ts). */
+  private goalWatch = new GoalWatch();
+  private goalTimer: ReturnType<typeof setInterval> | null = null;
+  /** When a stretch of listening or reading here last ended and was kept: the goal it meets is this machine's to say. */
+  private spentHereAt = 0;
+  private lastWrite = 0;
+  private sleepTimer: number | null = null;
+  private uninstallMedia: (() => void) | null = null;
+  private chapterProbe: AbortController | null = null;
+  /** process uptime minus performance.now(), learned once at boot. */
+  private clockOffset: number | null = null;
+  /** Series offered for setup this session, so a skipped one stays skipped. */
+  private seriesOffered = new Set<string>();
+  /** The lookup pass over every source, while one runs. */
+  private lookupRun: Promise<void> | null = null;
+  private appSettings: Record<string, unknown> = {};
+  /** This installation in the position log: a random id, made once and kept in the app's settings. */
+  private deviceId: string = globalThis.crypto.randomUUID();
+
+  /** This device, as the app's sentences name it. */
+  get here(): string {
+    return this.platform.phone ? "this phone" : "this machine";
+  }
+
+  constructor(private readonly platform: Platform) {
+    this.state = {
+      phase: "boot",
+      sources: [],
+      sourceStatus: {},
+      readOnlyNotice: [],
+      canAddFolders: true,
+      moveOffer: null,
+      downloads: {},
+      spaceShort: null,
+      books: [],
+      positions: {},
+      current: null,
+      player: {
+        bookId: null,
+        positionMs: 0,
+        durationMs: 0,
+        status: "paused",
+        speed: 1,
+        chapterIndex: -1,
+        skippingGap: false,
+        gain: 1,
+        error: null,
+      },
+      sleep: { state: sleep.OFF, gain: 1, remainingMs: null },
+      resumeOffer: null,
+      previewing: null,
+      jobs: {},
+      scanning: null,
+      scanErrors: [],
+      problems: [],
+      series: {},
+      seriesSetup: null,
+      seriesNew: false,
+      about: {},
+      lookup: { enabled: false, running: false, done: 0, total: 0 },
+      lastScanMs: null,
+      assetsReady: false,
+      coverVersion: 0,
+      error: null,
+      pane: "library",
+      readerBookId: null,
+      readerFromBookcase: false,
+      seriesKey: null,
+      playerExpanded: false,
+      playerDrawer: null,
+      editBook: null,
+      view: DEFAULT_VIEW,
+      history: { reads: [], sessions: [], readings: [], recording: true },
+      theEnd: null,
+      goal: NO_GOAL,
+      goalMet: null,
+      namedChapters: {},
+      reading: null,
+      readingSettings: parseReading(undefined),
+      speech: { model: null, downloading: null },
+      speechNudge: false,
+      transcribingForServer: null,
+      notices: [],
+      perfLog: false,
+      update: null,
+    };
+    this.jobs = new JobQueue((book) => this.libOf(book));
+    this.jobs.onStatus((s, result) => this.onJob(s, result));
+  }
+
+  // Store plumbing ------------------------------------------------------
+
+  subscribe = (fn: () => void): (() => void) => {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  };
+
+  getState = (): AppState => this.state;
+
+  private set(patch: Partial<AppState>): void {
+    this.state = { ...this.state, ...patch };
+    for (const l of this.listeners) l();
+  }
+
+  // Sources -------------------------------------------------------------
+
+  /** The service for the source a book came from, or null when it is gone. */
+  private libOf(book: ScannedBook): LibraryService | null {
+    return this.openedOf(book)?.lib ?? null;
+  }
+
+  private openedOf(book: ScannedBook): Opened | null {
+    return (book.source && this.opened.get(book.source)) || null;
+  }
+
+  private openedInOrder(): Opened[] {
+    return this.state.sources.map((s) => this.opened.get(s.id)).filter((o): o is Opened => !!o);
+  }
+
+  /** Mark books with their source and lay that source's hand edits over them. */
+  private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
+    return books.map((b) => {
+      const { original, edits: _was, ...rest } = b;
+      // A server's book downloaded here is named as the server lists it, not as its files here say.
+      const filed = original ?? b.book;
+      const base = o.server && !b.remote ? o.server.asListed(filed) : filed;
+      const e = o.edits.get(base.id);
+      const sourced = { ...rest, source: o.source.id };
+      if (!e) return original || base !== b.book || b.source !== o.source.id ? { ...sourced, book: base } : b;
+      return { ...sourced, book: applyEdits(base, e.values), original: base, edits: e.values };
+    });
+  }
+
+  /** Every open source's books, in source order, and their positions; a duplicate id keeps its first book. */
+  private publishBooks(extra: Partial<AppState> = {}): void {
+    const seen = new Set<string>();
+    const books: ScannedBook[] = [];
+    const positions: Record<string, Position | null> = {};
+    for (const o of this.openedInOrder()) {
+      for (const b of this.booksOf(o)) {
+        const id = b.book.id;
+        if (seen.has(id)) {
+          log.warn("two sources hold the same book id; keeping the first:", id, b.book.title);
+          continue;
+        }
+        seen.add(id);
+        books.push(b);
+        positions[id] = o.keeper.get(id) ?? this.state.positions[id] ?? null;
+      }
+    }
+    // Keep the open book's live object if it still exists.
+    const cur = this.state.current;
+    const refreshed = cur ? books.find((b) => b.book.id === cur.book.book.id) : undefined;
+    this.set({
+      books,
+      positions,
+      current: cur && refreshed && refreshed !== cur.book ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
+      ...extra,
+    });
+  }
+
+  /** The scan status across every source, for the header. */
+  private publishScanning(extra: Partial<AppState> = {}): void {
+    // A server's imports, while there are any, are what its status says.
+    const statusOf = (o: Opened) => this.importStatus(o) ?? o.scanning;
+    const live = this.openedInOrder().filter((o) => statusOf(o));
+    let scanning: ScanStatus | null = null;
+    if (live.length > 0) {
+      scanning = { walked: 0, done: 0, background: true };
+      for (const o of live) {
+        const s = statusOf(o)!;
+        scanning.walked += s.walked;
+        scanning.done += s.done;
+        if (s.found !== undefined) scanning.found = (scanning.found ?? 0) + s.found;
+        if (s.stage && !scanning.stage) scanning.stage = s.stage;
+        if (!s.background) scanning.background = false;
+        if (s.copying) scanning.copying = true;
+      }
+    }
+    const sourceStatus: Record<string, SourceStatus> = {};
+    for (const s of this.state.sources) {
+      const o = this.opened.get(s.id);
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o ? statusOf(o) : null };
+    }
+    this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
+  }
+
+  private setSourceStatus(id: string, patch: Partial<SourceStatus>): void {
+    const prev = this.state.sourceStatus[id] ?? { scanning: null, lastScanMs: null, error: null, readOnly: false };
+    this.set({ sourceStatus: { ...this.state.sourceStatus, [id]: { ...prev, ...patch } } });
+  }
+
+  /** A folder turned out to be read-only from this device: say so beside it in Settings, and once at the top of the library. */
+  private folderReadOnly(source: Source): void {
+    if (!this.opened.has(source.id)) return;
+    log.warn(`${source.name}: read-only from this device; places in its books are kept on this machine`);
+    this.setSourceStatus(source.id, { readOnly: true });
+    if (!this.readOnlyTold().includes(source.root) && !this.state.readOnlyNotice.includes(source.id)) this.set({ readOnlyNotice: [...this.state.readOnlyNotice, source.id] });
+  }
+
+  /** The folders the library has already said are read-only from this device. */
+  private readOnlyTold(): string[] {
+    const told = this.appSettings.readOnlyTold;
+    return Array.isArray(told) ? told.filter((root): root is string => typeof root === "string") : [];
+  }
+
+  /** The notice about read-only folders was read: it is not shown for them again. */
+  dismissReadOnly(): void {
+    const roots = this.state.readOnlyNotice.flatMap((id) => this.state.sources.find((s) => s.id === id)?.root ?? []);
+    this.appSettings = { ...this.appSettings, readOnlyTold: [...new Set([...this.readOnlyTold(), ...roots])] };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    this.set({ readOnlyNotice: [] });
+  }
+
+  private saveSources(): Promise<void> {
+    return this.platform.sources.save(this.state.sources.map((s) => ({ root: s.root, addedAt: s.addedAt, ...(s.server ? { server: s.server } : {}) }))).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
+  }
+
+  // Lifecycle -----------------------------------------------------------
+
+  async boot(): Promise<void> {
+    if (this.platform.appSettings) {
+      this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
+      perf.setLogging(this.appSettings.perfLog === true);
+      // Ribbon's model was whisper base until it was small (#152): one downloaded then is replaced, once, in the background,
+      // where it hears (not a phone).
+      if (this.platform.host.speechTranscribe && /[\\/]models[\\/]ggml-base-q5_1\.bin$/.test(this.state.speech.model ?? "")) {
+        log.info("replacing Ribbon's speech model, whisper base, with whisper small");
+        void this.downloadSpeechModel();
+      }
+      const kept = this.appSettings.dailyGoal as Partial<DailyGoal> | undefined;
+      if (kept && typeof kept.minutes === "number") this.set({ goal: { minutes: kept.minutes, chosenAt: typeof kept.chosenAt === "string" ? kept.chosenAt : null } });
+      this.goalWatch = new GoalWatch(typeof this.appSettings.goalCelebrated === "number" ? this.appSettings.goalCelebrated : null);
+      if (typeof this.appSettings.deviceId === "string" && this.appSettings.deviceId) this.deviceId = this.appSettings.deviceId;
+      else {
+        this.appSettings = { ...this.appSettings, deviceId: this.deviceId };
+        await this.platform.appSettings.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+      }
+    }
+    this.goalTimer = setInterval(() => this.checkGoal(), GOAL_CHECK_MS);
+    // Under Node (the tests, the tools) it never holds the process open.
+    (this.goalTimer as { unref?: () => void }).unref?.();
+    this.startUpdates();
+    const asked = performance.now();
+    void this.platform.uptimeMs?.().then((ms) => {
+      this.clockOffset = ms - asked;
+      log.info(`web side booted ${Math.round(ms)} ms after process start`);
+    });
+    const entries = await this.platform.sources
+      .load()
+      .then((list) => this.placeServers(list))
+      .catch((e: unknown) => {
+        log.warn("could not read the sources:", describe(e));
+        return [] as SourceEntry[];
+      });
+    const given = (await this.platform.defaultRoot?.()) ?? null;
+    if (given && !entries.some((e) => sameRoot(e.root, given))) {
+      log.info("adding the folder given at launch", given);
+      entries.push({ root: given, addedAt: new Date().toISOString() });
+      await this.platform.sources.save(entries).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
+    }
+    if (entries.length === 0) {
+      this.set({ phase: "pick" });
+      return;
+    }
+    const sources = entries.map(sourceFrom);
+    this.set({ phase: "loading", sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, { scanning: null, lastScanMs: null, error: null, readOnly: false }])) });
+    await Promise.all(
+      sources.map((s) =>
+        this.openSource(s).catch((e: unknown) => {
+          log.error("could not open", s.root, describe(e));
+          this.setSourceStatus(s.id, { error: describe(e) });
+        }),
+      ),
+    );
+    if (this.opened.size === 0) {
+      const first = sources[0]!;
+      this.set({ phase: "pick", scanning: null, error: `Could not open ${first.root}: ${this.state.sourceStatus[first.id]?.error ?? "unknown error"}` });
+      return;
+    }
+    this.publishScanning({ phase: "ready" });
+  }
+
+  /** Ask for a folder and add it; a folder already in the library is checked for changes instead. */
+  async pickLibrary(): Promise<void> {
+    // With a server, a folder goes into it, and only its admin adds one (docs/SERVER.md, section 6).
+    const servers = this.openedInOrder().filter((o) => o.source.server);
+    const server = servers.find((o) => o.serverAdmin && o.server);
+    if (servers.length > 0 && !server) return;
+    const lastAdded = typeof this.appSettings.lastServerFolder === "string" ? this.appSettings.lastServerFolder : null;
+    const near = server ? lastAdded : (this.state.sources[this.state.sources.length - 1]?.root ?? null);
+    const root = await this.platform.pickFolder(near);
+    if (!root) return;
+    if (server) {
+      await this.addFolderToServer(server, root);
+      return;
+    }
+    try {
+      await this.addSource(root);
+    } catch (e) {
+      this.set({ phase: this.opened.size === 0 ? "pick" : this.state.phase, scanning: null, error: `Could not open ${root}: ${describe(e)}` });
+    }
+  }
+
+  /** The same as `pickLibrary` without the dialog. */
+  addFolder(root: string): Promise<void> {
+    return this.addSource(root);
+  }
+
+  /**
+   * Add a folder to the library and open it. If it has been scanned
+   * before, its records paint immediately and a rescan runs behind them;
+   * nothing before that paint waits on the share when the local mirror
+   * has a copy. If not, the scan runs in the foreground with live counts.
+   */
+  async addSource(pickedRoot: string, server?: ServerRef): Promise<void> {
+    const root = libraryRootOf(pickedRoot);
+    if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
+    const existing = this.state.sources.find((s) => sameRoot(s.root, root));
+    if (existing) {
+      log.info("folder is already a source; checking it for changes", root);
+      const o = this.opened.get(existing.id);
+      if (o) await this.rescanSource(o, true);
+      else await this.openSource(existing);
+      return;
+    }
+    const source = sourceFrom({ root, addedAt: new Date().toISOString(), ...(server ? { server } : {}) });
+    log.info("add source", server ? server.url : root);
+    this.set({
+      phase: this.opened.size === 0 ? "loading" : this.state.phase,
+      sources: [...this.state.sources, source],
+      sourceStatus: { ...this.state.sourceStatus, [source.id]: { scanning: null, lastScanMs: null, error: null, readOnly: false } },
+      error: null,
+    });
+    try {
+      await this.openSource(source);
+    } catch (e) {
+      const { [source.id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
+      this.set({ sources: this.state.sources.filter((s) => s.id !== source.id), sourceStatus, phase: this.opened.size === 0 ? "pick" : "ready" });
+      throw e;
+    }
+    void this.saveSources();
+  }
+
+  private async openSource(source: Source): Promise<void> {
+    const root = source.root;
+    const marks: string[] = [];
+    let last = performance.now();
+    const mark = (what: string) => {
+      const now = performance.now();
+      marks.push(`${what} ${Math.round(now - last)}`);
+      last = now;
+    };
+    const lib = new LibraryService(this.platform.host, root, () => this.folderReadOnly(source));
+    lib.setDevice(this.deviceId);
+    const o: Opened = {
+      source,
+      lib,
+      books: [],
+      edits: new Map(),
+      log: [],
+      pendingLog: [],
+      names: null,
+      keeper: new PositionKeeper({
+        local: lib.keepsLocalPositions ? (all) => lib.writeLocalPositions(all) : undefined,
+        share: (p) => lib.writePositionRecord(p),
+        log: (m) => log.warn(source.name + ":", m),
+      }),
+      seriesKeys: new Set(),
+      assetsReady: false,
+      scanning: null,
+      scans: new Rerun<ScanAsk>(
+        (asked) => this.scanOnce(o, asked.background, asked.forget),
+        bothScans,
+        (ok) => {
+          // A book a server's admin deleted waits for the scans to finish before it's taken off.
+          if (ok && o.server && this.opened.get(source.id) === o) void this.dropDeleted(o);
+        },
+      ),
+      saving: Promise.resolve(),
+      coverJob: null,
+      lookup: null,
+      mirrorCovers: new Set(),
+      mirrorCoversDir: null,
+      server: null,
+      serverPlaces: null,
+      serverAdmin: false,
+      serverRefreshSoon: null,
+      serverRefresh: null,
+      serverImports: new Map(),
+    };
+    this.opened.set(source.id, o);
+    if (source.server) await this.linkServer(o, this.serverTokens()[serverKey(source.server)] ?? null);
+    this.updateCanAddFolders();
+    // The position log describes each book by its claims and its files.
+    lib.bookInfo = (id) => o.books.find((b) => b.book.id === id);
+    this.ensureEngine();
+    const alive = () => this.opened.get(source.id) === o;
+    // Access to the folder's files is granted while the shelf paints from
+    // the local mirror; covers appear the moment it lands.
+    const allowed = this.platform.allowFolder(root).then(() => {
+      mark("allow");
+      o.assetsReady = true;
+      if (alive()) this.publishScanning();
+    });
+
+    let migrated = false;
+    const migrate = async () => {
+      if (migrated) return;
+      migrated = true;
+      if (await lib.migrateLegacyRecords()) log.info("moved records from .odio to .ribbon", root);
+    };
+    try {
+      let cached = await lib.loadCached();
+      mark("records");
+      if (!cached || cached.length === 0) {
+        await migrate();
+        cached = await lib.loadCached();
+        mark("migrate+records");
+      }
+      log.info("cached records:", source.name, cached ? `${cached.length} books` : "none");
+      if (cached && cached.length > 0) {
+        const extras = await lib.readMirrorExtras();
+        o.mirrorCovers = extras.covers;
+        o.mirrorCoversDir = extras.coversDir;
+        o.keeper.absorb(extras.positions.values(), { fromLocal: true });
+        o.books = this.stamp(o, cached);
+        mark("positions");
+        if (!alive()) return;
+        this.publishBooks({ phase: "ready", coverVersion: this.state.coverVersion + 1 });
+        this.publishScanning();
+        mark("render");
+        this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
+        // Only now the share: the legacy folder, the positions written elsewhere, the rescan.
+        await allowed;
+        await migrate();
+        const [positions, problems, series, about] = await Promise.all([
+          lib.readPositionLog().catch((e: unknown) => {
+            log.warn("could not read positions beside the books; using the ones kept here:", describe(e));
+            return null;
+          }),
+          lib.readProblems().catch(() => []),
+          lib.readSeries().catch(() => new Map<string, SeriesRecord>()),
+          lib.readAbout().catch(() => new Map<string, BookAbout>()),
+        ]);
+        if (!alive()) return;
+        if (positions) {
+          this.takeSharePositions(o, positions.places);
+          this.takeLog(o, positions.records);
+        }
+        await this.takeEdits(o);
+        this.absorb(o, problems, series, about);
+        this.publishBooks();
+        void this.rescanSource(o, true);
+        return;
+      }
+      o.scanning = { walked: 0, done: 0, background: false };
+      this.publishScanning();
+      await allowed;
+      await this.rescanSource(o, false);
+      if (!alive()) return;
+      this.offerSeriesSetup();
+      this.publishScanning({ phase: "ready" });
+      await o.saving;
+    } catch (e) {
+      if (alive()) {
+        this.opened.delete(source.id);
+        o.scanning = null;
+        this.publishBooks();
+        this.publishScanning();
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * Positions read beside the books: newest wins against what is kept
+   * here, and anything newer here goes back to the share. A read that
+   * started before a write landed can never move a book backwards.
+   */
+  private takeSharePositions(o: Opened, share: Map<string, Position>): void {
+    if (this.opened.get(o.source.id) !== o) return;
+    const changed = o.keeper.absorb(share.values());
+    o.keeper.reconcile(share);
+    // The open book, paused here, was listened to somewhere else since:
+    // move to where that left off, so pressing play here continues it
+    // instead of overwriting it with the older place.
+    const cur = this.state.current;
+    const engine = this.engine;
+    if (cur && engine && changed.includes(cur.book.book.id) && !isPlaying(this.state.player.status) && engine.current.bookId === cur.book.book.id) {
+      const p = o.keeper.get(cur.book.book.id)!;
+      log.info(`a newer position for the open book came from ${p.device || "another device"}: ${p.offsetMs} ms`);
+      engine.seek(Math.min(p.offsetMs, cur.book.book.durationMs));
+      this.pausedAt = Date.parse(p.updatedAt);
+    }
+    if (changed.length > 0) this.publishBooks();
+  }
+
+  /** Read a source's hand edits and lay them over its books, with a server's own (editsFor). */
+  private async takeEdits(o: Opened): Promise<void> {
+    const edits = await o.lib.readAllEdits().catch((e: unknown) => {
+      log.warn("could not read the edits beside the books:", describe(e));
+      return null;
+    });
+    if (!edits || this.opened.get(o.source.id) !== o) return;
+    o.edits = this.editsFor(o, edits);
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
+  }
+
+  /**
+   * Save what the edit form says about a book. A server's book: the fields
+   * changed in the form go to the server, which keeps them for every device
+   * (saveServerEdits). A book in a folder: only fields that differ from the
+   * files are kept beside it; a field set back to the files' value stops
+   * being an edit. Nothing in the audio files changes.
+   */
+  async saveEdits(bookId: string, form: Partial<Record<EditField, string>>): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    if (o.server) return this.saveServerEdits(o, b, form);
+    const previous = o.edits.get(bookId)?.values ?? {};
+    const values = diffEdits(b.original ?? b.book, form, previous);
+    const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(edits);
+    this.keepEdits(o, edits);
+    if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
+    log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+  }
+
+  /** Filter and sort the shelf, and remember it for next time. */
+  setView(view: LibraryView): void {
+    this.set({ view });
+    this.appSettings = { ...this.appSettings, libraryView: view };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  openEditBook(bookId: string): void {
+    this.set({ editBook: bookId });
+  }
+
+  closeEditBook(): void {
+    this.set({ editBook: null });
+  }
+
+  /** Use an image the listener chose as the book's cover; it is copied beside the books. */
+  async setCover(bookId: string, bytes: Uint8Array, ext: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    // A server's book: the picture goes to the server with its edits, and becomes its cover on every device.
+    if (o.server) return this.sendServerEdits(o, b, sharedEdits(b.edits ?? {}), bytes);
+    const path = await o.lib.writeEditedCover(bookId, bytes, ext);
+    await this.saveEdits(bookId, { cover: path });
+  }
+
+  /** Take back hand edits: one field, or all of them. */
+  async resetEdits(bookId: string, field?: EditField): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    const previous = o.edits.get(bookId)?.values ?? {};
+    if (o.server) {
+      const kept = sharedEdits(previous);
+      if (field) delete kept[field];
+      // The files' cover again only when that's asked: taking back a field leaves the cover as it is.
+      await this.sendServerEdits(o, b, field ? kept : {}, !field || field === "cover" ? null : undefined);
+      return;
+    }
+    const values = { ...previous };
+    if (field) delete values[field];
+    const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
+    await o.lib.writeEdits(edits);
+    this.keepEdits(o, edits);
+    if (!field || field === "cover") void this.mirrorCoversFor(o);
+  }
+
+  /**
+   * A server's book edited: the fields changed in the form go to the
+   * server, with the edits it already has, and it keeps them for every
+   * device. Nothing is compared with what this device's files say: what
+   * the server lists is the book, here as everywhere. A cover goes on its
+   * own, as a picture (setCover).
+   */
+  private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<void> {
+    const changed = changedFields(b.book, form);
+    if (Object.keys(changed).length > 0) await this.sendServerEdits(o, b, { ...sharedEdits(b.edits ?? {}), ...changed });
+  }
+
+  /**
+   * A server's book's edits, sent in place of the ones it has, with a
+   * picture for its cover or null for its files' (left out, the cover
+   * stays), and the shelf as the server then lists it. Refused or out of
+   * reach, it says so, and nothing changes.
+   */
+  private async sendServerEdits(o: Opened, b: ScannedBook, values: EditValues, cover?: Uint8Array | null): Promise<void> {
+    try {
+      await o.server!.client.saveEdits(serverIdOf(b), values, cover);
+    } catch (e) {
+      this.set({ error: `Couldn't change ${b.book.title} on the server: ${e instanceof ServerError ? e.message : describe(e)}` });
+      log.warn("could not send a book's edits to the server:", o.source.name, describe(e));
+      return;
+    }
+    log.info("edited on the server:", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+    await this.refreshServer(o);
+  }
+
+  /** A book's edits laid over it on the shelf. */
+  private keepEdits(o: Opened, edits: BookEdits): void {
+    if (Object.keys(edits.values).length === 0) o.edits.delete(edits.bookId);
+    else o.edits.set(edits.bookId, edits);
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
+  }
+
+  /**
+   * The edits laid over a source's books. A server's books carry the edits
+   * the server keeps, as it lists them, and nothing of this device's: a
+   * cover chosen for one is the picture the server lists, once it's here. A
+   * book in a folder: the edits kept beside it.
+   */
+  private editsFor(o: Opened, here: ReadonlyMap<string, BookEdits>): Map<string, BookEdits> {
+    const server = o.server;
+    if (!server) return new Map(here);
+    const out = new Map<string, BookEdits>();
+    for (const { localId, edited, cover } of server.listedEdits()) {
+      if (!edited) continue;
+      const chosen = edited.chosenCover && cover && server.hasCover(cover.hash) ? { cover: serverCoverPath(cover.hash) } : {};
+      out.set(localId, { bookId: localId, values: { ...edited.values, ...chosen }, updatedAt: edited.updatedAt });
+    }
+    return out;
+  }
+
+  /** Records read beside one source's books, merged into the shelf. A server that keeps series has its own (takeServerSeries). */
+  private absorb(o: Opened, problems: Problem[], read: Map<string, SeriesRecord>, about: Map<string, BookAbout>): void {
+    const series = o.server?.keepsSeries ? new Map<string, SeriesRecord>() : read;
+    for (const k of series.keys()) o.seriesKeys.add(k);
+    this.set({
+      problems: [...this.state.problems.filter((p) => p.source !== o.source.id), ...problems.map((p) => ({ ...p, source: o.source.id }))],
+      series: { ...this.state.series, ...Object.fromEntries(series) },
+      about: { ...this.state.about, ...Object.fromEntries(about) },
+    });
+  }
+
+  /** Check every source for changes. */
+  async rescan(background = this.state.phase === "ready"): Promise<void> {
+    await Promise.all(this.openedInOrder().map((o) => this.checkSource(o, background)));
+  }
+
+  /** Check one source for changes. */
+  async rescanSourceById(id: string): Promise<void> {
+    const o = this.opened.get(id);
+    if (o) await this.checkSource(o, true);
+  }
+
+  /** Check a source for changes, asked for: a server's is asked for its books and places too. */
+  private async checkSource(o: Opened, background: boolean): Promise<void> {
+    if (o.server) {
+      void this.refreshServer(o);
+      void this.syncPlaces(o);
+    }
+    await this.rescanSource(o, background);
+  }
+
+  /**
+   * Scan one source; while it's being scanned, once more after (`Rerun`).
+   * Resolves when a scan begun after the ask has ended, so whoever asked,
+   * a download looking for the book it brought, say, finds what's there now.
+   * A scan behind the shelf says what went wrong rather than throwing it.
+   */
+  private rescanSource(o: Opened, background: boolean, forget: string[] = []): Promise<void> {
+    const done = o.scans.ask({ background, forget });
+    return background ? done.catch(() => undefined) : done;
+  }
+
+  /**
+   * One scan of one source. Books appear as the scan streams them: the shelf
+   * paints from folder names as soon as the walk is done, then fills in
+   * authors, then durations, and the complete list lands last.
+   */
+  private async scanOnce(o: Opened, background: boolean, forget: string[]): Promise<void> {
+    const { lib, source } = o;
+    const alive = () => this.opened.get(source.id) === o;
+    // A source let go while a scan of it was waiting to run isn't scanned again.
+    if (!alive()) return;
+    o.scanning = { walked: 0, done: 0, background };
+    this.publishScanning({ scanErrors: this.state.scanErrors.filter((e) => !e.path.startsWith(`${source.id}:`)) });
+    const started = Date.now();
+    log.info("scan start", source.root, background ? "(background)" : "(foreground)");
+    // Positions are one directory read; start it now and apply it to
+    // every set of books that comes through.
+    const positionsReady = lib
+      .readPositionLog()
+      .then((l) => {
+        this.takeSharePositions(o, l.places);
+        this.takeLog(o, l.records);
+      })
+      .catch((e: unknown) => log.warn("could not read positions beside the books:", describe(e)));
+    let painted = false;
+    let lastTick = 0;
+    try {
+      const result = await lib.rescanDetailed({
+        write: false,
+        forget,
+        onProgress: (p: ScanProgress) => {
+          // Batches can land many times a second; the header need not.
+          const now = Date.now();
+          const final = p.stage !== undefined || (p.walked > 0 && p.done >= p.walked);
+          if (!final && now - lastTick < 100) return;
+          lastTick = now;
+          if (!alive()) return;
+          o.scanning = { ...p, background };
+          this.publishScanning();
+        },
+        onBooks: (books: ScannedBook[]) => {
+          if (books.length === 0 || !alive()) return;
+          if (!painted) {
+            painted = true;
+            log.info("first paint:", source.name, books.length, "books,", Date.now() - started, "ms after scan start");
+            this.logPainted("from the walk");
+          }
+          o.books = this.stamp(o, books);
+          this.publishBooks(this.state.phase === "loading" ? { phase: "ready" } : {});
+        },
+      });
+      const books = this.stamp(o, result.books);
+      log.info("scan done:", source.name, books.length, "books,", result.probed, "probed,", result.reused, "reused,", result.rescued, "rescued by ffprobe,", result.errors.length, "errors,", result.elapsedMs, "ms");
+      const t = result.timings;
+      log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
+      for (const e of result.errors) log.warn("scan:", source.name, e.path, e.message);
+      await positionsReady;
+      const edits = await lib.readAllEdits().catch(() => null);
+      if (!alive()) return;
+      if (edits) o.edits = this.editsFor(o, edits);
+      o.books = this.stamp(o, books);
+      o.scanning = null;
+      const elapsed = Date.now() - started;
+      // Every scan is a full walk, so its errors are the whole current list for this source.
+      const at = new Date().toISOString();
+      const problems: Problem[] = result.errors.map((e) => ({ path: e.path, message: e.message, at, source: source.id }));
+      this.publishBooks({
+        scanErrors: [...this.state.scanErrors, ...result.errors],
+        problems: [...this.state.problems.filter((p) => p.source !== source.id), ...problems],
+        lastScanMs: elapsed,
+      });
+      this.setSourceStatus(source.id, { lastScanMs: elapsed, error: null });
+      this.publishScanning();
+      void lib.writeProblems(problems.map(({ path, message, at }) => ({ path, message, at }))).catch((e: unknown) => log.warn("could not save problems:", describe(e)));
+      const saveStarted = Date.now();
+      o.saving = result.save().then(
+        () => log.info("records saved in", Date.now() - saveStarted, "ms", source.name),
+        (e: unknown) => log.warn("could not save records:", describe(e)),
+      );
+      void this.fetchCovers(o)
+        .then(() => this.mirrorCoversFor(o))
+        .catch((e: unknown) => isReadOnly(e) || log.warn("could not keep covers beside the books:", describe(e)));
+      if (background) this.offerSeriesSetup();
+      this.maybeLookup();
+    } catch (e) {
+      log.error("scan failed:", source.name, describe(e));
+      o.scanning = null;
+      if (alive()) {
+        this.setSourceStatus(source.id, { error: describe(e) });
+        this.publishScanning({ error: describe(e) });
+      }
+      if (!background) throw e;
+    }
+  }
+
+  /** Covers ffmpeg still has to cut, after the library is visible. */
+  private async fetchCovers(o: Opened): Promise<void> {
+    o.coverJob?.abort();
+    const abort = new AbortController();
+    o.coverJob = abort;
+    const done = await extractMissingCovers(o.lib.host, o.lib.root, o.books, () => this.publishBooks(), abort.signal);
+    if (done.length > 0) log.info("covers extracted:", done.length, o.source.name);
+  }
+
+  /** How long the listener waited from launch to a shelf, when the host can say. */
+  private logPainted(how: string, detail = ""): void {
+    if (this.clockOffset === null) return;
+    const offset = this.clockOffset;
+    // Let the frame that shows the shelf go out first.
+    requestAnimationFrame(() => {
+      log.info(`shelf painted ${how}: ${Math.round(performance.now() + offset)} ms after process start (window ${document.visibilityState})${detail}`);
+    });
+  }
+
+  /**
+   * Take a folder out of the library. Nothing on disk changes: its
+   * records stay beside its books and its mirror stays in the Ribbon
+   * folder, so adding it back is instant.
+   */
+  // Servers -------------------------------------------------------------
+
+  /**
+   * Connect to a Ribbon server (docs/SERVER.md, section 11): sign in, and
+   * add it as a source whose folder is one of Ribbon's own, where its books
+   * are downloaded before they play. The sign-in token is kept in the app's
+   * settings, never in the sources file. Connecting again to a server
+   * already here signs it in again.
+   */
+  async connectServer(address: string, name: string, password: string): Promise<void> {
+    const server: ServerRef = { url: serverUrl(address), person: name.trim() };
+    const home = await this.platform.home?.path();
+    if (!home) throw new Error("This version of Ribbon can't keep a server's books.");
+    const client = await ServerClient.signIn(server.url, server.person, password);
+    const root = this.serverRoot(home, server);
+    // The app's files reach only the folders it has been allowed (allow_library): this one is Ribbon's own, made here.
+    await this.platform.allowFolder(root);
+    await this.platform.host.mkdir(root);
+    await this.keepServerToken(server, client.token);
+    const open = this.opened.get(sourceId(root));
+    if (open) {
+      this.setSourceStatus(open.source.id, { error: null });
+      await this.linkServer(open, client.token);
+      return;
+    }
+    await this.addSource(root, server);
+    // Someone signing in to a server of their own has their folders to bring: the books, and their place in each.
+    const me = await client.me().catch(() => null);
+    const o = this.opened.get(sourceId(root));
+    if (!o || me?.role !== "admin") return;
+    o.serverAdmin = true;
+    this.updateCanAddFolders();
+    this.offerMove();
+  }
+
+  /** Ask whether to move a folder to the server, or every folder when none is named. */
+  offerMove(folderId?: string): void {
+    const folders = this.state.sources.filter((s) => !s.server && (!folderId || s.id === folderId));
+    if (folders.length > 0) this.set({ moveOffer: folders.map((s) => s.id) });
+  }
+
+  dismissMove(): void {
+    this.set({ moveOffer: null });
+  }
+
+  /**
+   * Move the folders offered to the server (docs/SERVER.md, section 11). The
+   * server copies each folder's books in and takes the person's places from
+   * its logs, so the book open now is let go first, its place written where
+   * the server will read it. A folder then leaves the shelf, so each book has
+   * one home. One the server couldn't take whole stays: nothing has been lost,
+   * and adding it again only brings what's missing.
+   */
+  async moveFolders(): Promise<void> {
+    const offered = this.state.moveOffer ?? [];
+    this.set({ moveOffer: null });
+    const server = this.openedInOrder().find((o) => o.server && o.serverAdmin);
+    if (!server) return;
+    for (const id of offered) {
+      const folder = this.opened.get(id);
+      if (!folder) continue;
+      if (this.state.current?.book.source === id) await this.letGoOfCurrent();
+      await folder.keeper.flush();
+      if (await this.addFolderToServer(server, folder.source.root)) await this.removeSource(id);
+    }
+  }
+
+  /** A server's folder: one of Ribbon's own, named by the server and who's signed in. */
+  private serverRoot(home: string, server: ServerRef): string {
+    return this.platform.host.join(home, "servers", sourceId(serverKey(server)));
+  }
+
+  /** Each server source's folder, worked out again from Ribbon's own: a phone's app folder moves when the app is updated. */
+  private async placeServers(entries: SourceEntry[]): Promise<SourceEntry[]> {
+    if (!entries.some((e) => e.server)) return entries;
+    const home = await this.platform.home?.path().catch(() => null);
+    if (!home) return entries;
+    const placed = entries.map((e) => (e.server ? { ...e, root: this.serverRoot(home, e.server) } : e));
+    // Made again if it's gone: the server still has the books, and the place in each.
+    for (const e of placed) {
+      if (!e.server) continue;
+      await this.platform
+        .allowFolder(e.root)
+        .then(() => this.platform.host.mkdir(e.root))
+        .catch((err: unknown) => log.warn("could not make a server's folder:", describe(err)));
+    }
+    return placed;
+  }
+
+  /** The sign-in tokens of the servers this device is connected to, by `serverKey`. */
+  private serverTokens(): Record<string, string> {
+    const kept = this.appSettings.serverTokens;
+    return kept && typeof kept === "object" ? (kept as Record<string, string>) : {};
+  }
+
+  /** Keep a server's sign-in in the app's settings, or forget it (null). */
+  private async keepServerToken(server: ServerRef, token: string | null): Promise<void> {
+    const { [serverKey(server)]: _was, ...others } = this.serverTokens();
+    this.appSettings = { ...this.appSettings, serverTokens: token ? { ...others, [serverKey(server)]: token } : others };
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** Give an opened server source its shelf: the list as last seen at once, then the server's own. */
+  private async linkServer(o: Opened, token: string | null): Promise<void> {
+    if (!o.source.server) return;
+    if (!token) {
+      this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      return;
+    }
+    // Its list and covers are read and written here before the shelf's own access to the folder lands.
+    await this.platform.allowFolder(o.source.root).catch((e: unknown) => log.warn("could not open a server's folder:", describe(e)));
+    const client = new ServerClient(o.source.server.url, token);
+    this.letGoOfServerPlaces(o);
+    // The position log is the server's, kept here only as last read and what's still to send (server-log.ts).
+    const placesLog = new ServerLog(client, this.platform.host, o.source.root, () => o.lib.logDevice());
+    o.lib.useRemoteLog(placesLog);
+    o.serverPlaces = { log: placesLog, soon: null, events: new AbortController() };
+    o.server = new ServerShelf(client, this.platform.host, o.source.root);
+    await o.server.loadCached();
+    await this.takeEdits(o);
+    this.takeServerSeries(o);
+    void this.refreshServer(o);
+    void client
+      .me()
+      .then((me) => {
+        if (this.opened.get(o.source.id) !== o) return;
+        o.serverAdmin = me.role === "admin";
+        this.updateCanAddFolders();
+        void this.transcribeForServer();
+      })
+      .catch((e: unknown) => log.warn("could not ask the server who's signed in:", describe(e)));
+    // What this device adds to its log goes on to the server, a moment later so a run of records goes as one.
+    o.lib.onAppend = () => this.syncPlacesSoon(o);
+    void this.syncPlaces(o);
+    void this.listenToServer(o, client, o.serverPlaces.events.signal);
+  }
+
+  /** Carry the position log to and from a server, and take in whatever came down. */
+  private async syncPlaces(o: Opened): Promise<void> {
+    const sp = o.serverPlaces;
+    if (!sp) return;
+    const alive = () => this.opened.get(o.source.id) === o && o.serverPlaces === sp;
+    try {
+      if (!(await sp.log.sync()) || !alive()) return;
+      const l = await o.lib.readPositionLog();
+      if (!alive()) return;
+      this.takeSharePositions(o, l.places);
+      this.takeLog(o, l.records);
+    } catch (e) {
+      log.warn("could not share places with the server:", o.source.name, describe(e));
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+    }
+  }
+
+  private syncPlacesSoon(o: Opened): void {
+    const sp = o.serverPlaces;
+    if (!sp || sp.soon) return;
+    sp.soon = setTimeout(() => {
+      sp.soon = null;
+      void this.syncPlaces(o);
+    }, 1000);
+  }
+
+  /**
+   * The server's events, for as long as the source is open: another of
+   * this person's devices moved a place, or the library changed. A stream
+   * that drops is opened again, sooner at first, and what was missed
+   * meanwhile is caught up with a sync.
+   */
+  private async listenToServer(o: Opened, client: ServerClient, signal: AbortSignal): Promise<void> {
+    const me = (await o.lib.logDevice()).id;
+    for (let attempt = 0; !signal.aborted; attempt++) {
+      const opened = Date.now();
+      await client
+        .events((type, data) => {
+          if (type === "places" && (data as { device?: string } | null)?.device !== me) void this.syncPlaces(o);
+          if (type === "books") {
+            this.refreshServerSoon(o);
+            void this.transcribeForServer();
+          }
+          if (type === "series") void this.refreshServerSeries(o);
+        }, signal)
+        .catch((e: unknown) => {
+          if (!signal.aborted && attempt === 0) log.info("the server's events stopped:", describe(e));
+        });
+      if (signal.aborted) return;
+      // A stream that stayed up a while starts the waits over.
+      if (Date.now() - opened > 60_000) attempt = 0;
+      await new Promise((r) => setTimeout(r, Math.min(60_000, 2_000 * 2 ** Math.min(attempt, 5))));
+      if (!signal.aborted) void this.syncPlaces(o);
+    }
+  }
+
+  /** Refresh a server's list shortly: books added one after another are fetched a few at once. */
+  private refreshServerSoon(o: Opened): void {
+    if (o.serverRefreshSoon) return;
+    o.serverRefreshSoon = setTimeout(() => {
+      o.serverRefreshSoon = null;
+      void this.refreshServer(o);
+    }, 1500);
+  }
+
+  /** Who adds folders: anyone, until a server is connected; then only its admin. */
+  private updateCanAddFolders(): void {
+    const servers = this.openedInOrder().filter((o) => o.source.server);
+    const can = servers.length === 0 || servers.some((o) => o.serverAdmin);
+    if (can !== this.state.canAddFolders) this.set({ canAddFolders: can });
+  }
+
+  /**
+   * Add a folder as a server's admin: the server copies its books in, and
+   * they join the shelf as they arrive, with the same progress a folder's
+   * scan shows. The server reads the folder itself, at the path it has on
+   * this machine, so the folder has to be at that path on the server's
+   * machine too (a network share mounted there at the same place, say). The
+   * server only ever reads it. True when every book in it is on the server.
+   */
+  private async addFolderToServer(o: Opened, folder: string): Promise<boolean> {
+    const shelf = o.server;
+    if (!shelf) return false;
+    const name = sourceName(folder);
+    this.appSettings = { ...this.appSettings, lastServerFolder: folder };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    const entry: { name: string; job: ServerJob | null } = { name, job: null };
+    const key = this.nextImport++;
+    o.serverImports.set(key, entry);
+    const show = (job: ServerJob | null) => {
+      entry.job = job;
+      this.publishScanning();
+    };
+    show(null);
+    let job: ServerJob;
+    try {
+      job = await shelf.client.importFolder(folder);
+      log.info("adding a folder to the server:", folder, job.id);
+      let added = 0;
+      while (job.state === "waiting" || job.state === "running") {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (!alive()) return false;
+        job = await shelf.client.job(job.id);
+        show(job);
+        if (job.progress.added > added) {
+          added = job.progress.added;
+          this.refreshServerSoon(o);
+        }
+      }
+    } catch (e) {
+      if (alive()) this.set({ error: `Couldn't add ${name} to the server: ${describe(e)}` });
+      return false;
+    } finally {
+      o.serverImports.delete(key);
+      if (alive()) this.publishScanning();
+    }
+    await this.refreshServer(o);
+    const p = job.progress;
+    // A server from before it gave books their EPUBs doesn't say how many it gave.
+    log.info(`added ${name} to the server: ${p.added} added, ${p.skipped} already there (${p.ebooks ?? 0} given their EPUB), ${p.failed} not added`);
+    if (job.state === "failed") {
+      const there = /There's no folder at/.test(job.error ?? "");
+      this.set({ error: there ? `The server can't see ${name}. It reads a folder at the path it has on ${this.here}, so the folder has to be at that same path on the server's computer too.` : `Couldn't add ${name} to the server: ${job.error ?? "it stopped"}` });
+    } else if (p.failed > 0) {
+      const why = p.notes.filter((n) => !n.endsWith("already on the server."));
+      this.set({ error: `${p.added} ${p.added === 1 ? "book" : "books"} from ${name} added. ${p.failed} couldn't be: ${why.slice(0, 3).join(" ")}${why.length > 3 ? ` And ${why.length - 3} more.` : ""}` });
+    }
+    return job.state === "done" && p.failed === 0;
+  }
+
+  /** Each import's own number, to keep it by. */
+  private nextImport = 0;
+
+  /**
+   * One status for all of a server's imports, which its server runs one at a
+   * time: the folder being added, and how many wait behind it. Null when
+   * nothing is being added.
+   */
+  private importStatus(o: Opened): ScanStatus | null {
+    const all = [...o.serverImports.values()];
+    if (all.length === 0) return null;
+    const now = all.find((i) => i.job?.state === "running") ?? all[0]!;
+    const p = now.job?.progress;
+    const done = p ? p.added + p.skipped + p.failed : 0;
+    const waiting = all.length - 1;
+    const doing =
+      now.job?.state === "waiting" ? `Waiting to add ${now.name}…` : !p || p.found === 0 ? `Looking through ${now.name}…` : p.current ? `Adding ${p.current}, ${Math.min(done + 1, p.found)} of ${p.found}…` : `Adding ${done} of ${p.found}…`;
+    return {
+      walked: p?.found ?? 0,
+      done,
+      background: this.state.books.length > 0,
+      stage: waiting > 0 ? `${doing} Then ${waiting} more ${waiting === 1 ? "folder" : "folders"}.` : doing,
+      copying: true,
+    };
+  }
+
+  /** Stop carrying a server source's places: before it's linked again, or goes. */
+  private letGoOfServerPlaces(o: Opened): void {
+    if (!o.serverPlaces) return;
+    o.serverPlaces.events.abort();
+    if (o.serverPlaces.soon) clearTimeout(o.serverPlaces.soon);
+    if (o.serverRefreshSoon) clearTimeout(o.serverRefreshSoon);
+    o.serverRefreshSoon = null;
+    o.serverPlaces = null;
+    o.lib.onAppend = null;
+  }
+
+  /** Catch up with every server: when the window comes back, say. */
+  private syncAllServers(): void {
+    for (const o of this.openedInOrder()) if (o.serverPlaces) void this.syncPlaces(o);
+  }
+
+  /** Ask a server what it has now, and fetch the covers the shelf will draw: one ask at a time, each after the one before. */
+  private refreshServer(o: Opened): Promise<void> {
+    const ask = (o.serverRefresh ?? Promise.resolve()).catch(() => undefined).then(() => this.askServer(o));
+    o.serverRefresh = ask;
+    return ask;
+  }
+
+  /** One ask of a server. Once its source is gone, nothing more is written into its folder, which is going too. */
+  private async askServer(o: Opened): Promise<void> {
+    const shelf = o.server;
+    const alive = () => this.opened.get(o.source.id) === o && o.server === shelf;
+    if (!shelf || !alive()) return;
+    try {
+      const books = await shelf.refresh();
+      const series = await shelf.refreshSeries();
+      if (alive()) await this.takeGoal(o);
+      if (books && alive()) this.publishBooks();
+      if (books && alive()) await this.takeEdits(o);
+      // A series' books are named by their ids here, which come with the list.
+      if ((books || series) && alive()) this.takeServerSeries(o);
+    } catch (e) {
+      log.warn("could not ask the server for its books:", o.source.name, describe(e));
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+    }
+    if (!alive()) return;
+    // A book downloaded here that the server has been given the EPUB of since.
+    await this.takeServerEbooks(o, shelf.withoutTheirEbook(o.books));
+    if (!alive()) return;
+    // The covers kept here show even when the server is out of reach.
+    const found = await shelf.fetchCovers().catch(() => 0);
+    // A cover chosen on the server is laid over its book once its picture is here.
+    if (found > 0 && alive()) await this.takeEdits(o);
+    if (found > 0 && alive()) this.publishBooks({ coverVersion: this.state.coverVersion + 1 });
+    // Out of reach or not, what it last said was deleted goes.
+    if (alive()) await this.dropDeleted(o);
+  }
+
+  /** The server's books whose EPUB is coming down now, by server id, so it's fetched once at a time. */
+  private takingEbooks = new Set<string>();
+
+  /**
+   * The EPUBs of books downloaded here before the server had them (an EPUB
+   * put beside an audiobook already on the server, and its folder added
+   * again): each into its book's folder, then the folder scanned again, so
+   * the book opens to read, reads along, and can be transcribed here. How
+   * many came down.
+   */
+  private async takeServerEbooks(o: Opened, books: readonly ScannedBook[]): Promise<number> {
+    const shelf = o.server;
+    if (!shelf) return 0;
+    let taken = 0;
+    for (const b of books) {
+      const serverId = serverIdOf(b);
+      if (this.takingEbooks.has(serverId)) continue;
+      this.takingEbooks.add(serverId);
+      try {
+        if (await shelf.downloadEbook(serverId)) taken++;
+      } catch (e) {
+        log.warn(`could not download the EPUB of ${b.book.title}:`, describe(e));
+      } finally {
+        this.takingEbooks.delete(serverId);
+      }
+    }
+    if (taken > 0 && this.opened.get(o.source.id) === o && o.server === shelf) await this.rescanSource(o, true);
+    return taken;
+  }
+
+  /**
+   * Download a server's book before it plays or opens, the space checked
+   * first. The book as it is on this device afterwards, or null when it
+   * isn't (not enough space, the server out of reach).
+   */
+  private async downloadRemote(book: ScannedBook): Promise<ScannedBook | null> {
+    const o = this.openedOf(book);
+    const serverId = book.remote?.serverId;
+    if (!o?.server || !serverId || this.state.downloads[book.book.id]) return null;
+    const id = book.book.id;
+    this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, spaceShort: null });
+    try {
+      const analysis = await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
+      await this.rescanSource(o, true);
+      const here = o.books.find((b) => b.book.path === serverId || b.book.path.startsWith(`${serverId}/`)) ?? null;
+      // The server measured it once: its loudness and silences go beside it here, so it's never measured on a device.
+      if (here && analysis) await this.keepMeasurements(o, here.book.id, analysis);
+      return here;
+    } catch (e) {
+      if (e instanceof NotEnoughSpace) this.set({ spaceShort: { bookId: id, title: book.book.title, neededBytes: e.neededBytes, freeBytes: e.freeBytes } });
+      else this.set({ error: `Couldn't download ${book.book.title}: ${describe(e)}` });
+      return null;
+    } finally {
+      const { [id]: _done, ...rest } = this.state.downloads;
+      this.set({ downloads: rest });
+    }
+  }
+
+  /**
+   * Download a server's book to open it, in the player or the reader. Asked
+   * for again while it downloads (a second click), the same download is
+   * waited for rather than refused, so the later ask can still open it.
+   */
+  private downloadToOpen(book: ScannedBook): Promise<ScannedBook | null> {
+    const id = book.book.id;
+    let going = this.downloadsToOpen.get(id);
+    if (!going) {
+      going = this.downloadRemote(book).finally(() => this.downloadsToOpen.delete(id));
+      this.downloadsToOpen.set(id, going);
+    }
+    return going;
+  }
+
+  /** Download a server's book without opening it: after making room, say. */
+  async downloadBook(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    if (book?.remote) await this.downloadRemote(book);
+  }
+
+  /** The books downloaded from servers, biggest first: what the person can remove to make room. */
+  downloadedBooks(): ScannedBook[] {
+    return this.state.books.filter((b) => !b.remote && this.openedOf(b)?.server).sort((a, b) => b.book.sizeBytes - a.book.sizeBytes);
+  }
+
+  /** Take a server's book off this device. The server keeps it, and the person's place in it. */
+  async removeDownload(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o?.server || book.remote) return;
+    if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
+    await o.server.remove(serverIdOf(book), book.book.id);
+    this.serverRecordsTaken.delete(book.book.id);
+    await this.rescanSource(o, true);
+  }
+
+  /** Whether this person is the admin of the server a book is on: only they can delete it from there. */
+  canDeleteFromServer(bookId: string): boolean {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    return !!o?.server && o.serverAdmin;
+  }
+
+  /**
+   * As a server's admin, delete a book from the server. Its files go from
+   * the server, and from every device that downloaded it as each next hears
+   * from the server (dropDeleted), this one at once. Everyone's places in it
+   * are kept, so if it's added again each person carries on where they
+   * were; the folder it was added from is never touched.
+   */
+  async deleteFromServer(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o?.server || !o.serverAdmin) return;
+    try {
+      await o.server.client.deleteBook(serverIdOf(book));
+    } catch (e) {
+      this.set({ error: `Couldn't delete ${book.book.title} from the server: ${describe(e)}` });
+      return;
+    }
+    log.info("deleted from the server:", book.book.title);
+    // Asked for here, so nothing waits for it to be closed.
+    if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
+    if (this.state.pane === "reader" && this.state.readerBookId === bookId) this.showLibrary();
+    await this.refreshServer(o);
+  }
+
+  /**
+   * Take off this device the downloads of books the server's admin deleted.
+   * Only the books the server says were deleted go, never one merely missing
+   * from its list: a server that lost its list mustn't empty every device.
+   * A book in use here, open in the player or the reader, stays until it
+   * isn't: the next book opened, the library shown, or the next launch.
+   */
+  private async dropDeleted(o: Opened): Promise<void> {
+    const shelf = o.server;
+    if (!shelf || o.scans.running) return;
+    const inUse = new Set([this.state.current?.book.book.id, this.state.pane === "reader" ? this.state.readerBookId : null]);
+    const gone = o.books.filter((b) => !b.remote && shelf.wasDeleted(serverIdOf(b)) && !inUse.has(b.book.id));
+    let removed = 0;
+    for (const b of gone) {
+      try {
+        await shelf.remove(serverIdOf(b), b.book.id);
+        log.info("deleted from the server, so taken off here:", b.book.title);
+        this.serverRecordsTaken.delete(b.book.id);
+        removed++;
+      } catch (e) {
+        log.warn("could not remove a book deleted from the server:", b.book.title, describe(e));
+      }
+    }
+    // Only when something went: a book that couldn't be removed is tried again after the next scan, not straight away.
+    if (removed > 0 && this.opened.get(o.source.id) === o && o.server === shelf) await this.rescanSource(o, true);
+  }
+
+  /** dropDeleted for every server, once a book that was in use may not be any more. */
+  private dropDeletedEverywhere(): void {
+    for (const o of this.opened.values()) if (o.server) void this.dropDeleted(o);
+  }
+
+  /** The person chose not to make room: the book stays on the server. */
+  dismissSpaceShort(): void {
+    this.set({ spaceShort: null });
+  }
+
+  /** Stop the open book, its place kept, before its files go. */
+  private async letGoOfCurrent(): Promise<void> {
+    if (isPlaying(this.state.player.status)) {
+      this.engine?.pause();
+      await this.persistPosition("pause");
+    }
+    this.chapterProbe?.abort();
+    this.engine?.pause();
+    this.set({ current: null, playerExpanded: false, playerDrawer: null, resumeOffer: null, previewing: null });
+  }
+
+  async removeSource(id: string): Promise<void> {
+    const o = this.opened.get(id);
+    const source = this.state.sources.find((s) => s.id === id);
+    if (!source) return;
+    log.info("remove source", source.root);
+    if (this.state.current?.book.source === id) await this.letGoOfCurrent();
+    this.jobs.cancelWhere((b) => b.source === id);
+    const gone = new Set(this.state.books.filter((b) => b.source === id).map((b) => b.book.id));
+    if (o) {
+      await o.keeper.close().catch(() => undefined);
+      // The places still to send go before the downloads do.
+      await o.serverPlaces?.log.sync().catch((e: unknown) => log.warn("could not send the last places to the server:", describe(e)));
+      this.letGoOfServerPlaces(o);
+      o.coverJob?.abort();
+      o.lookup?.stop();
+      this.opened.delete(id);
+      // An ask of its server still under way finishes before its folder goes: it writes there (the list, covers) until it sees the source is gone.
+      await o.serverRefresh?.catch(() => undefined);
+    }
+    this.updateCanAddFolders();
+    // A server's downloads are Ribbon's own files: they go, and the sign-in with them.
+    if (source.server) {
+      await o?.server?.removeAll().catch((e: unknown) => log.warn("could not remove a server's downloads:", describe(e)));
+      await this.keepServerToken(source.server, null);
+    }
+    const { [id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
+    const series = Object.fromEntries(Object.entries(this.state.series).filter(([k]) => !o?.seriesKeys.has(k)));
+    const about = Object.fromEntries(Object.entries(this.state.about).filter(([k]) => !gone.has(k)));
+    const jobs = Object.fromEntries(Object.entries(this.state.jobs).filter(([k]) => !gone.has(k)));
+    this.set({
+      sources: this.state.sources.filter((s) => s.id !== id),
+      sourceStatus,
+      readOnlyNotice: this.state.readOnlyNotice.filter((s) => s !== id),
+      problems: this.state.problems.filter((p) => p.source !== id),
+      series,
+      about,
+      jobs,
+      seriesSetup: this.state.seriesSetup && this.state.seriesSetup.bookIds.some((b) => gone.has(b)) ? null : this.state.seriesSetup,
+      readerBookId: this.state.readerBookId && gone.has(this.state.readerBookId) ? null : this.state.readerBookId,
+      pane: this.state.pane === "reader" && this.state.readerBookId && gone.has(this.state.readerBookId) ? "library" : this.state.pane,
+    });
+    this.publishBooks();
+    this.publishScanning(this.state.sources.length === 0 ? { phase: "pick", pane: "library", playerExpanded: false } : {});
+    await this.saveSources();
+  }
+
+  /** Copy covers into the local mirror once the shelf is settled, then show them from there. */
+  private async mirrorCoversFor(o: Opened): Promise<void> {
+    if (!o.lib.host.recordsMirror) return;
+    const present = await o.lib.mirrorCovers(o.books);
+    if (this.opened.get(o.source.id) !== o) return;
+    if (!o.mirrorCoversDir) o.mirrorCoversDir = (await o.lib.readMirrorExtras()).coversDir;
+    o.mirrorCovers = present;
+    this.set({ coverVersion: this.state.coverVersion + 1 });
+  }
+
+  /**
+   * The cover's URL. From the local mirror when it has a copy; otherwise
+   * from the source, but only once its files may be served and no scan
+   * of it is running, because a read across the network stalls the
+   * host's main thread and a scan keeps the volume busy. Null means
+   * show initials.
+   */
+  coverUrl(book: ScannedBook): string | null {
+    const o = this.openedOf(book);
+    if (!o || !book.book.cover) return null;
+    // A server's book not downloaded yet: a cover chosen here, which is
+    // already in the server's folder on this device, else the server's
+    // once it's fetched.
+    if (book.remote) return book.edits?.cover || (book.remote.cover && o.server?.hasCover(book.remote.cover.hash)) ? this.platform.fileUrl(o.lib.absPath(book.book.cover)) : null;
+    const name = LibraryService.mirrorCoverName(book);
+    if (name && o.mirrorCoversDir && o.mirrorCovers.has(name)) return this.platform.fileUrl(o.lib.host.join(o.mirrorCoversDir, name));
+    if (!o.assetsReady || o.scanning) return null;
+    return this.platform.fileUrl(o.lib.absPath(book.book.cover));
+  }
+
+  /** The source a book came from, for the page. */
+  sourceOf(book: ScannedBook): Source | null {
+    return this.state.sources.find((s) => s.id === book.source) ?? null;
+  }
+
+  /** Downloaded server books whose records have been checked against the server since launch. */
+  private serverRecordsTaken = new Set<string>();
+
+  /**
+   * Before a downloaded server book plays or opens, the first time this
+   * launch: whatever the server has for it that isn't here yet (its
+   * loudness and silences, what was heard of it and how that lines up, the
+   * names and description it filled in) comes down, so nothing the server
+   * has is worked out again here. A book downloaded before the server kept
+   * these gets them now, and shows them from the next scan.
+   */
+  private async takeServerRecords(book: ScannedBook): Promise<void> {
+    const o = this.openedOf(book);
+    const serverId = book.book.path.split("/")[0];
+    if (!o?.server || book.remote || !serverId || this.serverRecordsTaken.has(book.book.id)) return;
+    this.serverRecordsTaken.add(book.book.id);
+    const detail = await o.server.client.book(serverId).catch(() => null);
+    if (!detail) return;
+    await o.server.keepRecords(detail, book.book.id).catch((e: unknown) => log.warn("could not take a book's records from the server:", describe(e)));
+    await o.server.keepDetails(detail).catch((e: unknown) => log.warn("could not keep a book's details from the server:", describe(e)));
+    const [loudness, silence] = await Promise.all([o.lib.readLoudness(book.book.id).catch(() => null), o.lib.readSilence(book.book.id).catch(() => null)]);
+    if (detail.analysis && (!loudness || !silence)) await this.keepMeasurements(o, book.book.id, detail.analysis);
+  }
+
+  /** The server's measurements of a book, kept beside it here as if measured here. */
+  private async keepMeasurements(o: Opened, bookId: string, analysis: NonNullable<ServerBookDetail["analysis"]>): Promise<{ gainDb: number | null; silence: Map<number, SilenceRange[]> }> {
+    // A server older than #228 hands over a reading that measured nothing, and silences found by nothing: neither is kept.
+    if (nothingMeasured(analysis.loudness)) return { gainDb: null, silence: new Map() };
+    const gainDb = analysis.loudness ? await o.lib.writeLoudness(bookId, analysis.loudness) : null;
+    const silence = new Map(analysis.silence.map((s) => [s.file, s.ranges]));
+    await o.lib.writeSilence(bookId, silence);
+    return { gainDb, silence };
+  }
+
+  private onJob(s: JobStatus, result: { gainDb: number | null; silence: Map<number, SilenceRange[]> } | null): void {
+    this.set({ jobs: { ...this.state.jobs, [s.bookId]: s } });
+    const cur = this.state.current;
+    if (result && cur && cur.book.book.id === s.bookId) {
+      this.set({ current: { ...cur, loudnessGainDb: result.gainDb, silence: result.silence } });
+      if (result.gainDb !== null) this.engine?.setLoudnessGainDb(result.gainDb);
+      if (cur.settings.trimSilence) this.engine?.setSilence(result.silence);
+    }
+  }
+
+  // Playback ------------------------------------------------------------
+
+  /** The URL the player streams one of a book's audio files from. */
+  audioUrlOf(absPath: string): string {
+    return this.platform.audioUrl ? this.platform.audioUrl(absPath) : this.platform.fileUrl(absPath);
+  }
+
+  private ensureEngine(): PlayerEngine | null {
+    if (this.engine) return this.engine;
+    if (typeof Audio === "undefined") return null;
+    this.engine = new PlayerEngine({
+      resolveUrl: (rel) => {
+        const cur = this.state.current;
+        const lib = (cur && this.libOf(cur.book)) ?? this.openedInOrder()[0]?.lib;
+        return lib ? this.audioUrlOf(lib.absPath(rel)) : "";
+      },
+      onState: (player) => this.onPlayerState(player),
+      onEnded: () => this.onBookEnded(),
+      onLog: (m) => log.info(m),
+      exactUrl: this.platform.exactAudioUrl
+        ? (rel, ms) => {
+            const cur = this.state.current;
+            const lib = (cur && this.libOf(cur.book)) ?? this.openedInOrder()[0]?.lib;
+            return lib ? this.platform.exactAudioUrl!(lib.absPath(rel), ms) : null;
+          }
+        : undefined,
+    });
+    this.uninstallMedia = installMediaSession({
+      play: () => void this.play(),
+      pause: () => this.pause(),
+      seekBackward: () => this.skip(-SKIP_BACK_MS),
+      seekForward: () => this.skip(SKIP_FORWARD_MS),
+      previousChapter: () => this.previousChapter(),
+      nextChapter: () => this.nextChapter(),
+      seekTo: (ms) => this.seek(ms),
+    });
+    return this.engine;
+  }
+
+  private onPlayerState(player: EngineState): void {
+    const prev = this.state.player;
+    this.set({ player });
+    if (isPlaying(player.status) && !isPlaying(prev.status) && player.bookId) {
+      this.beginListening(player.bookId, player.positionMs, player.speed);
+      // Read along with the narration, the time is listening: the stretch of reading ends.
+      if (this.readingStretch?.bookId === player.bookId) void this.endReading();
+    }
+    if (this.listening && (!isPlaying(player.status) || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
+    // Stopped for any reason (the listener, the system, the end of a
+    // preview, a file that failed): keep the place now.
+    if (isPlaying(prev.status) && !isPlaying(player.status) && player.bookId === prev.bookId) {
+      if (this.state.previewing !== null) this.set({ previewing: null });
+      if (player.status !== "reconnecting") this.pausedAt = Date.now();
+      void this.persistPosition("pause");
+    }
+    if (isPlaying(player.status) && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
+    if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
+    // The system's controls show what the listener asked for: playing from the press, through loading and reconnecting.
+    if (wantsToPlay(player.status) !== wantsToPlay(prev.status) || Math.abs(player.positionMs - prev.positionMs) > 900) {
+      updateMediaPlayback(wantsToPlay(player.status), player.positionMs, player.durationMs, player.speed);
+    }
+  }
+
+  /**
+   * Open a book. Playback is ready as soon as the cached records are
+   * read; embedded chapter markers are probed behind it the first time
+   * and swapped in when they arrive.
+   */
+  async openBook(book: ScannedBook, opts: { expand?: boolean; autoplay?: boolean } = {}): Promise<void> {
+    // A server's book is downloaded before it plays (docs/SERVER.md, section 8). The ask is made first: a book
+    // asked for while this one downloads is the one that opens, and this one, arriving after, waits on the shelf.
+    if (book.remote) {
+      const asked = this.opening.ask();
+      const here = await this.downloadToOpen(book);
+      if (!here || !asked.current()) return;
+      book = here;
+    }
+    const lib = this.libOf(book);
+    // A book that is only its EPUB has nothing to play.
+    if (!lib || readerOnly(book.book)) return;
+    const engine = this.ensureEngine();
+    if (!engine) return;
+    const expand = opts.expand ?? true;
+    const ask = this.opening.ask();
+    if (this.state.current?.book.book.id === book.book.id && this.engine?.current.bookId === book.book.id) {
+      if (expand) this.expandPlayer();
+      if (opts.autoplay && !isPlaying(this.state.player.status)) await this.play();
+      return;
+    }
+    // Keep the place in the book being left before anything else happens.
+    if (isPlaying(this.state.player.status)) engine.pause();
+    await this.persistPosition("pause");
+    if (!ask.current()) return;
+    this.chapterProbe?.abort();
+    const id = book.book.id;
+    const quiet = <T>(what: string, p: Promise<T>, fallback: T): Promise<T> =>
+      p.catch((e: unknown) => {
+        log.warn(`could not read ${what} for`, book.book.title, describe(e));
+        return fallback;
+      });
+    await this.takeServerRecords(book);
+    if (!ask.current()) return;
+    const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
+      quiet("settings", lib.readSettings(id), defaultSettings(id)),
+      quiet("bookmarks", this.loadBookmarks(id), [] as Bookmark[]),
+      quiet("loudness", lib.readLoudness(id), null),
+      quiet("silence", lib.readSilence(id), null),
+      quiet("corrections", lib.readCorrections(id), [] as Correction[]),
+    ]);
+    if (!ask.current()) return;
+    const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
+    if (!ask.current()) return;
+    // At the speed it was last heard at on any device, unless this machine chose one since (core/settings.ts).
+    const speed = speedToPlay(settings, lastSpeed(this.state.history.sessions, id));
+    const current: CurrentBook = { book, settings: { ...settings, speed }, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
+    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
+    // The book left behind may be one a server's admin deleted meanwhile.
+    this.dropDeletedEverywhere();
+    // Read further than listened: start where the reading stopped.
+    const ahead = this.readAhead(id, position ? Date.parse(position.updatedAt) : null);
+    if (ahead !== null) log.info(`starting ${book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
+    const startMs = Math.min(ahead ?? position?.offsetMs ?? 0, book.book.durationMs);
+    await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
+    if (!ask.current()) return;
+    engine.setSpeed(speed);
+    engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
+    this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
+    if (ahead !== null) void this.persistPosition("seek");
+    this.refreshMediaMetadata();
+    if (!loudness || !silence) this.jobs.enqueue(book, true);
+    void this.probeChapters(book).then(() => this.maybeNameChapters(book.book.id));
+    this.prepareAudio(lib, book);
+    if (opts.autoplay) await this.play();
+  }
+
+  /** Index a book's MP3s in the background, so the first seek in one does not wait for it (frames.rs). */
+  private prepareAudio(lib: Opened["lib"], book: ScannedBook): void {
+    const mp3s = book.files.filter((f) => /\.mp3$/i.test(f.path)).map((f) => lib.absPath(f.path));
+    if (mp3s.length > 0) void lib.host.audioPrepare?.(mp3s).catch(() => undefined);
+  }
+
+  /** Start or continue a book from its page: the bar appears, the page stays. A book that is only its EPUB opens to read. */
+  playBook(book: ScannedBook): Promise<void> {
+    if (readerOnly(book.book)) return this.openReading(book.book.id);
+    return this.openBook(book, { expand: false, autoplay: true });
+  }
+
+  // Reading ------------------------------------------------------------
+
+  private readingKeeper: ReadingKeeper | null = null;
+  private settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  private settingsWrite: Promise<void> = Promise.resolve();
+
+  /** Write the app's settings soon: a run of changes, like turning pages, makes one write. */
+  private saveAppSettingsSoon(delayMs = 500): void {
+    if (this.settingsTimer) clearTimeout(this.settingsTimer);
+    this.settingsTimer = setTimeout(() => void this.saveAppSettingsNow(), delayMs);
+  }
+
+  private saveAppSettingsNow(): Promise<void> {
+    if (this.settingsTimer) clearTimeout(this.settingsTimer);
+    this.settingsTimer = null;
+    const write = this.platform.appSettings?.write;
+    if (!write) return Promise.resolve();
+    const snapshot = this.appSettings;
+    this.settingsWrite = this.settingsWrite.then(() => write(snapshot)).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    return this.settingsWrite;
+  }
+
+  private keptPlaces(): Record<string, KeptPlace> {
+    return parseKeptPlaces(this.appSettings.readingPlaces);
+  }
+
+  /** How far through a book's text this machine last read, or null when it has not. */
+  readingProgress(bookId: string): number | null {
+    const kept = this.keptPlaces()[bookId];
+    return kept ? (kept.loc.locations?.totalProgression ?? 0) : null;
+  }
+
+  /**
+   * Open a book's EPUB in the reader, at the newer of this machine's
+   * reading place and the log's, or at its start.
+   */
+  async openReading(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o) return;
+    this.maybeNudgeSpeech(bookId);
+    // Only the book asked for last opens: another asked for meanwhile, or this one again, stops this opening.
+    const asked = this.readerOpening.ask();
+    // A server's book is downloaded before it opens, as before it plays.
+    if (book.remote) {
+      const here = await this.downloadToOpen(book);
+      if (here && asked.current()) await this.openReading(here.book.id);
+      return;
+    }
+    // What the server has heard of it comes first, so it isn't heard again here.
+    await this.takeServerRecords(book);
+    if (!asked.current()) return;
+    if (this.state.reading) await this.closeReading();
+    if (!asked.current()) return;
+    perf.begin("open the reader");
+    this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
+    const started = performance.now();
+    // Everything the reader needs, read at once: over a share each is a round trip of its own.
+    const steps: string[] = [];
+    const timed = <T>(name: string, p: Promise<T>): Promise<T> =>
+      p.finally(() => {
+        steps.push(`${name} ${Math.round(performance.now() - started)}`);
+      });
+    // Read-along's records (pairing fixes, what was heard, the transcript), read alongside the text, at every opening:
+    // they can have changed since the book was last open, a transcript made whole in the background, say (#219).
+    const records: Promise<ReadingData> = Promise.all([timed("pairing", o.lib.readPairing(bookId)), timed("heard", o.lib.readHeard(bookId)), timed("aligned", o.lib.readAligned(bookId))]).then(([fixes, heard, aligned]) => ({
+      ...emptyReading(),
+      fixes,
+      heard: heard.heard,
+      anchors: heard.anchors,
+      spans: aligned.spans,
+      heardBy: aligned.heardBy,
+      said: aligned.said,
+      aligned: transcriptAnchors(aligned.said),
+    }));
+    // A failure is reported where the records are awaited, not as unhandled meanwhile.
+    records.catch(() => undefined);
+    const [result, withChapters, shared] = await Promise.all([
+      timed("text", openEbook(o.lib.host, o.lib.root, book.book)),
+      // The audio's chapters, read from the file if they never were, to pair with the text's.
+      timed("chapters", this.chaptersOf(o, book)),
+      timed(
+        "places",
+        o.lib
+          .readTextPlaces()
+          .then((m) => {
+            const r = m.get(bookId);
+            return r ? { loc: r.loc, t: r.t } : undefined;
+          })
+          .catch(() => undefined),
+      ),
+    ]);
+    if (this.state.reading?.bookId !== bookId || !asked.current()) return;
+    if (!result.ok) {
+      log.warn(`could not open the text of ${book.book.title}: ${result.message}`);
+      this.set({ reading: { bookId, status: "failed", message: result.message } });
+      return;
+    }
+    const ebook = result.ebook;
+    const text = new BookText(ebook);
+    const audio = !readerOnly(book.book);
+    const kept = this.keptPlaces()[bookId];
+    // Opened while its audio plays: the pages follow the narrator.
+    const following = this.state.current?.book.book.id === bookId && isPlaying(this.state.player.status);
+    // The book opens at the newest of this machine's reading place, the log's, and the narrator's. Only the
+    // narrator's needs the text paired with the audio first; when it is not the newest, the book opens at
+    // once and is paired just after, so the page can be read and turned while read-along gets ready.
+    const narrator = audio ? this.narratorWhen(bookId) : undefined;
+    const readAt = Math.max(-Infinity, ...[kept, shared].map((k) => (k ? Date.parse(k.t) : NaN)).filter((t) => !Number.isNaN(t)));
+    const early = audio && !following && (!narrator || readAt >= Date.parse(narrator.t));
+
+    /** The records read, and the text paired with the audio; null if the reader moved on meanwhile. */
+    const pair = async (): Promise<{ rd: ReadingData; alignment: Alignment | undefined } | null> => {
+      const rd = await records;
+      if (this.state.reading?.bookId !== bookId || !asked.current()) return null;
+      this.rd = rd;
+      rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
+      if (rd.overlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${rd.overlay.length} passages`);
+      // A book that is only its EPUB has no audio to pair the text with.
+      const paired = performance.now();
+      const alignment = audio ? this.pairUp(text, withChapters, rd) : undefined;
+      steps.push(`pair ${Math.round(performance.now() - paired)}`);
+      if (alignment) log.info(`paired the text of ${book.book.title} with its audio by ${alignment.how}: ${alignment.pairs.length} chapters`);
+      return { rd, alignment };
+    };
+    /** Show the text at this place: the reader is ready to read. */
+    const show = (place: TextPlace, alignment: Alignment | undefined) => {
+      this.readingKeeper = new ReadingKeeper(text, place, {
+        keepLocal: (k) => {
+          this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: k } };
+          this.saveAppSettingsSoon();
+        },
+        share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
+        // The pairing arrives after the text, and can be fixed while the book is open: always the latest.
+        toMs: (p) => {
+          const a = this.state.reading?.alignment ?? alignment;
+          return a ? textToMs(a, text.chars(p)) : null;
+        },
+      });
+      const highlights = this.highlightsFor(bookId);
+      this.set({ reading: { bookId, status: "ready", text, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
+    };
+    /** With the text paired: listening from the page, hearing the narration, read-along. */
+    const listen = (rd: ReadingData) => {
+      const ctx = { o, book: withChapters, text, rd };
+      this.readingCtx = ctx;
+      // It reads along when its narration is transcribed whole, and opens to read only until then (#152).
+      const r = this.state.reading;
+      if (r?.bookId === bookId && this.readsAlongNow(ctx)) this.set({ reading: { ...r, readsAlong: true } });
+      this.prepareAudio(o.lib, withChapters);
+      void this.hearPlaces();
+    };
+
+    if (early) {
+      show(openingPlace(text, kept, shared), undefined);
+      log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms, pairing it next: ${ebook.sections.length} sections; done at (ms) ${steps.join(", ")}`);
+      let done: Awaited<ReturnType<typeof pair>>;
+      try {
+        // The page is drawn first: pairing holds the main thread a while.
+        await afterNextPaint();
+        done = await pair();
+      } catch (e) {
+        log.warn(`could not read the read-along records of ${book.book.title}: ${String(e)}`);
+        return;
+      }
+      // Still this opening of the book: not closed, nor opened again meanwhile.
+      const r = this.state.reading;
+      if (!done || r?.status !== "ready" || r.text !== text) return;
+      if (done.alignment) this.set({ reading: { ...r, alignment: done.alignment } });
+      log.info(`paired ${book.book.title} ${Math.round(performance.now() - started)} ms after opening began: ${steps.join(", ")}`);
+      listen(done.rd);
+      return;
+    }
+    const done = await pair();
+    if (!done || this.state.reading?.status !== "opening") return;
+    const { rd, alignment } = done;
+    show(openingPlace(text, kept, shared, alignment && narrator && { place: text.place(msToText(alignment, narrator.ms)), t: narrator.t }), alignment);
+    log.info(`opened the text of ${book.book.title} in ${Math.round(performance.now() - started)} ms: ${ebook.sections.length} sections; done at (ms) ${steps.join(", ")}`);
+    listen(rd);
+  }
+
+  /** How much of the open book's narration is transcribed: minutes done, of all. The export waits for all of it. */
+  narrationTranscribed(): { done: number; total: number } | null {
+    const ctx = this.readingCtx;
+    if (!ctx || ctx.book.files.length === 0) return null;
+    const all = stretchesOf(ctx.book.files);
+    return { done: all.filter((x) => ctx.rd.spans.has(x.startMs)).length, total: all.length };
+  }
+
+  /**
+   * Make the open book's read-along EPUB beside its own (docs/READING.md,
+   * section 6): its text with every sentence timed to its narration, and
+   * the narration inside, as Media Overlays any reader can play. The
+   * original is never touched.
+   */
+  async exportReadAlong(): Promise<void> {
+    const ctx = this.readingCtx;
+    const r = this.state.reading;
+    const host = ctx?.o.lib.host;
+    if (!ctx || !r?.text || !r.alignment || r.exporting || !host?.exportEbook || !ctx.book.book.ebook) return;
+    const { o, book } = ctx;
+    const plan = exportPlan(r.text, r.alignment, book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })), o.lib.absPath(book.book.ebook!));
+    const started = performance.now();
+    const { exported: _, ...rest } = r;
+    this.set({ reading: { ...rest, exporting: { done: 0, total: plan.sections.length } } });
+    const update = (patch: Partial<ReadingState>) => {
+      const now = this.state.reading;
+      if (now?.bookId === r.bookId) this.set({ reading: { ...now, ...patch } });
+    };
+    try {
+      const path = await host.exportEbook.call(host, plan, (done, total) => update({ exporting: { done, total } }));
+      log.info(`exported the read-along EPUB of ${book.book.title} in ${Math.round((performance.now() - started) / 1000)} s: ${plan.sections.length} chapters, ${plan.sections.reduce((n, s) => n + s.sentences.length, 0)} sentences`);
+      update({ exported: { path } });
+    } catch (e) {
+      log.warn("could not export the read-along EPUB:", describe(e));
+      update({ exported: { error: describe(e) } });
+    } finally {
+      const now = this.state.reading;
+      if (now?.bookId === r.bookId && now.exporting) {
+        const { exporting: _x, ...left } = now;
+        this.set({ reading: left });
+      }
+    }
+  }
+
+  /**
+   * Everything heard, transcribed and fixed for the book open to read, as
+   * that book's own object: work still running for a book that was closed
+   * keeps and saves that book's, never the next one's. (Until 0.10.1 they
+   * were the controller's own fields, emptied on close; a transcription
+   * still finishing then saved the emptied transcript over the book's.)
+   * Read from beside the book at every opening. It was kept for the session
+   * once, and a book transcribed whole in the background after it was first
+   * opened stayed read only until Ribbon was restarted (#219).
+   */
+  private rd: ReadingData = emptyReading();
+  private readingIndex: { text: BookText; index: WordAt[] } | null = null;
+  /** The open book with its text paired. */
+  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData } | null = null;
+  private hearing = false;
+  /** How long a clip took to hear, last measured: a fast machine hears the whole book, a slow one only around the reader. */
+  private msPerClip: number | null = null;
+
+  private anchorList(rd = this.rd): Anchor[] {
+    return anchorsOf(rd.anchors, rd.aligned);
+  }
+
+  /** The open book's text paired with its audio: by its Media Overlay when it has one for this recording, else by chapters, with every checkpoint heard. */
+  private pairUp(text: BookText, book: ScannedBook, rd = this.rd): Alignment {
+    return pairBook(text, book.chapters, book.book.durationMs, { fixes: rd.fixes, heard: rd.heard, anchors: this.anchorList(rd), overlay: rd.overlay });
+  }
+
+  /** The open book paired again with everything heard and fixed so far. */
+  private realign(text: BookText, book: ScannedBook, rd = this.rd): Alignment {
+    return this.pairUp(text, this.state.books.find((b) => b.book.id === book.book.id) ?? book, rd);
+  }
+
+  /**
+   * Time how long this machine takes to hear a clip, the way it hears
+   * them: one clip first to load the model and wake the GPU (seconds, once
+   * a session), then six at once, as fetching them over a share is what
+   * one at a time would measure.
+   */
+  private async timeClips(ctx: { o: Opened; book: ScannedBook }, model: string, language: string | null): Promise<void> {
+    const { o, book } = ctx;
+    const hear = o.lib.host.speechOpenings;
+    const total = book.book.durationMs;
+    if (!hear || total <= 0) return;
+    const durations = book.files.map((f) => f.durationMs);
+    const clip = (ms: number) => {
+      const at = locate_(durations, ms);
+      return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
+    };
+    try {
+      await hear.call(o.lib.host, model, [clip(total / 2)], HEAR_SECONDS, language);
+      const six = [1, 2, 3, 4, 5, 6].map((k) => clip((total * k) / 7));
+      const t0 = performance.now();
+      const heard = await hear.call(o.lib.host, model, six, HEAR_SECONDS, language);
+      // Clips that fail fail fast: that's no measure of hearing.
+      if (heard.every((w) => w === null)) return log.warn("could not hear the clips timed on this machine");
+      this.msPerClip = (performance.now() - t0) / six.length;
+      this.appSettings = { ...this.appSettings, speechClipMs: Math.round(this.msPerClip) };
+      this.saveAppSettingsSoon();
+      log.info(`hearing takes ${Math.round(this.msPerClip)} ms a clip on this machine`);
+    } catch (e) {
+      log.warn("could not time hearing on this machine:", describe(e));
+    }
+  }
+
+  /** How long a clip took to hear on this machine, as last measured in any book. */
+  private clipMs(): number | null {
+    if (this.msPerClip !== null) return this.msPerClip;
+    const kept = Number(this.appSettings.speechClipMs);
+    return Number.isFinite(kept) && kept > 0 ? kept : null;
+  }
+
+  private async keepAligned(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }, now = false, whole = false): Promise<void> {
+    const { o, book, rd } = ctx;
+    if (!rd.dirty || (!now && Date.now() - rd.written < ALIGNED_WRITE_MS)) return;
+    rd.dirty = false;
+    rd.written = Date.now();
+    await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, whole).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+  }
+
+  /**
+   * A transcript just made whole, placed in the text by what was said in it
+   * (placing.ts, #163): each phrase found wherever it is in the book, not only
+   * near where its chapter was thought to be. The places every device reads
+   * along from; the server places one it's sent the same way.
+   */
+  private placeWhole(rd: ReadingData, index: readonly WordAt[]): void {
+    rd.said = placeTranscript(index, rd.said);
+    rd.aligned = transcriptAnchors(rd.said);
+    rd.dirty = true;
+  }
+
+  /** What this device heard at the starts of a server's book's chapters, sent to the server, which merges it with what it has. Hearing never waits on it. */
+  private async sendHeard(ctx: { o: Opened; book: ScannedBook; rd: ReadingData }): Promise<void> {
+    const { o, book, rd } = ctx;
+    if (!o.server) return;
+    const csv = await rowsToBytes(heardRows(rd.heard, rd.anchors), HEARD_FIELDS);
+    await o.server.client.sendRecord(serverIdOf(book), "heard", csv).catch((e: unknown) => log.warn("could not send what was heard to the server:", describe(e)));
+  }
+
+  /**
+   * A server's book's transcript, whole, sent to the server in place of what
+   * it had (#152): so the TV and every device that downloads it reads along
+   * with it. Only the server's admin's devices transcribe its books.
+   */
+  private async sendTranscript(o: Opened, book: ScannedBook, rd: ReadingData): Promise<boolean> {
+    if (!o.server || !o.serverAdmin) return false;
+    const csv = await rowsToBytes(transcriptRows(rd), TRANSCRIPT_FIELDS);
+    return o.server.client.putTranscript(serverIdOf(book), csv).then(
+      () => (log.info(`sent the transcript of ${book.book.title} to the server`), true),
+      (e: unknown) => (log.warn(`could not send the transcript of ${book.book.title} to the server:`, describe(e)), false),
+    );
+  }
+
+  /** Find heard words in the text near where the pairing puts them, and keep them as a checkpoint when found. */
+  private anchorHeard(rd: ReadingData, text: BookText, alignment: Alignment, ms: number, words: string): boolean {
+    const pair = alignment.pairs.find((p) => ms >= p.audio.startMs && ms < p.audio.endMs);
+    if (!pair || alignment.how !== "chapter") return false;
+    if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
+    const pace = (pair.text.end - pair.text.start) / Math.max(1, pair.audio.endMs - pair.audio.startMs);
+    const found = locate(this.readingIndex.index, words, msToText(alignment, ms), Math.max(1500, SEARCH_MS * pace));
+    if (found) rd.anchors.set(ms, found.chars);
+    return !!found;
+  }
+
+  /**
+   * Hear the open book's narration, on a machine with a graphics card
+   * (#152): the opening words of every chapter, which make the pairing of
+   * its text with its audio sure, then the whole narration, transcribed
+   * start to end (transcribing.ts) and kept beside the book as it goes. The
+   * book reads along once its transcript is whole, and opens to read only
+   * until then. A machine without one hears nothing: a server's book is
+   * transcribed by one of the admin's machines that has one.
+   */
+  private hearAgain = false;
+
+  private async hearPlaces(): Promise<void> {
+    const ctx = this.readingCtx;
+    const model = this.state.speech.model;
+    if (!ctx || !model) return;
+    // Already hearing (another book, or this one before it was reopened): once that stops, start again.
+    if (this.hearing) {
+      this.hearAgain = true;
+      return;
+    }
+    const host = ctx.o.lib.host;
+    const transcribe = host.speechTranscribe;
+    if (!host.speechOpenings || !transcribe || this.readsAlongNow(ctx)) return;
+    const { o, book, text, rd } = ctx;
+    const bookId = book.book.id;
+    const language = narrationLanguage(text.ebook.meta.language, book.book.language);
+    const still = () => this.readingCtx === ctx && this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
+    const show = (patch: Partial<ReadingState>) => {
+      const r = this.state.reading;
+      if (r?.bookId === bookId) this.set({ reading: { ...r, ...patch } });
+    };
+    this.hearing = true;
+    this.keepAwake("reader", true);
+    const started = performance.now();
+    try {
+      // Never timed on this machine: timed now, which says whether it hears quickly enough (a graphics card) to transcribe.
+      if (this.clipMs() === null) await this.timeClips(ctx, model, language);
+      if (!this.transcribesHere(host) || !still()) return;
+      await this.hearOpenings(ctx, model, language, still);
+      if (still()) this.noteTranscribing(book, false);
+      const result = await transcribeWhole({
+        transcript: rd,
+        files: book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
+        index: this.wordsOf(text),
+        alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
+        // Gently while a book plays, so playback comes first.
+        hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
+        model: modelName(model),
+        keep: async () => {
+          await this.keepAligned(ctx);
+          if (still()) show({ alignment: this.realign(text, book, rd) });
+        },
+        progress: (done, total) => show({ listening: { done, total, what: "aligning" } }),
+        still,
+      });
+      log.info(`transcribing ${book.book.title} ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
+      if (result === "whole") {
+        this.placeWhole(rd, this.wordsOf(text));
+        await this.keepAligned(ctx, true, true);
+        show({ alignment: this.realign(text, book, rd), readsAlong: true });
+        this.notify({ what: "reads-along", title: book.book.title, forServer: false });
+        await this.sendTranscript(o, book, rd);
+      }
+      if (result === "failed") this.notTranscribed(book, false, NOTHING_HEARD);
+    } catch (e) {
+      log.warn("could not hear the narrator:", describe(e));
+      // The speech model stopped answering (#158): tried again in a minute, from what's kept, if the book is still open.
+      if (e instanceof HearingStalled)
+        setTimeout(() => {
+          if (this.readingCtx === ctx) void this.hearPlaces();
+        }, 60_000);
+    } finally {
+      this.hearing = false;
+      this.keepAwake("reader", false);
+      await this.keepAligned(ctx, true);
+      const r = this.state.reading;
+      if (r?.bookId === bookId && r.listening) {
+        const { listening: _, ...rest } = r;
+        this.set({ reading: rest });
+      }
+      if (this.hearAgain) {
+        this.hearAgain = false;
+        if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
+      }
+      void this.transcribeForServer();
+    }
+  }
+
+  /** The start of every audio chapter, a few seconds each: what a chapter opens with says which text it is, so the pairing is sure (#65). */
+  private async hearOpenings(ctx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData }, model: string, language: string | null, still: () => boolean): Promise<void> {
+    const { o, book, text, rd } = ctx;
+    const host = o.lib.host;
+    const durations = book.files.map((f) => f.durationMs);
+    for (;;) {
+      const latest = this.state.books.find((b) => b.book.id === book.book.id) ?? book;
+      const starts = [...new Set(latest.chapters.map((c) => c.startMs))].filter((ms) => !rd.heard.has(ms)).sort((x, y) => x - y);
+      if (starts.length === 0 || !still()) return;
+      const batch = starts.slice(0, 4);
+      const clips = batch.map((ms) => {
+        const at = locate_(durations, ms);
+        return { path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) };
+      });
+      const words = await host.speechOpenings!.call(host, model, clips, HEAR_SECONDS, language);
+      // None of them could be heard: stop rather than go round, and try again next time.
+      if (words.every((w) => w === null)) return;
+      batch.forEach((ms, i) => {
+        const w = words[i];
+        if (typeof w === "string") rd.heard.set(ms, w.trim());
+      });
+      await o.lib.writeHeard(book.book.id, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
+      void this.sendHeard(ctx);
+      if (!still()) return;
+      this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
+    }
+  }
+
+  /** Whether this machine transcribes: it has a speech model, and hears a clip quickly enough (a graphics card) to hear whole books. */
+  private transcribesHere(host: Host): boolean {
+    const ms = this.clipMs();
+    return !!this.state.speech.model && !!host.speechTranscribe && ms !== null && ms < FAST_CLIP_MS;
+  }
+
+  /** Whether a book reads along: by its own Media Overlay, or its narration is transcribed whole (#152). */
+  private readsAlongNow(ctx: { book: ScannedBook; rd: ReadingData }): boolean {
+    return !!ctx.rd.overlay || untranscribed(ctx.book.files, ctx.rd.spans).length === 0;
+  }
+
+  /** The words of a text, indexed once while it's open. */
+  private wordsOf(text: BookText): WordAt[] {
+    if (this.readingIndex?.text !== text) this.readingIndex = { text, index: wordIndex(text) };
+    return this.readingIndex.index;
+  }
+
+  /** The server's books not yet transcribed whole that couldn't be this session, so they aren't tried again until the next. */
+  private untranscribable = new Set<string>();
+  private transcribingServer = false;
+  /** The server's books downloaded only to be transcribed, taken off again once sent; kept meanwhile when sending has to wait. */
+  private downloadedToTranscribe = new Set<string>();
+  /** When the worker tries again, after the server couldn't be reached or the speech model stalled: a wait that doubles, up to half an hour. */
+  private serverRetry: ReturnType<typeof setTimeout> | null = null;
+  private serverRetryMs = 0;
+
+  /** Who is transcribing (the open book's hearing, the server's worker): the computer stays awake while either is (#158). */
+  private awakeFor = new Set<"reader" | "server">();
+
+  private keepAwake(who: "reader" | "server", on: boolean): void {
+    const was = this.awakeFor.size > 0;
+    if (on) this.awakeFor.add(who);
+    else this.awakeFor.delete(who);
+    const now = this.awakeFor.size > 0;
+    if (now !== was) void this.platform.host.stayAwake?.(now).catch((e: unknown) => log.warn("could not keep the computer awake:", describe(e)));
+  }
+
+  /**
+   * A server's books transcribed in the background on this machine, when it
+   * has a graphics card and is signed in as the server's admin (#152): the
+   * books still missing minutes, one at a time, each start to end, then sent
+   * whole, so the TV and every device read them along. A book that isn't
+   * downloaded here is downloaded for it and taken off again once sent. The
+   * book open in the reader comes first: this stops for it, and starts again
+   * after. When the server can't be reached, or the speech model stops
+   * answering, it tries again a little later (#158), from what it kept.
+   */
+  private async transcribeForServer(): Promise<void> {
+    // A model downloading (Ribbon's, replacing an older one) is waited for: setSpeechModel starts this again with it.
+    if (this.transcribingServer || this.hearing || this.state.speech.downloading) return;
+    const o = this.openedInOrder().find((x) => x.server && x.serverAdmin);
+    // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
+    if (!o?.server || !this.state.speech.model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
+    this.transcribingServer = true;
+    this.keepAwake("server", true);
+    try {
+      while (!this.hearing) {
+        // The model as it is now, for each book: one chosen meanwhile hears the next.
+        const model = this.state.speech.model;
+        if (!model) return;
+        const list = await o.server.client.transcripts();
+        const next = list.find((b) => b.done < b.total && !this.untranscribable.has(b.id));
+        if (!next) return;
+        const onShelf = () => this.state.books.find((b) => serverIdOf(b) === next.id && this.openedOf(b) === o);
+        // A book just added is on the server's list before it's on the shelf, which asks for it a moment later: asked for now.
+        if (!onShelf()) await this.refreshServer(o);
+        const book = onShelf();
+        // Still not there, the server couldn't be asked. There's nothing wrong with the book.
+        if (!book) return this.transcribeForServerLater();
+        const result = await this.transcribeServerBook(o, book, model);
+        if (result === "failed") this.untranscribable.add(next.id);
+        if (result === "whole") {
+          this.serverRetryMs = 0;
+          this.notify({ what: "reads-along", title: book.book.title, forServer: true });
+        }
+        if (result === "retry") return this.transcribeForServerLater();
+        if (result === "stopped") return;
+      }
+    } catch (e) {
+      log.warn("could not transcribe the server's books:", describe(e));
+      this.transcribeForServerLater();
+    } finally {
+      this.transcribingServer = false;
+      this.keepAwake("server", false);
+      this.set({ transcribingForServer: null });
+    }
+  }
+
+  /** The worker again in a while: once, however many reasons there are. */
+  private transcribeForServerLater(): void {
+    if (this.serverRetry) return;
+    this.serverRetryMs = Math.min(30 * 60_000, Math.max(60_000, this.serverRetryMs * 2));
+    log.info(`transcribing the server's books again in ${Math.round(this.serverRetryMs / 60_000)} min`);
+    this.serverRetry = setTimeout(() => {
+      this.serverRetry = null;
+      void this.transcribeForServer();
+    }, this.serverRetryMs);
+  }
+
+  /**
+   * One of a server's books transcribed whole here and sent: its text paired
+   * with its audio as the reader pairs it, then every minute heard. `retry`
+   * when it has to wait: the download or the sending failed, which the
+   * server being out of reach does, and the book is never given up on for it.
+   */
+  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+    const serverId = serverIdOf(listed);
+    let book: ScannedBook | null = listed;
+    if (listed.remote) book = await this.downloadRemote(listed);
+    // Downloaded here before the server had its EPUB: the EPUB comes down beside it first.
+    else if (!listed.book.ebook) book = await this.withServerEbook(o, listed);
+    // No room for it here is the one download failure that waiting doesn't mend.
+    if (!book) return this.state.spaceShort?.bookId === listed.book.id ? this.notTranscribed(listed, true, "There isn't room on this computer to download it.") : "retry";
+    if (listed.remote) this.downloadedToTranscribe.add(serverId);
+    // A stall or an error leaves it as it is, transcript so far and all, for the next try.
+    let result: "whole" | "stopped" | "failed" | "retry" = "retry";
+    try {
+      result = await this.hearServerBook(o, book, model);
+      return result;
+    } finally {
+      // Downloaded only to be transcribed: taken off again once sent, or when it can't be transcribed at all.
+      if (this.downloadedToTranscribe.has(serverId) && (result === "whole" || result === "failed") && !this.hearing) {
+        this.downloadedToTranscribe.delete(serverId);
+        await this.removeDownload(book.book.id).catch(() => undefined);
+      }
+    }
+  }
+
+  /** A book downloaded here before the server had its EPUB, as it is with the EPUB beside it; null when that couldn't come down yet. */
+  private async withServerEbook(o: Opened, book: ScannedBook): Promise<ScannedBook | null> {
+    await this.takeServerEbooks(o, [book]);
+    return o.books.find((b) => b.book.id === book.book.id && b.book.ebook) ?? null;
+  }
+
+  /** A server's book, downloaded here, heard whole and sent. `retry` when it's whole and the server couldn't take it. */
+  private async hearServerBook(o: Opened, book: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+    if (!book.book.ebook) return this.notTranscribed(book, true, "This book has no EPUB beside it.");
+    const host = o.lib.host;
+    const transcribe = host.speechTranscribe!;
+    // What the server has of it comes first: its transcript so far, with what this machine heard itself.
+    await this.takeServerRecords(book);
+    const [opened, withChapters, fixes, heard, aligned] = await Promise.all([openEbook(host, o.lib.root, book.book), this.chaptersOf(o, book), o.lib.readPairing(book.book.id), o.lib.readHeard(book.book.id), o.lib.readAligned(book.book.id)]);
+    if (!opened.ok) return this.notTranscribed(book, true, opened.message);
+    const language = narrationLanguage(opened.ebook.meta.language, book.book.language);
+    if (this.clipMs() === null) await this.timeClips({ o, book }, model, language);
+    if (!this.transcribesHere(host)) return "stopped";
+    const text = new BookText(opened.ebook);
+    const rd: ReadingData = { ...emptyReading(), fixes, heard: heard.heard, anchors: heard.anchors, spans: aligned.spans, heardBy: aligned.heardBy, said: aligned.said, aligned: transcriptAnchors(aligned.said) };
+    rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
+    // A Media Overlay places it exactly: nothing to transcribe, and nothing to say.
+    if (rd.overlay) return "failed";
+    let alignment = this.pairUp(text, withChapters, rd);
+    const index = wordIndex(text);
+    const started = performance.now();
+    // Heard whole already and only waiting to be sent: there's nothing to begin.
+    if (untranscribed(withChapters.files, rd.spans).length > 0) this.noteTranscribing(book, true);
+    const outcome = await transcribeWhole({
+      transcript: rd,
+      files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
+      index,
+      alignment: () => alignment,
+      hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
+      model: modelName(model),
+      keep: async () => {
+        await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+        alignment = this.pairUp(text, withChapters, rd);
+      },
+      progress: (done, total) => this.set({ transcribingForServer: { title: book.book.title, done, total } }),
+      // The reader's book comes first.
+      still: () => !this.hearing,
+    });
+    log.info(`transcribing ${book.book.title} for the server ${outcome} after ${Math.round((performance.now() - started) / 1000)} s`);
+    if (outcome === "failed") return this.notTranscribed(book, true, NOTHING_HEARD);
+    if (outcome !== "whole") return outcome;
+    this.placeWhole(rd, index);
+    await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, true).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+    // Whole but not sent: kept here, transcript and all, and sent when the server is back.
+    return (await this.sendTranscript(o, book, rd)) ? "whole" : "retry";
+  }
+
+  /**
+   * Make sure the pairing is exact near a moment of the recording: when no
+   * checkpoint is within PINPOINT_MS of it, hear it now and find it in the
+   * text. True when the pairing changed.
+   */
+  private async pinpoint(ms: number): Promise<boolean> {
+    const ctx = this.readingCtx;
+    const model = this.state.speech.model;
+    const hear = ctx?.o.lib.host.speechOpenings;
+    const r = this.state.reading;
+    if (!ctx || !model || !hear || !r?.alignment || r.alignment.how !== "chapter") return false;
+    const rd = ctx?.rd ?? this.rd;
+    if (this.anchorList(rd).some((a) => Math.abs(a.ms - ms) < PINPOINT_MS)) return false;
+    const { o, book, text } = ctx;
+    const at = locate_(book.files.map((f) => f.durationMs), ms);
+    this.set({ reading: { ...r, finding: true } });
+    try {
+      const language = narrationLanguage(text.ebook.meta.language, book.book.language);
+      const [w] = await hear.call(o.lib.host, model, [{ path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) }], HEAR_SECONDS, language);
+      // Couldn't be heard: nothing to go by, and nothing kept as heard.
+      if (typeof w !== "string") return false;
+      const words = w.trim();
+      rd.heard.set(ms, words);
+      const found = this.anchorHeard(rd, text, r.alignment, ms, words);
+      void o.lib
+        .writeHeard(book.book.id, rd.heard, rd.anchors)
+        .catch(() => undefined)
+        .then(() => this.sendHeard({ o, book, rd }));
+      if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(text, book, rd) } });
+      return found;
+    } catch (e) {
+      log.warn("could not pinpoint the place:", describe(e));
+      return false;
+    } finally {
+      const now = this.state.reading;
+      if (now?.finding) {
+        const { finding: _, ...rest } = now;
+        this.set({ reading: rest });
+      }
+    }
+  }
+
+  /** Choose a whisper.cpp model file already on this machine. */
+  async chooseSpeechModel(): Promise<void> {
+    const path = await this.platform.pickFile?.("Choose a whisper.cpp model", [{ name: "Whisper model", extensions: ["bin"] }]);
+    if (!path) return;
+    const ok = (await this.platform.host.speechModelOk?.(path).catch(() => false)) ?? true;
+    if (!ok) {
+      this.set({ error: "That file is not a whisper.cpp model. Models are named like ggml-base.bin." });
+      return;
+    }
+    this.setSpeechModel(path);
+  }
+
+  /** Download Ribbon's speech model (whisper small, about 190 MB) into the Ribbon folder. */
+  async downloadSpeechModel(): Promise<void> {
+    const download = this.platform.host.downloadSpeechModel;
+    if (!download || this.state.speech.downloading) return;
+    this.set({ speech: { ...this.state.speech, downloading: { done: 0, total: 0 } } });
+    try {
+      const path = await download.call(this.platform.host, (done, total) => this.set({ speech: { ...this.state.speech, downloading: { done, total } } }));
+      this.set({ speech: { ...this.state.speech, downloading: null } });
+      this.setSpeechModel(path);
+    } catch (e) {
+      this.set({ speech: { ...this.state.speech, downloading: null }, error: `The speech model could not be downloaded: ${describe(e)}` });
+    }
+  }
+
+  setSpeechModel(path: string | null): void {
+    this.appSettings = { ...this.appSettings, speechModel: path ?? "" };
+    this.set({ speech: { ...this.state.speech, model: path } });
+    this.saveAppSettingsSoon(0);
+    void this.transcribeForServer();
+  }
+
+
+  /** The open book's pairing, as fixed by hand. */
+  pairingFixes(): readonly PairingFix[] {
+    return this.rd.fixes;
+  }
+
+  /**
+   * In the reader: pair a contents entry with an audio chapter by hand
+   * (its start), say it is not narrated (null), or give it back to the
+   * automatic pairing ("auto"). Kept beside the book; the rest re-pairs
+   * around it.
+   */
+  async fixPairing(textRef: string, choice: number | null | "auto"): Promise<void> {
+    const r = this.state.reading;
+    const book = r && this.state.books.find((b) => b.book.id === r.bookId);
+    const o = book && this.openedOf(book);
+    if (!r?.text || !book || !o) return;
+    const fixes = this.rd.fixes.filter((f) => f.text !== textRef);
+    if (choice !== "auto") fixes.push({ text: textRef, audioMs: choice });
+    this.rd.fixes = fixes;
+    const alignment = this.pairUp(r.text, book);
+    this.set({ reading: { ...r, alignment } });
+    try {
+      await o.lib.writePairing(r.bookId, fixes);
+    } catch (e) {
+      log.warn("could not keep the pairing beside the book:", describe(e));
+      this.set({ error: "The pairing could not be saved beside the book. It holds until you close the book." });
+    }
+  }
+
+  /** A book with its chapters read from its file, kept on the shelf when they were not before. */
+  private async chaptersOf(o: Opened, book: ScannedBook): Promise<ScannedBook> {
+    if (book.files.every((f) => f.chaptersProbed)) return book;
+    try {
+      const probed = await o.lib.ensureChapters(book, undefined, (e) => log.warn("could not keep the chapters of", book.book.title, "beside the book; using them for now:", describe(e)));
+      if (probed === book) return book;
+      const updated = this.stamp(o, [probed])[0]!;
+      this.replaceBook(o, updated);
+      return updated;
+    } catch (e) {
+      log.warn("could not read the chapters of", book.book.title, describe(e));
+      return book;
+    }
+  }
+
+  /** Where the narrator is in a book's audio, and when that was so. */
+  private narratorWhen(bookId: string): { ms: number; t: string } | undefined {
+    const live = this.state.current?.book.book.id === bookId && this.engine?.current.bookId === bookId;
+    const ms = live ? this.engine!.positionMs() : this.state.positions[bookId]?.offsetMs;
+    if (ms === undefined) return undefined;
+    // Playing now is now; paused, it is when it paused.
+    const t = live && isPlaying(this.state.player.status) ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
+    return { ms, t };
+  }
+
+  /** In the reader: the narrator's place in the text, or null when this book's audio is not loaded. */
+  narratorInText(): TextPlace | null {
+    const r = this.state.reading;
+    if (!r?.text || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
+    return r.text.place(msToText(r.alignment, this.narratorMs()));
+  }
+
+  /** The moment of the recording the text follows: the player's, held at the sentence during a Listen from here's lead-in. */
+  narratorMs(positionMs = this.state.player.positionMs): number {
+    return followedMs(positionMs, this.listenedFrom);
+  }
+
+  /** In the reader: turn to where the narrator is, heard first when no checkpoint is near, and follow it from there. */
+  async goToNarrator(): Promise<void> {
+    if (!this.narratorInText()) return;
+    await this.pinpoint(this.state.player.positionMs);
+    const p = this.narratorInText();
+    if (p) this.moveReading(p, "seek", "follow");
+    this.setFollowing(true);
+  }
+
+  /** In the reader: follow the narrator, or stop. */
+  setFollowing(on: boolean): void {
+    const r = this.state.reading;
+    if (!r || !!r.following === on) return;
+    if (on) this.set({ reading: { ...r, following: true } });
+    else {
+      const { following: _, ...rest } = r;
+      this.set({ reading: rest });
+    }
+  }
+
+  /** In the reader: play this book's audio from a place in the text, the top of the page unless one is given (a tapped sentence). */
+  async listenFromHere(at?: TextPlace): Promise<void> {
+    const r = this.state.reading;
+    if (!r?.text || !r.alignment || !r.place) return;
+    const book = this.state.books.find((b) => b.book.id === r.bookId);
+    if (!book) return;
+    const chars = r.text.chars(at ?? r.place);
+    // Heard first when no checkpoint is near, so the narrator starts on the page's first words.
+    await this.pinpoint(textToMs(r.alignment, chars));
+    const alignment = this.state.reading?.alignment ?? r.alignment;
+    const ms = textToMs(alignment, chars);
+    if (this.state.current?.book.book.id !== r.bookId) await this.openBook(book, { expand: false });
+    if (this.state.current?.book.book.id !== r.bookId) return;
+    // A moment early, so a sentence placed a little late still starts on its first word (LEAD_IN_MS).
+    this.seek(Math.max(0, ms - LEAD_IN_MS));
+    this.listenedFrom = ms;
+    await this.play();
+    this.setFollowing(true);
+  }
+
+  /**
+   * Where to start a book's audio because it was read further than it was
+   * listened to: the mapped time of this machine's reading place, when the
+   * reader turned pages after the audio last stopped. Null otherwise.
+   */
+  private readAhead(bookId: string, audioAtMs: number | null): number | null {
+    const kept = this.keptPlaces()[bookId];
+    if (!kept || kept.ms === undefined) return null;
+    const readAt = Date.parse(kept.t);
+    if (Number.isNaN(readAt) || (audioAtMs !== null && readAt <= audioAtMs + 1000)) return null;
+    return kept.ms;
+  }
+
+  /**
+   * The reader is on a new page, or scrolled to a new line. By hand, it
+   * stops following the narrator; turned by following, or a scroll that
+   * may be either (the scroll's own input says which), it does not.
+   */
+  moveReading(place: TextPlace, why: Why = "periodic", by: "hand" | "follow" | "scroll" = "hand"): void {
+    const r = this.state.reading;
+    if (!r || r.status !== "ready" || !this.readingKeeper) return;
+    const p = r.place;
+    if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
+    this.readingKeeper.move(place, why);
+    if (by !== "follow" && r.text) this.readOn(r.bookId, r.text, place);
+    // A line found by a search is marked until the reader moves on.
+    const { following, found: _found, ...rest } = r;
+    this.set({ reading: { ...rest, place, ...(following && by !== "hand" ? { following } : {}) } });
+    // Reading on into chapters not yet checked: hear them, when nothing else is being heard.
+    if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
+  }
+
+  /**
+   * The page moved by hand, with the narration not playing this book: time
+   * spent reading, as a stretch from the first move to the last (and a
+   * little after), kept as a `reading` record when it ends (format 1.3,
+   * `endReading`). Five minutes without a move, the reader has looked away,
+   * and the stretch ends where they did.
+   */
+  private readingStretch: { bookId: string; claims: string[]; start: number; last: number; from: number; to: number } | null = null;
+
+  private readOn(bookId: string, text: BookText, place: TextPlace): void {
+    if (isPlaying(this.state.player.status) && this.state.player.bookId === bookId) return;
+    const now = Date.now();
+    const at = text.locator(place).locations?.totalProgression ?? 0;
+    const s = this.readingStretch;
+    if (s && (s.bookId !== bookId || now - s.last > READING_IDLE_MS)) void this.endReading();
+    if (this.readingStretch) {
+      this.readingStretch.last = now;
+      this.readingStretch.to = at;
+    } else {
+      this.readingStretch = { bookId, claims: textClaimsFor(bookId, text.ebook.meta.identifiers), start: now, last: now, from: at, to: at };
+    }
+  }
+
+  /** The stretch of reading ends: kept, when it was long enough and sessions are kept, as listening's are. */
+  private endReading(at = Date.now()): Promise<void> {
+    const s = this.readingStretch;
+    this.readingStretch = null;
+    if (!s || !this.state.history.recording) return Promise.resolve();
+    const end = Math.min(at, s.last + READING_LINGER_MS);
+    if (end - s.start < STRETCH_MIN_MS) return Promise.resolve();
+    const progress = (x: number) => Math.round(x * 10_000) / 10_000;
+    this.spentHereAt = Date.now();
+    return this.writeHistory(s.bookId, { k: "reading", start: new Date(s.start).toISOString(), end: new Date(end).toISOString(), read_ms: end - s.start, from: progress(s.from), to: progress(s.to) }, undefined, s.claims);
+  }
+
+  /** Close the reader, keeping its place everywhere first. */
+  async closeReading(): Promise<void> {
+    await this.endReading();
+    const keeper = this.readingKeeper;
+    this.readingKeeper = null;
+    this.readingCtx = null;
+    if (this.state.reading) this.set({ reading: null });
+    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
+    this.rd = emptyReading();
+  }
+
+  /**
+   * The sentences that best match words someone remembers, in the books of
+   * every server this machine is signed in to, best first: the search the
+   * Apple app's Find a line makes (packages/server/src/library/search.ts).
+   * A folder's books aren't searched for lines yet; a server out of reach
+   * finds nothing.
+   */
+  async findLines(words: string): Promise<FoundLine[]> {
+    const asked = words.trim();
+    if (!asked) return [];
+    const found = await Promise.all(
+      this.openedInOrder().map(async (o) => {
+        if (!o.server) return [];
+        const sentences = await o.server.client.search(asked).catch((e: unknown) => {
+          log.warn(`could not search ${o.source.name} for a line:`, describe(e));
+          return [];
+        });
+        const books = this.state.books.filter((b) => this.openedOf(b) === o);
+        return sentences.flatMap((s) => {
+          const book = books.find((b) => serverIdOf(b) === s.book);
+          return book ? [{ ...s, bookId: book.book.id }] : [];
+        });
+      }),
+    );
+    return found.flat();
+  }
+
+  /** Open the reader on a line a search found, marked, downloading the book first when it's still on the server. */
+  async readLine(line: FoundLine): Promise<void> {
+    if (this.state.reading?.bookId !== line.bookId || this.state.reading.status !== "ready") await this.openReading(line.bookId);
+    const r = this.state.reading;
+    if (r?.bookId !== line.bookId || r.status !== "ready" || !r.text) return;
+    const found = foundSentence(r.text, line.sentence, line.text);
+    if (!found) return;
+    this.moveReading(found.from, "seek");
+    const now = this.state.reading;
+    if (now?.bookId === line.bookId) this.set({ reading: { ...now, found } });
+  }
+
+  /** A URL for an image in the open book's text, when it was kept on this machine. */
+  readingImageUrl(src: string): string | undefined {
+    const abs = this.state.reading?.text?.ebook.files?.[src];
+    return abs ? this.platform.fileUrl(abs) : undefined;
+  }
+
+  setReadingSettings(patch: Partial<ReadingSettings>): void {
+    const next = parseReading({ ...this.state.readingSettings, ...patch });
+    this.appSettings = { ...this.appSettings, reading: next };
+    this.set({ readingSettings: next });
+    this.saveAppSettingsSoon();
+  }
+
+  /**
+   * Show a book's page, with its series along the side when it has one.
+   * Opened from a series (its page, its card, the list of its books), the
+   * page lists that series, by its key, whatever other series the book is
+   * in: White Scars chosen and Scars opened lists White Scars, not The Horus
+   * Heresy it's also in.
+   */
+  openReader(bookId: string, seriesKey?: string): void {
+    this.set({ pane: "reader", readerBookId: bookId, ...(seriesKey ? { seriesKey } : {}), readerFromBookcase: this.state.pane === "bookcase" || (this.state.pane === "reader" && this.state.readerFromBookcase), playerExpanded: false });
+    this.maybeNudgeSpeech(bookId);
+  }
+
+  /**
+   * The first time a book with both its text and its audio opens on a
+   * computer with no speech model, say once what one does. Phones don't
+   * transcribe, and a device that has a model, or was told, isn't told again.
+   */
+  private maybeNudgeSpeech(bookId: string): void {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    if (!book?.book.ebook || readerOnly(book.book)) return;
+    if (this.platform.phone || !this.platform.host.downloadSpeechModel || this.state.speech.model || this.state.speech.downloading) return;
+    if (this.appSettings.speechNudged === true) return;
+    this.appSettings = { ...this.appSettings, speechNudged: true };
+    void this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    this.set({ speechNudge: true });
+  }
+
+  /** The nudge's Download: the same download Settings starts. */
+  downloadSpeechModelFromNudge(): Promise<void> {
+    this.set({ speechNudge: false });
+    return this.downloadSpeechModel();
+  }
+
+  dismissSpeechNudge(): void {
+    this.set({ speechNudge: false });
+  }
+
+  private async probeChapters(book: ScannedBook): Promise<void> {
+    const o = this.openedOf(book);
+    if (!o || book.files.every((f) => f.chaptersProbed)) return;
+    const abort = new AbortController();
+    this.chapterProbe = abort;
+    // The chapter probe rewrites files.csv; let the scan's own write land first.
+    await o.saving;
+    if (abort.signal.aborted) return;
+    const probed = await o.lib.ensureChapters(book, abort.signal, (e) => log.warn("could not keep the chapters of", book.book.title, "beside the book; using them for now:", describe(e)));
+    if (abort.signal.aborted || probed === book) return;
+    const updated = this.stamp(o, [probed])[0]!;
+    const cur = this.state.current;
+    if (!cur || cur.book.book.id !== book.book.id) return;
+    this.replaceBook(o, updated);
+    this.set({ current: { ...cur, book: updated } });
+    this.engine?.setChapters(updated.chapters);
+    this.refreshMediaMetadata();
+  }
+
+  /** Swap one book's object in its source and on the shelf. */
+  private replaceBook(o: Opened, updated: ScannedBook): void {
+    o.books = o.books.map((b) => (b.book.id === updated.book.id ? updated : b));
+    this.set({ books: this.state.books.map((b) => (b.book.id === updated.book.id ? updated : b)) });
+  }
+
+  /** Play, applying the scaled resume rewind for the time we were away. */
+  async play(): Promise<void> {
+    const engine = this.engine;
+    const cur = this.state.current;
+    if (!engine || !cur) return;
+    engine.setStopAt(null);
+    if (this.state.previewing !== null) this.set({ previewing: null });
+    // Read on since this book last played, outside the reader: carry on from the page.
+    if (!this.state.reading && this.pausedAt !== null) {
+      const ahead = this.readAhead(cur.book.book.id, this.pausedAt);
+      if (ahead !== null) {
+        log.info(`continuing ${cur.book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
+        this.seek(ahead);
+      }
+    }
+    const now = Date.now();
+    const gap = this.pausedAt === null ? 0 : Math.max(0, now - this.pausedAt);
+    const pos = engine.positionMs();
+    const chIndex = chapterAt(cur.book.chapters, pos);
+    const chapterStart = chIndex >= 0 ? cur.book.chapters[chIndex]!.startMs : 0;
+    const target = resumePosition(pos, gap, chapterStart);
+    if (target !== pos) engine.seek(target);
+    const policy = rewindFor(gap);
+    this.set({ resumeOffer: policy.offerChapterRestart && chapterStart < target ? { chapterStartMs: chapterStart, awayMs: gap } : null });
+    this.pausedAt = null;
+    await engine.play();
+  }
+
+  pause(): void {
+    if (!this.engine) return;
+    this.engine.pause();
+    this.pausedAt = Date.now();
+    this.set({ previewing: null });
+    void this.persistPosition("pause");
+  }
+
+  togglePlay(): void {
+    // From the press until it's paused again the listener wants it playing, heard yet or not: the button pauses.
+    if (wantsToPlay(this.state.player.status)) this.pause();
+    else void this.play();
+  }
+
+  seek(positionMs: number): void {
+    if (!this.engine) return;
+    this.listenedFrom = null;
+    this.engine.setStopAt(null);
+    this.engine.seek(positionMs);
+    // A place chosen by hand is exact: no resume rewind on the next play.
+    this.pausedAt = null;
+    this.set({ resumeOffer: null, previewing: null });
+    void this.persistPosition("seek");
+  }
+
+  skip(deltaMs: number): void {
+    if (!this.engine) return;
+    this.seek(this.engine.positionMs() + deltaMs);
+  }
+
+  restartChapter(): void {
+    const offer = this.state.resumeOffer;
+    if (offer) this.seek(offer.chapterStartMs);
+    this.set({ resumeOffer: null });
+  }
+
+  dismissResumeOffer(): void {
+    this.set({ resumeOffer: null });
+  }
+
+  goToChapter(index: number): void {
+    const cur = this.state.current;
+    const ch = cur?.book.chapters[index];
+    if (ch) this.seek(ch.startMs);
+  }
+
+  nextChapter(): void {
+    const cur = this.state.current;
+    if (!cur) return;
+    const i = this.state.player.chapterIndex;
+    if (i + 1 < cur.book.chapters.length) this.goToChapter(i + 1);
+    else this.seek(cur.book.book.durationMs);
+  }
+
+  /** Within the first three seconds of a chapter, go to the previous one. */
+  previousChapter(): void {
+    const cur = this.state.current;
+    if (!cur) return;
+    const i = this.state.player.chapterIndex;
+    const ch = cur.book.chapters[i];
+    if (!ch) return;
+    if (this.state.player.positionMs - ch.startMs > 3000 || i === 0) this.seek(ch.startMs);
+    else this.goToChapter(i - 1);
+  }
+
+  async setSpeed(speed: number): Promise<void> {
+    const cur = this.state.current;
+    const lib = cur && this.libOf(cur.book);
+    if (!cur || !this.engine || !lib) return;
+    const s = snapSpeed(speed);
+    this.engine.setSpeed(s);
+    const settings = { ...cur.settings, speed: s, speedAt: new Date().toISOString() };
+    this.set({ current: { ...cur, settings } });
+    await lib.writeSettings(settings);
+  }
+
+  /** Turn pause trimming on or off for the open book; the analysis is already there or on its way. */
+  async setTrimSilence(on: boolean): Promise<void> {
+    const cur = this.state.current;
+    const lib = cur && this.libOf(cur.book);
+    if (!cur || !this.engine || !lib) return;
+    const settings = { ...cur.settings, trimSilence: on };
+    this.set({ current: { ...cur, settings } });
+    this.engine.setSilence(on ? cur.silence : null);
+    await lib.writeSettings(settings);
+  }
+
+  /**
+   * Keep the open book's place. The engine only reports positions it can
+   * trust, and only for the book it has loaded; a book still loading has
+   * nothing to say yet. Urgent ones (pause, seek, leaving) are written at
+   * once; the steady ones while playing are throttled by the keeper.
+   */
+  private async persistPosition(why: NonNullable<Position["why"]>): Promise<void> {
+    const urgent = why !== "periodic";
+    const cur = this.state.current;
+    const o = cur && this.openedOf(cur.book);
+    const engine = this.engine;
+    if (!cur || !o || !engine) return;
+    const bookId = cur.book.book.id;
+    if (engine.current.bookId !== bookId) return;
+    const offsetMs = engine.positionMs();
+    this.lastWrite = Date.now();
+    try {
+      const kept = o.keeper.record(await o.lib.positionAt(bookId, offsetMs, Date.now(), why), urgent);
+      this.set({ positions: { ...this.state.positions, [bookId]: kept } });
+    } catch (e) {
+      log.error("could not keep the position:", describe(e));
+    }
+  }
+
+  /**
+   * Write every position everywhere and wait, for the window closing or
+   * going away. Bounded, so a share that hangs cannot hold the app open:
+   * whatever it does not take is already in the local copy.
+   */
+  async flushPositions(timeoutMs = 4_000): Promise<void> {
+    if (isPlaying(this.state.player.status)) this.engine?.pause();
+    await this.persistPosition("close");
+    const reading = this.readingKeeper;
+    const all = Promise.all([this.endReading(), ...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
+    await Promise.race([all, new Promise((r) => setTimeout(r, timeoutMs))]);
+  }
+
+  /**
+   * Keep the place through everything the window goes through: closing
+   * (pause, write everywhere, then let it close), being hidden or
+   * minimised (write, keep playing), and the page unloading in the
+   * browser harness. Returns an uninstall.
+   */
+  installLifecycle(): () => void {
+    const offs: (() => void)[] = [];
+    if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.beforeClose(), () => this.mayClose()));
+    if (typeof document !== "undefined") {
+      const onVisibility = () => {
+        if (document.visibilityState === "hidden") void this.checkpoint();
+        // Back in front: another device may have moved on meanwhile, and a phone's event stream doesn't last in the background.
+        else {
+          this.syncAllServers();
+          // And the server's books go on being transcribed, if that stopped while nobody looked (#158).
+          void this.transcribeForServer();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      offs.push(() => document.removeEventListener("visibilitychange", onVisibility));
+    }
+    if (typeof window !== "undefined") {
+      const onUnload = () => void this.flushPositions();
+      window.addEventListener("pagehide", onUnload);
+      offs.push(() => window.removeEventListener("pagehide", onUnload));
+      // Back online, after a sleep or a dropped connection: the server's books go on being transcribed.
+      const onOnline = () => void this.transcribeForServer();
+      window.addEventListener("online", onOnline);
+      offs.push(() => window.removeEventListener("online", onOnline));
+    }
+    return () => offs.forEach((f) => f());
+  }
+
+  /** What Ribbon is transcribing now, said for a person: the book and how far it has got. Null when nothing. */
+  transcribingNow(): string | null {
+    return transcribingIn(this.state);
+  }
+
+  /** Whether to let Ribbon close: asked first while it transcribes (#158), which closing stops until it's next open. */
+  async mayClose(): Promise<boolean> {
+    const what = this.transcribingNow();
+    if (!what || !this.platform.askToClose) return true;
+    return this.platform.askToClose(`Ribbon is transcribing ${what}. Closing stops it, and it carries on from there the next time Ribbon is open.`);
+  }
+
+  /** The window is closing, or Ribbon quitting: every place written, then a new version that's ready put in place for the next start. */
+  private async beforeClose(): Promise<void> {
+    await this.flushPositions();
+    if (this.state.update?.ready) await this.updater?.install(false);
+  }
+
+  /** The window is hidden or minimised: make sure the local copy is current, without pausing. */
+  async checkpoint(): Promise<void> {
+    // Out of sight, the reading stops counting.
+    await this.endReading();
+    if (this.state.current) await this.persistPosition("close");
+  }
+
+  /** The book played to its end: finished, and its card says how it went and what's next (ui/TheEnd.tsx). */
+  private onBookEnded(): void {
+    this.pausedAt = Date.now();
+    const id = this.state.current?.book.book.id;
+    if (id) {
+      void this.markFinished(id);
+      this.set({ theEnd: id });
+    }
+    void this.persistPosition("end");
+  }
+
+  private refreshMediaMetadata(): void {
+    const cur = this.state.current;
+    if (!cur) {
+      updateMediaMetadata(null, "", null);
+      return;
+    }
+    const ch = cur.book.chapters[this.state.player.chapterIndex];
+    const story = cur.book.parts[partAt(cur.book.parts, this.state.player.positionMs)] ?? null;
+    updateMediaMetadata(cur.book, ch?.title ?? "", this.coverUrl(cur.book), story);
+  }
+
+  // Updates -------------------------------------------------------------
+
+  /** New versions of Ribbon, where it installs them itself (updates.ts). */
+  private updater: Updater | null = null;
+
+  /** Begin looking for new versions, unless that was turned off: a little after start, then every few hours. */
+  private startUpdates(): void {
+    if (!this.platform.updates || this.updater) return;
+    const kept = this.appSettings.updateCheckedAt;
+    const checkedAt = typeof kept === "number" ? kept : null;
+    const on = this.appSettings.checkForUpdates !== false;
+    this.updater = new Updater(this.platform.updates, (status) => this.onUpdate(status), checkedAt);
+    this.set({ update: { on, checkedAt, ready: null, putOff: false } });
+    if (on) this.updater.start();
+  }
+
+  private onUpdate(status: { checkedAt: number | null; ready: string | null }): void {
+    const was = this.state.update;
+    if (!was) return;
+    if (status.checkedAt !== was.checkedAt) {
+      this.appSettings = { ...this.appSettings, updateCheckedAt: status.checkedAt };
+      this.saveAppSettingsSoon();
+    }
+    // A version newer than the one put off is offered afresh.
+    this.set({ update: { ...was, ...status, putOff: was.putOff && status.ready === was.ready } });
+  }
+
+  /** Whether Ribbon looks for new versions online (Settings, Online). Turned off, one already downloaded stays ready. */
+  async setUpdateChecks(on: boolean): Promise<void> {
+    const was = this.state.update;
+    if (!was || !this.updater) return;
+    this.appSettings = { ...this.appSettings, checkForUpdates: on };
+    this.set({ update: { ...was, on } });
+    if (on) this.updater.start();
+    else this.updater.stop();
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** "Later": no offer to restart for the version that's ready, this session. It still installs when Ribbon closes. */
+  putOffUpdate(): void {
+    const was = this.state.update;
+    if (was?.ready && !was.putOff) this.set({ update: { ...was, putOff: true } });
+  }
+
+  /**
+   * Restart into the version that's ready, when the person asks. Asked first
+   * while Ribbon transcribes, as closing is; a playing book is paused and every
+   * place written before anything is installed. Says so if it couldn't.
+   */
+  async restartToUpdate(): Promise<void> {
+    const version = this.state.update?.ready;
+    if (!version || !this.updater) return;
+    if (!(await this.mayClose().catch(() => true))) return;
+    await this.flushPositions();
+    if (!(await this.updater.install(true))) this.set({ error: `Ribbon couldn't update itself to ${version}. It tries again later; the log says why.` });
+  }
+
+  // Sleep timer ---------------------------------------------------------
+
+  startSleep(mode: sleep.SleepMode): void {
+    this.set({ sleep: { state: sleep.start(mode, Date.now()), gain: 1, remainingMs: null } });
+    this.startSleepLoop();
+  }
+
+  extendSleep(byMs: number): void {
+    this.set({ sleep: { ...this.state.sleep, state: sleep.extend(this.state.sleep.state, byMs, Date.now()), gain: 1 } });
+    this.engine?.setSleepGain(1);
+    this.startSleepLoop();
+  }
+
+  cancelSleep(): void {
+    this.stopSleepLoop();
+    this.set({ sleep: { state: sleep.cancel(), gain: 1, remainingMs: null } });
+    this.engine?.setSleepGain(1);
+  }
+
+  private startSleepLoop(): void {
+    if (this.sleepTimer !== null) return;
+    this.sleepTimer = window.setInterval(() => this.sleepTick(), 250);
+  }
+
+  private stopSleepLoop(): void {
+    if (this.sleepTimer !== null) window.clearInterval(this.sleepTimer);
+    this.sleepTimer = null;
+  }
+
+  private sleepTick(): void {
+    const cur = this.state.current;
+    const st = this.state.sleep.state;
+    if (!sleep.isSet(st)) return this.stopSleepLoop();
+    const ch = cur?.book.chapters[this.state.player.chapterIndex] ?? null;
+    // Minutes count only while the book plays.
+    const held = isPlaying(this.state.player.status) ? sleep.resume(st, Date.now()) : sleep.pause(st, Date.now());
+    const [next, out] = sleep.tick(held, {
+      nowMs: Date.now(),
+      positionMs: this.state.player.positionMs,
+      chapterEndMs: ch ? ch.endMs : null,
+      speed: this.state.player.speed,
+      playing: isPlaying(this.state.player.status),
+    });
+    this.engine?.setSleepGain(out.gain);
+    this.set({ sleep: { state: next, gain: out.gain, remainingMs: out.remainingMs } });
+    if (out.fire) {
+      this.pause();
+      this.stopSleepLoop();
+      this.set({ sleep: { state: sleep.cancel(), gain: 1, remainingMs: null } });
+      this.engine?.setSleepGain(1);
+    }
+  }
+
+  // Bookmarks -----------------------------------------------------------
+
+  /** Bookmark the open book: where it is playing, or the moment given (the bookmark sheet's, nudged a few seconds). */
+  async addBookmark(note: string, offsetMs?: number): Promise<void> {
+    const cur = this.state.current;
+    if (!cur || !this.engine) return;
+    await this.addBookmarkAt(cur.book.book.id, offsetMs ?? this.engine.positionMs(), note);
+  }
+
+  /**
+   * Add a bookmark: cut its clip, write its `mark` to the log (shown at
+   * once), and write the book's bookmarks CSV for earlier versions.
+   */
+  async addBookmarkAt(bookId: string, offsetMs: number, note: string): Promise<Bookmark | null> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!b || !lib) return null;
+    if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
+    const ms = Math.max(0, Math.round(offsetMs));
+    const clip = await lib.cutClip(b, ms).catch((e: unknown) => {
+      log.warn("could not cut a bookmark's clip:", describe(e));
+      return "";
+    });
+    const bm: Bookmark = { id: markId(bookId, ms), bookId, offsetMs: ms, createdAt: new Date().toISOString(), note, clip };
+    await this.writeHistory(bookId, markFields(bm), bm.createdAt);
+    await this.writeBookmarkRows(bookId);
+    return bm;
+  }
+
+  /**
+   * Bookmark the words selected in the reader: where they start and end
+   * and the words, and, when the book has audio, the time they map to,
+   * so the bookmark is in the player's list too, with its clip.
+   */
+  async addHighlight(a: TextPlace, b: TextPlace): Promise<Highlight | null> {
+    const r = this.state.reading;
+    const book = r && this.state.books.find((x) => x.book.id === r.bookId);
+    const lib = book && this.libOf(book);
+    if (!r?.text || !book || !lib) return null;
+    const range = trimRange(r.text, a, b);
+    if (!range) return null;
+    const text = highlightOf(r.text, book.book.id, range);
+    const ms = r.alignment && book.book.durationMs > 0 ? Math.max(0, Math.round(textToMs(r.alignment, r.text.chars(range.from)))) : null;
+    const clip =
+      ms === null
+        ? ""
+        : await lib.cutClip(book, ms).catch((e: unknown) => {
+            log.warn("could not cut a bookmark's clip:", describe(e));
+            return "";
+          });
+    const h: Highlight = { id: highlightId(book.book.id, text.start, text.quote), bookId: book.book.id, offsetMs: ms, createdAt: new Date().toISOString(), note: "", clip, text };
+    await this.writeHistory(book.book.id, markFields(h), h.createdAt);
+    return h;
+  }
+
+  /** A book's bookmarks made from highlights, from the log as read so far. */
+  highlightsFor(bookId: string): Highlight[] {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return [];
+    return highlightsOf(o.log, { id: bookId, claims: claimsFor(b.original ?? b.book) });
+  }
+
+  /** The reader's highlights, again from the log, when they changed. */
+  private refreshHighlights(): void {
+    const r = this.state.reading;
+    if (!r || r.status !== "ready") return;
+    const highlights = this.highlightsFor(r.bookId);
+    if (JSON.stringify(highlights) === JSON.stringify(r.highlights ?? [])) return;
+    const { highlights: _, ...rest } = r;
+    this.set({ reading: { ...rest, ...(highlights.length > 0 ? { highlights } : {}) } });
+  }
+
+  /** Open a highlight's words in the reader. */
+  async readHighlight(bookId: string, id: string): Promise<void> {
+    const h = this.highlightsFor(bookId).find((x) => x.id === id);
+    if (!h) return;
+    if (this.state.reading?.bookId !== bookId || this.state.reading.status !== "ready") await this.openReading(bookId);
+    const r = this.state.reading;
+    if (r?.bookId !== bookId || !r.text) return;
+    this.moveReading(r.text.fromLocator(h.text.start), "seek");
+  }
+
+  /** Change a bookmark's note. */
+  async editBookmark(bookId: string, id: string, note: string): Promise<void> {
+    if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
+    const bm = this.bookmarksFor(bookId).find((x) => x.id === id);
+    if (!bm || bm.note === note) return;
+    const modifiedAt = new Date().toISOString();
+    await this.writeHistory(bookId, markFields({ ...bm, note, modifiedAt }), modifiedAt);
+    await this.writeBookmarkRows(bookId);
+  }
+
+  /**
+   * Hear the thirty seconds before a bookmark, through the one player:
+   * seek back, play, and stop at the mark. No second audio element.
+   */
+  async previewBookmark(bm: Bookmark): Promise<void> {
+    const cur = this.state.current;
+    if (!cur || !this.engine || cur.book.book.id !== bm.bookId) return;
+    if (this.state.previewing === bm.offsetMs) {
+      this.pause();
+      return;
+    }
+    const { startMs } = clipRange(bm.offsetMs);
+    this.engine.seek(startMs);
+    this.engine.setStopAt(bm.offsetMs);
+    this.pausedAt = null;
+    this.set({ previewing: bm.offsetMs, resumeOffer: null });
+    await this.engine.play();
+  }
+
+  /** Delete a bookmark: a `del` in the log, then its clip and its CSV row. */
+  async removeBookmark(bookId: string, id: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!b || !lib) return;
+    if (!this.bookmarkRows.has(bookId)) await this.loadBookmarks(bookId).catch(() => undefined);
+    const bm = this.bookmarksFor(bookId).find((x) => x.id === id) ?? this.highlightsFor(bookId).find((x) => x.id === id);
+    if (!bm) return;
+    if (this.state.current?.book.book.id === bookId && bm.offsetMs !== null && this.state.previewing === bm.offsetMs) this.pause();
+    await this.writeHistory(bookId, { k: "del", of: id });
+    await lib.removeClip(bm.clip);
+    await this.writeBookmarkRows(bookId);
+  }
+
+  /** A book's bookmarks, read again from its CSV and merged with the log as read so far. */
+  async loadBookmarks(bookId: string): Promise<Bookmark[]> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!lib) return [];
+    this.bookmarkRows.set(bookId, await lib.readBookmarks(bookId));
+    return this.bookmarksFor(bookId);
+  }
+
+  /** A book's bookmarks: the marks in its source's log merged with its CSV rows. */
+  bookmarksFor(bookId: string): Bookmark[] {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return [];
+    return bookmarksOf(o.log, { id: bookId, claims: claimsFor(b.original ?? b.book) }, this.bookmarkRows.get(bookId) ?? []);
+  }
+
+  /**
+   * The bookmarks CSV, rewritten as this device sees them, so Ribbon 0.4
+   * on other machines keeps working. Only once its rows have been read,
+   * so a CSV that could not be read is never written over.
+   */
+  private async writeBookmarkRows(bookId: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const lib = b && this.libOf(b);
+    if (!lib || !this.bookmarkRows.has(bookId)) return;
+    const list = this.bookmarksFor(bookId).filter((x) => !x.text);
+    try {
+      await lib.writeBookmarks(bookId, list);
+      this.bookmarkRows.set(bookId, list);
+    } catch (e) {
+      log.warn("could not write bookmarks beside the books:", describe(e));
+    }
+  }
+
+  /** The open book's bookmarks, again from the log, when they changed. */
+  private refreshBookmarks(): void {
+    const cur = this.state.current;
+    if (!cur) return;
+    const bookmarks = this.bookmarksFor(cur.book.book.id);
+    if (JSON.stringify(bookmarks) !== JSON.stringify(cur.bookmarks)) this.set({ current: { ...cur, bookmarks } });
+  }
+
+  bookmarkClipUrl(bm: Bookmark): string | null {
+    const cur = this.state.current;
+    const lib = cur && this.libOf(cur.book);
+    if (!lib || !bm.clip) return null;
+    return this.platform.fileUrl(lib.host.join(lib.root, ".ribbon", "bookmarks", ...bm.clip.split("/")));
+  }
+
+  // Chapter corrections -------------------------------------------------
+
+  /**
+   * Ask Audnexus for a book's chapters by its ASIN. Only when the
+   * listener asks; the ASIN is all that is sent. Throws a sentence when
+   * there is no answer worth using.
+   */
+  async lookupChapters(asin: string, region: Region): Promise<LookedUp> {
+    let r: Response;
+    try {
+      r = await fetch(chaptersUrl(asin, region), { headers: { accept: "application/json" } });
+    } catch (e) {
+      log.warn("chapter lookup failed:", describe(e));
+      throw new Error("Could not reach Audnexus. Check the connection and try again.");
+    }
+    if (r.status === 404) throw new Error("Audnexus has no chapters for that ASIN in this region.");
+    if (!r.ok) throw new Error(`Audnexus answered ${r.status}. Try again later.`);
+    const found = parseChapters(await r.json().catch(() => null));
+    if (!found) throw new Error("Audnexus has no chapters for that ASIN in this region.");
+    log.info("chapter lookup:", asin, region, found.chapters.length, "chapters");
+    return found;
+  }
+
+  async correctChapters(corrections: Correction[]): Promise<void> {
+    const cur = this.state.current;
+    const o = cur && this.openedOf(cur.book);
+    if (!cur || !o) return;
+    const updated = this.stamp(o, [await o.lib.writeCorrections(cur.book, corrections)])[0]!;
+    this.replaceBook(o, updated);
+    this.set({ current: { ...cur, book: updated, corrections } });
+    this.engine?.setChapters(updated.chapters);
+  }
+
+  // Navigation ----------------------------------------------------------
+
+  showLibrary(): void {
+    this.set({ pane: "library", playerExpanded: false });
+    this.dropDeletedEverywhere();
+  }
+
+  /** Open the full player over the shelf, optionally straight onto one of its drawers. */
+  expandPlayer(drawer: AppState["playerDrawer"] = null): void {
+    if (!this.state.current) return;
+    this.set({ playerExpanded: true, playerDrawer: drawer });
+  }
+
+  collapsePlayer(): void {
+    this.set({ playerExpanded: false, playerDrawer: null });
+  }
+
+  setPlayerDrawer(drawer: AppState["playerDrawer"]): void {
+    this.set({ playerDrawer: drawer });
+  }
+
+  showSettings(): void {
+    this.set({ pane: "settings" });
+  }
+
+  showStats(): void {
+    this.set({ pane: "stats", playerExpanded: false });
+  }
+
+  // History -------------------------------------------------------------
+
+  /** A source's log records, apart from places, into the shelf's history. */
+  private takeLog(o: Opened, records: LogRecord[]): void {
+    if (this.opened.get(o.source.id) !== o) return;
+    const disk = records.filter((r) => r.k !== "pos");
+    // A read that started before a write landed must not undo it: keep what it has not seen.
+    o.pendingLog = o.pendingLog.filter((p) => !disk.some((d) => sameRecord(d, p)));
+    o.log = [...disk, ...o.pendingLog];
+    this.publishHistory();
+  }
+
+  private publishHistory(): void {
+    const all = this.openedInOrder().flatMap((o) => o.log);
+    const seen = new Set<string>();
+    const sessions: SessionRecord[] = [];
+    const readings: ReadingRecord[] = [];
+    for (const r of all) {
+      if (r.k !== "session" && r.k !== "reading") continue;
+      const key = `${r.dev}:${r.seq}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (r.k === "session") sessions.push(r);
+      else readings.push(r);
+    }
+    this.set({ history: { ...this.state.history, reads: mergeById<ReadRecord>(all, "read"), sessions, readings } });
+    this.refreshBookmarks();
+    this.refreshHighlights();
+  }
+
+  /** Write a history record or a mark to the log of the book's source, and show it at once. A reading is under its text's claims. */
+  private async writeHistory(
+    bookId: string,
+    r:
+      | { k: "read"; id: string; started: string; finished?: string }
+      | { k: "del"; of: string }
+      | MarkFields
+      | (Omit<SessionRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "session" })
+      | (Omit<ReadingRecord, "v" | "dev" | "seq" | "t" | "book" | "k"> & { k: "reading" }),
+    t = new Date().toISOString(),
+    textClaims?: string[],
+  ): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o) return;
+    // A book with no audio has no length to give, nor does a text.
+    const book = textClaims ? { ids: textClaims } : { ids: claimsFor(b.original ?? b.book), ...(b.book.durationMs > 0 ? { dur_ms: b.book.durationMs } : {}) };
+    // Shown at once; the next read of the log replaces it with what was written.
+    this.localSeq = Math.max(this.localSeq + 1, Date.now());
+    const shown = { v: 1, dev: "local", seq: this.localSeq, t, book, ...r } as LogRecord;
+    o.pendingLog = [...o.pendingLog, shown];
+    o.log = [...o.log, shown];
+    this.publishHistory();
+    try {
+      await o.lib.appendRecord({ ...r, t, book });
+    } catch (e) {
+      log.warn("could not write history beside the books:", describe(e));
+    }
+  }
+
+  /** Away from the end of a book's card. */
+  closeTheEnd(): void {
+    this.set({ theEnd: null });
+  }
+
+  /** Mark a book finished: the listen-through in progress closes now, or one is recorded that does. */
+  async markFinished(bookId: string): Promise<void> {
+    const open = openRead(this.state.history.reads, bookId);
+    const now = new Date().toISOString();
+    await this.writeHistory(bookId, { k: "read", id: open?.id ?? `urn:uuid:${globalThis.crypto.randomUUID()}`, started: open?.started ?? now, finished: now });
+  }
+
+  /** Mark a book not finished: the last listen-through opens again. */
+  async markUnfinished(bookId: string): Promise<void> {
+    const reads = this.state.history.reads.filter((r) => r.book.ids.includes(`urn:ribbon:${bookId}`));
+    const last = reads.sort((a, b) => Date.parse(a.started) - Date.parse(b.started)).pop();
+    if (last) await this.writeHistory(bookId, { k: "read", id: last.id, started: last.started });
+    else await this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+  }
+
+  /** Start a book again from the beginning, as a new listen-through; the old one stays in the history. */
+  async listenAgain(bookId: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    if (!b) return;
+    await this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+    if (readerOnly(b.book)) return;
+    await this.openBook(b, { expand: false });
+    this.seek(0);
+    await this.play();
+  }
+
+  /** Correct the dates of a listen-through. A null finish means it is still going. */
+  async editRead(bookId: string, readId: string, started: string, finished: string | null): Promise<void> {
+    await this.writeHistory(bookId, { k: "read", id: readId, started, ...(finished ? { finished } : {}) });
+  }
+
+  async deleteRead(bookId: string, readId: string): Promise<void> {
+    await this.writeHistory(bookId, { k: "del", of: readId });
+  }
+
+  // Daily goal ----------------------------------------------------------
+
+  /** Choose a daily goal, in minutes (0 is off): kept on this machine and on every server signed in to, where it's the person's. */
+  async setGoal(minutes: number): Promise<void> {
+    const goal = { minutes, chosenAt: new Date().toISOString() };
+    this.keepGoal(goal);
+    for (const o of this.openedInOrder()) {
+      await o.server?.client.chooseGoal(goal).catch((e: unknown) => log.warn("could not keep the daily goal on the server:", o.source.name, describe(e)));
+    }
+  }
+
+  /** A server's goal and this machine's: the one chosen later stands, here and there. */
+  private async takeGoal(o: Opened): Promise<void> {
+    const client = o.server?.client;
+    const theirs = client && (await client.goal().catch(() => null));
+    if (!client || !theirs) return;
+    const stands = newerGoal(this.state.goal, theirs);
+    if (stands === theirs) {
+      if (theirs.minutes !== this.state.goal.minutes || theirs.chosenAt !== this.state.goal.chosenAt) this.keepGoal(theirs);
+    } else if (stands.chosenAt) {
+      await client.chooseGoal(stands).catch((e: unknown) => log.warn("could not keep the daily goal on the server:", o.source.name, describe(e)));
+    }
+  }
+
+  private keepGoal(goal: DailyGoal): void {
+    this.appSettings = { ...this.appSettings, dailyGoal: goal };
+    this.saveAppSettingsSoon();
+    this.set({ goal });
+    this.checkGoal();
+  }
+
+  /**
+   * Today against the daily goal: the time kept, listening and reading,
+   * with what's going on now. Met here, after being seen not met today, it
+   * says so, once a day (ui/GoalMet.tsx).
+   */
+  private checkGoal(now = Date.now()): void {
+    const minutes = this.state.goal.minutes;
+    if (!minutes) return;
+    const tz = new Date(now).getTimezoneOffset();
+    const { sessions, readings } = this.state.history;
+    const live = this.liveMs(now);
+    const today = goalToday([...sessions, ...readings], minutes, now, tz, live);
+    if (!this.goalWatch.see(today, now, tz, live > 0 || now - this.spentHereAt < 60_000)) return;
+    this.appSettings = { ...this.appSettings, goalCelebrated: this.goalWatch.celebrated };
+    this.saveAppSettingsSoon();
+    this.set({ goalMet: { minutes, streakDays: today.streakDays } });
+  }
+
+  /** Listening and reading going on now, not kept in the log yet. */
+  private liveMs(now: number): number {
+    const listening = this.listening && isPlaying(this.state.player.status) ? now - this.listening.start : 0;
+    const s = this.readingStretch;
+    const reading = s ? Math.min(now, s.last + READING_LINGER_MS) - s.start : 0;
+    return Math.max(0, listening) + Math.max(0, reading);
+  }
+
+  dismissGoalMet(): void {
+    this.set({ goalMet: null });
+  }
+
+  /** Keep a record of listening sessions, or stop. Turning it off writes no more of them. */
+  async setRecordSessions(on: boolean): Promise<void> {
+    this.appSettings = { ...this.appSettings, recordSessions: on };
+    this.set({ history: { ...this.state.history, recording: on } });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** Summarise speed measurements in the log each minute, or stop (app/perf.ts). */
+  async setPerfLog(on: boolean): Promise<void> {
+    this.appSettings = { ...this.appSettings, perfLog: on };
+    perf.setLogging(on);
+    this.set({ perfLog: on });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+  }
+
+  /** Playing started: a listen-through opens if none is, and a session begins. */
+  private beginListening(bookId: string, positionMs: number, speed: number): void {
+    this.listening = { bookId, start: Date.now(), fromMs: positionMs, speed };
+    const reads = this.state.history.reads;
+    if (!openRead(reads, bookId) && !finishedByRead(reads, bookId)) {
+      void this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
+    }
+  }
+
+  /** Playing stopped: a session of thirty seconds or more goes in the log, if sessions are kept. */
+  private endListening(positionMs: number): void {
+    const s = this.listening;
+    this.listening = null;
+    if (!s || !this.state.history.recording) return;
+    const end = Date.now();
+    if (end - s.start < STRETCH_MIN_MS) return;
+    this.spentHereAt = end;
+    void this.writeHistory(s.bookId, {
+      k: "session",
+      start: new Date(s.start).toISOString(),
+      end: new Date(end).toISOString(),
+      from_ms: Math.round(s.fromMs),
+      to_ms: Math.round(positionMs),
+      listened_ms: end - s.start,
+      speed: s.speed,
+    });
+  }
+
+  homePath(): Promise<string | null> {
+    return this.platform.home ? this.platform.home.path().catch(() => null) : Promise.resolve(null);
+  }
+
+  revealHome(): Promise<void> {
+    return this.platform.home ? this.platform.home.reveal().catch((e: unknown) => log.warn("could not open the folder:", describe(e))) : Promise.resolve();
+  }
+
+  /** Wipe the app's own folder (mirror, sources) and go back to the first screen. */
+  async resetHome(): Promise<void> {
+    if (!this.platform.home) return;
+    // The mirror holds positions the share may not have yet: give them a last chance to land.
+    await this.flushPositions();
+    if (!(await this.platform.home.reset())) return;
+    this.engine?.pause();
+    for (const o of this.opened.values()) {
+      void o.keeper.close();
+      this.letGoOfServerPlaces(o);
+      o.coverJob?.abort();
+      o.lookup?.stop();
+    }
+    this.opened.clear();
+    this.jobs.cancelAll();
+    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null });
+  }
+
+  // Series ----------------------------------------------------------------
+
+  /**
+   * The series on the shelf: what series tags and numbered folders make,
+   * source by source, plus what the records beside the books say, which
+   * can also say a series was deleted. Books
+   * numbered straight under a source's folder make a series named after
+   * that folder. A series named the same in two sources is one series.
+   * A record can add books to a series, or be a series on its own. A
+   * Ribbon server keeps its library's series itself: those are taken as
+   * it has them, never found here.
+   */
+  detectedSeries(): SeriesGroup[] {
+    const byKey = new Map<string, SeriesGroup>();
+    for (const o of this.openedInOrder()) {
+      for (const g of this.seriesFoundIn(o)) {
+        const have = byKey.get(g.key);
+        if (have) {
+          have.bookIds.push(...g.bookIds.filter((id) => !have.bookIds.includes(id)));
+          if (g.numbers) have.numbers = { ...have.numbers, ...g.numbers };
+          if (g.titles) have.titles = { ...have.titles, ...g.titles };
+        } else byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
+      }
+    }
+    return mergeSeries([...byKey.values()], Object.values(this.state.series), new Set(this.state.books.map((b) => b.book.id)));
+  }
+
+  /** One source's series, before the listener's records: a server's own, or what a folder's tags and numbered folders make. */
+  private seriesFoundIn(o: Opened): SeriesGroup[] {
+    if (o.server?.keepsSeries) return o.server.seriesOnShelf().groups;
+    return detectSeries(
+      o.books.map((b) => b.book),
+      o.source.name,
+    );
+  }
+
+  /**
+   * Every series a book is in, the one last opened first. A book can be in
+   * several (The Horus Heresy, and a White Scars reading list made by hand):
+   * its page and the crumbs above it follow the series you came from.
+   */
+  seriesOfBook(bookId: string): SeriesGroup[] {
+    const all = this.detectedSeries().filter((g) => g.bookIds.includes(bookId));
+    const opened = all.findIndex((g) => g.key === this.state.seriesKey);
+    return opened > 0 ? [all[opened]!, ...all.slice(0, opened), ...all.slice(opened + 1)] : all;
+  }
+
+  /** Show the bookcase: every book on the shelf standing spine-out under the lamp (ui/BookcasePage.tsx). */
+  openBookcase(): void {
+    this.set({ pane: "bookcase", playerExpanded: false });
+  }
+
+  /** What a server knows of one of its books that the files here don't say: when it came, and how long its text is. Null for a book from a folder. */
+  listedFacts(book: ScannedBook): { addedAt: number | null; words: number | null; ebookBytes: number | null } | null {
+    return this.openedOf(book)?.server?.listedFacts(book.book.id) ?? null;
+  }
+
+  /** Show a series' page: its books in order, and how far you are through it. */
+  openSeries(key: string): void {
+    this.set({ pane: "series", seriesKey: key, playerExpanded: false });
+  }
+
+  openNewSeries(): void {
+    this.set({ seriesNew: true, seriesSetup: null });
+  }
+
+  closeNewSeries(): void {
+    this.set({ seriesNew: false });
+  }
+
+  /** Make a series by hand: these books, in this order. Its record goes beside them. */
+  async createSeries(name: string, bookIds: readonly string[]): Promise<void> {
+    const onShelf = new Set(this.state.books.map((b) => b.book.id));
+    const ids = bookIds.filter((id) => onShelf.has(id));
+    if (!name.trim() || ids.length === 0) return;
+    const key = uniqueKey(name, [...Object.keys(this.state.series), ...this.detectedSeries().map((g) => g.key)]);
+    const record = newSeriesRecord(key, name, ids);
+    log.info("new series:", record.name, ids.length, "books");
+    this.set({ series: { ...this.state.series, [key]: record }, seriesNew: false });
+    await this.writeSeriesRecord(record);
+  }
+
+  /**
+   * Whether this person may delete a series: yes for one in their own
+   * folders; for one a server keeps, only that server's admin, as the
+   * series is everyone's there.
+   */
+  canDeleteSeries(key: string): boolean {
+    return this.openedInOrder().every((o) => !o.server?.hasSeries(key) || o.serverAdmin);
+  }
+
+  /**
+   * Delete a series for good: its books stay where they are, on the shelf
+   * and in any other series. A server deletes it for every device and
+   * doesn't find it again; only its admin may (canDeleteSeries). A folder whose books would make the series
+   * again (a series tag, numbered folders) keeps a record beside them that
+   * says it was deleted; a series made by hand just loses its record.
+   */
+  async deleteSeries(key: string): Promise<void> {
+    const name = this.state.series[key]?.name || this.detectedSeries().find((g) => g.key === key)?.name;
+    if (name === undefined || !this.canDeleteSeries(key)) return;
+    log.info("delete series:", name);
+    this.seriesOffered.add(key);
+    const foundIn = (o: Opened) => !o.server?.keepsSeries && this.seriesFoundIn(o).some((g) => g.key === key);
+    const deleted = deletedSeriesRecord(key, name);
+    const { [key]: _record, ...others } = this.state.series;
+    const series = this.openedInOrder().some(foundIn) ? { ...others, [key]: deleted } : others;
+    this.set({ series, seriesSetup: this.state.seriesSetup?.key === key ? null : this.state.seriesSetup });
+    this.leaveDeletedSeries(key);
+    for (const o of this.openedInOrder()) {
+      o.seriesKeys.delete(key);
+      try {
+        if (o.server?.keepsSeries) {
+          if (!o.server.hasSeries(key)) continue;
+          await o.server.client.deleteSeries(key);
+          await this.refreshServerSeries(o);
+        } else if (foundIn(o)) {
+          o.seriesKeys.add(key);
+          await o.lib.writeSeries(deleted);
+        } else await o.lib.deleteSeries(key);
+      } catch (e) {
+        this.serverSeriesRefused(o, name, e);
+        log.warn("could not delete series:", o.source.name, describe(e));
+      }
+    }
+    this.leaveDeletedSeries(key);
+  }
+
+  /** The page of a series that's gone has nothing left to show: back to the library. */
+  private leaveDeletedSeries(key: string): void {
+    if (this.state.pane === "series" && this.state.seriesKey === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
+  }
+
+  /** Write a record beside the books in every source that holds one of its members; a server that keeps series keeps it, for every device. */
+  private async writeSeriesRecord(record: SeriesRecord): Promise<void> {
+    const members = new Set(record.choices.map((c) => c.bookId));
+    // A record whose members were all taken out still has to reach where it lived.
+    for (const o of this.openedInOrder()) if (o.seriesKeys.has(record.key)) for (const b of this.booksOf(o).slice(0, 1)) members.add(b.book.id);
+    const holders = this.openedInOrder().filter((o) => this.booksOf(o).some((b) => members.has(b.book.id)));
+    for (const o of holders) {
+      o.seriesKeys.add(record.key);
+      try {
+        if (o.server?.keepsSeries) await this.writeServerSeries(o, record);
+        else await o.lib.writeSeries(record);
+      } catch (e) {
+        this.serverSeriesRefused(o, record.name, e);
+        log.warn("could not save series:", o.source.name, describe(e));
+      }
+    }
+  }
+
+  /**
+   * A series saved on a server, for every device: its books by their ids
+   * there, each with its number or none. The record holds every number the
+   * server has (seriesFromServer), so a book without one had it cleared,
+   * or dragged to a new place, and is sent as null, else the server would
+   * keep the old.
+   */
+  private async writeServerSeries(o: Opened, record: SeriesRecord): Promise<void> {
+    const shelf = o.server!;
+    const ids = new Map(this.booksOf(o).map((b) => [b.book.id, serverIdOf(b)]));
+    const books = normalizeChoices(record.choices.filter((c) => !c.removed)).flatMap((c) => {
+      const id = ids.get(c.bookId);
+      return id ? [{ id, shelved: c.included, number: c.number ?? null }] : [];
+    });
+    if (shelf.hasSeries(record.key)) await shelf.client.saveSeries(record.key, record.name, books);
+    else await shelf.client.createSeries(record.name, books);
+    await this.refreshServerSeries(o);
+  }
+
+  /** A server said no to a change of series (only its admin changes them): say so, and show its series as they are. */
+  private serverSeriesRefused(o: Opened, name: string, e: unknown): void {
+    if (!o.server?.keepsSeries || !(e instanceof ServerError)) return;
+    this.set({ error: `Couldn't change ${name} on the server: ${e.message}` });
+    this.takeServerSeries(o);
+  }
+
+  /** Ask a server for its series again, and show them. */
+  private async refreshServerSeries(o: Opened): Promise<void> {
+    const shelf = o.server;
+    if (!shelf) return;
+    try {
+      if ((await shelf.refreshSeries()) && this.opened.get(o.source.id) === o) this.takeServerSeries(o);
+    } catch (e) {
+      log.warn("could not ask the server for its series:", o.source.name, describe(e));
+    }
+  }
+
+  /** A server's series, as the shelf's records: they stand for this source's, in place of any kept beside its books. */
+  private takeServerSeries(o: Opened): void {
+    if (!o.server?.keepsSeries) return;
+    const { records } = o.server.seriesOnShelf();
+    const series = { ...this.state.series };
+    for (const key of o.seriesKeys) delete series[key];
+    o.seriesKeys.clear();
+    for (const r of records) {
+      o.seriesKeys.add(r.key);
+      series[r.key] = r;
+    }
+    this.set({ series });
+  }
+
+  /**
+   * A source's books: for a server's, the ones not on this device yet too,
+   * after the ones that are. Hand edits are laid over those as well: a book
+   * is edited by the id it keeps once downloaded, so an edit made before
+   * the download still holds after it.
+   */
+  private booksOf(o: Opened): ScannedBook[] {
+    return [...o.books, ...this.stamp(o, o.server?.remote(o.books) ?? [])];
+  }
+
+  /** After a scan: open the setup for the first series with no record, once per session. */
+  private offerSeriesSetup(): void {
+    if (this.state.seriesSetup) return;
+    if (this.openedInOrder().some((o) => o.scanning)) return;
+    for (const g of this.detectedSeries()) {
+      if (this.state.series[g.key] || this.seriesOffered.has(g.key)) continue;
+      this.seriesOffered.add(g.key);
+      log.info("offering series setup:", g.name, g.bookIds.length, "books");
+      this.set({ seriesSetup: g });
+      return;
+    }
+  }
+
+  // Descriptions --------------------------------------------------------
+
+  /** Turn the online lookup on or off; on starts it for the books that lack an answer. */
+  async setLookup(enabled: boolean): Promise<void> {
+    this.appSettings = { ...this.appSettings, lookupDescriptions: enabled };
+    this.set({ lookup: { ...this.state.lookup, enabled } });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    if (enabled) this.maybeLookup();
+    else {
+      for (const o of this.opened.values()) o.lookup?.stop();
+      this.set({ lookup: { ...this.state.lookup, running: false } });
+    }
+  }
+
+  /**
+   * Ask about the books with no answer yet, one at a time, source after
+   * source, after every shelf is settled. One conversation with the
+   * database at a time, however many folders there are.
+   */
+  private maybeLookup(): void {
+    if (!this.state.lookup.enabled || this.lookupRun) return;
+    if (this.state.books.some((b) => b.pending) || this.openedInOrder().some((o) => o.scanning)) return;
+    this.lookupRun = (async () => {
+      for (const o of this.openedInOrder()) {
+        if (this.opened.get(o.source.id) !== o || !this.state.lookup.enabled) continue;
+        o.lookup ??= new AboutLookup(o.lib);
+        await o.lookup.run(o.books, new Map(Object.entries(this.state.about)), (about, status) => {
+          if (this.opened.get(o.source.id) !== o) return;
+          this.set({
+            about: about ? { ...this.state.about, [about.bookId]: about } : this.state.about,
+            lookup: { ...this.state.lookup, ...status },
+          });
+        });
+      }
+      await this.nameAllChapters();
+    })().finally(() => {
+      this.lookupRun = null;
+    });
+  }
+
+  // Chapter names --------------------------------------------------------
+
+  /** One ask at a time, whoever asks: the background pass or a book being opened. */
+  private naming: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Give a book its real chapter names when its chapters are only
+   * numbered: find its ASIN, ask Audnexus, and if the names fit the
+   * markers there are (same count, same length, starts in line), put them
+   * on as corrections beside the book. Once per book; only with the
+   * online lookups on; undone like any chapter correction.
+   */
+  maybeNameChapters(bookId: string): Promise<void> {
+    const run = this.naming.then(() => this.nameChapters(bookId)).catch((e: unknown) => log.warn("chapter names:", describe(e)));
+    this.naming = run;
+    return run;
+  }
+
+  private async nameChapters(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o) return;
+    o.names ??= await o.lib.readNameRecords();
+    const asked = o.names.get(bookId);
+    // Named in an earlier session: say so in the chapter list.
+    if (asked?.outcome === "applied" && this.state.namedChapters[bookId] === undefined) this.set({ namedChapters: { ...this.state.namedChapters, [bookId]: asked.asin } });
+    if (!this.state.lookup.enabled || asked || !wantsNames(book)) return;
+    const { asin, plan } = await new ChapterNamer(o.lib.host).plan(book);
+    const record: NameRecord = { bookId, asin, outcome: plan.apply ? "applied" : asin ? "kept" : "not-found", reason: plan.apply ? "" : plan.reason, at: new Date().toISOString() };
+    if (plan.apply) {
+      const cur = this.state.current;
+      if (cur && cur.book.book.id === bookId) {
+        await this.correctChapters([...cur.corrections, ...plan.corrections]);
+      } else {
+        const latest = this.state.books.find((b) => b.book.id === bookId) ?? book;
+        const corrections = [...(await o.lib.readCorrections(bookId)), ...plan.corrections];
+        this.replaceBook(o, this.stamp(o, [await o.lib.writeCorrections(latest, corrections)])[0]!);
+      }
+      this.set({ namedChapters: { ...this.state.namedChapters, [bookId]: asin } });
+    }
+    log.info(`chapter names for ${book.book.title}: ${record.outcome}${asin ? ` (${asin})` : ""}${record.reason ? `, ${record.reason}` : ""}`);
+    o.names.set(bookId, record);
+    await o.lib.writeNameRecords([...o.names.values()]).catch((e: unknown) => log.warn("could not keep chapter-name records:", describe(e)));
+  }
+
+  /** Every book with numbered chapters already read gets a turn, one at a time, after the descriptions. */
+  private async nameAllChapters(): Promise<void> {
+    for (const o of this.openedInOrder()) {
+      for (const b of o.books) {
+        if (!this.state.lookup.enabled || this.opened.get(o.source.id) !== o) return;
+        if (!wantsNames(b)) continue;
+        await this.maybeNameChapters(b.book.id);
+        // Gentle with services that are free to use.
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
+  }
+
+  /** The description for a book, or null. */
+  aboutFor(book: ScannedBook): BookAbout | null {
+    const a = this.state.about[book.book.id];
+    return a && a.source === "openlibrary" ? a : null;
+  }
+
+  openSeriesSetup(key: string): void {
+    const g = this.detectedSeries().find((x) => x.key === key);
+    if (g) this.set({ seriesSetup: g });
+  }
+
+  closeSeriesSetup(): void {
+    this.set({ seriesSetup: null });
+  }
+
+  /**
+   * Save the decisions beside the books, in every source that holds one,
+   * and apply them to the shelf: the order, the numbers, what is on the
+   * shelf, a new name, and books moved into other series.
+   */
+  async saveSeries(choices: SeriesChoice[], opts: { name?: string; moves?: { bookId: string; toKey: string }[] } = {}): Promise<void> {
+    const g = this.state.seriesSetup;
+    if (!g) return;
+    const now = new Date().toISOString();
+    const moved = new Set((opts.moves ?? []).map((m) => m.bookId));
+    const name = opts.name?.trim() || this.state.series[g.key]?.name || g.name;
+    const record: SeriesRecord = { key: g.key, name, choices: normalizeChoices(choices.map((c) => (moved.has(c.bookId) ? { ...c, removed: true } : c))), decidedAt: now };
+    const series = { ...this.state.series, [g.key]: record };
+    const others: SeriesRecord[] = [];
+    const groups = this.detectedSeries();
+    for (const m of opts.moves ?? []) {
+      if (m.toKey === g.key) continue;
+      const target = groups.find((x) => x.key === m.toKey);
+      const base = series[m.toKey] ?? (target ? { key: target.key, name: target.name, choices: defaultChoices(target), decidedAt: now } : null);
+      if (!base) continue;
+      const have = base.choices.find((c) => c.bookId === m.bookId);
+      const choices2 = have
+        ? base.choices.map((c) => (c.bookId === m.bookId ? { bookId: c.bookId, included: true, order: c.order, ...(c.number !== undefined ? { number: c.number } : {}) } : c))
+        : [...base.choices, { bookId: m.bookId, included: true, order: base.choices.length + 1 }];
+      const next: SeriesRecord = { ...base, choices: normalizeChoices(choices2), decidedAt: now };
+      series[m.toKey] = next;
+      others.push(next);
+    }
+    if (name !== g.name) log.info("rename series:", g.name, "→", name);
+    if (moved.size > 0) log.info("moved", moved.size, "book(s) out of", name);
+    this.set({ series, seriesSetup: null });
+    await this.writeSeriesRecord(record);
+    for (const r of others) await this.writeSeriesRecord(r);
+  }
+
+  /** Skip: everything stays on the shelf in detected order, and the question is not asked again. */
+  skipSeriesSetup(): Promise<void> {
+    const g = this.state.seriesSetup;
+    return g ? this.saveSeries(defaultChoices(g)) : Promise.resolve();
+  }
+
+  /** Read every file under a folder of one source again, whether or not it changed. */
+  async rescanFolder(sourceId: string, folder: string): Promise<void> {
+    const o = this.opened.get(sourceId);
+    if (o) await this.rescanSource(o, true, [folder]);
+  }
+
+  showPlayer(): void {
+    this.expandPlayer();
+  }
+
+  clearError(): void {
+    this.set({ error: null });
+  }
+
+  /** The books whose transcribing has been noted as begun, so it's said once a session however often it stops and starts again. */
+  private noted = new Set<string>();
+  private lastNoticeId = 0;
+
+  /** A note to show, numbered here. */
+  private notify(notice: Unnumbered<Notice>): void {
+    this.set({ notices: [...this.state.notices, { ...notice, id: ++this.lastNoticeId } as Notice] });
+  }
+
+  /** A book's transcribing begun, noted the first time this session. */
+  private noteTranscribing(book: ScannedBook, forServer: boolean): void {
+    if (this.noted.has(book.book.id)) return;
+    this.noted.add(book.book.id);
+    this.notify({ what: "transcribing", title: book.book.title, forServer });
+  }
+
+  /** A book that couldn't be transcribed, and why, as the worker's outcome. */
+  private notTranscribed(book: ScannedBook, forServer: boolean, why: string): "failed" {
+    this.notify({ what: "not-transcribed", title: book.book.title, forServer, why });
+    return "failed";
+  }
+
+  /** A note gone: dismissed, or its time up. */
+  dismissNotice(id: number): void {
+    if (this.state.notices.some((n) => n.id === id)) this.set({ notices: this.state.notices.filter((n) => n.id !== id) });
+  }
+
+  destroy(): void {
+    if (this.goalTimer) clearInterval(this.goalTimer);
+    this.updater?.stop();
+    for (const o of this.opened.values()) {
+      void o.keeper.flush();
+      o.lookup?.stop();
+      o.coverJob?.abort();
+    }
+    this.stopSleepLoop();
+    this.uninstallMedia?.();
+    this.engine?.destroy();
+    this.jobs.cancelAll();
+    this.chapterProbe?.abort();
+  }
+}
+
+/** What Ribbon is transcribing in this state, said for a person: the book and how far it has got. Null when nothing. */
+export function transcribingIn(state: AppState): string | null {
+  const percent = (done: number, total: number) => `${Math.floor((100 * done) / Math.max(1, total))}%`;
+  const server = state.transcribingForServer;
+  if (server) return `${server.title} for the server, ${percent(server.done, server.total)} of the way`;
+  const r = state.reading;
+  const open = r?.listening?.what === "aligning" ? state.books.find((b) => b.book.id === r.bookId) : undefined;
+  return open && r?.listening ? `${open.book.title}, ${percent(r.listening.done, r.listening.total)} of the way` : null;
+}
+
+/**
+ * Once the page has drawn what is set now. A window that is hidden draws
+ * nothing and may not run frames at all, so never later than 100 ms; and at
+ * once where nothing draws (the tests).
+ */
+function afterNextPaint(): Promise<void> {
+  return new Promise((done) => {
+    if (typeof requestAnimationFrame !== "function") return void setTimeout(done, 0);
+    const late = setTimeout(done, 100);
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        clearTimeout(late);
+        done();
+      }, 0),
+    );
+  });
+}
+
+/**
+ * A server's address as someone types it, made a URL: a scheme when it has
+ * none (plain HTTP only on this machine), and no trailing slash.
+ */
+export function serverUrl(address: string): string {
+  let a = address.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//i.test(a)) a = /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/i.test(a) ? `http://${a}` : `https://${a}`;
+  const url = new URL(a);
+  return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
+}

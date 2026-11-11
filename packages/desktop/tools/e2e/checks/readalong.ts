@@ -33,7 +33,8 @@ export const readAlongCheck: Check = {
     await page.waitForTimeout(1500);
     const look = () =>
       page.evaluate((bar) => {
-        const s = window.__ribbon.getState().reading!;
+        const r = window.__ribbon.getState().reading;
+        const s = r?.status === "ready" ? r : null;
         const sentence = document.querySelector("[role=dialog] [data-mark=sentence]");
         // A line on the page showing with none of the sentence in it, to see that it steps back in the river.
         const other = [...document.querySelectorAll("[role=dialog] [data-block]")].find((e) => !e.closest("[inert]") && !e.querySelector("[data-mark=sentence]"));
@@ -43,8 +44,8 @@ export const readAlongCheck: Check = {
           river: !!document.querySelector("[role=dialog] [data-river]"),
           // In the river, the other words are drawn fainter than the sentence's (the transition takes 0.6 s).
           fainter: !!sentence && !!other && getComputedStyle(other).color !== getComputedStyle(sentence).color,
-          place: `${s.place?.section}:${s.place?.block}:${s.place?.offset}`,
-          following: !!s.following,
+          place: `${s?.place.section}:${s?.place.block}:${s?.place.offset}`,
+          following: !!s?.following,
           bar: document.querySelector(`${bar} p`)?.textContent ?? "",
           buttons: [...document.querySelectorAll(`${bar} button`)].map((b) => b.textContent?.trim()).filter(Boolean).join(" / "),
         };

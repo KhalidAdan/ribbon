@@ -1,41 +1,7 @@
-import type { Ebook } from "@ribbon/core/ebook";
-import type { Alignment } from "@ribbon/core/reading/align";
-import type { Highlight } from "@ribbon/core/types";
 import type { Locator, Why } from "@ribbon/core/poslog";
-import type { BookText, TextPlace, TextRange } from "@ribbon/core/reading/booktext";
+import type { BookText, TextPlace } from "@ribbon/core/reading/booktext";
 import { log } from "./log";
 import { isReadOnly } from "./read-only";
-
-/** The book open in the reader, while it opens, once it has, or why it could not. */
-export interface ReadingState {
-  bookId: string;
-  status: "opening" | "ready" | "failed";
-  message?: string;
-  /** The book's text, and through it its EPUB model (`text.ebook`). */
-  text?: BookText;
-  place?: TextPlace;
-  /** The text's chapters paired with the audio's, for switching between them (level 1). */
-  alignment?: Alignment;
-  /** Transcribing the narration, while it runs: minutes transcribed, of all (#152). */
-  listening?: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" };
-  /**
-   * It reads along: its narration is transcribed whole, or its own Media
-   * Overlay places it. Until then the book opens to read only: no
-   * narrator's sentence marked, no pages following it (#152).
-   */
-  readsAlong?: boolean;
-  /** The read-along export: chapters encoded so far while it runs, then what it made or why it could not. */
-  exporting?: { done: number; total: number };
-  exported?: { path: string } | { error: string };
-  /** The pages follow the narrator: turned as it reads on, the sentence being read marked. A turn by hand stops it. */
-  following?: boolean;
-  /** Hearing one place before "Listen from here" or "Go to the narrator" acts. */
-  finding?: boolean;
-  /** Bookmarks made from highlights in this book, drawn in its text. */
-  highlights?: Highlight[];
-  /** A line a search found, marked as the sentence it opened on until the reader moves on. */
-  found?: TextRange;
-}
 
 /** The reading places this machine keeps, from the app's settings, by book id. */
 export function parseKeptPlaces(v: unknown): Record<string, KeptPlace> {

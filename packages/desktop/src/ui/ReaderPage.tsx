@@ -16,6 +16,7 @@ import { readerOnly } from "@ribbon/core/ebook";
 import { Badge, Menu, ProgressLine, SectionHeader, Short } from "./kit";
 import { formatBytes } from "./Servers";
 import { SeriesBooks } from "./SeriesPage";
+import { pageBook } from "@ribbon/core/screen";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -27,12 +28,15 @@ import { SeriesBooks } from "./SeriesPage";
  */
 export function ReaderPage() {
   // How far along comes from useShelfProgress: by the minute while the book plays.
-  const state = useAppState((s) => ({ books: s.books, readerBookId: s.readerBookId, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled, download: s.readerBookId ? s.downloads[s.readerBookId] : undefined }));
+  const state = useAppState((s) => {
+    const bookId = pageBook(s.screen);
+    return { books: s.books, bookId, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, about: s.about, lookupEnabled: s.lookup.enabled, download: bookId ? s.downloads[bookId] : undefined };
+  });
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();
   const reading = (id: string) => c.readingProgress(id);
-  const book = state.books.find((b) => b.book.id === state.readerBookId) ?? null;
+  const book = state.books.find((b) => b.book.id === state.bookId) ?? null;
   const [tone, setTone] = useState<Tone>(NEUTRAL_TONE);
   const [confirmDelete, setConfirmDelete] = useState(false);
 

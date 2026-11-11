@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppController, type Platform } from "../../desktop/src/app/controller.ts";
+import { AppController, sourceProblem, type Platform } from "../../desktop/src/app/controller.ts";
 import { LibraryService } from "../../desktop/src/app/library.ts";
 import { memorySettings, memorySources } from "../../desktop/src/app/platform.ts";
 import { ribbonClaim } from "@ribbon/core/poslog";
+import { readyReading } from "@ribbon/core/reading/session";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { endOf, readsOf } from "@ribbon/core/stats";
 import type { Host } from "@ribbon/core/host";
@@ -74,10 +75,11 @@ describe("the desktop on a server", () => {
   };
 
   /** One device: the whole app with a Ribbon folder of its own, signed in. */
-  const aDesktop = async (name = "admin", opts: { host?: Host; settings?: NonNullable<Platform["appSettings"]> } = {}) => {
+  const aDesktop = async (name = "admin", opts: { host?: Host; settings?: NonNullable<Platform["appSettings"]>; resets?: boolean } = {}) => {
     const home = mkdtempSync(path.join(dir, "home-"));
     const settings = opts.settings ?? memorySettings();
-    const platform: Platform = { host: opts.host ?? nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: settings, home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    // Asked to reset Ribbon's own folder, the person says no, unless `resets`.
+    const platform: Platform = { host: opts.host ?? nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources(), appSettings: settings, home: { path: async () => home, reveal: async () => undefined, reset: async () => !!opts.resets } };
     const app = new AppController(platform);
     await app.boot();
     await app.connectServer(url, name, PASSWORD);
@@ -315,12 +317,14 @@ describe("the desktop on a server", () => {
   /**
    * A machine that hears. Whisper is the one thing not here, since it needs a
    * graphics card: everything around it is the app's own. `before` runs ahead
-   * of each answer, to hold the hearing partway.
+   * of each answer, to hold the hearing partway; `over` changes the machine,
+   * and without `model` it has none chosen yet.
    */
-  const aHearingDesktop = async (before: () => Promise<void> = async () => undefined) => {
+  const aHearingDesktop = async (before: () => Promise<void> = async () => undefined, opts: { over?: Partial<Host>; model?: boolean; resets?: boolean } = {}) => {
     const heard: number[] = [];
     const host: Host = {
       ...readsEpubs(),
+      ...opts.over,
       speechTranscribe: async (_model, clips, seconds) => {
         await before();
         return clips.map((clip) => {
@@ -330,8 +334,8 @@ describe("the desktop on a server", () => {
       },
     };
     const settings = memorySettings();
-    await settings.write({ speechModel: "ggml-small.bin", speechClipMs: 100 });
-    return { heard, ...(await aDesktop("admin", { host, settings })) };
+    await settings.write({ ...(opts.model === false ? {} : { speechModel: "ggml-small.bin" }), speechClipMs: 100 });
+    return { heard, ...(await aDesktop("admin", { host, settings, ...(opts.resets ? { resets: true } : {}) })) };
   };
 
   const transcribed = () => asked<{ books: { title: string; done: number; total: number }[] }>("/api/library/transcripts").then((r) => r.books);
@@ -354,6 +358,51 @@ describe("the desktop on a server", () => {
     await other.downloadBook(id);
     const aligned = await new LibraryService(nodeHost(), root(other)).readAligned(id);
     expect([...aligned.spans.keys()].sort((a, b) => a - b)).toEqual([0, 60_000, 120_000]);
+  }, 60_000);
+
+  it("transcribes in the background without asking about room, and leaves the person's question about room open", async () => {
+    // On a full disk, the worker opened "There isn't room for…" for books nobody asked to download, and each
+    // download it began closed the question the person had open about their own.
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    await importAs(server, admin, toldBook("Other Told Book"));
+    const { app } = await aHearingDesktop(undefined, { over: { freeSpace: async () => 1024 }, model: false });
+    const id = book(app, "Told Book").book.id;
+    await app.downloadBook(id);
+    expect(app.getState().spaceShort).toMatchObject({ bookId: id });
+    const asking: (string | null)[] = [id];
+    app.subscribe(() => {
+      const now = app.getState().spaceShort?.bookId ?? null;
+      if (asking[asking.length - 1] !== now) asking.push(now);
+    });
+
+    app.setSpeechModel("ggml-small.bin");
+    const noRoom = () => app.getState().notices.filter((n) => n.what === "not-transcribed" && n.why === "There isn't room on this computer to download it.").length;
+    await soon(noRoom).toBe(2);
+    expect(asking).toEqual([id]);
+  }, 60_000);
+
+  it("stops transcribing for the server when Ribbon's folder is reset, and lets the computer sleep", async () => {
+    // Reset went back to the first screen while the server's book went on being heard, and was sent, with the
+    // computer kept awake for it.
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    let release = () => undefined as void;
+    const held = new Promise<void>((r) => (release = r));
+    let asked = 0;
+    const awake: boolean[] = [];
+    const { app } = await aHearingDesktop(() => (asked++, held), { over: { stayAwake: async (on) => void awake.push(on) }, resets: true });
+    // Its first minutes are being heard.
+    await soon(() => asked).toBe(1);
+    expect(awake[awake.length - 1]).toBe(true);
+
+    await app.resetHome();
+    expect(awake[awake.length - 1]).toBe(false);
+    release();
+    await new Promise((r) => setTimeout(r, 2_000));
+    // What was being heard comes back, and nothing more is asked or sent.
+    expect(asked).toBe(1);
+    expect((await transcribed())[0]!.done).toBe(0);
   }, 60_000);
 
   it("transcribes a book that arrives while it's open, as a move brings them", async () => {
@@ -405,7 +454,7 @@ describe("the desktop on a server", () => {
     const id = book(app, "Told Book").book.id;
     await app.openReading(id);
     expect(app.getState().reading).toMatchObject({ bookId: id, status: "ready" });
-    expect(app.getState().reading!.readsAlong).toBeFalsy();
+    expect(readyReading(app.getState().reading)!.readsAlong).toBe(false);
     await app.closeReading();
 
     // The last minute heard, the whole transcript sent, and the download taken off, as it came.
@@ -416,7 +465,7 @@ describe("the desktop on a server", () => {
     // Opened again in the same session: downloaded with the whole transcript, it reads along.
     await app.openReading(book(app, "Told Book").book.id);
     expect(app.getState().reading).toMatchObject({ bookId: id, status: "ready" });
-    await soon(() => app.getState().reading!.readsAlong).toBe(true);
+    await soon(() => readyReading(app.getState().reading)?.readsAlong).toBe(true);
     await app.closeReading();
   }, 90_000);
 
@@ -435,14 +484,14 @@ describe("the desktop on a server", () => {
     // Still on the server: downloaded, then opened on the line, marked.
     await app.readLine(lines[0]!);
     expect(book(app, "Told Book").remote).toBeUndefined();
-    const r = app.getState().reading!;
+    const r = readyReading(app.getState().reading)!;
     expect(r).toMatchObject({ bookId: told.book.id, status: "ready" });
-    expect(r.text!.text(r.found!)).toBe(SENTENCES[1]);
+    expect(r.text.text(r.found!)).toBe(SENTENCES[1]);
     expect(r.place).toEqual(r.found!.from);
 
     // Reading on takes the mark away.
-    app.moveReading({ ...r.place!, offset: 0 }, "seek");
-    expect(app.getState().reading!.found).toBeUndefined();
+    app.moveReading({ ...r.place, offset: 0 }, "seek");
+    expect(readyReading(app.getState().reading)!.found).toBeNull();
     await app.closeReading();
   }, 60_000);
 
@@ -572,6 +621,56 @@ describe("the desktop on a server", () => {
     expect(app.getState().reading).toMatchObject({ bookId: other, status: "ready" });
     await app.closeReading();
   }, 60_000);
+
+  it("asks to be signed in again until it is, though the server's folder is scanned meanwhile", async () => {
+    // Opened without its sign-in, the server's folder said "Sign in to the server again." until its scan
+    // finished a moment later and cleared it, as if a scan were a sign-in.
+    await stocked();
+    const home = mkdtempSync(path.join(dir, "home-"));
+    const sources = memorySources();
+    const settings = memorySettings();
+    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources, appSettings: settings, home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    const first = new AppController(platform);
+    await first.boot();
+    await first.connectServer(url, "admin", PASSWORD);
+    first.destroy();
+    // The sign-in forgotten, as Ribbon does with one the server no longer takes.
+    const { serverTokens: _gone, ...kept } = await settings.read();
+    await settings.write(kept);
+
+    const app = new AppController(platform);
+    await app.boot();
+    const id = app.getState().sources.find((s) => s.server)!.id;
+    await soon(() => app.getState().sourceStatus[id]?.lastScanMs ?? null).not.toBeNull();
+    expect(sourceProblem(app.getState().sourceStatus[id])).toBe("Sign in to the server again.");
+
+    await app.connectServer(url, "admin", PASSWORD);
+    expect(sourceProblem(app.getState().sourceStatus[id])).toBeNull();
+  }, 30_000);
+
+  it("keeps a book deleted from the server while it's open in the reader, and takes it off once it isn't", async () => {
+    // Deleted on another device while open in the EPUB reader here, its files went from under the page being read:
+    // a book in use was only the one in the player, or the one whose page showed.
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    const { app } = await aDesktop("admin", { host: readsEpubs() });
+    const { app: other } = await aDesktop("admin");
+    await app.openReading(book(app, "Told Book").book.id);
+    expect(app.getState().reading).toMatchObject({ status: "ready" });
+    const file = fileOf(app, book(app, "Told Book"));
+
+    await other.deleteFromServer(book(other, "Told Book").book.id);
+    await soon(() => book(other, "Told Book")).toBeUndefined();
+    // Long enough for this device to hear of it, ask the server and scan.
+    await new Promise((r) => setTimeout(r, 3_000));
+    expect(existsSync(file)).toBe(true);
+    expect(book(app, "Told Book")).toBeTruthy();
+
+    await app.closeReading();
+    app.showLibrary();
+    await soon(() => book(app, "Told Book")).toBeUndefined();
+    expect(existsSync(file)).toBe(false);
+  }, 30_000);
 
   it("finds no lines on a server out of reach, and says nothing", async () => {
     await stocked();

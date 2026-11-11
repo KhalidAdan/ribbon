@@ -47,9 +47,10 @@ export const scrollCheck: Check = {
     );
     t.expect(drive.empty === 0, "the whole book scrolls through without a frame lacking text", `${drive.empty} of ${drive.frames} frames`);
     const last = await page.evaluate(() => {
-      const s = window.__ribbon.getState().reading!;
-      const linear = s.text!.ebook.sections.map((x, i) => (x.linear ? i : -1)).filter((i) => i >= 0);
-      return { section: s.place?.section, last: linear[linear.length - 1] };
+      const s = window.__ribbon.getState().reading;
+      if (s?.status !== "ready") return { section: undefined, last: undefined };
+      const linear = s.text.ebook.sections.map((x, i) => (x.linear ? i : -1)).filter((i) => i >= 0);
+      return { section: s.place.section, last: linear[linear.length - 1] };
     });
     t.expect(last.section === last.last, "and ends in the book's last section", `section ${last.section} of ${last.last}`);
     t.note(`whole book: ${Math.round(drive.px)} px in ${Math.round(drive.ms)} ms, ${Math.round(drive.frames / (drive.ms / 1000))} frames a second`);

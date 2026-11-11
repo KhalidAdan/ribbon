@@ -39,7 +39,11 @@ import { openEbook, readerOnly, type Ebook } from "@ribbon/core/ebook";
 import type { Why } from "@ribbon/core/poslog";
 import { BookText, type TextPlace } from "@ribbon/core/reading/booktext";
 import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typography";
-import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
+import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace } from "./reading";
+import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
+import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
+import { hearing, IDLE, keepsAwake, transcribingAfter, type Transcribing, type TranscribingEvent } from "@ribbon/core/transcriber";
+import { LIBRARY, pageBook, screenAfter, type Drawer, type FullPlayer, type OnScreen, type Screen, type ScreenEvent } from "@ribbon/core/screen";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
 import { rowsToBytes } from "@ribbon/core/csv";
@@ -178,14 +182,33 @@ export interface ScanStatus {
 
 /** What the shelf knows about one source beyond its books. */
 export interface SourceStatus {
+  /** Where it is on its way to the shelf (core/lifecycle.ts): opening, open, or failed and why. */
+  state: FolderState;
   scanning: ScanStatus | null;
   /** How long the last scan took, or null before the first finishes. */
   lastScanMs: number | null;
-  /** Why the source could not be opened, or null. */
-  error: string | null;
+  /** Why its last scan failed, or null when it didn't. */
+  scanError: string | null;
+  /** A server's folder whose sign-in is gone or was refused: it wants signing in again. Only signing in puts it right. */
+  signIn: boolean;
   /** The folder is read-only from this device: places in its books are kept on this device alone (read-only.ts). */
   readOnly: boolean;
 }
+
+/** A folder as it starts out, at this point on its way to the shelf. */
+function newStatus(state: FolderState): SourceStatus {
+  return { state, scanning: null, lastScanMs: null, scanError: null, signIn: false, readOnly: false };
+}
+
+/** What's wrong with a folder, said for a person, or null when nothing is. */
+export function sourceProblem(s: SourceStatus | undefined): string | null {
+  if (!s) return null;
+  if (s.state.status === "failed") return s.state.why;
+  return s.scanError ?? (s.signIn ? "Sign in to the server again." : null);
+}
+
+/** A change to the app's state. Never its phase, which is worked out from its folders (core/lifecycle.ts). */
+type Patch = Partial<Omit<AppState, "phase">>;
 
 /**
  * Something transcribing did that's worth a note of its own (ui/Notices.tsx):
@@ -201,7 +224,8 @@ export type Notice =
 type Unnumbered<T> = T extends unknown ? Omit<T, "id"> : never;
 
 export interface AppState {
-  phase: "boot" | "pick" | "loading" | "ready";
+  /** Where the app is: worked out from its folders, never set (core/lifecycle.ts, `phaseOf`). */
+  phase: Phase;
   /** The folders the library is populated from, in the order they were added. */
   sources: Source[];
   sourceStatus: Record<string, SourceStatus>;
@@ -252,18 +276,12 @@ export interface AppState {
   /** Bumped when the set of locally mirrored covers changes. */
   coverVersion: number;
   error: string | null;
-  /** What fills the window above the player bar. */
-  pane: "library" | "settings" | "reader" | "stats" | "series" | "bookcase";
-  /** The book the reader page shows. */
-  readerBookId: string | null;
-  /** The book's page was opened from the bookcase, so the way back from it leads there. */
-  readerFromBookcase: boolean;
-  /** The series the series page shows, by key. */
+  /** What fills the window above the player bar, and what it shows: a book's page its book, a series' page its series (core/screen.ts). */
+  screen: Screen;
+  /** The full player, open over everything on one of its drawers or none; null while it's closed (core/screen.ts). */
+  fullPlayer: FullPlayer;
+  /** The series last opened, by key: a book in several lists it first on its page and offers its next book at its end. */
   seriesKey: string | null;
-  /** The full player is open over everything. */
-  playerExpanded: boolean;
-  /** Which drawer the full player shows, if any. */
-  playerDrawer: "chapters" | "bookmarks" | "speed" | null;
   /** The book whose details are open for editing, or null. */
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
@@ -278,8 +296,8 @@ export interface AppState {
   goalMet: { minutes: number; streakDays: number } | null;
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
-  /** The book open in the reader, over everything but the player bar. */
-  reading: ReadingState | null;
+  /** The book open in the reader, over everything but the player bar (core/reading/session.ts). */
+  reading: ReadingSession | null;
   /** How the reader sets text on this machine. */
   readingSettings: ReadingSettings;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
@@ -437,6 +455,8 @@ interface Opened {
  * - **Lifecycle.** `boot()` reads the app settings, opens every source
  *   (painting the shelf from cached records first, then scanning), and
  *   lands in `phase: "ready"`, or `"pick"` when there is no library yet.
+ *   The phase is never set: `set` works it out from each folder's state,
+ *   opening, open or failed (core/lifecycle.ts).
  *   Adding, rescanning and removing folders live here too, and editing a
  *   book's details.
  * - **Playback.** `openBook` loads a book into the engine at its place
@@ -444,7 +464,9 @@ interface Opened {
  *   `play`, `pause`, `seek`, `skip`, chapters, speed. `onPlayerState`
  *   hears the engine five times a second, keeps the place and the
  *   listening session, and updates the system's media controls.
- * - **Reading.** The EPUB reader and read-along (docs/READING.md).
+ * - **Reading.** The EPUB reader and read-along (docs/READING.md). The
+ *   book open in it is one status at a time, opening, failed or ready
+ *   (core/reading/session.ts), told what happened through `toReading`.
  *   `openReading` makes the book's `BookText`, pairs its chapters with the
  *   audio, and starts `hearPlaces`, the background work that makes the
  *   pairing precise: chapter openings heard, the narration transcribed,
@@ -456,7 +478,8 @@ interface Opened {
  *   on GitHub, downloads it, and offers to restart into it when nothing
  *   plays and nothing is transcribed; closing installs it too (updates.ts).
  * - **Sleep timer, Bookmarks, Chapter corrections, Navigation** (which
- *   pane is showing), **History** (listen-throughs and sessions from the
+ *   page shows and whether the full player is open over it, core/screen.ts,
+ *   told through `toScreen`), **History** (listen-throughs and sessions from the
  *   position log), **Series**, **Descriptions** (book details from online
  *   catalogs, only when turned on), **Chapter names** (Audible's names
  *   for a book's numbered chapters).
@@ -475,9 +498,12 @@ interface Opened {
  *   a download. Background reading work checks `still()` after every
  *   await; the engine carries an intent number for the same reason.
  * - **State machines are written down.** Whether a book plays
- *   (core/playback.ts), the sleep timer (core/sleep.ts) and the others in
- *   docs/STATE-MACHINES.md each keep their state as one status and change
- *   it in one place; read the map there before adding a flag.
+ *   (core/playback.ts), the sleep timer (core/sleep.ts), the reader's
+ *   session (core/reading/session.ts), what's on screen (core/screen.ts),
+ *   the library's lifecycle (core/lifecycle.ts), transcribing
+ *   (core/transcriber.ts) and the others in docs/STATE-MACHINES.md each
+ *   keep their state as one status and change it in one place; read the
+ *   map there before adding a flag.
  * - **Failures become a sentence.** A record that cannot be read or
  *   written is logged and, when it matters to the listener, put in
  *   `state.error` in plain words; the rest of the app carries on.
@@ -525,6 +551,8 @@ export class AppController {
   private appSettings: Record<string, unknown> = {};
   /** This installation in the position log: a random id, made once and kept in the app's settings. */
   private deviceId: string = globalThis.crypto.randomUUID();
+  /** The list of folders is known, read at boot or a folder added: until then the phase is "boot" (core/lifecycle.ts). */
+  private booted = false;
 
   /** This device, as the app's sentences name it. */
   get here(): string {
@@ -571,12 +599,8 @@ export class AppController {
       assetsReady: false,
       coverVersion: 0,
       error: null,
-      pane: "library",
-      readerBookId: null,
-      readerFromBookcase: false,
+      ...LIBRARY,
       seriesKey: null,
-      playerExpanded: false,
-      playerDrawer: null,
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], readings: [], recording: true },
@@ -606,9 +630,28 @@ export class AppController {
 
   getState = (): AppState => this.state;
 
-  private set(patch: Partial<AppState>): void {
-    this.state = { ...this.state, ...patch };
+  private set(patch: Patch): void {
+    const next = { ...this.state, ...patch };
+    // The phase follows from the folders, so no change can leave it disagreeing with them.
+    next.phase = phaseOf(this.booted, next.sources.map((s) => next.sourceStatus[s.id]?.state ?? OPENING));
+    this.state = next;
     for (const l of this.listeners) l();
+  }
+
+  /** What's on screen after an event (core/screen.ts), to set with whatever else changes at the same time. */
+  private onScreen(event: ScreenEvent): OnScreen {
+    return screenAfter({ screen: this.state.screen, fullPlayer: this.state.fullPlayer }, event);
+  }
+
+  private toScreen(event: ScreenEvent): void {
+    const next = this.onScreen(event);
+    if (next.screen !== this.state.screen || next.fullPlayer !== this.state.fullPlayer) this.set(next);
+  }
+
+  /** Tell the reader's session what happened (core/reading/session.ts), the one way it changes; with anything else that changes at the same time. */
+  private toReading(event: ReadingEvent, with_: Patch = {}): void {
+    const reading = readingAfter(this.state.reading, event);
+    if (reading !== this.state.reading || Object.keys(with_).length > 0) this.set({ reading, ...with_ });
   }
 
   // Sources -------------------------------------------------------------
@@ -641,7 +684,7 @@ export class AppController {
   }
 
   /** Every open source's books, in source order, and their positions; a duplicate id keeps its first book. */
-  private publishBooks(extra: Partial<AppState> = {}): void {
+  private publishBooks(extra: Patch = {}): void {
     const seen = new Set<string>();
     const books: ScannedBook[] = [];
     const positions: Record<string, Position | null> = {};
@@ -668,8 +711,8 @@ export class AppController {
     });
   }
 
-  /** The scan status across every source, for the header. */
-  private publishScanning(extra: Partial<AppState> = {}): void {
+  /** The scan status across every source, for the header; with a folder whose books are on the shelf now, `shown`. */
+  private publishScanning(extra: Patch = {}, shown?: Opened): void {
     // A server's imports, while there are any, are what its status says.
     const statusOf = (o: Opened) => this.importStatus(o) ?? o.scanning;
     const live = this.openedInOrder().filter((o) => statusOf(o));
@@ -689,14 +732,22 @@ export class AppController {
     const sourceStatus: Record<string, SourceStatus> = {};
     for (const s of this.state.sources) {
       const o = this.opened.get(s.id);
-      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o ? statusOf(o) : null };
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? newStatus(OPENING)), scanning: o ? statusOf(o) : null, ...(o && o === shown ? { state: OPEN } : {}) };
     }
     this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
   }
 
   private setSourceStatus(id: string, patch: Partial<SourceStatus>): void {
-    const prev = this.state.sourceStatus[id] ?? { scanning: null, lastScanMs: null, error: null, readOnly: false };
-    this.set({ sourceStatus: { ...this.state.sourceStatus, [id]: { ...prev, ...patch } } });
+    this.set({ sourceStatus: this.sourceStatusWith(id, patch) });
+  }
+
+  private sourceStatusWith(id: string, patch: Partial<SourceStatus>): Record<string, SourceStatus> {
+    return { ...this.state.sourceStatus, [id]: { ...(this.state.sourceStatus[id] ?? newStatus(OPENING)), ...patch } };
+  }
+
+  /** A folder's books are on the shelf: to set with them, when it was still opening. */
+  private shown(o: Opened): Patch {
+    return this.state.sourceStatus[o.source.id]?.state.status === "opening" ? { sourceStatus: this.sourceStatusWith(o.source.id, { state: OPEN }) } : {};
   }
 
   /** A folder turned out to be read-only from this device: say so beside it in Settings, and once at the top of the library. */
@@ -769,26 +820,28 @@ export class AppController {
       entries.push({ root: given, addedAt: new Date().toISOString() });
       await this.platform.sources.save(entries).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
     }
+    // The list of folders is read: from here the phase follows from them (core/lifecycle.ts).
+    this.booted = true;
     if (entries.length === 0) {
-      this.set({ phase: "pick" });
+      this.set({});
       return;
     }
     const sources = entries.map(sourceFrom);
-    this.set({ phase: "loading", sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, { scanning: null, lastScanMs: null, error: null, readOnly: false }])) });
+    this.set({ sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, newStatus(OPENING)])) });
     await Promise.all(
       sources.map((s) =>
         this.openSource(s).catch((e: unknown) => {
           log.error("could not open", s.root, describe(e));
-          this.setSourceStatus(s.id, { error: describe(e) });
+          this.setSourceStatus(s.id, { state: { status: "failed", why: describe(e) } });
         }),
       ),
     );
-    if (this.opened.size === 0) {
+    if (this.state.phase === "pick") {
       const first = sources[0]!;
-      this.set({ phase: "pick", scanning: null, error: `Could not open ${first.root}: ${this.state.sourceStatus[first.id]?.error ?? "unknown error"}` });
+      this.set({ scanning: null, error: `Could not open ${first.root}: ${sourceProblem(this.state.sourceStatus[first.id]) ?? "unknown error"}` });
       return;
     }
-    this.publishScanning({ phase: "ready" });
+    this.publishScanning();
   }
 
   /** Ask for a folder and add it; a folder already in the library is checked for changes instead. */
@@ -808,7 +861,7 @@ export class AppController {
     try {
       await this.addSource(root);
     } catch (e) {
-      this.set({ phase: this.opened.size === 0 ? "pick" : this.state.phase, scanning: null, error: `Could not open ${root}: ${describe(e)}` });
+      this.set({ scanning: null, error: `Could not open ${root}: ${describe(e)}` });
     }
   }
 
@@ -824,29 +877,37 @@ export class AppController {
    * has a copy. If not, the scan runs in the foreground with live counts.
    */
   async addSource(pickedRoot: string, server?: ServerRef): Promise<void> {
+    // A folder added is a list of folders known, as boot reading them is (the tests and tools add one without booting).
+    this.booted = true;
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     const existing = this.state.sources.find((s) => sameRoot(s.root, root));
     if (existing) {
       log.info("folder is already a source; checking it for changes", root);
       const o = this.opened.get(existing.id);
-      if (o) await this.rescanSource(o, true);
-      else await this.openSource(existing);
+      if (o) return this.rescanSource(o, true);
+      // One that couldn't be opened, picked again: opened again, and what went wrong before is gone unless it goes wrong again.
+      this.set({ sourceStatus: this.sourceStatusWith(existing.id, { state: OPENING, scanError: null }), error: null });
+      try {
+        await this.openSource(existing);
+      } catch (e) {
+        this.setSourceStatus(existing.id, { state: { status: "failed", why: describe(e) } });
+        throw e;
+      }
       return;
     }
     const source = sourceFrom({ root, addedAt: new Date().toISOString(), ...(server ? { server } : {}) });
     log.info("add source", server ? server.url : root);
     this.set({
-      phase: this.opened.size === 0 ? "loading" : this.state.phase,
       sources: [...this.state.sources, source],
-      sourceStatus: { ...this.state.sourceStatus, [source.id]: { scanning: null, lastScanMs: null, error: null, readOnly: false } },
+      sourceStatus: { ...this.state.sourceStatus, [source.id]: newStatus(OPENING) },
       error: null,
     });
     try {
       await this.openSource(source);
     } catch (e) {
       const { [source.id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
-      this.set({ sources: this.state.sources.filter((s) => s.id !== source.id), sourceStatus, phase: this.opened.size === 0 ? "pick" : "ready" });
+      this.set({ sources: this.state.sources.filter((s) => s.id !== source.id), sourceStatus });
       throw e;
     }
     void this.saveSources();
@@ -937,7 +998,7 @@ export class AppController {
         o.books = this.stamp(o, cached);
         mark("positions");
         if (!alive()) return;
-        this.publishBooks({ phase: "ready", coverVersion: this.state.coverVersion + 1 });
+        this.publishBooks({ coverVersion: this.state.coverVersion + 1, ...this.shown(o) });
         this.publishScanning();
         mark("render");
         this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
@@ -970,7 +1031,7 @@ export class AppController {
       await this.rescanSource(o, false);
       if (!alive()) return;
       this.offerSeriesSetup();
-      this.publishScanning({ phase: "ready" });
+      this.publishScanning({}, o);
       await o.saving;
     } catch (e) {
       if (alive()) {
@@ -1231,7 +1292,7 @@ export class AppController {
             this.logPainted("from the walk");
           }
           o.books = this.stamp(o, books);
-          this.publishBooks(this.state.phase === "loading" ? { phase: "ready" } : {});
+          this.publishBooks(this.shown(o));
         },
       });
       const books = this.stamp(o, result.books);
@@ -1254,7 +1315,8 @@ export class AppController {
         problems: [...this.state.problems.filter((p) => p.source !== source.id), ...problems],
         lastScanMs: elapsed,
       });
-      this.setSourceStatus(source.id, { lastScanMs: elapsed, error: null });
+      // Only its scan's own failure goes: a server that wants signing in again still does.
+      this.setSourceStatus(source.id, { lastScanMs: elapsed, scanError: null });
       this.publishScanning();
       void lib.writeProblems(problems.map(({ path, message, at }) => ({ path, message, at }))).catch((e: unknown) => log.warn("could not save problems:", describe(e)));
       const saveStarted = Date.now();
@@ -1271,7 +1333,7 @@ export class AppController {
       log.error("scan failed:", source.name, describe(e));
       o.scanning = null;
       if (alive()) {
-        this.setSourceStatus(source.id, { error: describe(e) });
+        this.setSourceStatus(source.id, { scanError: describe(e) });
         this.publishScanning({ error: describe(e) });
       }
       if (!background) throw e;
@@ -1323,7 +1385,7 @@ export class AppController {
     await this.keepServerToken(server, client.token);
     const open = this.opened.get(sourceId(root));
     if (open) {
-      this.setSourceStatus(open.source.id, { error: null });
+      this.setSourceStatus(open.source.id, { signIn: false });
       await this.linkServer(open, client.token);
       return;
     }
@@ -1408,7 +1470,7 @@ export class AppController {
   private async linkServer(o: Opened, token: string | null): Promise<void> {
     if (!o.source.server) return;
     if (!token) {
-      this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      this.setSourceStatus(o.source.id, { signIn: true });
       return;
     }
     // Its list and covers are read and written here before the shelf's own access to the folder lands.
@@ -1452,7 +1514,7 @@ export class AppController {
       this.takeLog(o, l.records);
     } catch (e) {
       log.warn("could not share places with the server:", o.source.name, describe(e));
-      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { signIn: true });
     }
   }
 
@@ -1634,7 +1696,7 @@ export class AppController {
       if ((books || series) && alive()) this.takeServerSeries(o);
     } catch (e) {
       log.warn("could not ask the server for its books:", o.source.name, describe(e));
-      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { signIn: true });
     }
     if (!alive()) return;
     // A book downloaded here that the server has been given the EPUB of since.
@@ -1684,12 +1746,17 @@ export class AppController {
    * first. The book as it is on this device afterwards, or null when it
    * isn't (not enough space, the server out of reach).
    */
-  private async downloadRemote(book: ScannedBook): Promise<ScannedBook | null> {
+  private downloadRemote(book: ScannedBook): Promise<ScannedBook | null>;
+  /** Downloaded only to transcribe it, which nobody asked for: no room is the answer, not a question to the person. */
+  private downloadRemote(book: ScannedBook, why: "to transcribe"): Promise<ScannedBook | "no room" | null>;
+  private async downloadRemote(book: ScannedBook, why: "to open" | "to transcribe" = "to open"): Promise<ScannedBook | "no room" | null> {
     const o = this.openedOf(book);
     const serverId = book.remote?.serverId;
     if (!o?.server || !serverId || this.state.downloads[book.book.id]) return null;
     const id = book.book.id;
-    this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, spaceShort: null });
+    const asked = why === "to open";
+    // A question about room the person has open stays open for a download they didn't ask for.
+    this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, ...(asked ? { spaceShort: null } : {}) });
     try {
       const analysis = await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
       await this.rescanSource(o, true);
@@ -1698,6 +1765,7 @@ export class AppController {
       if (here && analysis) await this.keepMeasurements(o, here.book.id, analysis);
       return here;
     } catch (e) {
+      if (e instanceof NotEnoughSpace && !asked) return "no room";
       if (e instanceof NotEnoughSpace) this.set({ spaceShort: { bookId: id, title: book.book.title, neededBytes: e.neededBytes, freeBytes: e.freeBytes } });
       else this.set({ error: `Couldn't download ${book.book.title}: ${describe(e)}` });
       return null;
@@ -1771,7 +1839,7 @@ export class AppController {
     log.info("deleted from the server:", book.book.title);
     // Asked for here, so nothing waits for it to be closed.
     if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
-    if (this.state.pane === "reader" && this.state.readerBookId === bookId) this.showLibrary();
+    if (pageBook(this.state.screen) === bookId) this.showLibrary();
     await this.refreshServer(o);
   }
 
@@ -1779,13 +1847,14 @@ export class AppController {
    * Take off this device the downloads of books the server's admin deleted.
    * Only the books the server says were deleted go, never one merely missing
    * from its list: a server that lost its list mustn't empty every device.
-   * A book in use here, open in the player or the reader, stays until it
-   * isn't: the next book opened, the library shown, or the next launch.
+   * A book in use here, in the player, open to read or its page showing,
+   * stays until it isn't: the next book opened, the library shown, or the
+   * next launch.
    */
   private async dropDeleted(o: Opened): Promise<void> {
     const shelf = o.server;
     if (!shelf || o.scans.running) return;
-    const inUse = new Set([this.state.current?.book.book.id, this.state.pane === "reader" ? this.state.readerBookId : null]);
+    const inUse = new Set([this.state.current?.book.book.id, this.state.reading?.bookId, pageBook(this.state.screen)]);
     const gone = o.books.filter((b) => !b.remote && shelf.wasDeleted(serverIdOf(b)) && !inUse.has(b.book.id));
     let removed = 0;
     for (const b of gone) {
@@ -1820,7 +1889,7 @@ export class AppController {
     }
     this.chapterProbe?.abort();
     this.engine?.pause();
-    this.set({ current: null, playerExpanded: false, playerDrawer: null, resumeOffer: null, previewing: null });
+    this.set({ current: null, resumeOffer: null, previewing: null, ...this.onScreen({ type: "collapse" }) });
   }
 
   async removeSource(id: string): Promise<void> {
@@ -1831,6 +1900,8 @@ export class AppController {
     if (this.state.current?.book.source === id) await this.letGoOfCurrent();
     this.jobs.cancelWhere((b) => b.source === id);
     const gone = new Set(this.state.books.filter((b) => b.source === id).map((b) => b.book.id));
+    // Open to read, its place is kept beside it before it goes.
+    if (this.state.reading && gone.has(this.state.reading.bookId)) await this.closeReading();
     if (o) {
       await o.keeper.close().catch(() => undefined);
       // The places still to send go before the downloads do.
@@ -1861,11 +1932,18 @@ export class AppController {
       about,
       jobs,
       seriesSetup: this.state.seriesSetup && this.state.seriesSetup.bookIds.some((b) => gone.has(b)) ? null : this.state.seriesSetup,
-      readerBookId: this.state.readerBookId && gone.has(this.state.readerBookId) ? null : this.state.readerBookId,
-      pane: this.state.pane === "reader" && this.state.readerBookId && gone.has(this.state.readerBookId) ? "library" : this.state.pane,
+      // Nothing is left showing one of its books: its end, its details, its page.
+      theEnd: this.state.theEnd && gone.has(this.state.theEnd) ? null : this.state.theEnd,
+      editBook: this.state.editBook && gone.has(this.state.editBook) ? null : this.state.editBook,
+      ...this.onScreen({ type: "gone", books: gone }),
     });
     this.publishBooks();
-    this.publishScanning(this.state.sources.length === 0 ? { phase: "pick", pane: "library", playerExpanded: false } : {});
+    this.publishScanning();
+    // A series that lived beside its books goes with them, and its page with it.
+    const at = this.state.screen;
+    if (at.pane === "series" && !this.detectedSeries().some((g) => g.key === at.key)) this.toScreen({ type: "gone", series: at.key });
+    // Nothing open now: the first screen, with nothing over it.
+    if (this.state.phase === "pick") this.set(LIBRARY);
     await this.saveSources();
   }
 
@@ -2063,7 +2141,7 @@ export class AppController {
     // At the speed it was last heard at on any device, unless this machine chose one since (core/settings.ts).
     const speed = speedToPlay(settings, lastSpeed(this.state.history.sessions, id));
     const current: CurrentBook = { book, settings: { ...settings, speed }, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
-    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
+    this.set({ current, resumeOffer: null, ...this.onScreen(expand ? { type: "expand", drawer: null } : { type: "collapse" }) });
     // The book left behind may be one a server's admin deleted meanwhile.
     this.dropDeletedEverywhere();
     // Read further than listened: start where the reading stopped.
@@ -2150,7 +2228,7 @@ export class AppController {
     if (this.state.reading) await this.closeReading();
     if (!asked.current()) return;
     perf.begin("open the reader");
-    this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
+    this.toReading({ type: "open", bookId }, this.onScreen({ type: "collapse" }));
     const started = performance.now();
     // Everything the reader needs, read at once: over a share each is a round trip of its own.
     const steps: string[] = [];
@@ -2190,7 +2268,7 @@ export class AppController {
     if (this.state.reading?.bookId !== bookId || !asked.current()) return;
     if (!result.ok) {
       log.warn(`could not open the text of ${book.book.title}: ${result.message}`);
-      this.set({ reading: { bookId, status: "failed", message: result.message } });
+      this.toReading({ type: "failed", bookId, message: result.message });
       return;
     }
     const ebook = result.ebook;
@@ -2230,20 +2308,19 @@ export class AppController {
         share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
         // The pairing arrives after the text, and can be fixed while the book is open: always the latest.
         toMs: (p) => {
-          const a = this.state.reading?.alignment ?? alignment;
+          const a = readyReading(this.state.reading)?.alignment ?? alignment;
           return a ? textToMs(a, text.chars(p)) : null;
         },
       });
       const highlights = this.highlightsFor(bookId);
-      this.set({ reading: { bookId, status: "ready", text, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
+      this.toReading({ type: "shown", bookId, text, place, alignment: alignment ?? null, following, highlights });
     };
     /** With the text paired: listening from the page, hearing the narration, read-along. */
     const listen = (rd: ReadingData) => {
       const ctx = { o, book: withChapters, text, rd };
       this.readingCtx = ctx;
       // It reads along when its narration is transcribed whole, and opens to read only until then (#152).
-      const r = this.state.reading;
-      if (r?.bookId === bookId && this.readsAlongNow(ctx)) this.set({ reading: { ...r, readsAlong: true } });
+      if (this.readsAlongNow(ctx)) this.toReading({ type: "reads along", bookId });
       this.prepareAudio(o.lib, withChapters);
       void this.hearPlaces();
     };
@@ -2261,9 +2338,9 @@ export class AppController {
         return;
       }
       // Still this opening of the book: not closed, nor opened again meanwhile.
-      const r = this.state.reading;
-      if (!done || r?.status !== "ready" || r.text !== text) return;
-      if (done.alignment) this.set({ reading: { ...r, alignment: done.alignment } });
+      const r = readyReading(this.state.reading);
+      if (!done || r?.text !== text) return;
+      if (done.alignment) this.toReading({ type: "paired", bookId, alignment: done.alignment });
       log.info(`paired ${book.book.title} ${Math.round(performance.now() - started)} ms after opening began: ${steps.join(", ")}`);
       listen(done.rd);
       return;
@@ -2292,31 +2369,22 @@ export class AppController {
    */
   async exportReadAlong(): Promise<void> {
     const ctx = this.readingCtx;
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     const host = ctx?.o.lib.host;
-    if (!ctx || !r?.text || !r.alignment || r.exporting || !host?.exportEbook || !ctx.book.book.ebook) return;
+    if (!ctx || !r?.alignment || r.export.status === "exporting" || !host?.exportEbook || !ctx.book.book.ebook) return;
     const { o, book } = ctx;
     const plan = exportPlan(r.text, r.alignment, book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })), o.lib.absPath(book.book.ebook!));
     const started = performance.now();
-    const { exported: _, ...rest } = r;
-    this.set({ reading: { ...rest, exporting: { done: 0, total: plan.sections.length } } });
-    const update = (patch: Partial<ReadingState>) => {
-      const now = this.state.reading;
-      if (now?.bookId === r.bookId) this.set({ reading: { ...now, ...patch } });
-    };
+    // The book's export, wherever the reader is meanwhile: closed and opened again, it shows how this one is going.
+    const now = (e: ExportStatus) => this.toReading({ type: "export", bookId: r.bookId, export: e });
+    now({ status: "exporting", done: 0, total: plan.sections.length });
     try {
-      const path = await host.exportEbook.call(host, plan, (done, total) => update({ exporting: { done, total } }));
+      const path = await host.exportEbook.call(host, plan, (done, total) => now({ status: "exporting", done, total }));
       log.info(`exported the read-along EPUB of ${book.book.title} in ${Math.round((performance.now() - started) / 1000)} s: ${plan.sections.length} chapters, ${plan.sections.reduce((n, s) => n + s.sentences.length, 0)} sentences`);
-      update({ exported: { path } });
+      now({ status: "made", path });
     } catch (e) {
       log.warn("could not export the read-along EPUB:", describe(e));
-      update({ exported: { error: describe(e) } });
-    } finally {
-      const now = this.state.reading;
-      if (now?.bookId === r.bookId && now.exporting) {
-        const { exporting: _x, ...left } = now;
-        this.set({ reading: left });
-      }
+      now({ status: "failed", error: describe(e) });
     }
   }
 
@@ -2453,15 +2521,13 @@ export class AppController {
    * until then. A machine without one hears nothing: a server's book is
    * transcribed by one of the admin's machines that has one.
    */
-  private hearAgain = false;
-
   private async hearPlaces(): Promise<void> {
     const ctx = this.readingCtx;
     const model = this.state.speech.model;
     if (!ctx || !model) return;
     // Already hearing (another book, or this one before it was reopened): once that stops, start again.
-    if (this.hearing) {
-      this.hearAgain = true;
+    if (hearing(this.transcribing)) {
+      this.toTranscribing({ type: "asked again" });
       return;
     }
     const host = ctx.o.lib.host;
@@ -2470,13 +2536,8 @@ export class AppController {
     const { o, book, text, rd } = ctx;
     const bookId = book.book.id;
     const language = narrationLanguage(text.ebook.meta.language, book.book.language);
-    const still = () => this.readingCtx === ctx && this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
-    const show = (patch: Partial<ReadingState>) => {
-      const r = this.state.reading;
-      if (r?.bookId === bookId) this.set({ reading: { ...r, ...patch } });
-    };
-    this.hearing = true;
-    this.keepAwake("reader", true);
+    const still = () => this.readingCtx === ctx && readyReading(this.state.reading)?.bookId === bookId;
+    this.toTranscribing({ type: "hearing began" });
     const started = performance.now();
     try {
       // Never timed on this machine: timed now, which says whether it hears quickly enough (a graphics card) to transcribe.
@@ -2488,22 +2549,23 @@ export class AppController {
         transcript: rd,
         files: book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
         index: this.wordsOf(text),
-        alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
+        alignment: () => readyReading(this.state.reading)?.alignment ?? this.realign(text, book, rd),
         // Gently while a book plays, so playback comes first.
         hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
         model: modelName(model),
         keep: async () => {
           await this.keepAligned(ctx);
-          if (still()) show({ alignment: this.realign(text, book, rd) });
+          if (still()) this.toReading({ type: "paired", bookId, alignment: this.realign(text, book, rd) });
         },
-        progress: (done, total) => show({ listening: { done, total, what: "aligning" } }),
+        progress: (done, total) => this.toReading({ type: "listening", bookId, listening: { done, total, what: "aligning" } }),
         still,
       });
       log.info(`transcribing ${book.book.title} ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
       if (result === "whole") {
         this.placeWhole(rd, this.wordsOf(text));
         await this.keepAligned(ctx, true, true);
-        show({ alignment: this.realign(text, book, rd), readsAlong: true });
+        this.toReading({ type: "paired", bookId, alignment: this.realign(text, book, rd) });
+        this.toReading({ type: "reads along", bookId });
         this.notify({ what: "reads-along", title: book.book.title, forServer: false });
         await this.sendTranscript(o, book, rd);
       }
@@ -2516,18 +2578,11 @@ export class AppController {
           if (this.readingCtx === ctx) void this.hearPlaces();
         }, 60_000);
     } finally {
-      this.hearing = false;
-      this.keepAwake("reader", false);
+      const was = this.toTranscribing({ type: "hearing ended" });
       await this.keepAligned(ctx, true);
-      const r = this.state.reading;
-      if (r?.bookId === bookId && r.listening) {
-        const { listening: _, ...rest } = r;
-        this.set({ reading: rest });
-      }
-      if (this.hearAgain) {
-        this.hearAgain = false;
-        if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
-      }
+      if (readyReading(this.state.reading)?.listening) this.toReading({ type: "listening", bookId, listening: null });
+      // Asked for meanwhile, by another book opened: that one is heard now.
+      if (was.reader.status === "hearing" && was.reader.again && this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
       void this.transcribeForServer();
     }
   }
@@ -2556,7 +2611,7 @@ export class AppController {
       await o.lib.writeHeard(book.book.id, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
       void this.sendHeard(ctx);
       if (!still()) return;
-      this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
+      this.toReading({ type: "paired", bookId: book.book.id, alignment: this.realign(text, book, rd) });
     }
   }
 
@@ -2579,22 +2634,37 @@ export class AppController {
 
   /** The server's books not yet transcribed whole that couldn't be this session, so they aren't tried again until the next. */
   private untranscribable = new Set<string>();
-  private transcribingServer = false;
-  /** The server's books downloaded only to be transcribed, taken off again once sent; kept meanwhile when sending has to wait. */
+  /** The server's books downloaded only to be transcribed, taken off again once sent; kept meanwhile when sending has to wait. A set of books, not a status: it outlasts the worker's runs. */
   private downloadedToTranscribe = new Set<string>();
-  /** When the worker tries again, after the server couldn't be reached or the speech model stalled: a wait that doubles, up to half an hour. */
-  private serverRetry: ReturnType<typeof setTimeout> | null = null;
-  private serverRetryMs = 0;
+  /** The open book's hearing and the server's worker (core/transcriber.ts). */
+  private transcribing: Transcribing = IDLE;
+  /** The server's worker's wait, while it's waiting: the timer that starts it again. */
+  private waitTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Who is transcribing (the open book's hearing, the server's worker): the computer stays awake while either is (#158). */
-  private awakeFor = new Set<"reader" | "server">();
-
-  private keepAwake(who: "reader" | "server", on: boolean): void {
-    const was = this.awakeFor.size > 0;
-    if (on) this.awakeFor.add(who);
-    else this.awakeFor.delete(who);
-    const now = this.awakeFor.size > 0;
-    if (now !== was) void this.platform.host.stayAwake?.(now).catch((e: unknown) => log.warn("could not keep the computer awake:", describe(e)));
+  /**
+   * Tell transcribing what happened (core/transcriber.ts), the one way it
+   * changes, and do what the change means: keep the computer awake while
+   * it hears or works (#158), and set or clear the server's worker's wait.
+   * Returns how it was, before.
+   */
+  private toTranscribing(event: TranscribingEvent): Transcribing {
+    const was = this.transcribing;
+    const now = transcribingAfter(was, event);
+    this.transcribing = now;
+    if (keepsAwake(now) !== keepsAwake(was)) void this.platform.host.stayAwake?.(keepsAwake(now)).catch((e: unknown) => log.warn("could not keep the computer awake:", describe(e)));
+    if (was.server.status === "waiting" && now.server.status !== "waiting" && this.waitTimer) {
+      clearTimeout(this.waitTimer);
+      this.waitTimer = null;
+    }
+    if (now.server.status === "waiting" && was.server.status !== "waiting") {
+      log.info(`transcribing the server's books again in ${Math.round(now.server.ms / 60_000)} min`);
+      this.waitTimer = setTimeout(() => {
+        this.waitTimer = null;
+        this.toTranscribing({ type: "wait over" });
+        void this.transcribeForServer();
+      }, now.server.ms);
+    }
+    return was;
   }
 
   /**
@@ -2609,14 +2679,15 @@ export class AppController {
    */
   private async transcribeForServer(): Promise<void> {
     // A model downloading (Ribbon's, replacing an older one) is waited for: setSpeechModel starts this again with it.
-    if (this.transcribingServer || this.hearing || this.state.speech.downloading) return;
+    if (this.transcribing.server.status === "working" || hearing(this.transcribing) || this.state.speech.downloading) return;
     const o = this.openedInOrder().find((x) => x.server && x.serverAdmin);
     // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
     if (!o?.server || !this.state.speech.model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
-    this.transcribingServer = true;
-    this.keepAwake("server", true);
+    this.toTranscribing({ type: "work began" });
+    // Still the work to do: not stopped for the open book, nor by a reset, and the server still here.
+    const working = () => this.transcribing.server.status === "working" && !hearing(this.transcribing) && this.opened.get(o.source.id) === o;
     try {
-      while (!this.hearing) {
+      while (working()) {
         // The model as it is now, for each book: one chosen meanwhile hears the next.
         const model = this.state.speech.model;
         if (!model) return;
@@ -2628,35 +2699,24 @@ export class AppController {
         if (!onShelf()) await this.refreshServer(o);
         const book = onShelf();
         // Still not there, the server couldn't be asked. There's nothing wrong with the book.
-        if (!book) return this.transcribeForServerLater();
-        const result = await this.transcribeServerBook(o, book, model);
+        if (!book) return void this.toTranscribing({ type: "wait" });
+        const result = await this.transcribeServerBook(o, book, model, working);
         if (result === "failed") this.untranscribable.add(next.id);
         if (result === "whole") {
-          this.serverRetryMs = 0;
+          this.toTranscribing({ type: "whole" });
           this.notify({ what: "reads-along", title: book.book.title, forServer: true });
         }
-        if (result === "retry") return this.transcribeForServerLater();
+        if (result === "retry") return void this.toTranscribing({ type: "wait" });
         if (result === "stopped") return;
       }
     } catch (e) {
       log.warn("could not transcribe the server's books:", describe(e));
-      this.transcribeForServerLater();
+      // Again in a while: once, however many reasons there are.
+      this.toTranscribing({ type: "wait" });
     } finally {
-      this.transcribingServer = false;
-      this.keepAwake("server", false);
+      this.toTranscribing({ type: "work ended" });
       this.set({ transcribingForServer: null });
     }
-  }
-
-  /** The worker again in a while: once, however many reasons there are. */
-  private transcribeForServerLater(): void {
-    if (this.serverRetry) return;
-    this.serverRetryMs = Math.min(30 * 60_000, Math.max(60_000, this.serverRetryMs * 2));
-    log.info(`transcribing the server's books again in ${Math.round(this.serverRetryMs / 60_000)} min`);
-    this.serverRetry = setTimeout(() => {
-      this.serverRetry = null;
-      void this.transcribeForServer();
-    }, this.serverRetryMs);
   }
 
   /**
@@ -2665,23 +2725,25 @@ export class AppController {
    * when it has to wait: the download or the sending failed, which the
    * server being out of reach does, and the book is never given up on for it.
    */
-  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string, still: () => boolean): Promise<"whole" | "stopped" | "failed" | "retry"> {
     const serverId = serverIdOf(listed);
-    let book: ScannedBook | null = listed;
-    if (listed.remote) book = await this.downloadRemote(listed);
+    let book: ScannedBook | "no room" | null = listed;
+    // Downloaded for transcribing, which nobody asked for: no room for it is said in a note, never asked.
+    if (listed.remote) book = await this.downloadRemote(listed, "to transcribe");
     // Downloaded here before the server had its EPUB: the EPUB comes down beside it first.
     else if (!listed.book.ebook) book = await this.withServerEbook(o, listed);
     // No room for it here is the one download failure that waiting doesn't mend.
-    if (!book) return this.state.spaceShort?.bookId === listed.book.id ? this.notTranscribed(listed, true, "There isn't room on this computer to download it.") : "retry";
+    if (book === "no room") return this.notTranscribed(listed, true, "There isn't room on this computer to download it.");
+    if (!book) return "retry";
     if (listed.remote) this.downloadedToTranscribe.add(serverId);
     // A stall or an error leaves it as it is, transcript so far and all, for the next try.
     let result: "whole" | "stopped" | "failed" | "retry" = "retry";
     try {
-      result = await this.hearServerBook(o, book, model);
+      result = await this.hearServerBook(o, book, model, still);
       return result;
     } finally {
       // Downloaded only to be transcribed: taken off again once sent, or when it can't be transcribed at all.
-      if (this.downloadedToTranscribe.has(serverId) && (result === "whole" || result === "failed") && !this.hearing) {
+      if (this.downloadedToTranscribe.has(serverId) && (result === "whole" || result === "failed") && !hearing(this.transcribing)) {
         this.downloadedToTranscribe.delete(serverId);
         await this.removeDownload(book.book.id).catch(() => undefined);
       }
@@ -2695,7 +2757,7 @@ export class AppController {
   }
 
   /** A server's book, downloaded here, heard whole and sent. `retry` when it's whole and the server couldn't take it. */
-  private async hearServerBook(o: Opened, book: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+  private async hearServerBook(o: Opened, book: ScannedBook, model: string, still: () => boolean): Promise<"whole" | "stopped" | "failed" | "retry"> {
     if (!book.book.ebook) return this.notTranscribed(book, true, "This book has no EPUB beside it.");
     const host = o.lib.host;
     const transcribe = host.speechTranscribe!;
@@ -2728,14 +2790,16 @@ export class AppController {
         alignment = this.pairUp(text, withChapters, rd);
       },
       progress: (done, total) => this.set({ transcribingForServer: { title: book.book.title, done, total } }),
-      // The reader's book comes first.
-      still: () => !this.hearing,
+      // The reader's book comes first, and a reset or the server gone stops it.
+      still,
     });
     log.info(`transcribing ${book.book.title} for the server ${outcome} after ${Math.round((performance.now() - started) / 1000)} s`);
     if (outcome === "failed") return this.notTranscribed(book, true, NOTHING_HEARD);
     if (outcome !== "whole") return outcome;
     this.placeWhole(rd, index);
     await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, true).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+    // Stopped meanwhile by a reset, or the server gone from the library: kept here, and sent to nobody.
+    if (this.transcribing.server.status !== "working" || this.opened.get(o.source.id) !== o) return "stopped";
     // Whole but not sent: kept here, transcript and all, and sent when the server is back.
     return (await this.sendTranscript(o, book, rd)) ? "whole" : "retry";
   }
@@ -2749,13 +2813,13 @@ export class AppController {
     const ctx = this.readingCtx;
     const model = this.state.speech.model;
     const hear = ctx?.o.lib.host.speechOpenings;
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     if (!ctx || !model || !hear || !r?.alignment || r.alignment.how !== "chapter") return false;
     const rd = ctx?.rd ?? this.rd;
     if (this.anchorList(rd).some((a) => Math.abs(a.ms - ms) < PINPOINT_MS)) return false;
     const { o, book, text } = ctx;
     const at = locate_(book.files.map((f) => f.durationMs), ms);
-    this.set({ reading: { ...r, finding: true } });
+    this.toReading({ type: "finding", bookId: r.bookId, on: true });
     try {
       const language = narrationLanguage(text.ebook.meta.language, book.book.language);
       const [w] = await hear.call(o.lib.host, model, [{ path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) }], HEAR_SECONDS, language);
@@ -2768,17 +2832,13 @@ export class AppController {
         .writeHeard(book.book.id, rd.heard, rd.anchors)
         .catch(() => undefined)
         .then(() => this.sendHeard({ o, book, rd }));
-      if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(text, book, rd) } });
+      if (found) this.toReading({ type: "paired", bookId: book.book.id, alignment: this.realign(text, book, rd) });
       return found;
     } catch (e) {
       log.warn("could not pinpoint the place:", describe(e));
       return false;
     } finally {
-      const now = this.state.reading;
-      if (now?.finding) {
-        const { finding: _, ...rest } = now;
-        this.set({ reading: rest });
-      }
+      this.toReading({ type: "finding", bookId: r.bookId, on: false });
     }
   }
 
@@ -2828,15 +2888,15 @@ export class AppController {
    * around it.
    */
   async fixPairing(textRef: string, choice: number | null | "auto"): Promise<void> {
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     const book = r && this.state.books.find((b) => b.book.id === r.bookId);
     const o = book && this.openedOf(book);
-    if (!r?.text || !book || !o) return;
+    if (!r || !book || !o) return;
     const fixes = this.rd.fixes.filter((f) => f.text !== textRef);
     if (choice !== "auto") fixes.push({ text: textRef, audioMs: choice });
     this.rd.fixes = fixes;
     const alignment = this.pairUp(r.text, book);
-    this.set({ reading: { ...r, alignment } });
+    this.toReading({ type: "paired", bookId: r.bookId, alignment });
     try {
       await o.lib.writePairing(r.bookId, fixes);
     } catch (e) {
@@ -2872,8 +2932,8 @@ export class AppController {
 
   /** In the reader: the narrator's place in the text, or null when this book's audio is not loaded. */
   narratorInText(): TextPlace | null {
-    const r = this.state.reading;
-    if (!r?.text || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
+    const r = readyReading(this.state.reading);
+    if (!r?.alignment || this.state.current?.book.book.id !== r.bookId) return null;
     return r.text.place(msToText(r.alignment, this.narratorMs()));
   }
 
@@ -2894,24 +2954,19 @@ export class AppController {
   /** In the reader: follow the narrator, or stop. */
   setFollowing(on: boolean): void {
     const r = this.state.reading;
-    if (!r || !!r.following === on) return;
-    if (on) this.set({ reading: { ...r, following: true } });
-    else {
-      const { following: _, ...rest } = r;
-      this.set({ reading: rest });
-    }
+    if (r) this.toReading({ type: "following", bookId: r.bookId, on });
   }
 
   /** In the reader: play this book's audio from a place in the text, the top of the page unless one is given (a tapped sentence). */
   async listenFromHere(at?: TextPlace): Promise<void> {
-    const r = this.state.reading;
-    if (!r?.text || !r.alignment || !r.place) return;
+    const r = readyReading(this.state.reading);
+    if (!r?.alignment) return;
     const book = this.state.books.find((b) => b.book.id === r.bookId);
     if (!book) return;
     const chars = r.text.chars(at ?? r.place);
     // Heard first when no checkpoint is near, so the narrator starts on the page's first words.
     await this.pinpoint(textToMs(r.alignment, chars));
-    const alignment = this.state.reading?.alignment ?? r.alignment;
+    const alignment = readyReading(this.state.reading)?.alignment ?? r.alignment;
     const ms = textToMs(alignment, chars);
     if (this.state.current?.book.book.id !== r.bookId) await this.openBook(book, { expand: false });
     if (this.state.current?.book.book.id !== r.bookId) return;
@@ -2941,17 +2996,15 @@ export class AppController {
    * may be either (the scroll's own input says which), it does not.
    */
   moveReading(place: TextPlace, why: Why = "periodic", by: "hand" | "follow" | "scroll" = "hand"): void {
-    const r = this.state.reading;
-    if (!r || r.status !== "ready" || !this.readingKeeper) return;
+    const r = readyReading(this.state.reading);
+    if (!r || !this.readingKeeper) return;
     const p = r.place;
-    if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
+    if (p.section === place.section && p.block === place.block && p.offset === place.offset) return;
     this.readingKeeper.move(place, why);
-    if (by !== "follow" && r.text) this.readOn(r.bookId, r.text, place);
-    // A line found by a search is marked until the reader moves on.
-    const { following, found: _found, ...rest } = r;
-    this.set({ reading: { ...rest, place, ...(following && by !== "hand" ? { following } : {}) } });
+    if (by !== "follow") this.readOn(r.bookId, r.text, place);
+    this.toReading({ type: "moved", bookId: r.bookId, place, by });
     // Reading on into chapters not yet checked: hear them, when nothing else is being heard.
-    if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
+    if (!hearing(this.transcribing) && p.section !== place.section) void this.hearPlaces();
   }
 
   /**
@@ -2992,12 +3045,18 @@ export class AppController {
   /** Close the reader, keeping its place everywhere first. */
   async closeReading(): Promise<void> {
     await this.endReading();
+    const keeper = this.letGoOfReading();
+    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
+  }
+
+  /** The reader closed, and nothing about it kept: its keeper, to keep its place with, when there was one. */
+  private letGoOfReading(): ReadingKeeper | null {
     const keeper = this.readingKeeper;
     this.readingKeeper = null;
     this.readingCtx = null;
-    if (this.state.reading) this.set({ reading: null });
-    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
     this.rd = emptyReading();
+    if (this.state.reading) this.toReading({ type: "closed" });
+    return keeper;
   }
 
   /**
@@ -3030,18 +3089,17 @@ export class AppController {
   /** Open the reader on a line a search found, marked, downloading the book first when it's still on the server. */
   async readLine(line: FoundLine): Promise<void> {
     if (this.state.reading?.bookId !== line.bookId || this.state.reading.status !== "ready") await this.openReading(line.bookId);
-    const r = this.state.reading;
-    if (r?.bookId !== line.bookId || r.status !== "ready" || !r.text) return;
+    const r = readyReading(this.state.reading);
+    if (r?.bookId !== line.bookId) return;
     const found = foundSentence(r.text, line.sentence, line.text);
     if (!found) return;
     this.moveReading(found.from, "seek");
-    const now = this.state.reading;
-    if (now?.bookId === line.bookId) this.set({ reading: { ...now, found } });
+    this.toReading({ type: "found", bookId: line.bookId, range: found });
   }
 
   /** A URL for an image in the open book's text, when it was kept on this machine. */
   readingImageUrl(src: string): string | undefined {
-    const abs = this.state.reading?.text?.ebook.files?.[src];
+    const abs = readyReading(this.state.reading)?.text.ebook.files?.[src];
     return abs ? this.platform.fileUrl(abs) : undefined;
   }
 
@@ -3060,7 +3118,7 @@ export class AppController {
    * Heresy it's also in.
    */
   openReader(bookId: string, seriesKey?: string): void {
-    this.set({ pane: "reader", readerBookId: bookId, ...(seriesKey ? { seriesKey } : {}), readerFromBookcase: this.state.pane === "bookcase" || (this.state.pane === "reader" && this.state.readerFromBookcase), playerExpanded: false });
+    this.set({ ...this.onScreen({ type: "book", bookId }), ...(seriesKey ? { seriesKey } : {}) });
     this.maybeNudgeSpeech(bookId);
   }
 
@@ -3492,10 +3550,10 @@ export class AppController {
    * so the bookmark is in the player's list too, with its clip.
    */
   async addHighlight(a: TextPlace, b: TextPlace): Promise<Highlight | null> {
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     const book = r && this.state.books.find((x) => x.book.id === r.bookId);
     const lib = book && this.libOf(book);
-    if (!r?.text || !book || !lib) return null;
+    if (!r || !book || !lib) return null;
     const range = trimRange(r.text, a, b);
     if (!range) return null;
     const text = highlightOf(r.text, book.book.id, range);
@@ -3522,12 +3580,10 @@ export class AppController {
 
   /** The reader's highlights, again from the log, when they changed. */
   private refreshHighlights(): void {
-    const r = this.state.reading;
-    if (!r || r.status !== "ready") return;
+    const r = readyReading(this.state.reading);
+    if (!r) return;
     const highlights = this.highlightsFor(r.bookId);
-    if (JSON.stringify(highlights) === JSON.stringify(r.highlights ?? [])) return;
-    const { highlights: _, ...rest } = r;
-    this.set({ reading: { ...rest, ...(highlights.length > 0 ? { highlights } : {}) } });
+    if (JSON.stringify(highlights) !== JSON.stringify(r.highlights)) this.toReading({ type: "highlights", bookId: r.bookId, highlights });
   }
 
   /** Open a highlight's words in the reader. */
@@ -3535,8 +3591,8 @@ export class AppController {
     const h = this.highlightsFor(bookId).find((x) => x.id === id);
     if (!h) return;
     if (this.state.reading?.bookId !== bookId || this.state.reading.status !== "ready") await this.openReading(bookId);
-    const r = this.state.reading;
-    if (r?.bookId !== bookId || !r.text) return;
+    const r = readyReading(this.state.reading);
+    if (r?.bookId !== bookId) return;
     this.moveReading(r.text.fromLocator(h.text.start), "seek");
   }
 
@@ -3669,30 +3725,30 @@ export class AppController {
   // Navigation ----------------------------------------------------------
 
   showLibrary(): void {
-    this.set({ pane: "library", playerExpanded: false });
+    this.toScreen({ type: "show", pane: "library" });
     this.dropDeletedEverywhere();
   }
 
   /** Open the full player over the shelf, optionally straight onto one of its drawers. */
-  expandPlayer(drawer: AppState["playerDrawer"] = null): void {
+  expandPlayer(drawer: Drawer | null = null): void {
     if (!this.state.current) return;
-    this.set({ playerExpanded: true, playerDrawer: drawer });
+    this.toScreen({ type: "expand", drawer });
   }
 
   collapsePlayer(): void {
-    this.set({ playerExpanded: false, playerDrawer: null });
+    this.toScreen({ type: "collapse" });
   }
 
-  setPlayerDrawer(drawer: AppState["playerDrawer"]): void {
-    this.set({ playerDrawer: drawer });
+  setPlayerDrawer(drawer: Drawer | null): void {
+    this.toScreen({ type: "drawer", drawer });
   }
 
   showSettings(): void {
-    this.set({ pane: "settings" });
+    this.toScreen({ type: "show", pane: "settings" });
   }
 
   showStats(): void {
-    this.set({ pane: "stats", playerExpanded: false });
+    this.toScreen({ type: "show", pane: "stats" });
   }
 
   // History -------------------------------------------------------------
@@ -3914,6 +3970,11 @@ export class AppController {
     await this.flushPositions();
     if (!(await this.platform.home.reset())) return;
     this.engine?.pause();
+    // Every place was kept a moment ago: the reader and the sleep timer go without writing again.
+    this.letGoOfReading();
+    this.cancelSleep();
+    // Transcribing stops, the server's worker and its wait with it: the computer may sleep again.
+    this.toTranscribing({ type: "reset" });
     for (const o of this.opened.values()) {
       void o.keeper.close();
       this.letGoOfServerPlaces(o);
@@ -3922,7 +3983,7 @@ export class AppController {
     }
     this.opened.clear();
     this.jobs.cancelAll();
-    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null });
+    this.set({ sources: [], sourceStatus: {}, books: [], positions: {}, current: null, resumeOffer: null, previewing: null, ...LIBRARY, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null, readOnlyNotice: [], theEnd: null, editBook: null, seriesSetup: null, seriesNew: false, spaceShort: null });
   }
 
   // Series ----------------------------------------------------------------
@@ -3974,7 +4035,7 @@ export class AppController {
 
   /** Show the bookcase: every book on the shelf standing spine-out under the lamp (ui/BookcasePage.tsx). */
   openBookcase(): void {
-    this.set({ pane: "bookcase", playerExpanded: false });
+    this.toScreen({ type: "show", pane: "bookcase" });
   }
 
   /** What a server knows of one of its books that the files here don't say: when it came, and how long its text is. Null for a book from a folder. */
@@ -3984,7 +4045,7 @@ export class AppController {
 
   /** Show a series' page: its books in order, and how far you are through it. */
   openSeries(key: string): void {
-    this.set({ pane: "series", seriesKey: key, playerExpanded: false });
+    this.set({ ...this.onScreen({ type: "series", key }), seriesKey: key });
   }
 
   openNewSeries(): void {
@@ -4055,7 +4116,8 @@ export class AppController {
 
   /** The page of a series that's gone has nothing left to show: back to the library. */
   private leaveDeletedSeries(key: string): void {
-    if (this.state.pane === "series" && this.state.seriesKey === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
+    const s = this.state.screen;
+    if (s.pane === "series" && s.key === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
   }
 
   /** Write a record beside the books in every source that holds one of its members; a server that keeps series keeps it, for every device. */
@@ -4137,9 +4199,9 @@ export class AppController {
     return [...o.books, ...this.stamp(o, o.server?.remote(o.books) ?? [])];
   }
 
-  /** After a scan: open the setup for the first series with no record, once per session. */
+  /** After a scan: open the setup for the first series with no record, once per session; never over a series dialog already open. */
   private offerSeriesSetup(): void {
-    if (this.state.seriesSetup) return;
+    if (this.state.seriesSetup || this.state.seriesNew) return;
     if (this.openedInOrder().some((o) => o.scanning)) return;
     for (const g of this.detectedSeries()) {
       if (this.state.series[g.key] || this.seriesOffered.has(g.key)) continue;
@@ -4254,9 +4316,10 @@ export class AppController {
     return a && a.source === "openlibrary" ? a : null;
   }
 
+  /** Open a series' setup: one series dialog at a time, so making one by hand closes. */
   openSeriesSetup(key: string): void {
     const g = this.detectedSeries().find((x) => x.key === key);
-    if (g) this.set({ seriesSetup: g });
+    if (g) this.set({ seriesSetup: g, seriesNew: false });
   }
 
   closeSeriesSetup(): void {
@@ -4366,7 +4429,7 @@ export function transcribingIn(state: AppState): string | null {
   const percent = (done: number, total: number) => `${Math.floor((100 * done) / Math.max(1, total))}%`;
   const server = state.transcribingForServer;
   if (server) return `${server.title} for the server, ${percent(server.done, server.total)} of the way`;
-  const r = state.reading;
+  const r = readyReading(state.reading);
   const open = r?.listening?.what === "aligning" ? state.books.find((b) => b.book.id === r.bookId) : undefined;
   return open && r?.listening ? `${open.book.title}, ${percent(r.listening.done, r.listening.total)} of the way` : null;
 }

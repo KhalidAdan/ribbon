@@ -192,9 +192,9 @@ describe("AppController series by hand", () => {
     expect(Object.keys(c.getState().series).sort()).toEqual(["my-picks", "my-picks-2"]);
     // Its page shows until the series is gone, then the library does.
     c.openSeries("my-picks");
-    expect(c.getState()).toMatchObject({ pane: "series", seriesKey: "my-picks" });
+    expect(c.getState()).toMatchObject({ screen: { pane: "series", key: "my-picks" }, seriesKey: "my-picks" });
     await c.deleteSeries("my-picks");
-    expect(c.getState().pane).toBe("library");
+    expect(c.getState().screen).toEqual({ pane: "library" });
     await c.deleteSeries("my-picks-2");
     expect(c.getState().series).toEqual({});
     expect(c.detectedSeries().some((x) => x.key.startsWith("my-picks"))).toBe(false);

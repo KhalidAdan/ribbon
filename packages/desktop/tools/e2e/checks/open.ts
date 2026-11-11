@@ -40,9 +40,9 @@ function open(r: Ribbon): Promise<Opened> {
             if (text === null) text = t;
           }
           if (ready === null && s?.status === "ready") ready = t;
-          if (paired === null && s?.alignment) paired = t;
+          if (paired === null && s?.status === "ready" && s.alignment) paired = t;
           if ((ready !== null && paired !== null && t - ready > 100) || t > 15_000) {
-            const p = s?.place;
+            const p = s?.status === "ready" ? s.place : null;
             const n = c.narratorInText();
             done({ snapshot, text, ready: ready ?? -1, paired, firstLines: [...firstLines], place: p ? `${p.section}:${p.block}:${p.offset}` : "", narrator: n ? `${n.section}:${n.block}:${n.offset}` : null });
           } else requestAnimationFrame(look);
@@ -77,7 +77,7 @@ export const openCheck: Check = {
     const went = await placeNow(page);
     await page.keyboard.press("ArrowRight");
     const turned = await page
-      .waitForFunction((from) => { const p = window.__ribbon.getState().reading?.place; return !!p && `${p.section}:${p.block}:${p.offset}` !== from; }, went, { timeout: 5_000 })
+      .waitForFunction((from) => { const r = window.__ribbon.getState().reading; const p = r?.status === "ready" ? r.place : null; return !!p && `${p.section}:${p.block}:${p.offset}` !== from; }, went, { timeout: 5_000 })
       .then(() => true, () => false);
     const left = await placeNow(page);
     t.expect(turned, "turns a page by hand", `${went} to ${left}`);

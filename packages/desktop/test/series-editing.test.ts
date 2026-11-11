@@ -7,6 +7,7 @@ import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
+import { pageBook } from "@ribbon/core/screen";
 
 const choice = (bookId: string, order: number, extra: Partial<SeriesChoice> = {}): SeriesChoice => ({ bookId, included: true, order, ...extra });
 
@@ -145,7 +146,7 @@ describe("deleting a series its folders make", () => {
     c.openSeries("the-primarchs");
     await c.deleteSeries("the-primarchs");
     expect(c.detectedSeries()).toEqual([]);
-    expect(c.getState()).toMatchObject({ pane: "library", seriesSetup: null });
+    expect(c.getState()).toMatchObject({ screen: { pane: "library" }, seriesSetup: null });
     expect(c.getState().books).toHaveLength(3);
     const kept = await bytesToSeries("the-primarchs", await fs.readFile(path.join(root, ".ribbon", "series", "the-primarchs.csv")));
     expect(kept).toMatchObject({ name: "The Primarchs", deleted: true, choices: [] });
@@ -182,7 +183,7 @@ describe("a book in two series", () => {
     const [lion, fulgrim] = orderBySeries(c.detectedSeries()[0]!.bookIds, (x) => x, []);
     await c.createSeries("A reading list", [fulgrim!, lion!]);
     const list = c.detectedSeries().find((g) => g.name === "A reading list")!;
-    const listed = () => c.seriesOfBook(c.getState().readerBookId!)[0]!.key;
+    const listed = () => c.seriesOfBook(pageBook(c.getState().screen)!)[0]!.key;
 
     // The Primarchs was open last; then the reading list's first book is opened from its card.
     c.openSeries("the-primarchs");

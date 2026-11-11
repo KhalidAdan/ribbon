@@ -208,6 +208,95 @@ Given files of durations `[1000, 2000, 3000]`:
 - A book that finishes downloading while its folder is scanned plays
   (`desktop-on-server.test.ts`).
 
+### The reader's session (`core/reading/session.ts`)
+
+- Opening, then ready with a text and a place, or failed with why; a
+  text or a failure lands only on the book opening, only while it opens.
+- Another book, or the same one again, opens from anywhere; closing
+  closes from anywhere.
+- What comes for a book that isn't open, or is still opening (its
+  pairing, its transcription, its export, a highlight), is dropped:
+  work goes on after a book is closed.
+- A turn by hand stops following the narrator; one the narrator made,
+  or a scroll, doesn't. A line a search found is marked until the reader
+  moves on, whichever way.
+- The export is one status: running, made or failed, never two at once.
+- Before and after: the controller with the session as one status does
+  with the reader what the old one did, on a library in memory (a book
+  with its EPUB, an EPUB alone, one that can't be read), in every
+  sequence of three of fifteen events (opening each, texts slow to load
+  and arriving, closing, turning, following, the export made or failing,
+  playing, pausing, a pairing fixed, a highlight) and 1,000 random ones
+  of ten, and reaches every status of each (`reading-before-after.test.ts`).
+
+### What's on screen (`core/screen.ts`)
+
+- Each page shows from any other, and every page but Settings closes the
+  full player as it opens.
+- A book's page leads back to the bookcase when it was opened from there,
+  or from a book's page that was; from anywhere else it doesn't.
+- The full player opens on the drawer asked for, changes drawer only
+  while open, and closes.
+- A book's page whose book is gone, or a series' page whose series is,
+  goes back to the library; any other page stays.
+- One series dialog at a time: a scan never offers a series' setup over
+  the dialog for making one, and opening either closes the other
+  (`on-screen.test.ts`).
+- A book deleted from the server while it's open to read stays until
+  it's closed and the library shows, as one in the player or whose page
+  shows does (`desktop-on-server.test.ts`).
+- Before and after: the controller with the screen as one status shows
+  what the old one did, page, book, series, way back, full player and
+  drawer, and the reader over them, in every sequence of three of
+  eighteen events and 1,000 random ones of ten
+  (`screen-before-after.test.ts`).
+
+### The library's lifecycle (`core/lifecycle.ts`)
+
+- The phase is boot until the folders are known; then ready while any
+  folder is open, loading while one opens and none is, and the first
+  screen when none is either: no folders, or none that would open.
+- A folder that failed at boot, picked again, opens and says no more
+  that it couldn't, on the library or beside it in Settings.
+- Removing the one folder that opened, with another that didn't still
+  listed, goes back to the first screen.
+- Removing a folder closes the reader, a book's details, the end of a
+  book and a series' page that showed its books; resetting Ribbon's own
+  folder closes the reader and stops the sleep timer
+  (`library-lifecycle.test.ts`).
+- A server that wants signing in again says so until it's signed in,
+  though its folder is scanned meanwhile (`desktop-on-server.test.ts`).
+- Before and after: from no folders, the books, the books and another
+  that's missing, and only the missing one, the controller shows what the
+  old one did, phase, error, folders and what each says, shelf, page,
+  reader and a book's details, in every sequence of three of twelve
+  events and 250 random ones of ten, but for those three fixes, each
+  reached (`lifecycle-before-after.test.ts`).
+
+### Transcribing on this machine (`core/transcriber.ts`)
+
+- The open book is heard once at a time; asked again while it's heard,
+  it's heard once more after, and only once.
+- A server's worker waits when it has to, once however many reasons: a
+  minute, doubling to half an hour, and from a minute again after a book
+  is whole. Beginning work ends a wait.
+- The computer is kept awake while the open book is heard or a server's
+  books are worked on, never while the worker only waits; a reset stops
+  all of it.
+- The worker downloading a book to transcribe it, on a full disk, asks
+  the person nothing and leaves a question they have open about room for
+  their own download as it was; it says in a note that there wasn't room
+  (`desktop-on-server.test.ts`).
+- Resetting Ribbon's own folder stops transcribing for the server: what
+  was being heard isn't sent, nothing more is asked, and the computer may
+  sleep again (`desktop-on-server.test.ts`).
+- Before and after: with a speech model whose answers the test holds,
+  the controller asks the model what the old one did (every call, its
+  clips, gently while a book plays), keeps the computer awake alike, and
+  shows the same reader, progress, read-along, notes and top bar, in
+  every sequence of three of ten events and 500 random ones of ten
+  (`transcribing-before-after.test.ts`).
+
 ### A listen-through, written (`core/listen-through.ts`)
 
 - Where a book stands is its latest listen-through: none, going or

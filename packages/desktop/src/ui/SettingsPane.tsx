@@ -9,6 +9,7 @@ import { Button, IconButton } from "./Button";
 import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";
 import { ConnectServer } from "./Servers";
 import { settingsLine } from "../app/updates";
+import { sourceProblem } from "../app/controller";
 
 declare const __APP_VERSION__: string;
 
@@ -90,8 +91,9 @@ export function SettingsPane() {
               const status = state.sourceStatus[s.id];
               const count = countBySource.get(s.id) ?? 0;
               const busy = !!status?.scanning;
-              const line = status?.error
-                ? `Could not open it: ${status.error}`
+              const problem = sourceProblem(status);
+              const line = problem
+                ? `Could not open it: ${problem}`
                 : status?.scanning
                   ? status.scanning.stage
                     ? status.scanning.stage
@@ -108,8 +110,8 @@ export function SettingsPane() {
                       <span className="block truncate font-mono text-[0.75rem]/5 text-ink-3" title={s.root}>
                         {s.server ? `${s.server.person} on ${s.server.url}` : s.root}
                       </span>
-                      <span className={clsx("block", status?.error ? "text-red-600 dark:text-red-400" : "")}>{line}</span>
-                      {status?.readOnly && !status.error && <span className="block">Read-only from {c.here}: your place in its books is kept on {c.here}.</span>}
+                      <span className={clsx("block", problem ? "text-red-600 dark:text-red-400" : "")}>{line}</span>
+                      {status?.readOnly && !problem && <span className="block">Read-only from {c.here}: your place in its books is kept on {c.here}.</span>}
                     </>
                   }
                   aside={

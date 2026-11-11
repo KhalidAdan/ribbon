@@ -56,7 +56,7 @@ function hoursOf(ms: number): string {
  * a rail of lines (SeriesRail).
  */
 export function SeriesPage() {
-  const state = useAppState((s) => ({ books: s.books, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, playing: isPlaying(s.player.status), downloads: s.downloads }));
+  const state = useAppState((s) => ({ books: s.books, sources: s.sources, series: s.series, seriesKey: s.screen.pane === "series" ? s.screen.key : null, current: s.current, playing: isPlaying(s.player.status), downloads: s.downloads }));
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();

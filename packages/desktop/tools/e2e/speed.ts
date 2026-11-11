@@ -143,7 +143,7 @@ export async function speedReport(r: Ribbon, slow: number): Promise<SpeedReport>
   const from = await page.evaluate(() => window.__ribbon.getState().player.positionMs);
   await page.waitForTimeout(20_000);
   const played = Math.round(((await page.evaluate(() => window.__ribbon.getState().player.positionMs)) - from) / 1000);
-  const following = await page.evaluate(() => !!window.__ribbon.getState().reading?.following);
+  const following = await page.evaluate(() => !!(() => { const r = window.__ribbon.getState().reading; return r?.status === "ready" && r.following; })());
   console.log(`played ${played} s, following: ${following}`);
   await page.evaluate(() => window.__ribbon.pause());
   await part("Reading along for 20 s (following, the mark moving)", { "seconds played": played, following });

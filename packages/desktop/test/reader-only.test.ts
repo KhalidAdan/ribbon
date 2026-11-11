@@ -180,7 +180,7 @@ describe("a book that is only its EPUB, in the app", () => {
     await c.playBook(book);
     expect(c.getState().current).toBeNull();
     expect(c.getState().reading).toMatchObject({ bookId: book.book.id, status: "ready" });
-    expect(c.getState().reading!.alignment).toBeUndefined();
+    expect(c.getState().reading).toMatchObject({ alignment: null });
 
     c.moveReading({ section: 1, block: 0, offset: 0 }, "seek");
     await c.closeReading();

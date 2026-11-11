@@ -51,6 +51,10 @@ Four shapes come up again and again, so each has a name and a home:
 | Opening a book, in the player or the reader | `Latest` in `AppController` (`opening`, `readerOpening`) | each ask current until a newer one begins |
 | A folder's scans | `Rerun` in `AppController` (`Opened.scans`) | idle, running, running with one more after |
 | A page swipe | [`reader/swipe.ts`](../packages/desktop/src/reader/swipe.ts) | idle, pressed, dragging, springing back, sliding (each slide numbered) |
+| The reader's session | [`core/reading/session.ts`](../packages/core/src/reading/session.ts) (`readingAfter`), told by the controller (`toReading`) | opening, failed, ready; a ready book's export: none, exporting, made, failed |
+| What's on screen | [`core/screen.ts`](../packages/core/src/screen.ts) (`screenAfter`), told by the controller (`toScreen`) | library, settings, stats, bookcase, a series' page (its series), a book's page (its book, from the bookcase or not); the full player closed or open on a drawer; the reader over both |
+| The library's lifecycle | [`core/lifecycle.ts`](../packages/core/src/lifecycle.ts) (`phaseOf`), each folder's `SourceStatus.state` set by the controller | a folder: opening, open, failed; the app: boot, pick, loading, ready, worked out from its folders and never set |
+| Transcribing, here and for a server | [`core/transcriber.ts`](../packages/core/src/transcriber.ts) (`transcribingAfter`), told by the controller (`toTranscribing`) | the open book: idle, hearing (once more after); a server's worker: idle, working, waiting a while; awake worked out from them. Beside it, as sets of books rather than a status: `downloadedToTranscribe`, `untranscribable` |
 | A book's loudness and silence, measured | [`app/jobs.ts`](../packages/desktop/src/app/jobs.ts) (`JobStatus`) | queued, running, done, failed |
 | Transcribing a whole book | [`app/transcribing.ts`](../packages/desktop/src/app/transcribing.ts) (`transcribeWhole`) | its result: whole, stopped, failed |
 | A chapter-name lookup | `ui/ChapterList.tsx` (`lookup`) | idle, busy, found, error |
@@ -75,13 +79,9 @@ next to write down, roughly in order of how much they touch.
 
 | Machine | Where | What holds it today |
 | --- | --- | --- |
-| The reader's session | `AppState.reading` ([`app/reading.ts`](../packages/desktop/src/app/reading.ts)), written by the controller | `status` (opening, ready, failed) and eleven optional fields beside it: `text`, `place`, `alignment`, `readsAlong`, `listening`, `exporting`, `exported`, `following`, `finding`, `found`, `highlights`; privately `rd`, `readingCtx`, `readingKeeper` |
-| What's on screen | `AppState` | `pane`, `readerBookId`, `readerFromBookcase`, `seriesKey`, `playerExpanded`, `playerDrawer`, with `reading` drawn over everything |
-| The library's lifecycle | `AppState.phase` | `phase` (boot, pick, loading, ready), `sources`, `error`, and the controller's `opened` |
 | The book open in the player | the controller | `current`, `resumeOffer`, `previewing`, `theEnd`, and privately `pausedAt`, `listenedFrom`, `listening`, `chapterProbe` |
-| Transcribing, here and for a server | the controller | `hearing`, `hearAgain`, `transcribingServer`, `downloadedToTranscribe`, `untranscribable`, `serverRetry`, `awakeFor`; `transcribingForServer` and `speech` in `AppState` |
 | A folder's link to its server | `Opened` | `server`, `serverPlaces`, `serverAdmin`, `serverRefresh`, `serverRefreshSoon`, `serverImports` |
-| Questions and offers | `AppState` | `seriesSetup`, `seriesNew`, `moveOffer`, `spaceShort`, `editBook`, `speechNudge`, `goalMet`, `readOnlyNotice` |
+| Questions and offers | `AppState` | `seriesSetup`, `seriesNew` (one at a time, kept so by hand), `moveOffer`, `spaceShort`, `editBook`, `speechNudge`, `goalMet`, `readOnlyNotice` |
 | Saving the app's settings | the controller | `settingsTimer`, `settingsWrite`, and writes made directly |
 | Keeping places | [`app/positions.ts`](../packages/desktop/src/app/positions.ts) (`PositionKeeper`) | `closed`, `readOnly`, `failures`, `localDirty`, two timers, two runs |
 | A server's places, carried | [`app/server/server-log.ts`](../packages/desktop/src/app/server/server-log.ts) | `kept` (null until read), `run`, `again`: a `Rerun` by hand |
