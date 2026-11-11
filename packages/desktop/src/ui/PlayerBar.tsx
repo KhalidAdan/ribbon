@@ -2,6 +2,7 @@ import { BackwardIcon, ChevronUpIcon, ForwardIcon, ListBulletIcon, MoonIcon, Pau
 import { clsx } from "clsx";
 import { memo } from "react";
 import { formatDuration, formatLeft, formatSpeed, remainingAtSpeed } from "@ribbon/core/speed";
+import { isSet } from "@ribbon/core/sleep";
 import { useAppState, useController, useCovers } from "./store";
 import { Button, IconButton, pressed } from "./Button";
 import { Cover } from "./Cover";
@@ -27,7 +28,7 @@ export function PlayerBar() {
   const length = chapter ? chapter.endMs - chapter.startMs : p.durationMs;
   const inChapter = Math.min(length, Math.max(0, p.positionMs - start));
   const bookLeft = remainingAtSpeed(p.durationMs - p.positionMs, p.speed);
-  const sleeping = state.sleep.state.mode !== null;
+  const sleeping = isSet(state.sleep.state);
   const status = p.reconnecting ? "Reconnecting…" : p.error ? p.error : p.buffering ? "Loading…" : scanning(state.job) ? scanLine(state.job) : null;
 
   return (
@@ -61,7 +62,7 @@ export function PlayerBar() {
           </Button>
           {sleeping && (
             <Button size="sm" variant="ghost" leading={MoonIcon} onClick={() => c.expandPlayer()} className="tabular-nums max-md:hidden" aria-label="Sleep timer">
-              {state.sleep.state.mode?.kind === "chapter" ? "Chapter" : state.sleep.remainingMs !== null ? formatDuration(state.sleep.remainingMs) : "On"}
+              {state.sleep.state.status === "chapter" ? "Chapter" : state.sleep.remainingMs !== null ? formatDuration(state.sleep.remainingMs) : "On"}
             </Button>
           )}
           <IconButton size="sm" label="Chapters" icon={ListBulletIcon} onClick={() => c.expandPlayer("chapters")} className="max-sm:hidden" />

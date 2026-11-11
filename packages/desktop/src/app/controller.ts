@@ -533,7 +533,7 @@ export class AppController {
         reconnecting: false,
         error: null,
       },
-      sleep: { state: sleep.IDLE, gain: 1, remainingMs: null },
+      sleep: { state: sleep.OFF, gain: 1, remainingMs: null },
       resumeOffer: null,
       previewing: null,
       jobs: {},
@@ -3378,12 +3378,11 @@ export class AppController {
   private sleepTick(): void {
     const cur = this.state.current;
     const st = this.state.sleep.state;
-    if (!st.mode) return this.stopSleepLoop();
+    if (!sleep.isSet(st)) return this.stopSleepLoop();
     const ch = cur?.book.chapters[this.state.player.chapterIndex] ?? null;
-    let paused = st;
-    if (!this.state.player.playing && st.pausedAt === null) paused = sleep.pause(st, Date.now());
-    else if (this.state.player.playing && st.pausedAt !== null) paused = sleep.resume(st, Date.now());
-    const [next, out] = sleep.tick(paused, {
+    // Minutes count only while the book plays.
+    const held = this.state.player.playing ? sleep.resume(st, Date.now()) : sleep.pause(st, Date.now());
+    const [next, out] = sleep.tick(held, {
       nowMs: Date.now(),
       positionMs: this.state.player.positionMs,
       chapterEndMs: ch ? ch.endMs : null,
