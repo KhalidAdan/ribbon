@@ -526,10 +526,21 @@ describe("a server's shelf on this device", () => {
     expect(series![0]!.books[0]!.number).toBeNull();
     expect(app.getState().series["blue-books"]!.choices).toEqual([{ bookId: local, included: true, order: 1 }]);
 
-    // Deleted here: deleted on the server.
+    // Someone who isn't the server's admin can't delete its series: nothing is asked of the server, and it stays.
+    expect(app.canDeleteSeries("blue-books")).toBe(false);
     await app.deleteSeries("blue-books");
+    expect(changes.at(-1)).toMatchObject({ method: "PUT" });
+    expect(app.detectedSeries()).toHaveLength(1);
+
+    // The admin, on a fresh start: deleted here, deleted on the server, for every device.
+    role = "admin";
+    const admin = new AppController(platform);
+    await admin.boot();
+    await until(() => admin.canDeleteSeries("blue-books") && admin.getState().series["blue-books"] !== undefined);
+    await admin.deleteSeries("blue-books");
     expect(changes.at(-1)).toMatchObject({ method: "DELETE", at: "/api/series/blue-books" });
-    expect(app.detectedSeries()).toEqual([]);
+    expect(admin.detectedSeries()).toEqual([]);
+    role = null;
     await app.removeSource(app.getState().sources[0]!.id);
     series = null;
     vi.restoreAllMocks();

@@ -6,8 +6,10 @@ import { bytesToRows, rowsToBytes, bool, int } from "./csv";
 /**
  * A series is a run of books the listener wants to treat as one thing:
  * which belong, in what order, and which to leave out (the novellas,
- * usually). Detection is a guess from tags and folder numbers; the
- * record beside the books is the listener's decision and wins.
+ * usually). Ribbon finds a series only where the books say there is one:
+ * a series tag, or folders the listener numbered. It never guesses one
+ * from titles. The record beside the books is the listener's decision
+ * and wins, and that goes for deleting a series too.
  */
 
 export interface SeriesGroup {
@@ -42,6 +44,8 @@ export interface SeriesRecord {
   choices: SeriesChoice[];
   /** ISO 8601; set when the listener saved or skipped the setup. */
   decidedAt: string;
+  /** True when the listener deleted the series: it has no books, and the books' tags and folders don't bring it back. */
+  deleted?: boolean;
 }
 
 /** Fewer than this and it is a shelf, not a series. */
@@ -71,22 +75,16 @@ function baseName(path: string): string {
 /**
  * Series worth setting up. A series tag groups books wherever they
  * live; otherwise numbered folders under one parent form a series named
- * by that parent, or by the library folder when they sit at the root;
- * otherwise a series named in the titles, the way stores write it
- * (seriesInTitles). Members come back by their number in the series,
- * then in folder order.
+ * by that parent, or by the library folder when they sit at the root.
+ * Titles are never read for a series: "…, Book 7" is a store's wording,
+ * and guessing from it made series nobody asked for. Members come back
+ * by their number in the series, then in folder order.
  */
 export function detectSeries(books: readonly Book[], libraryName: string): SeriesGroup[] {
-  const titled = seriesInTitles(books.filter((b) => !b.series.trim() && b.seriesIndex === null));
-  const groups = new Map<string, { name: string; key: string | null; members: { book: Book; number: number | null; part: number; title: string | null }[] }>();
+  const groups = new Map<string, { name: string; members: { book: Book; title: string | null }[] }>();
   for (const b of books) {
     let name: string;
     let scope: string;
-    let key: string | null = null;
-    let number = b.seriesIndex;
-    let part = 0;
-    let title: string | null = null;
-    const t = titled.get(b.id);
     if (b.series.trim()) {
       name = b.series.trim();
       scope = "tag";
@@ -94,133 +92,34 @@ export function detectSeries(books: readonly Book[], libraryName: string): Serie
       const parent = parentOf(b.path);
       name = parent ? baseName(parent) : libraryName;
       scope = `folder:${parent}`;
-    } else if (t) {
-      ({ name, number, part } = t);
-      scope = `title:${t.names}`;
-      // From the names in any order: the order most titles use can change as books arrive, and the key is a file name.
-      key = slug(t.names);
-      title = t.title || null;
     } else {
       continue;
     }
     // "04. Flight of the Eisenstein" is Flight of the Eisenstein under its number 4.
-    const prefixed = title === null && number !== null ? parseNumbered(b.title) : null;
-    if (prefixed && prefixed.index === number) title = prefixed.name;
+    const prefixed = b.seriesIndex !== null ? parseNumbered(b.title) : null;
+    const title = prefixed && prefixed.index === b.seriesIndex ? prefixed.name : null;
     const groupKey = `${scope}|${name.toLowerCase()}`;
-    const g = groups.get(groupKey) ?? { name, key, members: [] };
-    g.members.push({ book: b, number, part, title });
+    const g = groups.get(groupKey) ?? { name, members: [] };
+    g.members.push({ book: b, title });
     groups.set(groupKey, g);
   }
   const out: SeriesGroup[] = [];
   const used = new Set<string>();
   for (const [scopeKey, g] of groups) {
     if (g.members.length < MIN_SERIES_BOOKS) continue;
-    let key = g.key ?? slug(g.name);
+    let key = slug(g.name);
     if (used.has(key)) key = `${key}-${slug(scopeKey)}`;
     used.add(key);
-    // Numbered books by their number (a book in parts by its part), then the rest in folder order.
-    const members = [...g.members].sort((x, y) => (x.number ?? Infinity) - (y.number ?? Infinity) || x.part - y.part || compareBooks(x.book, y.book));
+    // Numbered books by their number, then the rest in folder order.
+    const members = [...g.members].sort((x, y) => (x.book.seriesIndex ?? Infinity) - (y.book.seriesIndex ?? Infinity) || compareBooks(x.book, y.book));
     const group: SeriesGroup = { key, name: g.name, bookIds: members.map((m) => m.book.id) };
-    const numbered = members.filter((m) => m.number !== null);
-    if (numbered.length > 0) group.numbers = Object.fromEntries(numbered.map((m) => [m.book.id, m.number!]));
+    const numbered = members.filter((m) => m.book.seriesIndex !== null);
+    if (numbered.length > 0) group.numbers = Object.fromEntries(numbered.map((m) => [m.book.id, m.book.seriesIndex!]));
     const retitled = members.filter((m) => m.title);
     if (retitled.length > 0) group.titles = Object.fromEntries(retitled.map((m) => [m.book.id, m.title!]));
     out.push(group);
   }
   return out;
-}
-
-/** A book's title, read for the series it names: see parseSeriesTitle. */
-export interface SeriesTitle {
-  /** The title before the book's number, split at its colons. */
-  parts: string[];
-  /** How many parts at the start are the book's own title, not a series' name: 1, or 0 when the title is only the series. */
-  own: number;
-  /** The book's number in the series: 8 in "Book 8". */
-  number: number;
-  /** "Book 8, Part 2" is a book in parts; 0 when it is not. */
-  part: number;
-}
-
-/** "…, Book 8" at the end, or "…, Book 8, Part 2". */
-const TRAILING_BOOK = /^(.+?),?\s+Book\s+(\d+(?:\.\d+)?)(?:,?\s+Part\s+(\d+))?$/i;
-/** "Leviathan Wakes (The Expanse, Book 1)", or "(The Expanse #1)". */
-const BOOK_IN_BRACKETS = /^(.+?)\s*\(([^()]+?),?\s+(?:Book\s+|#)(\d+(?:\.\d+)?)\)$/i;
-
-/**
- * What a title says about its series, the way stores write it:
- * "The Solar War: Siege of Terra: The Horus Heresy, Book 1", or
- * "Leviathan Wakes (The Expanse, Book 1)". Which parts name the series
- * is clear only across several books, since "The End and the Death:
- * Volume I: The Horus Heresy: Siege of Terra, Book 8" carries a volume
- * as well; seriesInTitles decides. Null when the title has no number.
- */
-export function parseSeriesTitle(title: string): SeriesTitle | null {
-  const text = title.trim();
-  const bracketed = BOOK_IN_BRACKETS.exec(text);
-  if (bracketed) {
-    const names = splitColons(bracketed[2]!);
-    return names.length > 0 ? { parts: [bracketed[1]!.trim(), ...names], own: 1, number: Number(bracketed[3]), part: 0 } : null;
-  }
-  const trailing = TRAILING_BOOK.exec(text);
-  if (!trailing) return null;
-  const parts = splitColons(trailing[1]!);
-  if (parts.length === 0) return null;
-  return { parts, own: parts.length > 1 ? 1 : 0, number: Number(trailing[2]), part: trailing[3] ? Number(trailing[3]) : 0 };
-}
-
-function splitColons(text: string): string[] {
-  return text
-    .split(/\s*:\s+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-}
-
-/** A book's series as its title names it, decided across the shelf. */
-export interface TitledSeries {
-  name: string;
-  /** The series' names, lower case, sorted and joined: the same series whichever order a title puts them in. */
-  names: string;
-  number: number;
-  part: number;
-  /** The title without the series' names: "The End and the Death: Volume I". Empty when the title is only the series. */
-  title: string;
-}
-
-/**
- * Series named in titles, by book id. A part of a title names a series
- * when at least MIN_SERIES_BOOKS titles carry it; the rest is the book's
- * own. Titles that carry the same names, in any order, are one series:
- * "Siege of Terra: The Horus Heresy, Book 4" and "The Horus Heresy:
- * Siege of Terra, Book 5". The series takes its name in the order most
- * of its titles use.
- */
-export function seriesInTitles(books: readonly Book[]): Map<string, TitledSeries> {
-  const parsed = books.flatMap((b) => {
-    const t = parseSeriesTitle(b.title);
-    return t ? [{ id: b.id, ...t }] : [];
-  });
-  const carried = new Map<string, number>();
-  for (const t of parsed) for (const p of new Set(t.parts.slice(t.own).map((x) => x.toLowerCase()))) carried.set(p, (carried.get(p) ?? 0) + 1);
-
-  const found = parsed.flatMap((t) => {
-    const isName = (p: string, i: number) => i >= t.own && (carried.get(p.toLowerCase()) ?? 0) >= MIN_SERIES_BOOKS;
-    const names = t.parts.filter(isName);
-    if (names.length === 0) return [];
-    const own = t.parts.filter((p, i) => !isName(p, i)).join(": ");
-    return [{ id: t.id, names: names.map((n) => n.toLowerCase()).sort().join(" "), spelled: names.join(": "), number: t.number, part: t.part, title: own }];
-  });
-
-  // The spelling of each series' name that most of its titles use; on a tie, the first in A to Z.
-  const spellings = new Map<string, Map<string, number>>();
-  for (const f of found) {
-    const counts = spellings.get(f.names) ?? new Map<string, number>();
-    counts.set(f.spelled, (counts.get(f.spelled) ?? 0) + 1);
-    spellings.set(f.names, counts);
-  }
-  const nameOf = (names: string) => [...spellings.get(names)!].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]![0];
-
-  return new Map(found.map((f) => [f.id, { name: nameOf(f.names), names: f.names, number: f.number, part: f.part, title: f.title }]));
 }
 
 /** A key no other series has: the name's slug, numbered when taken. */
@@ -239,6 +138,11 @@ export function newSeriesRecord(key: string, name: string, bookIds: readonly str
   return { key, name: name.trim(), decidedAt, choices: bookIds.map((bookId, i) => ({ bookId, included: true, order: i + 1 })) };
 }
 
+/** The record of a series the listener deleted: no books, only that it's gone, so it isn't found again. */
+export function deletedSeriesRecord(key: string, name: string, decidedAt = new Date().toISOString()): SeriesRecord {
+  return { key, name, decidedAt, choices: [], deleted: true };
+}
+
 /** True for a series detection did not find: every member was added by hand. */
 export function isHandMade(g: SeriesGroup): boolean {
   return g.added !== undefined && g.added.length === g.bookIds.length;
@@ -247,13 +151,18 @@ export function isHandMade(g: SeriesGroup): boolean {
 /**
  * The series on the shelf: what detection found, plus what the records
  * say. A record can add books detection missed to a series it found,
- * and a record with no detected members is a series made by hand.
+ * and a record with no detected members is a series made by hand. A
+ * series the listener deleted is not there, whatever detection found.
  * Members no longer on the shelf are left out.
  */
 export function mergeSeries(detected: readonly SeriesGroup[], records: Iterable<SeriesRecord>, onShelf: ReadonlySet<string>): SeriesGroup[] {
   const byKey = new Map<string, SeriesGroup>();
   for (const g of detected) byKey.set(g.key, { ...g, bookIds: [...g.bookIds] });
   for (const r of records) {
+    if (r.deleted) {
+      byKey.delete(r.key);
+      continue;
+    }
     const ids = normalizeChoices(r.choices.filter((c) => !c.removed))
       .map((c) => c.bookId)
       .filter((id) => onShelf.has(id));
@@ -360,11 +269,13 @@ export function orderBySeries<T>(sorted: readonly T[], idOf: (item: T) => string
   return out;
 }
 
-export const SERIES_HEADERS = ["series", "book_id", "included", "order", "decided_at", "number", "removed"];
+export const SERIES_HEADERS = ["series", "book_id", "included", "order", "decided_at", "number", "removed", "deleted"];
 
+/** A record as its file: a row for each book, or, for a series the listener deleted, one row with no book that says so. */
 export function seriesToBytes(r: SeriesRecord): Promise<Uint8Array> {
+  if (r.deleted) return rowsToBytes([{ series: r.name, book_id: "", included: "", order: "", decided_at: r.decidedAt, number: "", removed: "", deleted: "1" }], SERIES_HEADERS);
   return rowsToBytes(
-    r.choices.map((c) => ({ series: r.name, book_id: c.bookId, included: c.included ? "1" : "0", order: String(c.order), decided_at: r.decidedAt, number: c.number === undefined ? "" : String(c.number), removed: c.removed ? "1" : "" })),
+    r.choices.map((c) => ({ series: r.name, book_id: c.bookId, included: c.included ? "1" : "0", order: String(c.order), decided_at: r.decidedAt, number: c.number === undefined ? "" : String(c.number), removed: c.removed ? "1" : "", deleted: "" })),
     SERIES_HEADERS,
   );
 }
@@ -375,6 +286,7 @@ export async function bytesToSeries(key: string, bytes: Uint8Array): Promise<Ser
   let name = "";
   let decidedAt = "";
   for (const r of rows) {
+    if (bool(r.deleted)) return deletedSeriesRecord(key, r.series || "", r.decided_at || "");
     if (!r.book_id) continue;
     name = name || r.series || "";
     decidedAt = decidedAt || r.decided_at || "";

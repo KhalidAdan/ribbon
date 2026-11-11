@@ -87,10 +87,11 @@ They are deterministic and tiny. They are never committed.
 - Narrator from `composer`, else `narrator`, else empty.
 - Series from `series` or `mvnm`; series index from `series-part` or
   `mvin`; index parsed as a number and may be fractional (`2.5`).
-- With no tag and no numbered folder, a series named in titles the way
-  stores write it: "The Solar War: Siege of Terra: The Horus Heresy,
-  Book 1", or "Leviathan Wakes (The Expanse, Book 1)". Three titles must
-  share the name, in either order; "Book 8, Part 2" is book 8.
+- With no tag and no numbered folder, no series: titles are never read
+  for one, however a store words them ("Leviathan Wakes (The Expanse,
+  Book 1)"). Ribbon guessed series from titles until 0.35.0.
+- A series deleted stays deleted: on a server for every device, in a
+  folder by a record beside the books, though the tags still name it.
 - Year from the first four digits of `date`.
 - `(Unabridged)` suffix stripped from the title for display, preserved in
   `raw_title`.

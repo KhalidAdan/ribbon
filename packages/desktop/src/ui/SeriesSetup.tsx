@@ -1,7 +1,7 @@
 import { ArrowDownIcon, ArrowUpIcon, Bars2Icon, PlusIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useMemo, useState } from "react";
-import { defaultChoices, excludeShorterThan, isHandMade, normalizeChoices, sortByNumber, type SeriesChoice } from "@ribbon/core/series";
+import { defaultChoices, excludeShorterThan, normalizeChoices, sortByNumber, type SeriesChoice } from "@ribbon/core/series";
 import { fold } from "@ribbon/core/search";
 import { lengthOf } from "./progress";
 import { readerOnly } from "@ribbon/core/ebook";
@@ -23,7 +23,7 @@ export function SeriesSetup() {
   const live = useAppState((s) => ({ seriesSetup: s.seriesSetup, series: s.series, books: s.books }));
   useCovers();
   const c = useController();
-  // On its way out it shows what it showed last, not what Save or Forget just changed.
+  // On its way out it shows what it showed last, not what Save or Delete just changed.
   const [kept, closed] = useKept(live.seriesSetup ? live : null);
   const state = kept ?? live;
   const setup = state.seriesSetup;
@@ -58,7 +58,6 @@ export function SeriesSetup() {
   const included = shown.filter((ch) => ch.included).length;
   // A book that is only its EPUB has no length to be too short by.
   const durations = new Map(state.books.map((b) => [b.book.id, readerOnly(b.book) ? Infinity : b.book.durationMs]));
-  const handMade = isHandMade(setup);
 
   const reorder = (fromId: string, toId: string) => {
     if (fromId === toId) return;
@@ -112,16 +111,14 @@ export function SeriesSetup() {
       labelId="series-setup-title"
       wide
       title={existing ? `Change ${existing.name || setup.name}` : `Set up ${setup.name}`}
-      description="Name it, put the books in the order you listen, number them, and untick anything you do not want on the shelf. Drag a book, or use the arrows. Nothing is deleted."
+      description="Name it, put the books in the order you listen, number them, and untick anything you do not want on the shelf. Drag a book, or use the arrows. Deleting the series leaves its books in the library."
       hint={`${included} of ${shown.length} on the shelf${out.size > 0 ? `, ${out.size} leaving` : ""}`}
       actions={
         <>
-          {existing && (
-            <Button
-              variant={confirmDelete ? "danger" : "ghost"}
-              onClick={() => (confirmDelete ? void c.forgetSeries(setup.key) : setConfirmDelete(true))}
-            >
-              {confirmDelete ? (handMade ? "Delete for good" : "Forget my changes") : handMade ? "Delete series" : "Forget my changes…"}
+          {/* Any series can go, however it came to be: asked twice, as it can't be undone. A server's series is its admin's to delete. */}
+          {c.canDeleteSeries(setup.key) && (
+            <Button variant={confirmDelete ? "danger" : "ghost"} onClick={() => (confirmDelete ? void c.deleteSeries(setup.key) : setConfirmDelete(true))}>
+              {confirmDelete ? "Delete for good" : "Delete series…"}
             </Button>
           )}
           <Button variant="ghost" onClick={() => (existing ? c.closeSeriesSetup() : void c.skipSeriesSetup())}>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytesToSeries, defaultChoices, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, offTheShelf, orderBySeries, parseSeriesTitle, seriesToBytes, slug, uniqueKey } from "@ribbon/core/series";
+import { bytesToSeries, defaultChoices, deletedSeriesRecord, detectSeries, excludeShorterThan, hiddenBookIds, isHandMade, mergeSeries, newSeriesRecord, normalizeChoices, offTheShelf, orderBySeries, seriesToBytes, slug, uniqueKey } from "@ribbon/core/series";
 import type { Book } from "@ribbon/core/types";
 
 const book = (path: string, extra: Partial<Book> = {}): Book => ({
@@ -78,65 +78,24 @@ describe("detectSeries", () => {
   });
 });
 
-describe("series named in titles", () => {
-  // The Siege of Terra as it came to the server: no series tag, no number, and the names in either order. Ids are hashes, so path order is no order.
+describe("titles", () => {
+  // The Siege of Terra as a store titles it: no series tag and no numbered folder.
   const siege = [
-    ["c4e2", "The End and the Death: Volume I: The Horus Heresy: Siege of Terra, Book 8"],
-    ["a129", "Echoes of Eternity: The Horus Heresy: Siege of Terra, Book 7"],
-    ["35f4", "Mortis: The Horus Heresy: Siege of Terra, Book 5"],
-    ["e309", "The End and the Death: Volume II: The Horus Heresy: Siege of Terra, Book 8, Part 2"],
-    ["ef31", "Saturnine: Siege of Terra: The Horus Heresy, Book 4"],
-    ["b684", "The Solar War: Siege of Terra: The Horus Heresy, Book 1"],
-    ["95fb", "The First Wall: Siege of Terra: The Horus Heresy, Book 3"],
-    ["c632", "The End and the Death: Volume III: The Horus Heresy: Siege of Terra, Book 8, Part 3"],
-    ["661f", "The Lost and the Damned: Siege of Terra: The Horus Heresy, Book 2"],
-    ["5b1c", "Warhawk: The Horus Heresy: Siege of Terra, Book 6"],
-  ].map(([id, title]) => book(id!, { title: title! }));
-  const universe = [book("818e", { title: "Master of Rites: Warhammer 40,000" }), book("f9dc", { title: "Voidscarred: Warhammer 40,000" })];
+    "The Solar War: Siege of Terra: The Horus Heresy, Book 1",
+    "The Lost and the Damned: Siege of Terra: The Horus Heresy, Book 2",
+    "The First Wall: Siege of Terra: The Horus Heresy, Book 3",
+    "Leviathan Wakes (The Expanse, Book 1)",
+    "Caliban's War (The Expanse, Book 2)",
+    "Abaddon's Gate (The Expanse, Book 3)",
+  ].map((title, i) => book(`b${i}`, { title }));
 
-  it("reads a store's title for its parts, number and part", () => {
-    expect(parseSeriesTitle("The End and the Death: Volume II: The Horus Heresy: Siege of Terra, Book 8, Part 2")).toEqual({ parts: ["The End and the Death", "Volume II", "The Horus Heresy", "Siege of Terra"], own: 1, number: 8, part: 2 });
-    expect(parseSeriesTitle("Leviathan Wakes (The Expanse, Book 1)")).toEqual({ parts: ["Leviathan Wakes", "The Expanse"], own: 1, number: 1, part: 0 });
-    expect(parseSeriesTitle("Caliban's War (The Expanse #2)")).toEqual({ parts: ["Caliban's War", "The Expanse"], own: 1, number: 2, part: 0 });
-    expect(parseSeriesTitle("Siege of Terra, Book 2.5")).toEqual({ parts: ["Siege of Terra"], own: 0, number: 2.5, part: 0 });
-    expect(parseSeriesTitle("Master of Rites: Warhammer 40,000")).toBeNull();
-    expect(parseSeriesTitle("The Book Thief")).toBeNull();
+  it("are never read for a series, however a store words them", () => {
+    expect(detectSeries(siege, "Lib")).toEqual([]);
   });
 
-  it("finds the Siege of Terra as one series, in book order, whichever order its names come in", () => {
-    const groups = detectSeries([...siege, ...universe], "Ribbon server");
-    expect(groups).toHaveLength(1);
-    const [g] = groups;
-    expect(g!.name).toBe("The Horus Heresy: Siege of Terra");
-    expect(g!.key).toBe("siege-of-terra-the-horus-heresy");
-    expect(g!.bookIds).toEqual(["b684", "661f", "95fb", "ef31", "35f4", "5b1c", "a129", "c4e2", "e309", "c632"]);
-    expect(g!.numbers).toEqual({ b684: 1, "661f": 2, "95fb": 3, ef31: 4, "35f4": 5, "5b1c": 6, a129: 7, c4e2: 8, e309: 8, c632: 8 });
-    // A volume belongs to its book's title, not to the series.
-    expect(g!.titles).toMatchObject({ b684: "The Solar War", ef31: "Saturnine", c4e2: "The End and the Death: Volume I", e309: "The End and the Death: Volume II" });
-  });
-
-  it("keeps the key when more titles come to spell the name the other way", () => {
-    const flipped = siege.map((b) => ({ ...b, title: b.title.replace("The Horus Heresy: Siege of Terra", "Siege of Terra: The Horus Heresy") }));
-    const [g] = detectSeries(flipped, "Lib");
-    expect(g!.name).toBe("Siege of Terra: The Horus Heresy");
-    expect(g!.key).toBe("siege-of-terra-the-horus-heresy");
-  });
-
-  it("tells a series from the one around it", () => {
-    const heresyTitles = ["Horus Rising: The Horus Heresy, Book 1", "False Gods: The Horus Heresy, Book 2", "Galaxy in Flames: The Horus Heresy, Book 3"].map((title, i) => book(`h${i}`, { title }));
-    const groups = detectSeries([...heresyTitles, ...siege], "Lib");
-    expect(groups.map((g) => [g.name, g.bookIds.length])).toEqual(
-      expect.arrayContaining([
-        ["The Horus Heresy", 3],
-        ["The Horus Heresy: Siege of Terra", 10],
-      ]),
-    );
-  });
-
-  it("needs a name that three titles share, and leaves a tag or a folder number to say first", () => {
-    expect(detectSeries(siege.slice(0, 2), "Lib")).toEqual([]);
-    const tagged = siege.map((b, i) => (i < 8 ? { ...b, series: "Siege of Terra" } : b));
-    expect(detectSeries(tagged, "Lib").map((g) => [g.name, g.bookIds.length])).toEqual([["Siege of Terra", 8]]);
+  it("change nothing about the series a tag names", () => {
+    const tagged = siege.map((b, i) => (i < 3 ? { ...b, series: "Siege of Terra", seriesIndex: i + 1 } : b));
+    expect(detectSeries(tagged, "Lib")).toEqual([{ key: "siege-of-terra", name: "Siege of Terra", bookIds: ["b0", "b1", "b2"], numbers: { b0: 1, b1: 2, b2: 3 } }]);
   });
 });
 
@@ -241,6 +200,27 @@ describe("series made by hand", () => {
     expect(isHandMade(g!)).toBe(false);
     // A record that only orders the detected books adds nothing.
     expect(mergeSeries(detected, [{ ...r, choices: r.choices.slice(0, 1) }], onShelf)[0]).toEqual(detected[0]);
+  });
+});
+
+describe("a series the listener deleted", () => {
+  const onShelf = new Set(["a", "b", "c", "d"]);
+  const detected = [
+    { key: "heresy", name: "Heresy", bookIds: ["a", "b", "c"] },
+    { key: "expanse", name: "The Expanse", bookIds: ["d"] },
+  ];
+
+  it("is gone, though its books' tags still name it, and the other series are as they were", () => {
+    const gone = deletedSeriesRecord("heresy", "Heresy", "2026-11-10T00:00:00Z");
+    expect(mergeSeries(detected, [gone], onShelf)).toEqual([detected[1]]);
+    // Its books are off no shelf: it leaves nothing out.
+    expect(hiddenBookIds([gone])).toEqual(new Set());
+  });
+
+  it("is kept beside the books as a record with no books in it", async () => {
+    const gone = deletedSeriesRecord("heresy", "Heresy", "2026-11-10T00:00:00Z");
+    expect(gone).toEqual({ key: "heresy", name: "Heresy", decidedAt: "2026-11-10T00:00:00Z", choices: [], deleted: true });
+    expect(await bytesToSeries("heresy", await seriesToBytes(gone))).toEqual(gone);
   });
 });
 
