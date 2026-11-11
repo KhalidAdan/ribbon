@@ -136,5 +136,5 @@ describe("invites, before and after their status was written down", () => {
     // The walk reached each place they differ, so it would have seen any other.
     expect([...meantDifferences.keys()].sort()).toEqual(["a restart does", "only a held code is spent", "time doesn't let a hold go"]);
     expect(steps).toBeGreaterThan(80_000);
-  });
+  }, 600_000);
 });

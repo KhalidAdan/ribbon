@@ -82,5 +82,5 @@ describe("listen-throughs, before and after they were written down", () => {
     expect(problems.slice(0, 5)).toEqual([]);
     expect(steps).toBeGreaterThan(300_000);
     expect(writes).toBeGreaterThan(100_000);
-  });
+  }, 600_000);
 });

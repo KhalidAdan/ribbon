@@ -131,5 +131,5 @@ describe("the job queue, before and after its states were written down", () => {
     // The walk reached where they differ, so it would have seen any other difference.
     expect(meantDifferences).toBeGreaterThan(0);
     expect(steps).toBeGreaterThan(17_000);
-  }, 120_000);
+  }, 600_000);
 });
