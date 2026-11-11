@@ -85,10 +85,11 @@ function controller(pane: Showing["pane"]): AppController {
   for (let i = 0; i < books.length; i += 3) positions[books[i]!.book.id] = { bookId: books[i]!.book.id, offsetMs: HOUR + i * 1000, updatedAt: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), device: "test" };
   const playing = books[0]!;
   const series = newSeriesRecord("saga", "The Saga", books.slice(10, 15).map((b) => b.book.id));
+  // The folder is known and open: the phase follows from it (core/lifecycle.ts).
+  (c as unknown as { booted: boolean }).booted = true;
   set(c, {
-    phase: "ready",
     sources: [{ id: "s1", root: "/library", name: "library", addedAt: "2026-01-01T00:00:00.000Z" }],
-    sourceStatus: { s1: { scanning: null, lastScanMs: 1200, error: null, readOnly: false } },
+    sourceStatus: { s1: { state: { status: "open" }, scanning: null, lastScanMs: 1200, scanError: null, signIn: false, readOnly: false } },
     books,
     positions,
     series: { saga: series },

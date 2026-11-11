@@ -25,6 +25,8 @@ export class MemoryHost {
   private clock = 1_700_000_000_000;
   /** Calls that are still waiting, so a test can let everything that can run, run. */
   inFlight = 0;
+  /** Folders whose scans fail, as a share that answers its first reads and then stops does. */
+  failingScans = new Set<string>();
 
   /** Each audio file and EPUB package by its path in the library: a test adds to them as it adds files. */
   constructor(
@@ -135,6 +137,9 @@ export class MemoryHost {
           return out.sort((a, b) => a.name.localeCompare(b.name));
         }),
       scan: async (root, _known, onProgress, onFiles) => {
+        // As the real scans do: a folder that isn't there is refused, not read as empty.
+        if (!this.dirs.has(root)) throw new Error(`not a directory: ${root}`);
+        if (this.failingScans.has(root)) throw new Error(`the share stopped answering: ${root}`);
         const entries = await pipe(walk(h, root), collect());
         const files = entries.map((e): ScannedFile => {
           const kind = isAudio(e.name) ? "audio" : isSideFileName(e.name) ? "text" : isEbook(e.name) ? "ebook" : "image";

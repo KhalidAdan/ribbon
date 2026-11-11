@@ -251,6 +251,28 @@ Given files of durations `[1000, 2000, 3000]`:
   eighteen events and 1,000 random ones of ten
   (`screen-before-after.test.ts`).
 
+### The library's lifecycle (`core/lifecycle.ts`)
+
+- The phase is boot until the folders are known; then ready while any
+  folder is open, loading while one opens and none is, and the first
+  screen when none is either: no folders, or none that would open.
+- A folder that failed at boot, picked again, opens and says no more
+  that it couldn't, on the library or beside it in Settings.
+- Removing the one folder that opened, with another that didn't still
+  listed, goes back to the first screen.
+- Removing a folder closes the reader, a book's details, the end of a
+  book and a series' page that showed its books; resetting Ribbon's own
+  folder closes the reader and stops the sleep timer
+  (`library-lifecycle.test.ts`).
+- A server that wants signing in again says so until it's signed in,
+  though its folder is scanned meanwhile (`desktop-on-server.test.ts`).
+- Before and after: from no folders, the books, the books and another
+  that's missing, and only the missing one, the controller shows what the
+  old one did, phase, error, folders and what each says, shelf, page,
+  reader and a book's details, in every sequence of three of twelve
+  events and 250 random ones of ten, but for those three fixes, each
+  reached (`lifecycle-before-after.test.ts`).
+
 ### Loudness (`core/loudness.ts`)
 
 - Parses `I: -23.4 LUFS` and `Peak: -1.2 dBFS` from ebur128 summary.

@@ -41,6 +41,7 @@ import { BookText, type TextPlace } from "@ribbon/core/reading/booktext";
 import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
+import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
 import { LIBRARY, pageBook, screenAfter, type Drawer, type FullPlayer, type OnScreen, type Screen, type ScreenEvent } from "@ribbon/core/screen";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
@@ -180,14 +181,33 @@ export interface ScanStatus {
 
 /** What the shelf knows about one source beyond its books. */
 export interface SourceStatus {
+  /** Where it is on its way to the shelf (core/lifecycle.ts): opening, open, or failed and why. */
+  state: FolderState;
   scanning: ScanStatus | null;
   /** How long the last scan took, or null before the first finishes. */
   lastScanMs: number | null;
-  /** Why the source could not be opened, or null. */
-  error: string | null;
+  /** Why its last scan failed, or null when it didn't. */
+  scanError: string | null;
+  /** A server's folder whose sign-in is gone or was refused: it wants signing in again. Only signing in puts it right. */
+  signIn: boolean;
   /** The folder is read-only from this device: places in its books are kept on this device alone (read-only.ts). */
   readOnly: boolean;
 }
+
+/** A folder as it starts out, at this point on its way to the shelf. */
+function newStatus(state: FolderState): SourceStatus {
+  return { state, scanning: null, lastScanMs: null, scanError: null, signIn: false, readOnly: false };
+}
+
+/** What's wrong with a folder, said for a person, or null when nothing is. */
+export function sourceProblem(s: SourceStatus | undefined): string | null {
+  if (!s) return null;
+  if (s.state.status === "failed") return s.state.why;
+  return s.scanError ?? (s.signIn ? "Sign in to the server again." : null);
+}
+
+/** A change to the app's state. Never its phase, which is worked out from its folders (core/lifecycle.ts). */
+type Patch = Partial<Omit<AppState, "phase">>;
 
 /**
  * Something transcribing did that's worth a note of its own (ui/Notices.tsx):
@@ -203,7 +223,8 @@ export type Notice =
 type Unnumbered<T> = T extends unknown ? Omit<T, "id"> : never;
 
 export interface AppState {
-  phase: "boot" | "pick" | "loading" | "ready";
+  /** Where the app is: worked out from its folders, never set (core/lifecycle.ts, `phaseOf`). */
+  phase: Phase;
   /** The folders the library is populated from, in the order they were added. */
   sources: Source[];
   sourceStatus: Record<string, SourceStatus>;
@@ -433,6 +454,8 @@ interface Opened {
  * - **Lifecycle.** `boot()` reads the app settings, opens every source
  *   (painting the shelf from cached records first, then scanning), and
  *   lands in `phase: "ready"`, or `"pick"` when there is no library yet.
+ *   The phase is never set: `set` works it out from each folder's state,
+ *   opening, open or failed (core/lifecycle.ts).
  *   Adding, rescanning and removing folders live here too, and editing a
  *   book's details.
  * - **Playback.** `openBook` loads a book into the engine at its place
@@ -524,6 +547,8 @@ export class AppController {
   private appSettings: Record<string, unknown> = {};
   /** This installation in the position log: a random id, made once and kept in the app's settings. */
   private deviceId: string = globalThis.crypto.randomUUID();
+  /** The list of folders is known, read at boot or a folder added: until then the phase is "boot" (core/lifecycle.ts). */
+  private booted = false;
 
   /** This device, as the app's sentences name it. */
   get here(): string {
@@ -601,8 +626,11 @@ export class AppController {
 
   getState = (): AppState => this.state;
 
-  private set(patch: Partial<AppState>): void {
-    this.state = { ...this.state, ...patch };
+  private set(patch: Patch): void {
+    const next = { ...this.state, ...patch };
+    // The phase follows from the folders, so no change can leave it disagreeing with them.
+    next.phase = phaseOf(this.booted, next.sources.map((s) => next.sourceStatus[s.id]?.state ?? OPENING));
+    this.state = next;
     for (const l of this.listeners) l();
   }
 
@@ -617,7 +645,7 @@ export class AppController {
   }
 
   /** Tell the reader's session what happened (core/reading/session.ts), the one way it changes; with anything else that changes at the same time. */
-  private toReading(event: ReadingEvent, with_: Partial<AppState> = {}): void {
+  private toReading(event: ReadingEvent, with_: Patch = {}): void {
     const reading = readingAfter(this.state.reading, event);
     if (reading !== this.state.reading || Object.keys(with_).length > 0) this.set({ reading, ...with_ });
   }
@@ -652,7 +680,7 @@ export class AppController {
   }
 
   /** Every open source's books, in source order, and their positions; a duplicate id keeps its first book. */
-  private publishBooks(extra: Partial<AppState> = {}): void {
+  private publishBooks(extra: Patch = {}): void {
     const seen = new Set<string>();
     const books: ScannedBook[] = [];
     const positions: Record<string, Position | null> = {};
@@ -679,8 +707,8 @@ export class AppController {
     });
   }
 
-  /** The scan status across every source, for the header. */
-  private publishScanning(extra: Partial<AppState> = {}): void {
+  /** The scan status across every source, for the header; with a folder whose books are on the shelf now, `shown`. */
+  private publishScanning(extra: Patch = {}, shown?: Opened): void {
     // A server's imports, while there are any, are what its status says.
     const statusOf = (o: Opened) => this.importStatus(o) ?? o.scanning;
     const live = this.openedInOrder().filter((o) => statusOf(o));
@@ -700,14 +728,22 @@ export class AppController {
     const sourceStatus: Record<string, SourceStatus> = {};
     for (const s of this.state.sources) {
       const o = this.opened.get(s.id);
-      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? { lastScanMs: null, error: null, readOnly: false }), scanning: o ? statusOf(o) : null };
+      sourceStatus[s.id] = { ...(this.state.sourceStatus[s.id] ?? newStatus(OPENING)), scanning: o ? statusOf(o) : null, ...(o && o === shown ? { state: OPEN } : {}) };
     }
     this.set({ scanning, sourceStatus, assetsReady: this.openedInOrder().every((o) => o.assetsReady), ...extra });
   }
 
   private setSourceStatus(id: string, patch: Partial<SourceStatus>): void {
-    const prev = this.state.sourceStatus[id] ?? { scanning: null, lastScanMs: null, error: null, readOnly: false };
-    this.set({ sourceStatus: { ...this.state.sourceStatus, [id]: { ...prev, ...patch } } });
+    this.set({ sourceStatus: this.sourceStatusWith(id, patch) });
+  }
+
+  private sourceStatusWith(id: string, patch: Partial<SourceStatus>): Record<string, SourceStatus> {
+    return { ...this.state.sourceStatus, [id]: { ...(this.state.sourceStatus[id] ?? newStatus(OPENING)), ...patch } };
+  }
+
+  /** A folder's books are on the shelf: to set with them, when it was still opening. */
+  private shown(o: Opened): Patch {
+    return this.state.sourceStatus[o.source.id]?.state.status === "opening" ? { sourceStatus: this.sourceStatusWith(o.source.id, { state: OPEN }) } : {};
   }
 
   /** A folder turned out to be read-only from this device: say so beside it in Settings, and once at the top of the library. */
@@ -780,26 +816,28 @@ export class AppController {
       entries.push({ root: given, addedAt: new Date().toISOString() });
       await this.platform.sources.save(entries).catch((e: unknown) => log.warn("could not save the sources:", describe(e)));
     }
+    // The list of folders is read: from here the phase follows from them (core/lifecycle.ts).
+    this.booted = true;
     if (entries.length === 0) {
-      this.set({ phase: "pick" });
+      this.set({});
       return;
     }
     const sources = entries.map(sourceFrom);
-    this.set({ phase: "loading", sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, { scanning: null, lastScanMs: null, error: null, readOnly: false }])) });
+    this.set({ sources, sourceStatus: Object.fromEntries(sources.map((s) => [s.id, newStatus(OPENING)])) });
     await Promise.all(
       sources.map((s) =>
         this.openSource(s).catch((e: unknown) => {
           log.error("could not open", s.root, describe(e));
-          this.setSourceStatus(s.id, { error: describe(e) });
+          this.setSourceStatus(s.id, { state: { status: "failed", why: describe(e) } });
         }),
       ),
     );
-    if (this.opened.size === 0) {
+    if (this.state.phase === "pick") {
       const first = sources[0]!;
-      this.set({ phase: "pick", scanning: null, error: `Could not open ${first.root}: ${this.state.sourceStatus[first.id]?.error ?? "unknown error"}` });
+      this.set({ scanning: null, error: `Could not open ${first.root}: ${sourceProblem(this.state.sourceStatus[first.id]) ?? "unknown error"}` });
       return;
     }
-    this.publishScanning({ phase: "ready" });
+    this.publishScanning();
   }
 
   /** Ask for a folder and add it; a folder already in the library is checked for changes instead. */
@@ -819,7 +857,7 @@ export class AppController {
     try {
       await this.addSource(root);
     } catch (e) {
-      this.set({ phase: this.opened.size === 0 ? "pick" : this.state.phase, scanning: null, error: `Could not open ${root}: ${describe(e)}` });
+      this.set({ scanning: null, error: `Could not open ${root}: ${describe(e)}` });
     }
   }
 
@@ -835,29 +873,37 @@ export class AppController {
    * has a copy. If not, the scan runs in the foreground with live counts.
    */
   async addSource(pickedRoot: string, server?: ServerRef): Promise<void> {
+    // A folder added is a list of folders known, as boot reading them is (the tests and tools add one without booting).
+    this.booted = true;
     const root = libraryRootOf(pickedRoot);
     if (root !== pickedRoot) log.info("picked the records folder; using its parent", root);
     const existing = this.state.sources.find((s) => sameRoot(s.root, root));
     if (existing) {
       log.info("folder is already a source; checking it for changes", root);
       const o = this.opened.get(existing.id);
-      if (o) await this.rescanSource(o, true);
-      else await this.openSource(existing);
+      if (o) return this.rescanSource(o, true);
+      // One that couldn't be opened, picked again: opened again, and what went wrong before is gone unless it goes wrong again.
+      this.set({ sourceStatus: this.sourceStatusWith(existing.id, { state: OPENING, scanError: null }), error: null });
+      try {
+        await this.openSource(existing);
+      } catch (e) {
+        this.setSourceStatus(existing.id, { state: { status: "failed", why: describe(e) } });
+        throw e;
+      }
       return;
     }
     const source = sourceFrom({ root, addedAt: new Date().toISOString(), ...(server ? { server } : {}) });
     log.info("add source", server ? server.url : root);
     this.set({
-      phase: this.opened.size === 0 ? "loading" : this.state.phase,
       sources: [...this.state.sources, source],
-      sourceStatus: { ...this.state.sourceStatus, [source.id]: { scanning: null, lastScanMs: null, error: null, readOnly: false } },
+      sourceStatus: { ...this.state.sourceStatus, [source.id]: newStatus(OPENING) },
       error: null,
     });
     try {
       await this.openSource(source);
     } catch (e) {
       const { [source.id]: _dropped, ...sourceStatus } = this.state.sourceStatus;
-      this.set({ sources: this.state.sources.filter((s) => s.id !== source.id), sourceStatus, phase: this.opened.size === 0 ? "pick" : "ready" });
+      this.set({ sources: this.state.sources.filter((s) => s.id !== source.id), sourceStatus });
       throw e;
     }
     void this.saveSources();
@@ -948,7 +994,7 @@ export class AppController {
         o.books = this.stamp(o, cached);
         mark("positions");
         if (!alive()) return;
-        this.publishBooks({ phase: "ready", coverVersion: this.state.coverVersion + 1 });
+        this.publishBooks({ coverVersion: this.state.coverVersion + 1, ...this.shown(o) });
         this.publishScanning();
         mark("render");
         this.logPainted("from records", `; steps: ${marks.join(", ")} ms`);
@@ -981,7 +1027,7 @@ export class AppController {
       await this.rescanSource(o, false);
       if (!alive()) return;
       this.offerSeriesSetup();
-      this.publishScanning({ phase: "ready" });
+      this.publishScanning({}, o);
       await o.saving;
     } catch (e) {
       if (alive()) {
@@ -1242,7 +1288,7 @@ export class AppController {
             this.logPainted("from the walk");
           }
           o.books = this.stamp(o, books);
-          this.publishBooks(this.state.phase === "loading" ? { phase: "ready" } : {});
+          this.publishBooks(this.shown(o));
         },
       });
       const books = this.stamp(o, result.books);
@@ -1265,7 +1311,8 @@ export class AppController {
         problems: [...this.state.problems.filter((p) => p.source !== source.id), ...problems],
         lastScanMs: elapsed,
       });
-      this.setSourceStatus(source.id, { lastScanMs: elapsed, error: null });
+      // Only its scan's own failure goes: a server that wants signing in again still does.
+      this.setSourceStatus(source.id, { lastScanMs: elapsed, scanError: null });
       this.publishScanning();
       void lib.writeProblems(problems.map(({ path, message, at }) => ({ path, message, at }))).catch((e: unknown) => log.warn("could not save problems:", describe(e)));
       const saveStarted = Date.now();
@@ -1282,7 +1329,7 @@ export class AppController {
       log.error("scan failed:", source.name, describe(e));
       o.scanning = null;
       if (alive()) {
-        this.setSourceStatus(source.id, { error: describe(e) });
+        this.setSourceStatus(source.id, { scanError: describe(e) });
         this.publishScanning({ error: describe(e) });
       }
       if (!background) throw e;
@@ -1334,7 +1381,7 @@ export class AppController {
     await this.keepServerToken(server, client.token);
     const open = this.opened.get(sourceId(root));
     if (open) {
-      this.setSourceStatus(open.source.id, { error: null });
+      this.setSourceStatus(open.source.id, { signIn: false });
       await this.linkServer(open, client.token);
       return;
     }
@@ -1419,7 +1466,7 @@ export class AppController {
   private async linkServer(o: Opened, token: string | null): Promise<void> {
     if (!o.source.server) return;
     if (!token) {
-      this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      this.setSourceStatus(o.source.id, { signIn: true });
       return;
     }
     // Its list and covers are read and written here before the shelf's own access to the folder lands.
@@ -1463,7 +1510,7 @@ export class AppController {
       this.takeLog(o, l.records);
     } catch (e) {
       log.warn("could not share places with the server:", o.source.name, describe(e));
-      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { signIn: true });
     }
   }
 
@@ -1645,7 +1692,7 @@ export class AppController {
       if ((books || series) && alive()) this.takeServerSeries(o);
     } catch (e) {
       log.warn("could not ask the server for its books:", o.source.name, describe(e));
-      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { error: "Sign in to the server again." });
+      if (alive() && e instanceof ServerError && e.status === 401) this.setSourceStatus(o.source.id, { signIn: true });
     }
     if (!alive()) return;
     // A book downloaded here that the server has been given the EPUB of since.
@@ -1843,6 +1890,8 @@ export class AppController {
     if (this.state.current?.book.source === id) await this.letGoOfCurrent();
     this.jobs.cancelWhere((b) => b.source === id);
     const gone = new Set(this.state.books.filter((b) => b.source === id).map((b) => b.book.id));
+    // Open to read, its place is kept beside it before it goes.
+    if (this.state.reading && gone.has(this.state.reading.bookId)) await this.closeReading();
     if (o) {
       await o.keeper.close().catch(() => undefined);
       // The places still to send go before the downloads do.
@@ -1873,10 +1922,18 @@ export class AppController {
       about,
       jobs,
       seriesSetup: this.state.seriesSetup && this.state.seriesSetup.bookIds.some((b) => gone.has(b)) ? null : this.state.seriesSetup,
+      // Nothing is left showing one of its books: its end, its details, its page.
+      theEnd: this.state.theEnd && gone.has(this.state.theEnd) ? null : this.state.theEnd,
+      editBook: this.state.editBook && gone.has(this.state.editBook) ? null : this.state.editBook,
       ...this.onScreen({ type: "gone", books: gone }),
     });
     this.publishBooks();
-    this.publishScanning(this.state.sources.length === 0 ? { phase: "pick", ...LIBRARY } : {});
+    this.publishScanning();
+    // A series that lived beside its books goes with them, and its page with it.
+    const at = this.state.screen;
+    if (at.pane === "series" && !this.detectedSeries().some((g) => g.key === at.key)) this.toScreen({ type: "gone", series: at.key });
+    // Nothing open now: the first screen, with nothing over it.
+    if (this.state.phase === "pick") this.set(LIBRARY);
     await this.saveSources();
   }
 
@@ -2975,12 +3032,18 @@ export class AppController {
   /** Close the reader, keeping its place everywhere first. */
   async closeReading(): Promise<void> {
     await this.endReading();
+    const keeper = this.letGoOfReading();
+    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
+  }
+
+  /** The reader closed, and nothing about it kept: its keeper, to keep its place with, when there was one. */
+  private letGoOfReading(): ReadingKeeper | null {
     const keeper = this.readingKeeper;
     this.readingKeeper = null;
     this.readingCtx = null;
-    if (this.state.reading) this.toReading({ type: "closed" });
-    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
     this.rd = emptyReading();
+    if (this.state.reading) this.toReading({ type: "closed" });
+    return keeper;
   }
 
   /**
@@ -3894,6 +3957,9 @@ export class AppController {
     await this.flushPositions();
     if (!(await this.platform.home.reset())) return;
     this.engine?.pause();
+    // Every place was kept a moment ago: the reader and the sleep timer go without writing again.
+    this.letGoOfReading();
+    this.cancelSleep();
     for (const o of this.opened.values()) {
       void o.keeper.close();
       this.letGoOfServerPlaces(o);
@@ -3902,7 +3968,7 @@ export class AppController {
     }
     this.opened.clear();
     this.jobs.cancelAll();
-    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, ...LIBRARY, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null });
+    this.set({ sources: [], sourceStatus: {}, books: [], positions: {}, current: null, resumeOffer: null, previewing: null, ...LIBRARY, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null, readOnlyNotice: [], theEnd: null, editBook: null, seriesSetup: null, seriesNew: false, spaceShort: null });
   }
 
   // Series ----------------------------------------------------------------

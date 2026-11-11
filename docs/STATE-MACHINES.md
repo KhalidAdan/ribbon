@@ -52,6 +52,7 @@ Three shapes come up again and again, so each has a name and a home:
 | A page swipe | [`reader/swipe.ts`](../packages/desktop/src/reader/swipe.ts) | idle, pressed, dragging, springing back, sliding (each slide numbered) |
 | The reader's session | [`core/reading/session.ts`](../packages/core/src/reading/session.ts) (`readingAfter`), told by the controller (`toReading`) | opening, failed, ready; a ready book's export: none, exporting, made, failed |
 | What's on screen | [`core/screen.ts`](../packages/core/src/screen.ts) (`screenAfter`), told by the controller (`toScreen`) | library, settings, stats, bookcase, a series' page (its series), a book's page (its book, from the bookcase or not); the full player closed or open on a drawer; the reader over both |
+| The library's lifecycle | [`core/lifecycle.ts`](../packages/core/src/lifecycle.ts) (`phaseOf`), each folder's `SourceStatus.state` set by the controller | a folder: opening, open, failed; the app: boot, pick, loading, ready, worked out from its folders and never set |
 | A book's loudness and silence, measured | [`app/jobs.ts`](../packages/desktop/src/app/jobs.ts) (`JobStatus`) | queued, running, done, failed |
 | Transcribing a whole book | [`app/transcribing.ts`](../packages/desktop/src/app/transcribing.ts) (`transcribeWhole`) | its result: whole, stopped, failed |
 | A chapter-name lookup | `ui/ChapterList.tsx` (`lookup`) | idle, busy, found, error |
@@ -70,7 +71,6 @@ next to write down, roughly in order of how much they touch.
 
 | Machine | Where | What holds it today |
 | --- | --- | --- |
-| The library's lifecycle | `AppState.phase` | `phase` (boot, pick, loading, ready), `sources`, `error`, and the controller's `opened` |
 | The book open in the player | the controller | `current`, `resumeOffer`, `previewing`, `theEnd`, and privately `pausedAt`, `listenedFrom`, `listening`, `chapterProbe` |
 | Transcribing, here and for a server | the controller | `hearing`, `hearAgain`, `transcribingServer`, `downloadedToTranscribe`, `untranscribable`, `serverRetry`, `awakeFor`; `transcribingForServer` and `speech` in `AppState` |
 | A folder's link to its server | `Opened` | `server`, `serverPlaces`, `serverAdmin`, `serverRefresh`, `serverRefreshSoon`, `serverImports` |

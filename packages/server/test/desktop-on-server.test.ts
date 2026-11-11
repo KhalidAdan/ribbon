@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppController, type Platform } from "../../desktop/src/app/controller.ts";
+import { AppController, sourceProblem, type Platform } from "../../desktop/src/app/controller.ts";
 import { LibraryService } from "../../desktop/src/app/library.ts";
 import { memorySettings, memorySources } from "../../desktop/src/app/platform.ts";
 import { ribbonClaim } from "@ribbon/core/poslog";
@@ -573,6 +573,32 @@ describe("the desktop on a server", () => {
     expect(app.getState().reading).toMatchObject({ bookId: other, status: "ready" });
     await app.closeReading();
   }, 60_000);
+
+  it("asks to be signed in again until it is, though the server's folder is scanned meanwhile", async () => {
+    // Opened without its sign-in, the server's folder said "Sign in to the server again." until its scan
+    // finished a moment later and cleared it, as if a scan were a sign-in.
+    await stocked();
+    const home = mkdtempSync(path.join(dir, "home-"));
+    const sources = memorySources();
+    const settings = memorySettings();
+    const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources, appSettings: settings, home: { path: async () => home, reveal: async () => undefined, reset: async () => false } };
+    const first = new AppController(platform);
+    await first.boot();
+    await first.connectServer(url, "admin", PASSWORD);
+    first.destroy();
+    // The sign-in forgotten, as Ribbon does with one the server no longer takes.
+    const { serverTokens: _gone, ...kept } = await settings.read();
+    await settings.write(kept);
+
+    const app = new AppController(platform);
+    await app.boot();
+    const id = app.getState().sources.find((s) => s.server)!.id;
+    await soon(() => app.getState().sourceStatus[id]?.lastScanMs ?? null).not.toBeNull();
+    expect(sourceProblem(app.getState().sourceStatus[id])).toBe("Sign in to the server again.");
+
+    await app.connectServer(url, "admin", PASSWORD);
+    expect(sourceProblem(app.getState().sourceStatus[id])).toBeNull();
+  }, 30_000);
 
   it("keeps a book deleted from the server while it's open in the reader, and takes it off once it isn't", async () => {
     // Deleted on another device while open in the EPUB reader here, its files went from under the page being read:

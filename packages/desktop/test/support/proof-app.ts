@@ -79,11 +79,11 @@ export function proofHost(m: MemoryHost, holds: Holds, over: Partial<Host> = {})
   });
 }
 
-/** A platform for one run: the library already added, a fixed device id, the settings in memory. */
-export function proofPlatform(host: Host, extra: Partial<Platform> = {}): Platform {
+/** A platform for one run: the library already added (or these folders), a fixed device id, the settings in memory. */
+export function proofPlatform(host: Host, extra: Partial<Platform> = {}, roots: readonly string[] = [ROOT]): Platform {
   let settings: Record<string, unknown> = { deviceId: "proof-device" };
   const sources = memorySources();
-  void sources.save([{ root: ROOT, addedAt: "2026-11-01T00:00:00.000Z" }]);
+  void sources.save(roots.map((root) => ({ root, addedAt: "2026-11-01T00:00:00.000Z" })));
   return {
     host,
     pickFolder: async () => ROOT,
@@ -115,6 +115,8 @@ export function proofWorld(): () => void {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   vi.setSystemTime(new Date("2026-11-10T12:00:00.000Z"));
   FakeMedia.reset();
+  // Paired's two files, a minute each, as the player is given them.
+  for (const f of ["one", "two"]) FakeMedia.durations.set(`file://${ROOT}/Ann Writer/Paired/${f}.mp3`, 60);
   vi.stubGlobal("Audio", FakeMedia);
   const quiet = [vi.spyOn(console, "info").mockImplementation(() => undefined), vi.spyOn(console, "warn").mockImplementation(() => undefined), vi.spyOn(console, "error").mockImplementation(() => undefined)];
   return () => {

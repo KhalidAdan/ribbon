@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AppController, type AppState } from "../src/app/controller";
 import { AppController as OldController, type AppState as OldState } from "./before/controller";
 import { Holds, proofHost, proofLibrary, proofPlatform, proofWorld, ROOT, settle } from "./support/proof-app";
-import { walk } from "./support/walk";
+import { walk, type Meant } from "./support/walk";
 
 /**
  * What's on screen became one status (core/screen.ts, docs/STATE-MACHINES.md):
@@ -13,6 +13,10 @@ import { walk } from "./support/walk";
  * same library, put through the same events, and after every step must
  * show the same page, for the same book or series, the same way back, the
  * same full player and drawer, and the same reader over them.
+ *
+ * One difference is meant, the library's lifecycle's (lifecycle-before-after.test.ts):
+ * removing a folder closes the reader open on one of its books, which the old
+ * controller left open over a shelf without it.
  */
 
 const DEPTH = Number(process.env.PROOF_DEPTH ?? 3);
@@ -72,6 +76,17 @@ function seenNew(c: AppController): Seen {
   };
 }
 
+const GONE_CLOSES = "the reader on a removed folder's book closes";
+
+const meant: Meant<Seen> = (o, n, { earlier }) => {
+  for (const k of Object.keys(o) as (keyof Seen)[]) {
+    if (JSON.stringify(o[k]) === JSON.stringify(n[k])) continue;
+    if (k === "reading" && n.reading === null && (o.reading!.startsWith("gone") || earlier.has(GONE_CLOSES))) continue;
+    return null;
+  }
+  return [GONE_CLOSES];
+};
+
 const idOf = (c: Either, t: string) => c.getState().books.find((b) => b.book.title === t)?.book.id;
 const LIST = "A reading list";
 const listKey = (c: Either) => c.detectedSeries().find((g) => g.name === LIST)?.key;
@@ -126,9 +141,10 @@ async function trace(which: "old" | "new", sequence: readonly number[]): Promise
 
 describe("what's on screen, before and after it was one status", () => {
   it(`does what it did for every sequence of ${DEPTH} events and ${RANDOM_RUNS} longer ones`, async () => {
-    const tally = await walk<Seen>({ events: EVENTS.map((e) => e.name), trace, depth: DEPTH, random: RANDOM_RUNS, length: RANDOM_LENGTH });
+    const tally = await walk<Seen>({ events: EVENTS.map((e) => e.name), trace, meant, depth: DEPTH, random: RANDOM_RUNS, length: RANDOM_LENGTH });
     expect(tally.problems).toEqual([]);
     expect(tally.sequences).toBe(EVENTS.length ** DEPTH + RANDOM_RUNS);
+    expect([...tally.meant.keys()]).toEqual([GONE_CLOSES]);
     // Every page, both ways to a book's page, the full player on each drawer, and the reader over them.
     expect([...reached].sort()).toEqual(
       [
