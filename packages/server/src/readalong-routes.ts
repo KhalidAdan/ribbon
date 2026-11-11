@@ -4,6 +4,7 @@ import { nowIso } from "@ribbon/core/position";
 import { bookmarksOf, highlightId, highlightsOf, markFields, markId } from "@ribbon/core/bookmarks";
 import { claimsFor, mergeById, mergePlaces, mergeTextPlaces, nextSeq, parseLog, ribbonClaim, textClaimsFor, type DeviceInfo, type LogRecord, type MarkRecord, type ReadingRecord, type ReadRecord, type SessionRecord, type Why } from "@ribbon/core/poslog";
 import { goalToday } from "@ribbon/core/goal";
+import { readAfter } from "@ribbon/core/listen-through";
 import { readingStandingOf, standingOf } from "@ribbon/core/progress";
 import { lastSpeed } from "@ribbon/core/settings";
 import { splitPeople } from "@ribbon/core/scan/sidefiles";
@@ -362,9 +363,10 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const id = localIdOf(listed);
     const last = readsOf(mergeById<ReadRecord>(parseLog(deps.places.export(me.id)).records, "read"), id).at(-1);
     const fields: Record<string, unknown>[] = [];
-    // A listen-through opens as the desktop opens one when playing starts (`beginListening`): when none is open, and
-    // a new one whenever the person chose to start again, finished or not (`listenAgain`).
-    if (!last || again === true) fields.push({ k: "read", id: `urn:uuid:${randomUUID()}`, started: nowIso(began) });
+    // A listen-through opens when playing starts on a book with none, and a new one whenever the person chose to start
+    // again, finished or not (core/listen-through.ts), as the desktop opens them (`beginListening`, `listenAgain`).
+    const read = readAfter(last, again === true ? { k: "again" } : { k: "playing" }, nowIso(began), newReadId);
+    if (read) fields.push(read);
     if (keep !== false && ended - began >= SESSION_MIN_MS) {
       const durationMs = stored.book.durationMs;
       fields.push({ k: "session", start: nowIso(began), end: nowIso(ended), from_ms: Math.round(Math.min(fromMs as number, durationMs)), to_ms: Math.round(Math.min(toMs as number, durationMs)), listened_ms: ended - began, ...(typeof speed === "number" ? { speed } : {}) });
@@ -385,12 +387,10 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const records = parseLog(deps.places.export(me.id)).records;
     const last = readsOf(mergeById<ReadRecord>(records, "read"), id).at(-1);
     const sessions = records.filter((r): r is SessionRecord => r.k === "session");
-    // Finished already, on another device: it stays as it was.
-    if (last?.finished) return { read: listenThrough(last, sessions, id) };
-    // The listen-through open closes, as the desktop's `markFinished` closes it. A book listened to before anything opened
-    // one started with the first place kept in it.
-    const now = nowIso(Date.now());
-    const read = { k: "read" as const, id: last?.id ?? `urn:uuid:${randomUUID()}`, started: last?.started ?? firstHeard(records, id) ?? now, finished: now };
+    // The listen-through going closes (core/listen-through.ts). A book listened to before anything opened one started with
+    // the first place kept in it; one finished already, on another device, stays as it was.
+    const read = readAfter(last, { k: "finished", firstHeard: firstHeard(records, id) }, nowIso(Date.now()), newReadId);
+    if (!read) return { read: listenThrough(last!, sessions, id) };
     const added = write(reply, me.id, who, listed, stored, read);
     return added === null ? reply : { read: listenThrough(read, sessions, id) };
   });
@@ -407,8 +407,8 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     const records = parseLog(deps.places.export(me.id)).records;
     const last = readsOf(mergeById<ReadRecord>(records, "read"), id).at(-1);
     // The latest listen-through written again without its finish, as the desktop's `markUnfinished` writes it; a book
-    // never listened to through gets one that's going.
-    const read = { k: "read" as const, id: last?.id ?? `urn:uuid:${randomUUID()}`, started: last?.started ?? nowIso(Date.now()) };
+    // never listened to through gets one that's going (core/listen-through.ts).
+    const read = readAfter(last, { k: "unfinished" }, nowIso(Date.now()), newReadId)!;
     const added = write(reply, me.id, who, listed, stored, read);
     const sessions = records.filter((r): r is SessionRecord => r.k === "session");
     return added === null ? reply : { read: listenThrough(read, sessions, id) };
@@ -588,6 +588,11 @@ function shownBookmark(b: Bookmark | Highlight, text: BookText | null): ShownBoo
 /** A moment of a recording, as a device sends one. */
 function isMoment(ms: unknown): boolean {
   return typeof ms === "number" && Number.isFinite(ms) && ms >= 0;
+}
+
+/** A new listen-through's id. */
+function newReadId(): string {
+  return `urn:uuid:${randomUUID()}`;
 }
 
 /**
