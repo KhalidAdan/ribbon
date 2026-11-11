@@ -77,7 +77,7 @@ export class BookInHand {
   /** The book in hand: its cover on the front board, its spine as on the shelf, its ribbon at your place. */
   private build(item: CaseItem, cover: CanvasImageSource | null, k: number, scale: number): Group {
     const b = item.book, W = item.spine.width, H = item.spine.height, D = Math.round(H * 0.68);
-    // Drawn at the screen's own density: the book in hand is about twice its size on the shelf.
+    // Drawn finer than the shelf: the book in hand is about twice its size there.
     const s = Math.min(3, scale * 1.25);
     const front = canvasOf(D * s, H * s);
     front.ctx.scale(s, s);

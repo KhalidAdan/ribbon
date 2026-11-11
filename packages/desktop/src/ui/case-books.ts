@@ -8,6 +8,15 @@ import { offTheShelf } from "@ribbon/core/series";
 import type { Progress } from "./progress";
 import { useAppState, useController } from "./store";
 
+/**
+ * How many pixels to the point the bookcase, and the invitation's picture of it, are drawn at: two, whatever the
+ * screen, and shown at the screen's own size. Its look was settled on a Mac, whose screen has two pixels to the point.
+ * Drawn at one, as most Windows screens have, the cloth's weave (read unsmoothed, bookcase3d/textures.ts) and the threads
+ * laid over each spine come out as a coarse grid, and the lettering blurs. Drawn at two and shrunk, each pixel is the
+ * average of the four a Mac would show in its place: the Mac's picture, at this screen's size.
+ */
+export const CASE_SCALE = 2;
+
 /** Every book on the shelf, for the bookcase: all but those a series leaves off it. */
 export function useShelvedBooks(): ScannedBook[] {
   const c = useController();
