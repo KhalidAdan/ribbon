@@ -6,9 +6,9 @@ import { BookText } from "@ribbon/core/reading/booktext";
 import { chapterNamesFromText } from "@ribbon/core/reading/narration";
 import type { Correction } from "@ribbon/core/scan/chapters";
 import { xmlText } from "@ribbon/core/scan/sidefiles";
+import { changeStored, readStored } from "./book-folder.ts";
 import { bookDir, type BookIndex, type FilledIn, type StoredBook } from "./books.ts";
 import { chaptersWith, handCorrections, namedByHand } from "./chapters.ts";
-import { readStored, writeStored } from "./prepare.ts";
 import { narrationOf, ReadAlongError, type ReadAlongs } from "./readalong.ts";
 
 /**
@@ -102,7 +102,8 @@ export async function hydrateBooks(readAlongs: ReadAlongs, dataDir: string, ids:
 export async function hydrateBook(readAlongs: ReadAlongs, dataDir: string, id: string, stored: StoredBook): Promise<FilledIn> {
   const dir = bookDir(dataDir, id);
   const filled: FilledIn = { from: await hydrateStamp(dir, stored) };
-  const book = { ...stored.book };
+  // The EPUB's description, when it gives the book one now.
+  let description: string | null = null;
   let ebook: Ebook | null = null;
   try {
     ebook = await readAlongs.ebook(id, stored);
@@ -112,22 +113,20 @@ export async function hydrateBook(readAlongs: ReadAlongs, dataDir: string, id: s
   }
   if (ebook) {
     if (stored.filled?.description) filled.description = stored.filled.description;
-    else if (!book.description) {
+    else if (!stored.book.description) {
       // Publishers often put HTML in it, escaped once more.
-      const description = xmlText(ebook.meta.description ?? "");
-      if (description) {
-        book.description = description;
-        filled.description = "epub";
-      }
+      description = xmlText(ebook.meta.description ?? "") || null;
+      if (description) filled.description = "epub";
     }
     const hand = await handCorrections(dir, stored);
     const chapters = chaptersWith(stored, hand);
     if (stored.files.length > 0 && !namedByHand(hand) && generatedTitles(chapters)) {
       const text = new BookText(ebook);
-      const names = chapterNamesFromText(text, chapters, book.durationMs, await narrationOf(dir, stored, text));
+      const names = chapterNamesFromText(text, chapters, stored.book.durationMs, await narrationOf(dir, stored, text));
       if (names.length > 0) filled.chapters = names;
     }
   }
-  await writeStored(dataDir, id, { ...stored, book, filled });
+  // Kept on the record as it is now: what came in while it was worked out (a transcript) stays.
+  await changeStored(dataDir, id, (now) => ({ ...now, book: description ? { ...now.book, description } : now.book, filled }));
   return filled;
 }

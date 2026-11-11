@@ -7,12 +7,12 @@ import { signedIn, type Auth } from "../auth.ts";
 import type { Events } from "../events.ts";
 import type { Jobs } from "../jobs.ts";
 import type { Places } from "../places.ts";
-import { bookDir, removeBookDir, type BookIndex, type KeptEdits } from "./books.ts";
+import { inTurn, readStored, removeBookDir } from "./book-folder.ts";
+import { bookDir, type BookIndex, type KeptEdits } from "./books.ts";
 import { makeCovers, type Cover } from "./covers.ts";
 import type { Host } from "@ribbon/core/host";
 import { EDIT_FIELDS, sharedEdits, type EditValues } from "@ribbon/core/edits";
-import { readStored } from "./prepare.ts";
-import { recordRows } from "./records.ts";
+import { recordRows } from "./chapters.ts";
 import { transcriptFromRows } from "@ribbon/core/reading/narration";
 import { stretchesOf, untranscribed } from "@ribbon/core/reading/transcript";
 import type { Mp3Frames } from "./frames.ts";
@@ -106,7 +106,8 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can delete books." });
     const id = request.params.id;
     if (!deps.books.remove(id, me.id, Date.now())) return reply.code(404).send({ error: "No such book on this server." });
-    // Off the list first, so nobody starts a download of it; then out of search, and its files.
+    // Off the list first, so nobody starts a download of it; then out of search, and its files, once whatever is writing there has
+    // finished (book-folder.ts).
     deps.search.remove(id);
     await removeBookDir(deps.dataDir, id).catch((e: unknown) => request.log.warn({ err: e }, `could not remove the files of deleted book ${id}`));
     deps.events.toEveryone({ type: "books", data: { deleted: id } });
@@ -125,6 +126,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     if (!deps.books.has(id)) return reply.code(404).send({ error: "No such book on this server." });
     // The picture made into the book's cover sizes, as a cover found on import is; one that can't be read changes nothing.
     const cover = asked.cover ? await coverFrom(host, deps.dataDir, id, asked.cover) : asked.cover;
+    if (cover === "gone") return reply.code(404).send({ error: "No such book on this server." });
     if (cover === null && asked.cover) return reply.code(400).send({ error: "That picture can't be read: choose a JPEG, PNG or WebP image." });
     deps.books.saveEdits(id, asked.edits, me.id);
     if (cover !== undefined) deps.books.chooseCover(id, cover, me.id, asked.edits.updatedAt);
@@ -195,7 +197,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
       const stored = await readStored(deps.dataDir, b.id);
       if (!stored) continue;
       const total = stretchesOf(stored.files).length;
-      const missing = untranscribed(stored.files, transcriptFromRows(await recordRows(deps.dataDir, b.id, "aligned")).spans).length;
+      const missing = untranscribed(stored.files, transcriptFromRows(await recordRows(bookDir(deps.dataDir, b.id), stored, "aligned")).spans).length;
       books.push({ id: b.id, title: b.title, done: total - missing, total });
     }
     return { books: inTranscribingOrder(books.reverse()) };
@@ -246,17 +248,23 @@ const PICTURE_BYTES = 20 * 1024 ** 2;
 /** An edit with a picture in it: the picture as base64 is a third bigger. */
 const EDIT_BYTES = 32 * 1024 ** 2;
 
-/** A book's cover made from a person's picture, its sizes beside its own covers; null when the picture can't be read. */
-async function coverFrom(host: Host, dataDir: string, id: string, picture: Uint8Array): Promise<Cover | null> {
-  const dir = path.join(bookDir(dataDir, id), "covers");
-  await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `chosen-${randomBytes(4).toString("hex")}`);
-  await writeFile(file, picture);
-  try {
-    return await makeCovers(host, { image: file }, dir);
-  } finally {
-    await rm(file, { force: true });
-  }
+/**
+ * A book's cover made from a person's picture, its sizes beside its own covers, in the book's turn (book-folder.ts);
+ * null when the picture can't be read, and "gone" when the book was deleted meanwhile.
+ */
+async function coverFrom(host: Host, dataDir: string, id: string, picture: Uint8Array): Promise<Cover | null | "gone"> {
+  return inTurn(dataDir, id, async (book) => {
+    if (!(await book.stored())) return "gone";
+    const dir = path.join(book.dir, "covers");
+    await mkdir(dir, { recursive: true });
+    const file = path.join(dir, `chosen-${randomBytes(4).toString("hex")}`);
+    await writeFile(file, picture);
+    try {
+      return await makeCovers(host, { image: file }, dir);
+    } finally {
+      await rm(file, { force: true });
+    }
+  });
 }
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */

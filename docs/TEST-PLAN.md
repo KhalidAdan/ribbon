@@ -297,6 +297,19 @@ Given files of durations `[1000, 2000, 3000]`:
   every sequence of three of ten events and 500 random ones of ten
   (`transcribing-before-after.test.ts`).
 
+### A listen-through, written (`core/listen-through.ts`)
+
+- Where a book stands is its latest listen-through: none, going or
+  finished.
+- Every event has an answer in every status: playing opens one only when
+  there's none; starting again always opens a new one; finishing closes
+  the one going, or writes one begun when the book was first heard, and
+  leaves a finished one as it is; unfinishing opens the latest again.
+- Before and after: what the server's `/listened`, `/finished` and
+  `/unfinished` wrote, line for line, and the function write the same
+  record in every sequence of seven events
+  (`server/test/listen-through-before-after.test.ts`).
+
 ### Loudness (`core/loudness.ts`)
 
 - Parses `I: -23.4 LUFS` and `Peak: -1.2 dBFS` from ebur128 summary.
@@ -342,6 +355,45 @@ Given files of durations `[1000, 2000, 3000]`:
 - Numeric fields are written as integers and parsed back as numbers.
 - A book whose files have changed size or mtime is marked stale.
 - A book whose files are unchanged is not re-probed.
+
+### A book's folder on the server (`server/library/book-folder.ts`)
+
+Against a real server, with the work that would be under way held at a
+gate (ffmpeg, the EPUB tool), so two things happen in a known order
+(`book-folder.test.ts`):
+
+- A transcript sent while the book is measured, or filled in from its
+  EPUB, is kept: the book's record lists it and says how it was placed,
+  and the book reads along by sentence.
+- A book deleted while its transcript was placed gets nothing written into
+  its folder: the transcript is refused (404), no folder is left, and
+  adding its folder again brings it back.
+- A book deleted while its read-along was made isn't found by its words.
+- A book whose record lost its transcript from its list, as a job writing
+  back an older copy left it, reads along again once the server starts.
+
+### Invites (`server/invites.ts`)
+
+- A code held by a sign-up isn't given to anyone else however long the
+  sign-up takes, through the server too; it's spent once, by the sign-up
+  that held it, and never without a hold (`invites.test.ts`).
+- Given back, it's good again; a spent one stays spent; one held when the
+  server stopped is good again when it starts; past its days it's
+  expired, but a sign-up that held it in time still spends it.
+- Before and after: the new invites answer as the old did in every
+  sequence of six events, but for three differences, each reached: time
+  doesn't let a hold go, a restart does, and only a held code is spent
+  (`invites-before-after.test.ts`).
+
+### The job queue (`server/jobs.ts`)
+
+- A job whose start the database won't note is failed, and the jobs after
+  it in its lane still run; a report after a job ended changes nothing; a
+  job under way when the server stopped is failed when it starts
+  (`jobs.test.ts`).
+- Before and after: every job's row is the same in the old queue and the
+  new in every sequence of five events, but that a finished job never
+  moves again (`jobs-before-after.test.ts`).
 
 ## Fixture cases
 

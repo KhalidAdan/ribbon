@@ -1,8 +1,8 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Host } from "@ribbon/core/host";
 import { analyzeFiles, type BookAnalysis } from "@ribbon/core/analysis";
 import { nothingMeasured } from "@ribbon/core/loudness";
+import { changeStored, readStored } from "./book-folder.ts";
 import { bookDir, type BookIndex, type StoredAnalysis, type StoredBook } from "./books.ts";
 
 /** A book's loudness and silences as `book.json` keeps them: plain JSON, the silences by the file's place in the book. */
@@ -60,7 +60,8 @@ export async function prepareBooks(host: Host, dataDir: string, ids: readonly st
       report(progress);
       try {
         const analysis = await analyzeStored(host, bookDir(dataDir, id), stored);
-        if (analysis) await writeStored(dataDir, id, { ...stored, analysis });
+        // Kept on the record as it is now: what came in while it was measured (a transcript) stays.
+        if (analysis) await changeStored(dataDir, id, (now) => ({ ...now, analysis }));
       } catch (e) {
         // Deleted while it was measured: nothing to keep, and the rest go on.
         if (await readStored(dataDir, id)) throw e;
@@ -71,17 +72,4 @@ export async function prepareBooks(host: Host, dataDir: string, ids: readonly st
   }
   progress.current = null;
   return progress;
-}
-
-export async function readStored(dataDir: string, id: string): Promise<StoredBook | null> {
-  return readFile(path.join(bookDir(dataDir, id), "book.json"), "utf8")
-    .then((t) => JSON.parse(t) as StoredBook)
-    .catch(() => null);
-}
-
-/** Written beside and moved into place, so a book's record is never half written. */
-export async function writeStored(dataDir: string, id: string, stored: StoredBook): Promise<void> {
-  const file = path.join(bookDir(dataDir, id), "book.json");
-  await writeFile(`${file}.tmp`, JSON.stringify(stored, null, 2));
-  await rename(`${file}.tmp`, file);
 }

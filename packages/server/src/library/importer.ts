@@ -6,10 +6,11 @@ import type { Host } from "@ribbon/core/host";
 import { ensureChapters, scanLibrary, type ScannedBook } from "@ribbon/core/scan/scan";
 import type { ImportProgress } from "@ribbon/core/server-books";
 import type { Places } from "../places.ts";
+import { inTurn, readStored } from "./book-folder.ts";
 import { BookIndex, bookDir, booksDir, claimsOf, type StoredBook } from "./books.ts";
 import { makeCovers } from "./covers.ts";
 import { FolderPlaces } from "./folder-places.ts";
-import { analyzeStored, readStored, writeStored } from "./prepare.ts";
+import { analyzeStored } from "./prepare.ts";
 import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
 import { neverWrites } from "./never-writes.ts";
@@ -138,8 +139,11 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     const analysis = (found && (await carriedAnalysis(found))) ?? (files.length > 0 ? await analyzeStored(ctx.host, building, stored) : null);
     if (analysis) stored.analysis = analysis;
     await writeFile(path.join(building, "book.json"), JSON.stringify(stored, null, 2));
-    await rename(building, final);
-    ctx.index.add(id, fingerprint, stored, claims, ctx.addedBy, (ctx.now ?? Date.now)());
+    // Moved into place in the book's turn, as everything written there is (book-folder.ts).
+    await inTurn(ctx.dataDir, id, async () => {
+      await rename(building, final);
+      ctx.index.add(id, fingerprint, stored, claims, ctx.addedBy, (ctx.now ?? Date.now)());
+    });
     return { added: true, id };
   } catch (e) {
     await rm(building, { recursive: true, force: true });
@@ -154,12 +158,19 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
  */
 async function fillRecords(ctx: ImportContext, root: string, scanned: ScannedBook, id: string): Promise<void> {
   const found = await findRecords(root, scanned);
-  const stored = found && (await readStored(ctx.dataDir, id));
-  if (!found || !stored) return;
-  const records = await carryRecords(found, bookDir(ctx.dataDir, id), stored.records ?? []);
-  const analysis = stored.analysis ?? (await carriedAnalysis(found)) ?? undefined;
-  if (records.length === (stored.records ?? []).length && analysis === stored.analysis) return;
-  await writeStored(ctx.dataDir, id, { ...stored, ...(records.length > 0 ? { records } : {}), ...(analysis ? { analysis } : {}) });
+  if (!found) return;
+  const carried = await carriedAnalysis(found);
+  await inTurn(ctx.dataDir, id, async (book) => {
+    const stored = await book.stored();
+    if (!stored) return;
+    const records = await carryRecords(found, book.dir, stored.records ?? []);
+    await book.change((now) => {
+      const more = records.filter((kind) => !now.records?.includes(kind));
+      const analysis = now.analysis ?? carried ?? undefined;
+      if (more.length === 0 && analysis === now.analysis) return now;
+      return { ...now, ...(more.length > 0 ? { records: [...(now.records ?? []), ...more] } : {}), ...(analysis ? { analysis } : {}) };
+    });
+  });
 }
 
 /**
@@ -177,19 +188,23 @@ async function addEbook(ctx: ImportContext, root: string, scanned: ScannedBook, 
   const bytes = (await stat(from)).size;
   const free = await (ctx.freeBytes ?? freeBytes)(booksDir(ctx.dataDir));
   if (free < bytes + SPARE_BYTES) throw new Error(`there isn't room for its EPUB on the server's disk (${Math.round(bytes / 1024 ** 2)} MB, with ${Math.round(free / 1024 ** 2)} MB free).`);
-  const dir = bookDir(ctx.dataDir, id);
-  // Copied beside its place and moved in when whole, so a book never has half an EPUB.
-  const building = path.join(dir, `book.epub.adding-${randomBytes(4).toString("hex")}`);
-  try {
-    await copyIn(from, building, bytes);
-    await rename(building, path.join(dir, "book.epub"));
-  } catch (e) {
-    await rm(building, { force: true });
-    throw e;
-  }
-  await writeStored(ctx.dataDir, id, { ...stored, book: { ...stored.book, ebook: "book.epub" }, ebookBytes: bytes });
-  ctx.index.giveEbook(id, bytes);
-  return true;
+  return inTurn(ctx.dataDir, id, async (book) => {
+    // Deleted, or given one, since it was looked at.
+    const here = await book.stored();
+    if (!here || here.book.ebook) return false;
+    // Copied beside its place and moved in when whole, so a book never has half an EPUB.
+    const building = path.join(book.dir, `book.epub.adding-${randomBytes(4).toString("hex")}`);
+    try {
+      await copyIn(from, building, bytes);
+      await rename(building, path.join(book.dir, "book.epub"));
+    } catch (e) {
+      await rm(building, { force: true });
+      throw e;
+    }
+    await book.change((now) => ({ ...now, book: { ...now.book, ebook: "book.epub" }, ebookBytes: bytes }));
+    ctx.index.giveEbook(id, bytes);
+    return true;
+  });
 }
 
 /** Bytes free on the disk that holds a folder. */

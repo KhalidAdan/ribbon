@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-import { rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { applyEdits, originalOf, type EditValues, type SharedEdits } from "@ribbon/core/edits";
@@ -23,24 +21,7 @@ export function booksDir(dataDir: string): string {
   return path.join(dataDir, "books");
 }
 
-/**
- * Take a deleted book's folder away. It's moved aside first, in one step,
- * so a book is never half there, and a folder that won't empty never stands
- * in the way of the same book being added again.
- */
-export async function removeBookDir(dataDir: string, id: string): Promise<void> {
-  const dir = bookDir(dataDir, id);
-  const aside = `${dir}.deleting-${randomBytes(4).toString("hex")}`;
-  try {
-    await rename(dir, aside);
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw e;
-  }
-  await rm(aside, { recursive: true, force: true });
-}
-
-/** A book as the server keeps it in `book.json`: the scanner's record, with paths inside the book's own folder. */
+/** A book as the server keeps it in `book.json`: the scanner's record, with paths inside the book's own folder. Read and changed in book-folder.ts, and nowhere else. */
 export interface StoredBook extends ScannedBook {
   cover: Cover | null;
   /** The EPUB's size, when there is one: with the audio's, what a download needs room for. */

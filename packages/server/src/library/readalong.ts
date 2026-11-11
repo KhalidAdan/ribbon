@@ -9,6 +9,7 @@ import { anchorsOf, heardFromRows, pairBook, pairingFromRows, transcriptAnchors,
 import { overlayAnchors } from "@ribbon/core/reading/overlay";
 import { readAlongOf, readsBySentence, type ReadAlong, type ReadAlongCheck } from "@ribbon/core/reading/readalong";
 import { stretchesOf } from "@ribbon/core/reading/transcript";
+import { inTurn } from "./book-folder.ts";
 import { bookDir, type StoredBook } from "./books.ts";
 import { chaptersWith, correctionsOf, recordRows } from "./chapters.ts";
 import type { SearchIndex } from "./search.ts";
@@ -80,6 +81,17 @@ export class ReadAlongError extends Error {
  * once; the read-alongs of the books being read are kept in memory. A
  * read-along made from something new is searched from then on (SearchIndex),
  * and how closely it follows the narration is said in the log (`checked`).
+ *
+ * Each book's read-along, in memory, is made from what it's made from as it
+ * is then (`stamp`), and only `of` makes and keeps it:
+ *
+ *     not made ──asked for──▶ made, with its stamp ──asked for, its stamp changed──▶ made again
+ *        ▲                          │
+ *        └──eight others asked for since (KEPT)
+ *
+ * How it reads along (`standings`) is kept for every book, with the same
+ * stamp. Two asks for a book at once each make it: nothing measured says
+ * that costs enough to share the work.
  */
 export class ReadAlongs {
   private readonly made = new Map<string, { stamp: string; made: MadeReadAlong }>();
@@ -123,7 +135,7 @@ export class ReadAlongs {
     const stamp = await this.stamp(id, stored);
     const kept = this.made.get(id);
     this.made.delete(id);
-    const made = kept?.stamp === stamp ? kept.made : await this.make(dir, stored);
+    const made = kept?.stamp === stamp ? kept.made : await this.make(id, dir, stored);
     if (made !== kept?.made) this.log?.info(`read-along for "${stored.book.title}": ${checked(made.readAlong.check)}`);
     this.standings.set(id, { stamp, standing: made.standing });
     if (this.search && !this.search.isCurrent(id, stamp)) this.search.index(id, stamp, made.readAlong);
@@ -133,8 +145,8 @@ export class ReadAlongs {
     return made;
   }
 
-  private async make(dir: string, stored: StoredBook): Promise<MadeReadAlong> {
-    const text = new BookText(await this.parse(dir, stored));
+  private async make(id: string, dir: string, stored: StoredBook): Promise<MadeReadAlong> {
+    const text = new BookText(await this.parse(id, stored));
     if (stored.files.length === 0) {
       // Only its text: nothing to pair, nothing read, nothing to transcribe.
       const readAlong = readAlongOf(text, null, { done: 0, total: 0 });
@@ -153,13 +165,16 @@ export class ReadAlongs {
   /** A book's EPUB as `ribbon-ebook` reads it: its text and what its package says. */
   async ebook(id: string, stored: StoredBook): Promise<Ebook> {
     if (!this.tool) throw new ReadAlongError("This server can't read EPUBs: the ribbon-ebook command isn't installed (packages/server/README.md).", 503);
-    return this.parse(bookDir(this.dataDir, id), stored);
+    return this.parse(id, stored);
   }
 
-  /** The book's EPUB, parsed by `ribbon-ebook` and kept in its folder (`ebook/`), so it's parsed once. */
-  private async parse(dir: string, stored: StoredBook): Promise<Ebook> {
+  /**
+   * The book's EPUB, parsed by `ribbon-ebook` and kept in its folder (`ebook/`), so it's parsed once: in the book's
+   * turn (book-folder.ts), so nothing is kept for a book deleted meanwhile.
+   */
+  private async parse(id: string, stored: StoredBook): Promise<Ebook> {
     try {
-      const { stdout } = await run(this.tool!, [path.join(dir, stored.book.ebook!), path.join(dir, "ebook")], { maxBuffer: 256 * 1024 * 1024 });
+      const { stdout } = await inTurn(this.dataDir, id, (book) => run(this.tool!, [path.join(book.dir, stored.book.ebook!), path.join(book.dir, "ebook")], { maxBuffer: 256 * 1024 * 1024 }));
       return JSON.parse(stdout) as Ebook;
     } catch (e) {
       const said = (e as { stderr?: string }).stderr?.trim();
