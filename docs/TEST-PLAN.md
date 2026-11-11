@@ -166,8 +166,47 @@ Given files of durations `[1000, 2000, 3000]`:
   returns to 1.
 - Cancel resets to idle with gain 1.
 - Pausing the player pauses the timer clock in duration mode.
+- Minutes added while it's held add to what was left: the time held is
+  never counted, however long it was, and it stays held until the book
+  plays again.
 - Speed changes do not change wall-clock duration mode but do change
   the wall-clock time an end-of-chapter timer fires.
+- Before and after: the timer made explicit does what the old one did in
+  every sequence of six events but that one (`sleep-before-after.test.ts`).
+
+### Whether a book plays (`core/playback.ts`)
+
+- Every event has an answer in every status.
+- A pause, a load, a pause from outside, a refusal to play, a failure
+  while paused, and the end all lead to paused, from anywhere.
+- The audio sounding leads to playing, and a failure while wanted to
+  reconnecting, from anywhere.
+- Waiting for the file counts only while it's wanted: loading before the
+  first sound, buffering after.
+- The play button pauses from the press on, through loading and
+  reconnecting; the bar and the full player say the same thing.
+- Before and after: the engine with its status made explicit does to the
+  audio, the log and the place what the old one did, in every sequence of
+  three of sixteen events and 2,000 random ones of sixteen, and shows the
+  same but for four words the old one left up after their cause had
+  stopped (`engine-before-after.test.ts`).
+
+### Asks where only the newest counts (`core/latest.ts`)
+
+- An ask is current until a newer one begins, and never again after.
+- The book asked for last opens, in the player and the reader, though one
+  asked for before it finishes downloading after it; asked for again
+  while it downloads, it waits for the same download and opens
+  (`desktop-on-server.test.ts`).
+
+### Run again (`core/rerun.ts`)
+
+- Idle, an ask runs at once; running, every ask made meanwhile shares one
+  more run after, with what each asked merged, and waits for it.
+- A run that fails rejects for those who asked for it; the run after
+  still runs.
+- A book that finishes downloading while its folder is scanned plays
+  (`desktop-on-server.test.ts`).
 
 ### Loudness (`core/loudness.ts`)
 
@@ -278,6 +317,20 @@ Run with `cargo test --release` in `packages/desktop/src-tauri`.
   only unprobed files otherwise, persists the `probed` flag, and the
   result survives `loadLibrary`.
 - Files the scanner could not read are reported as errors, not books.
+
+## Before and after
+
+When something that works is rewritten without meaning to change what it
+does (a state machine written down, say), passing tests show only what
+they test. So the old code is kept beside the tests (`test/before/`), and
+the old and the new are run together through every sequence of events up
+to a length, and many longer ones at random but the same each run, and
+compared after every step on everything anyone could see: what was shown,
+what was done to the audio, what was written to the log. The differences
+the rewrite means to make are listed in the test, each reached at least
+once so the walk is known to get that far, and any other fails it. This
+is the real code against the real code, not a model of it; when either
+is changed on purpose, the old copy and its test go.
 
 ## Manual checklist before pinging the user
 
