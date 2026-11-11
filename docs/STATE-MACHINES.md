@@ -69,6 +69,10 @@ Four shapes come up again and again, so each has a name and a home:
 | A listen-through, read from the log | [`core/stats.ts`](../packages/core/src/stats.ts) (`openRead`, `endOf`) | going, finished, left |
 | The daily goal's note | [`core/goal.ts`](../packages/core/src/goal.ts) (`GoalWatch`) | one transition, `see` |
 | Resuming and recovering | `core/resume.ts`, `core/recovery.ts` | pure policies; their state is the player's |
+| Whether the Apple app's narration plays | [`Listening/Listening.swift`](../packages/apple/Ribbon/Listening/Listening.swift) (`Status`, `next`, `on`) | paused (on its own or not), playing, carded, ended, closed |
+| The Apple app's player | [`Listening/BookPlayer.swift`](../packages/apple/Ribbon/Listening/BookPlayer.swift) (`State`, `next`) | resting, paused, playing, held |
+| Still listening? | [`Listening/Dozing.swift`](../packages/apple/Ribbon/Listening/Dozing.swift) (`Status`, `become`) | awake, asked, stopping |
+| What the remote's next press wakes | [`Remote.swift`](../packages/apple/Ribbon/Remote.swift) (`wait`, `pressed`) | free, waiting (any number, by name) |
 
 ## Not written down yet
 
@@ -99,11 +103,9 @@ next to write down, roughly in order of how much they touch.
 
 | Machine | Where | What holds it today |
 | --- | --- | --- |
-| Listening | `Listening/Listening.swift`, `Listening/BookPlayer.swift` | `playing`, `pausedAt`, `stoppedOnItsOwn`, `resumeOffer`, `card`, `finishedRead`; the player's own `playing`, `loaded` and queue |
-| Still listening? | `Listening/Dozing.swift`, `Listening.swift`, `Remote.swift` | `asked`, `dozedAt`, `stoppedAt`, `dozeStop`, the fading volume, and the remote's one `waiting` slot |
 | Reading along by remote | `Reading/ReadingSession.swift` | `cursor`, `narrator`, `following`, `marking`, `deleting`, `atDozed` |
 | The app's screens and the open book | `RibbonApp.swift` (`AppModel`) | `server`, `library`, `adding`, `opening`, `problem`, `listening`, `reading`, `finished`, `path` |
-| The sleep timer | `Listening.swift` | an enum, nearly written down; its `pausedAt` follows `playing` |
+| The sleep timer | `Listening.swift` | an enum, nearly written down: its clock holds and goes on with the narration's status (`on`), but it's set and fired in four places, not one |
 | Places told to the server | `Listening.swift` | `toldAt`, `telling`, `unsent`, `checkedAt`, `lookingAgain` |
 | The daily goal | `Library/Goal.swift` | `met`, `waiting`, `belowOn`, `asking` and more |
 | Presses in the reader | `Reading/ReaderViewController.swift` | `selectHeld`, `heldLong`, `repeater`, `gliding`, `swiped` |

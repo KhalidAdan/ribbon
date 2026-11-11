@@ -9,30 +9,37 @@ import UIKit
 /// press or touch that wakes it goes no further, so it doesn't also act on
 /// the screen beneath. On the iPad it's every touch of the screen, and the
 /// keyboard's presses, seen the same way.
+///
+/// Any number of things may wait at once, each by its name; the one press
+/// wakes them all. While any waits, the watcher takes the next press:
+///
+/// ```
+///  free ── something waits ──▶ waiting ── a press or a touch ──▶ free, every one waiting woken, the press taken
+///  waiting ── the last one waiting stops ──▶ free
+/// ```
 @MainActor
 enum Remote {
     /// When the person last pressed or touched anything, or used the TV's own play and pause.
     private(set) static var lastInput = Date()
 
-    /// What the next press or touch only wakes, and who's waiting for it.
-    private static var waiting: (who: String, wake: () -> Void)?
-    fileprivate static var isWaiting: Bool { waiting != nil }
+    /// What the next press or touch only wakes, by who's waiting for it.
+    private static var waiting: [String: () -> Void] = [:]
+    fileprivate static var isWaiting: Bool { !waiting.isEmpty }
 
     /// Watching from the window, which every press and touch passes through.
     fileprivate static let watcher = Watcher()
 
     /// The next press or touch wakes this, and goes no further.
     static func wait(_ who: String, onWake wake: @escaping () -> Void) {
-        guard waiting?.who != who else { return }
-        waiting = (who, wake)
+        guard waiting[who] == nil else { return }
+        waiting[who] = wake
         watcher.takesNext(true)
     }
 
-    /// No longer waiting to be woken: the press or touch goes to the screen again.
+    /// No longer waiting to be woken: once nothing else waits, the press or touch goes to the screen again.
     static func stopWaiting(_ who: String) {
-        guard waiting?.who == who else { return }
-        waiting = nil
-        watcher.takesNext(false)
+        guard waiting.removeValue(forKey: who) != nil else { return }
+        watcher.takesNext(isWaiting)
     }
 
     /// Something the person did that isn't a press or a touch: the TV's own play and pause, from Control Center or a phone.
@@ -42,13 +49,28 @@ enum Remote {
 
     /// An event on its way to the screens. True when it wakes something, and is taken.
     fileprivate static func heard(_ event: UIEvent) -> Bool {
-        lastInput = Date()
         let begins = (event as? UIPressesEvent)?.allPresses.contains { $0.phase == .began } ?? event.allTouches?.contains { $0.phase == .began } ?? false
-        guard begins, let waiting else { return false }
+        guard begins else {
+            lastInput = Date()
+            return false
+        }
+        return pressed()
+    }
+
+    /// A press or a touch begins: the person is awake. True when it wakes something, and is taken.
+    static func pressed() -> Bool {
+        lastInput = Date()
+        guard isWaiting else { return false }
+        let woken = waiting
         // The watcher lets the screens have presses again once it's done with this one.
-        self.waiting = nil
-        waiting.wake()
+        waiting = [:]
+        for wake in woken.values { wake() }
         return true
+    }
+
+    /// Who's waiting to be woken by the next press or touch.
+    static var whoWaits: [String] {
+        waiting.keys.sorted()
     }
 }
 
