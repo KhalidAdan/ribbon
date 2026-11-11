@@ -82,7 +82,7 @@ final class Listening {
     /// Where the person is in this book on the server, newest of every device, listening or reading (AppModel).
     @ObservationIgnored var newestPlace: (() async -> (ms: Int, at: Date?)?)?
 
-    @ObservationIgnored private let player: BookPlayer
+    @ObservationIgnored private let player: any Player
     @ObservationIgnored private let server: RibbonServer
     @ObservationIgnored private var toldAt = Date.distantPast
     /// Places told and not answered yet, and whether the last one answered failed: until each has landed, the
@@ -127,8 +127,9 @@ final class Listening {
     static let speedStep = 0.05
 
     /// `placedAt` is when the place started from was kept: resuming from it goes back by how long ago that was. `heard`
-    /// is the speed the book was last heard at, on any device, and when.
-    init(book: ServerBook, detail: ServerBookDetail, startMs: Int, placedAt: Date?, heard: (speed: Double, at: Date)? = nil, server: RibbonServer) {
+    /// is the speed the book was last heard at, on any device, and when. `player` plays it; BookPlayer, streaming the
+    /// book's files from the server, unless the tests give a stand-in.
+    init(book: ServerBook, detail: ServerBookDetail, startMs: Int, placedAt: Date?, heard: (speed: Double, at: Date)? = nil, server: RibbonServer, player given: (any Player)? = nil) {
         self.book = book
         self.detail = detail
         self.server = server
@@ -143,7 +144,7 @@ final class Listening {
             heard: heard
         )
         var fileStart = 0
-        player = BookPlayer(files: detail.files.map { file in
+        player = given ?? BookPlayer(files: detail.files.map { file in
             defer { fileStart += file.durationMs }
             return .init(url: server.fileURL(book: book.id, path: file.path), startMs: fileStart, durationMs: file.durationMs)
         }, cookie: server.account.cookie, gainDb: detail.gainDb)
@@ -575,13 +576,19 @@ final class Listening {
         player.pause()
         cardShown = Task { [weak self] in
             try? await Task.sleep(for: Self.cardHold)
-            guard let self, !Task.isCancelled, self.card == index, self.playing else { return }
-            self.card = nil
-            self.cardShown = nil
-            // A timer a little late has played into the chapter: from its start again, so its first word isn't clipped.
-            let start = self.chapters[index].startMs
-            if abs(self.player.positionMs - start) > 150 { self.player.play(from: start) } else { self.player.resume() }
+            guard !Task.isCancelled else { return }
+            self?.cardPassed(index)
         }
+    }
+
+    /// The chapter's card has shown for its moment: the narration goes on.
+    func cardPassed(_ index: Int) {
+        guard card == index, playing else { return }
+        card = nil
+        cardShown = nil
+        // A timer a little late has played into the chapter: from its start again, so its first word isn't clipped.
+        let start = chapters[index].startMs
+        if abs(player.positionMs - start) > 150 { player.play(from: start) } else { player.resume() }
     }
 
     private func ended() {

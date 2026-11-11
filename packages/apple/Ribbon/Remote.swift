@@ -42,13 +42,27 @@ enum Remote {
 
     /// An event on its way to the screens. True when it wakes something, and is taken.
     fileprivate static func heard(_ event: UIEvent) -> Bool {
-        lastInput = Date()
         let begins = (event as? UIPressesEvent)?.allPresses.contains { $0.phase == .began } ?? event.allTouches?.contains { $0.phase == .began } ?? false
-        guard begins, let waiting else { return false }
+        guard begins else {
+            lastInput = Date()
+            return false
+        }
+        return pressed()
+    }
+
+    /// A press or a touch begins: the person is awake. True when it wakes something, and is taken.
+    static func pressed() -> Bool {
+        lastInput = Date()
+        guard let waiting else { return false }
         // The watcher lets the screens have presses again once it's done with this one.
         self.waiting = nil
         waiting.wake()
         return true
+    }
+
+    /// Who's waiting to be woken by the next press or touch.
+    static var whoWaits: [String] {
+        waiting.map { [$0.who] } ?? []
     }
 }
 

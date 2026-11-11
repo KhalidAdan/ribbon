@@ -26,8 +26,10 @@ final class Dozing {
     @ObservationIgnored private var inputSeen = Remote.lastInput
     @ObservationIgnored private let key: String
 
-    static let askAfter = Waits.of(40 * 60, quick: 20)
-    static let answerWithin = Waits.of(60, quick: 10)
+    /// How long with nothing pressed before it asks, and how long it waits for an answer: forty minutes and one, unless
+    /// the tests say otherwise.
+    @ObservationIgnored var askAfter = Waits.of(40 * 60, quick: 20)
+    @ObservationIgnored var answerWithin = Waits.of(60, quick: 10)
     /// Played on this far past where it stopped, they've chosen to go on from there.
     private static let forgottenAfterMs = 10 * 60_000
 
@@ -55,8 +57,8 @@ final class Dozing {
             asked = nil
             return false
         }
-        if asked == nil && Date().timeIntervalSince(Remote.lastInput) > Self.askAfter { asked = Date() }
-        return asked.map { Date().timeIntervalSince($0) > Self.answerWithin } ?? false
+        if asked == nil && Date().timeIntervalSince(Remote.lastInput) > askAfter { asked = Date() }
+        return asked.map { Date().timeIntervalSince($0) > answerWithin } ?? false
     }
 
     /// Stopped with no answer: where they were last awake is kept for next time.

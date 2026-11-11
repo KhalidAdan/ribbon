@@ -2,6 +2,31 @@ import AVFoundation
 import MediaPlayer
 import UIKit
 
+/// What Listening asks of whatever plays the book: BookPlayer, which streams
+/// it from the server, or a stand-in the tests drive, which keeps
+/// BookPlayer's rules without its audio (RibbonTests/Support/FakePlayer.swift).
+@MainActor
+protocol Player: AnyObject {
+    var onTime: ((Int) -> Void)? { get set }
+    var onEnd: (() -> Void)? { get set }
+    var onSystemPause: (() -> Void)? { get set }
+    var onSystemResume: (() -> Void)? { get set }
+    var loaded: Bool { get }
+    var positionMs: Int { get }
+    var speed: Double { get set }
+    var volume: Float { get set }
+    var nowPlayingTitle: String { get set }
+    var nowPlayingAuthor: String { get set }
+    var nowPlayingChapter: String { get set }
+    var nowPlayingCover: UIImage? { get set }
+    func play(from ms: Int)
+    func resume()
+    func pause()
+    func unload(at ms: Int)
+    func stop()
+    func updateNowPlaying()
+}
+
 /// A book's narration, streamed from the server: its files one after
 /// another, as one recording timed from its start, the way every place in
 /// Ribbon is timed (docs/POSITION-FORMAT.md, `ms`). The TV keeps nothing,
@@ -26,7 +51,7 @@ import UIKit
 /// network drops, is asked for again from the moment it reached, rather
 /// than left for the queue to skip to the next file.
 @MainActor
-final class BookPlayer {
+final class BookPlayer: Player {
     struct File {
         let url: URL
         /// Where it starts in the book, and how long it is, as the server measured.
