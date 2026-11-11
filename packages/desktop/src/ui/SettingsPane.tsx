@@ -321,12 +321,17 @@ export function SettingsPane() {
 
         {homePath && (
           <section aria-labelledby="settings-home" className="flex flex-col gap-4">
-            <SectionHeader id="settings-home" title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a copy of each library's records, your places, the covers, and the log." />
+            <SectionHeader id="settings-home" title="Ribbon folder" description="The one place Ribbon keeps its own files on this machine: a copy of each library's records, your places, the covers, the books downloaded from servers, and the log. It can move to another disk." />
             <Group>
               <Row
                 title={<span className="font-mono text-[0.8125rem]/5 font-normal">{homePath}</span>}
                 aside={
                   <>
+                    {c.canMoveHome() && (
+                      <Button size="sm" onClick={() => void c.chooseHomePlace()}>
+                        Move…
+                      </Button>
+                    )}
                     <Button size="sm" onClick={() => void c.revealHome()}>
                       Show in Explorer
                     </Button>

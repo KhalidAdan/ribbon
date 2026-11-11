@@ -44,6 +44,7 @@ import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type 
 import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
 import { hearing, IDLE, keepsAwake, transcribingAfter, type Transcribing, type TranscribingEvent } from "@ribbon/core/transcriber";
 import { LIBRARY, pageBook, screenAfter, type Drawer, type FullPlayer, type OnScreen, type Screen, type ScreenEvent } from "@ribbon/core/screen";
+import { homeMoveAfter, NO_MOVE, type HomeMove, type HomeMoveEvent, type HomeMovePlan } from "@ribbon/core/home-move";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
 import { rowsToBytes } from "@ribbon/core/csv";
@@ -149,7 +150,21 @@ export interface Platform {
     reveal(): Promise<void>;
     /** Asks first. Resolves true when the reset happened. */
     reset(): Promise<boolean>;
+    /** Moving it to another place on this computer, where Ribbon can start itself again after. */
+    move?: HomeMover;
   };
+}
+
+/** Moving the Ribbon folder (home_move.rs): picked, checked, copied, and Ribbon started again. */
+export interface HomeMover {
+  /** Ask for the folder to move it into. Null when cancelled. */
+  pick(): Promise<string | null>;
+  /** What moving it into `picked` would do; throws why it can't go there, in plain words. */
+  check(picked: string): Promise<Omit<HomeMovePlan, "picked">>;
+  /** Copy it there, saying how far along. Once this resolves, it's in the new place. */
+  run(picked: string, onProgress: (done: number, total: number) => void): Promise<void>;
+  /** Start Ribbon again. */
+  restart(): Promise<void>;
 }
 
 /** A sentence a server's search found, with the id of its book on this machine's shelf. */
@@ -239,6 +254,8 @@ export interface AppState {
   downloads: Record<string, { done: number; total: number }>;
   /** A book that won't fit on this device, waiting for the person to choose what to remove, or not to download it. */
   spaceShort: { bookId: string; title: string; neededBytes: number; freeBytes: number } | null;
+  /** Moving the Ribbon folder to another place on this computer (core/home-move.ts), told through `toHomeMove`. */
+  homeMove: HomeMove;
   /** Every book from every source, in source order. */
   books: ScannedBook[];
   positions: Record<string, Position | null>;
@@ -569,6 +586,7 @@ export class AppController {
       moveOffer: null,
       downloads: {},
       spaceShort: null,
+      homeMove: NO_MOVE,
       books: [],
       positions: {},
       current: null,
@@ -1671,6 +1689,7 @@ export class AppController {
 
   /** Catch up with every server: when the window comes back, say. */
   private syncAllServers(): void {
+    if (this.leaving()) return;
     for (const o of this.openedInOrder()) if (o.serverPlaces) void this.syncPlaces(o);
   }
 
@@ -2679,7 +2698,7 @@ export class AppController {
    */
   private async transcribeForServer(): Promise<void> {
     // A model downloading (Ribbon's, replacing an older one) is waited for: setSpeechModel starts this again with it.
-    if (this.transcribing.server.status === "working" || hearing(this.transcribing) || this.state.speech.downloading) return;
+    if (this.transcribing.server.status === "working" || hearing(this.transcribing) || this.state.speech.downloading || this.leaving()) return;
     const o = this.openedInOrder().find((x) => x.server && x.serverAdmin);
     // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
     if (!o?.server || !this.state.speech.model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
@@ -3176,7 +3195,7 @@ export class AppController {
   async play(): Promise<void> {
     const engine = this.engine;
     const cur = this.state.current;
-    if (!engine || !cur) return;
+    if (!engine || !cur || this.leaving()) return;
     engine.setStopAt(null);
     if (this.state.previewing !== null) this.set({ previewing: null });
     // Read on since this book last played, outside the reader: carry on from the page.
@@ -3969,21 +3988,119 @@ export class AppController {
     // The mirror holds positions the share may not have yet: give them a last chance to land.
     await this.flushPositions();
     if (!(await this.platform.home.reset())) return;
+    void this.letGoOfEverything();
+    this.opened.clear();
+    this.set({ sources: [], sourceStatus: {}, books: [], positions: {}, current: null, resumeOffer: null, previewing: null, ...LIBRARY, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null, readOnlyNotice: [], theEnd: null, editBook: null, seriesSetup: null, seriesNew: false, spaceShort: null });
+  }
+
+  /**
+   * Stop everything that writes in the Ribbon folder or beside the books,
+   * once every place has been kept: the player paused, the reader and the
+   * sleep timer gone without writing again, transcribing stopped (the server's
+   * worker and its wait with it, so the computer may sleep again), and each
+   * folder's places, covers and lookups let go. Resolves once each folder's
+   * places are closed.
+   */
+  private async letGoOfEverything(): Promise<void> {
     this.engine?.pause();
-    // Every place was kept a moment ago: the reader and the sleep timer go without writing again.
     this.letGoOfReading();
     this.cancelSleep();
-    // Transcribing stops, the server's worker and its wait with it: the computer may sleep again.
     this.toTranscribing({ type: "reset" });
+    const closing: Promise<void>[] = [];
     for (const o of this.opened.values()) {
-      void o.keeper.close();
+      closing.push(o.keeper.close());
       this.letGoOfServerPlaces(o);
       o.coverJob?.abort();
       o.lookup?.stop();
     }
-    this.opened.clear();
     this.jobs.cancelAll();
-    this.set({ sources: [], sourceStatus: {}, books: [], positions: {}, current: null, resumeOffer: null, previewing: null, ...LIBRARY, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null, readOnlyNotice: [], theEnd: null, editBook: null, seriesSetup: null, seriesNew: false, spaceShort: null });
+    await Promise.all(closing);
+  }
+
+  // Moving the Ribbon folder -----------------------------------------------
+
+  /** Tell the move what happened (core/home-move.ts), the one way it changes. */
+  private toHomeMove(event: HomeMoveEvent): void {
+    const next = homeMoveAfter(this.state.homeMove, event);
+    if (next !== this.state.homeMove) this.set({ homeMove: next });
+  }
+
+  /**
+   * A move of the Ribbon folder has begun, and everything that writes in it
+   * stopped: nothing starts again (a key pressed to play, the window coming
+   * back into view, the network) until Ribbon does.
+   */
+  private leaving(): boolean {
+    const status = this.state.homeMove.status;
+    return status === "moving" || status === "failed" || status === "restarting";
+  }
+
+  /** Whether this machine can move its Ribbon folder: Windows and the Mac. */
+  canMoveHome(): boolean {
+    return !!this.platform.home?.move;
+  }
+
+  /** Pick a place for the Ribbon folder, and ask about moving it there, or say why it can't go there. */
+  async chooseHomePlace(): Promise<void> {
+    const mover = this.platform.home?.move;
+    if (!mover) return;
+    const picked = await mover.pick();
+    if (!picked) return;
+    try {
+      const plan: HomeMovePlan = { ...(await mover.check(picked)), picked };
+      this.toHomeMove({ type: "planned", plan });
+    } catch (e) {
+      this.toHomeMove({ type: "refused", why: describe(e) });
+    }
+  }
+
+  cancelHomeMove(): void {
+    this.toHomeMove({ type: "cancel" });
+  }
+
+  /**
+   * What a move waits for, in words, or null: a download into the Ribbon
+   * folder, which the copy would cut in two.
+   */
+  homeMoveWaitsFor(): string | null {
+    const books = Object.keys(this.state.downloads).length;
+    if (books > 0) return books === 1 ? "A book is downloading." : `${books} books are downloading.`;
+    if (this.state.speech.downloading) return "The speech model is downloading.";
+    return null;
+  }
+
+  /**
+   * Move the Ribbon folder where it was asked to go. Every place is kept
+   * first, as when Ribbon closes, and everything that writes in the folder
+   * stops, so the copy is all of it. Then Ribbon starts again: in the new
+   * place, or where it was if the copy failed (it's taken back, and nothing
+   * has moved).
+   */
+  async moveHome(): Promise<void> {
+    const mover = this.platform.home?.move;
+    if (!mover || this.homeMoveWaitsFor()) return;
+    this.toHomeMove({ type: "move" });
+    const moving = this.state.homeMove;
+    if (moving.status !== "moving") return;
+    log.info(`moving the Ribbon folder from ${moving.plan.from} to ${moving.plan.to}`);
+    await this.flushPositions();
+    await this.letGoOfEverything();
+    try {
+      await mover.run(moving.plan.picked, (done, total) => this.toHomeMove({ type: "progress", done, total }));
+    } catch (e) {
+      log.warn("could not move the Ribbon folder:", describe(e));
+      this.toHomeMove({ type: "failed", why: describe(e) });
+      return;
+    }
+    this.toHomeMove({ type: "moved" });
+    await this.restartAfterMove();
+  }
+
+  /** Start Ribbon again after a move: in the new place, or after one that failed, where it was. */
+  async restartAfterMove(): Promise<void> {
+    const status = this.state.homeMove.status;
+    if (status !== "restarting" && status !== "failed") return;
+    await this.platform.home?.move?.restart().catch((e: unknown) => log.warn("could not start Ribbon again:", describe(e)));
   }
 
   // Series ----------------------------------------------------------------

@@ -723,7 +723,13 @@ fn fnv(s: &str) -> String {
 
 /// This library's mirror folder inside the Ribbon folder.
 fn mirror_dir(root: &str) -> PathBuf {
-    crate::home::mirror_base().join(fnv(&root.replace('\\', "/").trim_end_matches('/').to_lowercase()))
+    crate::home::mirror_base().join(mirror_name(root))
+}
+
+/// The name of a library's mirror folder: from its root, so it's found again
+/// however the root is written (`sourceId` in core/sources.ts, the same).
+pub(crate) fn mirror_name(root: &str) -> String {
+    fnv(&crate::home::comparable(root))
 }
 
 #[derive(Serialize)]

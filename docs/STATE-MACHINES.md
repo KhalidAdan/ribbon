@@ -58,6 +58,7 @@ Four shapes come up again and again, so each has a name and a home:
 | A book's loudness and silence, measured | [`app/jobs.ts`](../packages/desktop/src/app/jobs.ts) (`JobStatus`) | queued, running, done, failed |
 | Transcribing a whole book | [`app/transcribing.ts`](../packages/desktop/src/app/transcribing.ts) (`transcribeWhole`) | its result: whole, stopped, failed |
 | A chapter-name lookup | `ui/ChapterList.tsx` (`lookup`) | idle, busy, found, error |
+| Moving the Ribbon folder | [`core/home-move.ts`](../packages/core/src/home-move.ts) (`homeMoveAfter`), told by the controller (`toHomeMove`); the copy itself in `home_move.rs` | none, asking (the plan), refused (why), moving (bytes done), failed (why), restarting |
 | A dialog opening and closing | `ui/modal.ts` (`useModal`) | closed, open, closing |
 | How a server's book reads along | [`packages/server/src/library/readalong.ts`](../packages/server/src/library/readalong.ts) (`stateOf`) | derived from its records, one function |
 | What's been worked out about a server's book | [`packages/server/src/library/book-folder.ts`](../packages/server/src/library/book-folder.ts) (`BookInTurn.change`, `changeStored`) | `book.json`, changed in one step on the record as it is then: each job keeps only what it worked out (`analysis`, `filled`, `described`, `placed`, `records`, `ebook`) |

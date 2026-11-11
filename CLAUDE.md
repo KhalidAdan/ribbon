@@ -78,7 +78,7 @@ order:
 | `packages/desktop/src/bookcase3d/` | The lamp-lit bookcase in 3D (three.js), made to match the Apple app's: `lamplit-case.ts` is the map, and `packages/desktop/tools/shelf-proof` sets the two side by side. |
 | `packages/desktop/src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
 | `packages/desktop/src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
-| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), a book's audio for Apple's webview (`audio.rs`), the Ribbon folder (`home.rs`). |
+| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), a book's audio for Apple's webview (`audio.rs`), the Ribbon folder (`home.rs`, and moving it, `home_move.rs`). |
 | `packages/desktop/src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
 | `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
@@ -106,7 +106,7 @@ cd packages/apple && xcodegen generate  # the Apple app's Xcode project (package
 system; a bare `cargo build` on Windows makes a speech side too slow to use.
 
 Environment: `RIBBON_LIBRARY` (a folder to open, or the first argument),
-`RIBBON_HOME` (the Ribbon folder, `%LOCALAPPDATA%\Ribbon` by default),
+`RIBBON_HOME` (where the Ribbon folder starts out, `%LOCALAPPDATA%\Ribbon` by default; a `moved.txt` there points to where it was moved),
 `RIBBON_PROFILE=1` (the measurement build: React's profiler and
 `window.__ribbon`), `RIBBON_DEV_LIBRARY` (the browser harness's folder),
 `RIBBON_E2E_LIBRARY`, `RIBBON_SCAN_PATH` and `RIBBON_MIN_READ` (the scan
