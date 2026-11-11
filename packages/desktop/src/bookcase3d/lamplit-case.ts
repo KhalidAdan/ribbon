@@ -19,7 +19,7 @@ interface Shelf {
 export interface CaseSetting {
   /** The canvas of each shelf, top to bottom. */
   shelves: readonly { items: readonly CaseItem[]; canvas: HTMLCanvasElement }[];
-  /** How wide a shelf is and how big its books, in points, and the screen's pixels to a point. */
+  /** How wide a shelf is and how big its books, in points, and the pixels to a point it is drawn at (ui/case-books.ts, `CASE_SCALE`). */
   width: number;
   k: number;
   scale: number;

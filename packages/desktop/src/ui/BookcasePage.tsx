@@ -9,7 +9,7 @@ import { LamplitCase } from "../bookcase3d/lamplit-case";
 import { frameOnRow, rowSize } from "../bookcase3d/shelf-row";
 import { loadSpineFaces, measureRun } from "../bookcase3d/spine-art";
 import { Button, pressed } from "./Button";
-import { caseBookOf, loadPicture, useCoverCloths, useShelvedBooks } from "./case-books";
+import { CASE_SCALE, caseBookOf, loadPicture, useCoverCloths, useShelvedBooks } from "./case-books";
 import { Cover } from "./Cover";
 import { howFar, lengthOf, progressOf, useShelfProgress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
@@ -58,7 +58,6 @@ export default function BookcasePage() {
   const progress = useShelfProgress();
   const cloths = useCoverCloths(books, (b) => c.coverUrl(b));
   const [caseBox, width] = useSettledWidth<HTMLDivElement>();
-  const scale = Math.min(2, window.devicePixelRatio || 1);
 
   const [facesReady, setFacesReady] = useState(false);
   useEffect(() => {
@@ -119,7 +118,7 @@ export default function BookcasePage() {
   useEffect(() => {
     if (!lamplit || !shelves) return;
     const first = Math.max(0, Math.floor((scroller.current?.scrollTop ?? 0) / rowHeight));
-    lamplit.lay({ shelves: shelves.map((items, i) => ({ items, canvas: canvases.current[i]! })), width, k: K, scale, first });
+    lamplit.lay({ shelves: shelves.map((items, i) => ({ items, canvas: canvases.current[i]! })), width, k: K, scale: CASE_SCALE, first });
     lamplit.sizeHand(LECTERN, HAND_HEIGHT);
     // The shelf opens at its start, on the newest book, unless a book is already in hand.
     const all = shelves.flat();
@@ -127,7 +126,7 @@ export default function BookcasePage() {
     const keep = all.find((it) => it.book.id === lamplit.taken) ?? back ?? all[0];
     if (keep) takeDown(keep.book.id);
     if (back) canvases.current[shelves.findIndex((shelf) => shelf.includes(back))]?.scrollIntoView({ block: "center" });
-  }, [lamplit, shelves, width, scale, rowHeight, takeDown]);
+  }, [lamplit, shelves, width, rowHeight, takeDown]);
 
   // The pointer resting on a book takes it down; passing over on the way elsewhere doesn't.
   const resting = useRef(0);

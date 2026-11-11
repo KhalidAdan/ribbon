@@ -42,6 +42,10 @@ Each of these was found by measuring the two pictures, and each is commented whe
   half way round (`studioTurn`).
 - SceneKit reads the scanned cloth at full sharpness however small it is drawn (`sharp` in `textures.ts`).
 - The lamps' strength, the fill, and the curve the picture is developed with (`LAMP`).
+- Two pixels to the point, as on a Mac's screen and in these pages (`SCALE`). The app draws the bookcase at two on
+  every screen (`CASE_SCALE` in `src/ui/case-books.ts`): drawn at a Windows screen's one, the weave read unsmoothed
+  comes out as a coarse grid and the lettering blurs. `one-pixel/` holds the app's bookcase on such a screen, drawn
+  at one and at two, and close-ups (three times over) beside SceneKit's picture shrunk to the same size.
 
 Still different, and left so by the owner's choice (10 November 2026): SceneKit's fine stripes on the books' sides
 and tops, a harder edge to the shadow from the shelf above, and slightly duller foil away from the lamp.

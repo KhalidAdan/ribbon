@@ -4,7 +4,7 @@ import { caseOrder } from "@ribbon/core/bookcase/case";
 import type { Cloth } from "@ribbon/core/bookcase/cloth";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { pressedCard } from "./Button";
-import { caseBookOf, useCoverCloths, useShelvedBooks } from "./case-books";
+import { CASE_SCALE, caseBookOf, useCoverCloths, useShelvedBooks } from "./case-books";
 import { progressOf, useShelfProgress } from "./progress";
 import { useController, useCovers } from "./store";
 
@@ -75,8 +75,7 @@ function BookcasePicture({ books }: { books: readonly ScannedBook[] }) {
   const [picture, setPicture] = useState<string | null>(null);
   useEffect(() => {
     if (!size || size.width < 50 || !cloths) return;
-    const scale = Math.min(2, window.devicePixelRatio || 1);
-    const key = `${newest.map((b) => b.book.id).join(",")} ${size.width}x${size.height} ${scale}`;
+    const key = `${newest.map((b) => b.book.id).join(",")} ${size.width}x${size.height}`;
     if (kept?.key === key) {
       setPicture(kept.url);
       return;
@@ -86,7 +85,7 @@ function BookcasePicture({ books }: { books: readonly ScannedBook[] }) {
     const waited = window.setTimeout(async () => {
       const { drawVignette } = await import("../bookcase3d/vignette");
       if (!live) return;
-      const drawn = await drawVignette(newest.map((b) => asCaseBook(b, cloths)), size.width, size.height, scale).catch(() => null);
+      const drawn = await drawVignette(newest.map((b) => asCaseBook(b, cloths)), size.width, size.height, CASE_SCALE).catch(() => null);
       drawn?.toBlob((blob) => {
         if (!blob) return;
         if (kept) URL.revokeObjectURL(kept.url);
