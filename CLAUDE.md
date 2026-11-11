@@ -13,6 +13,7 @@ order:
 - [docs/NORTHSTAR.md](docs/NORTHSTAR.md): what Ribbon is and refuses to be. Settles most product questions.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it fits together, in diagrams; where to start reading code.
 - [docs/READING.md](docs/READING.md): the reader and read-along. [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md): the position log.
+- [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md): every state machine in Ribbon, written down or not yet, and how to write one. Read it before adding a flag.
 - [docs/DESIGN.md](docs/DESIGN.md): the look. [docs/PLAN.md](docs/PLAN.md): how version one was built.
 - [docs/RELEASING.md](docs/RELEASING.md): cutting a release. [docs/MAC.md](docs/MAC.md): macOS and the phone.
 

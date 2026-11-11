@@ -20,6 +20,7 @@ import { describeFilter, useShelfFacts, ViewBar } from "./ShelfView";
 import { applyView, filterCount, SORT_LABELS } from "@ribbon/core/view";
 import { seriesStanding } from "./SeriesPage";
 import { BookcaseInvitation } from "./BookcaseInvitation";
+import { isPlaying } from "@ribbon/core/playback";
 
 /**
  * The library: what you are in the middle of, then each series as a card
@@ -31,7 +32,7 @@ import { BookcaseInvitation } from "./BookcaseInvitation";
  */
 export function LibraryPane({ query, onQuery, found, lines, count, onSubmit }: { query: string; onQuery: (q: string) => void; found: ScannedBook[] | null; lines: FoundLine[] | null; count: number | null; onSubmit: () => void }) {
   // Not the player's place: the shelf follows it by the minute (useShelfProgress).
-  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: s.player.playing, reading: s.reading !== null, canAddFolders: s.canAddFolders }));
+  const state = useAppState((s) => ({ books: s.books, positions: s.positions, series: s.series, sources: s.sources, view: s.view, scanning: s.scanning, playing: isPlaying(s.player.status), reading: s.reading !== null, canAddFolders: s.canAddFolders }));
   useCovers();
   const progress = useShelfProgress();
   const c = useController();

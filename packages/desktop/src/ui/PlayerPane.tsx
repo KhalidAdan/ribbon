@@ -17,6 +17,7 @@ import { BookmarkList } from "./BookmarkList";
 import { ResumeOffer } from "./ResumeOffer";
 import { Transport } from "./PlayerBar";
 import { Group, Row, Toggle } from "./kit";
+import { playerStatus } from "./player-status";
 
 /**
  * The full player, a canvas of its own: where you are as a sentence, the
@@ -58,7 +59,7 @@ export function PlayerPane() {
   // A chapter by its own name, never its place among the markers, which count the credits too.
   const where = story ? `Story ${storyIndex + 1} of ${book.parts.length}` : chapter && book.chapters.length > 1 ? chapter.title : null;
   const sentence = `${where ? `${where}, ` : ""}${percent}% through, ${formatLeft(bookLeft)} left${p.speed !== 1 ? ` at ${formatSpeed(p.speed)}` : ""}.`;
-  const status = p.error ?? (p.reconnecting ? "Reconnecting to the file…" : p.buffering ? "Loading…" : p.skippingGap ? "Shortening a pause" : null);
+  const status = playerStatus(p, "long") ?? (p.skippingGap ? "Shortening a pause" : null);
 
   return (
     <section className="flex h-full min-w-0 flex-col" aria-label="Player">

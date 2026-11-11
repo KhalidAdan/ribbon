@@ -1,6 +1,7 @@
 import { MoonIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { formatDuration } from "@ribbon/core/speed";
+import { isSet } from "@ribbon/core/sleep";
 import { useAppState, useController } from "./store";
 import { Button } from "./Button";
 
@@ -11,8 +12,8 @@ export function SleepControl() {
   const state = useAppState();
   const c = useController();
   const s = state.sleep;
-  const active = s.state.mode !== null;
-  const left = s.state.mode?.kind === "chapter" ? "At the end of this chapter" : s.remainingMs !== null ? `${formatDuration(s.remainingMs)} left` : "On";
+  const active = isSet(s.state);
+  const left = s.state.status === "chapter" ? "At the end of this chapter" : s.remainingMs !== null ? `${formatDuration(s.remainingMs)} left` : "On";
 
   // Stacked, not side by side: five choices beside a sentence squeezed it to a word a line.
   return (

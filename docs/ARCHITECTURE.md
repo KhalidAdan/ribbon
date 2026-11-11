@@ -434,6 +434,7 @@ same folder on another machine gets the same id.
 | To understand | Read |
 | --- | --- |
 | How the app holds together | `app/controller.ts` (state at the top, then actions by area) |
+| What can be in which state, and what moves it | [STATE-MACHINES.md](STATE-MACHINES.md): every state machine, and where each changes |
 | How the server holds together | `packages/server/src/app.ts`, `packages/server/src/library/importer.ts`, [SERVER.md](SERVER.md) |
 | A server as the desktop sees it | `app/server/shelf.ts` (its books), `app/server/server-log.ts` (its places) |
 | What a book is | `core/types.ts`, `core/scan/group.ts` |

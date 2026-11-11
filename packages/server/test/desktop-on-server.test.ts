@@ -16,6 +16,7 @@ import { nodeHost } from "@ribbon/host-node/node";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import { epub, importAs, makeLibraries, mp3, serverWithAdmin } from "./fixture.ts";
+import { FakeMedia } from "../../desktop/test/support/fake-media.ts";
 
 const PASSWORD = "a long password";
 const PHONE = "urn:uuid:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -49,6 +50,7 @@ describe("the desktop on a server", () => {
   }, 60_000);
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     await server.app.close();
     server.db.close();
     rmSync(dir, { recursive: true, force: true });
@@ -441,6 +443,133 @@ describe("the desktop on a server", () => {
     // Reading on takes the mark away.
     app.moveReading({ ...r.place!, offset: 0 }, "seek");
     expect(app.getState().reading!.found).toBeUndefined();
+    await app.closeReading();
+  }, 60_000);
+
+  /**
+   * A machine whose downloads of one book wait at a gate until the test opens
+   * it: a big book on a slow connection, while the person asks for another.
+   */
+  const gatedDownloads = (base: Host = nodeHost()) => {
+    let holding: string | null = null;
+    let open = () => {};
+    const opened = new Promise<void>((resolve) => (open = resolve));
+    const host: Host = {
+      ...base,
+      serverDownload: async (url, token, target, size, onProgress) => {
+        if (holding && url.includes(holding)) await opened;
+        return base.serverDownload!(url, token, target, size, onProgress);
+      },
+    };
+    return { host, hold: (b: ScannedBook) => void (holding = b.remote!.serverId), open: () => open() };
+  };
+
+  /** The player, on fake audio: the tests' Node has no `Audio`, and the app makes its player only where there is one. */
+  const withAudio = () => {
+    FakeMedia.reset();
+    vi.stubGlobal("Audio", FakeMedia);
+  };
+
+  it("plays the book asked for last, though one asked for before it finishes downloading after it", async () => {
+    withAudio();
+    await stocked();
+    const gate = gatedDownloads();
+    const { app } = await aDesktop("admin", { host: gate.host });
+    await app.downloadBook(book(app, "Red Book").book.id);
+    const long = book(app, "Long Book");
+    gate.hold(long);
+
+    const first = app.openBook(long, { expand: false });
+    await soon(() => app.getState().downloads[long.book.id]).toBeTruthy();
+    await app.openBook(book(app, "Red Book"), { expand: false });
+    expect(app.getState().current?.book.book.title).toBe("Red Book");
+
+    // Long Book arrives after Red Book was asked for: it waits on the shelf, downloaded, and Red Book stays open.
+    gate.open();
+    await first;
+    expect(book(app, "Long Book").remote).toBeUndefined();
+    expect(app.getState().current?.book.book.title).toBe("Red Book");
+  }, 30_000);
+
+  it("plays a book asked for again while it downloads, when it was asked for last", async () => {
+    withAudio();
+    await stocked();
+    const gate = gatedDownloads();
+    const { app } = await aDesktop("admin", { host: gate.host });
+    await app.downloadBook(book(app, "Red Book").book.id);
+    const long = book(app, "Long Book");
+    gate.hold(long);
+
+    const first = app.openBook(long, { expand: false });
+    await soon(() => app.getState().downloads[long.book.id]).toBeTruthy();
+    await app.openBook(book(app, "Red Book"), { expand: false });
+    // Long Book again, still downloading: a second ask waits for the same download, and it was asked for last.
+    const again = app.openBook(long, { expand: false });
+
+    gate.open();
+    await Promise.all([first, again]);
+    expect(app.getState().current?.book.book.title).toBe("Long Book");
+  }, 30_000);
+
+  it("plays a book that finished downloading while its folder was being scanned", async () => {
+    // The download asked for a scan to find the book it brought, and was told one was already running: it found
+    // nothing, and play did nothing, though the book had downloaded.
+    withAudio();
+    await stocked();
+    let holdScans = false;
+    let openScans = () => {};
+    const scansOpen = new Promise<void>((resolve) => (openScans = resolve));
+    let downloaded = 0;
+    const base = nodeHost();
+    const host: Host = {
+      ...base,
+      scan: async (...args) => {
+        if (holdScans) await scansOpen;
+        return base.scan(...args);
+      },
+      serverDownload: async (...args) => {
+        await base.serverDownload!(...args);
+        downloaded++;
+      },
+    };
+    const { app } = await aDesktop("admin", { host });
+    const red = book(app, "Red Book");
+
+    // A check for changes, held partway.
+    holdScans = true;
+    const checking = app.rescanSourceById(app.getState().sources.find((s) => s.server)!.id);
+    await soon(() => app.getState().scanning).not.toBeNull();
+    const opening = app.openBook(red, { expand: false });
+    await soon(() => downloaded).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    holdScans = false;
+    openScans();
+    await Promise.all([opening, checking]);
+    expect(book(app, "Red Book").remote).toBeUndefined();
+    expect(app.getState().current?.book.book.title).toBe("Red Book");
+  }, 30_000);
+
+  it("opens in the reader the book asked for last, though one asked for before it finishes downloading after it", async () => {
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    await importAs(server, admin, toldBook("Other Book"));
+    const gate = gatedDownloads(readsEpubs());
+    const { app } = await aDesktop("admin", { host: gate.host });
+    await app.downloadBook(book(app, "Other Book").book.id);
+    const told = book(app, "Told Book");
+    gate.hold(told);
+
+    const first = app.openReading(told.book.id);
+    await soon(() => app.getState().downloads[told.book.id]).toBeTruthy();
+    const other = book(app, "Other Book").book.id;
+    await app.openReading(other);
+    expect(app.getState().reading).toMatchObject({ bookId: other, status: "ready" });
+
+    gate.open();
+    await first;
+    expect(book(app, "Told Book").remote).toBeUndefined();
+    expect(app.getState().reading).toMatchObject({ bookId: other, status: "ready" });
     await app.closeReading();
   }, 60_000);
 

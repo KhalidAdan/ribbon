@@ -95,7 +95,7 @@ function controller(pane: AppState["pane"]): AppController {
     pane,
     readerBookId: playing.book.id,
     current: { book: playing, settings: defaultSettings(playing.book.id), bookmarks: [], loudnessGainDb: null, silence: null, corrections: [] },
-    player: { ...c.getState().player, bookId: playing.book.id, positionMs: HOUR + 1000, durationMs: playing.book.durationMs, playing: true, chapterIndex: 3 },
+    player: { ...c.getState().player, bookId: playing.book.id, positionMs: HOUR + 1000, durationMs: playing.book.durationMs, status: "playing", chapterIndex: 3 },
   });
   return c;
 }
@@ -178,7 +178,7 @@ describe("useAppState", () => {
       return null;
     }
     function Count() {
-      useAppState((s) => ({ n: s.books.length, playing: s.player.playing }));
+      useAppState((s) => ({ n: s.books.length, playing: s.player.status }));
       drawn.count += 1;
       return null;
     }
@@ -204,7 +204,7 @@ describe("useAppState", () => {
     drawn.whole = drawn.count = drawn.book = 0;
     for (let i = 0; i < 10; i++) act(() => tick(c));
     expect(drawn).toEqual({ whole: 10, count: 0, book: 0 });
-    act(() => set(c, { player: { ...c.getState().player, playing: false } }));
+    act(() => set(c, { player: { ...c.getState().player, status: "paused" } }));
     expect(drawn.count).toBe(1);
     // A selector that closes over a prop follows the prop.
     draw("book-2");
@@ -243,7 +243,7 @@ describe("a player tick", () => {
     expect(r.perTick.LibraryPane! * 300).toBe(1);
     // Pausing changes the card's button.
     counts.clear();
-    act(() => set(c, { player: { ...c.getState().player, playing: false } }));
+    act(() => set(c, { player: { ...c.getState().player, status: "paused" } }));
     expect(counts.get("LibraryPane")?.renders).toBe(1);
     expect(counts.get("Tabs")).toBeUndefined();
     // A saved place moves the book up the shelf.

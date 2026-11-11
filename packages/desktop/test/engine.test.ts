@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PlayerEngine, type EngineState } from "../src/player/engine";
 import { FakeMedia } from "./support/fake-media";
 import { STALL_MS, recoveryDelayMs } from "@ribbon/core/recovery";
+import { isPlaying } from "@ribbon/core/playback";
 import type { AudioFile } from "@ribbon/core/types";
 
 const MIN = 60_000;
@@ -70,12 +71,12 @@ describe("PlayerEngine: the basics", () => {
     await t.load();
     await t.engine.play();
     await run(5_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(34_500);
     t.engine.pause();
     const at = t.engine.positionMs();
     await run(5_000);
-    expect(t.last().playing).toBe(false);
+    expect(isPlaying(t.last().status)).toBe(false);
     expect(t.engine.positionMs()).toBe(at);
   });
 
@@ -84,7 +85,7 @@ describe("PlayerEngine: the basics", () => {
     await t.load();
     await t.engine.play();
     await run(5_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(4_500);
     expect(t.engine.positionMs()).toBeLessThan(6_000);
   });
@@ -95,7 +96,7 @@ describe("PlayerEngine: the basics", () => {
     await t.engine.play();
     await run(3_000);
     expect(t.ended()).toBe(1);
-    expect(t.last().playing).toBe(false);
+    expect(isPlaying(t.last().status)).toBe(false);
     expect(t.engine.positionMs()).toBe(2_000);
   });
 });
@@ -138,11 +139,11 @@ describe("PlayerEngine: recovers by itself", () => {
     const before = t.engine.positionMs();
     active().fail(2);
     await flush();
-    expect(t.last().reconnecting).toBe(true);
+    expect(t.last().status).toBe("reconnecting");
     expect(t.last().error).toBeNull();
     await run(recoveryDelayMs(0) + 500);
-    expect(t.last().playing).toBe(true);
-    expect(t.last().reconnecting).toBe(false);
+    expect(isPlaying(t.last().status)).toBe(true);
+    expect(t.last().status).not.toBe("reconnecting");
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(before);
     expect(t.engine.positionMs()).toBeLessThan(before + 2_000);
   });
@@ -155,12 +156,12 @@ describe("PlayerEngine: recovers by itself", () => {
     FakeMedia.broken.set("url:a.mp3", 2);
     active().fail(2);
     await run(40_000);
-    expect(t.last().playing).toBe(false);
-    expect(t.last().reconnecting).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(false);
+    expect(t.last().status).toBe("reconnecting");
     expect(t.last().error).toMatch(/Still trying/);
     FakeMedia.broken.delete("url:a.mp3");
     await run(35_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     expect(t.last().error).toBeNull();
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(MIN + 1_000);
   });
@@ -174,7 +175,7 @@ describe("PlayerEngine: recovers by itself", () => {
     el.stalled = true;
     await run(STALL_MS + recoveryDelayMs(0) + 1_000);
     expect(t.logs.some((l) => l.includes("no progress"))).toBe(true);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     await run(2_000);
     expect(t.engine.positionMs()).toBeGreaterThan(1_500);
   });
@@ -190,7 +191,7 @@ describe("PlayerEngine: recovers by itself", () => {
     active().fail(3);
     await run(recoveryDelayMs(1) + 300);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(second + 2_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
   });
 
   it("does not retry once the listener has paused", async () => {
@@ -204,7 +205,7 @@ describe("PlayerEngine: recovers by itself", () => {
     const plays = FakeMedia.all.reduce((n, m) => n + m.plays, 0);
     await run(60_000);
     expect(FakeMedia.all.reduce((n, m) => n + m.plays, 0)).toBe(plays);
-    expect(t.last().reconnecting).toBe(false);
+    expect(t.last().status).not.toBe("reconnecting");
   });
 
   it("reloads a failed file when play is pressed again", async () => {
@@ -214,7 +215,7 @@ describe("PlayerEngine: recovers by itself", () => {
     await flush();
     await t.engine.play();
     await run(1_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(3 * MIN);
   });
 
@@ -225,7 +226,7 @@ describe("PlayerEngine: recovers by itself", () => {
     const standby = FakeMedia.all.find((m) => m.src === "url:b.mp3")!;
     standby.fail(2);
     await run(3_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(2_000);
   });
 });
@@ -240,7 +241,7 @@ describe("PlayerEngine: fast hands", () => {
     FakeMedia.loadAll();
     await playing;
     await run(1_000);
-    expect(t.last().playing).toBe(false);
+    expect(isPlaying(t.last().status)).toBe(false);
   });
 
   it("a seek across files while playing is not an error", async () => {
@@ -251,7 +252,7 @@ describe("PlayerEngine: fast hands", () => {
     t.engine.seek(7 * MIN);
     await run(1_000);
     expect(t.states.some((s) => s.error)).toBe(false);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(7 * MIN);
   });
 
@@ -263,7 +264,7 @@ describe("PlayerEngine: fast hands", () => {
     await run(500);
     expect(t.engine.positionMs()).toBeGreaterThanOrEqual(5 * MIN);
     expect(t.engine.positionMs()).toBeLessThan(5 * MIN + 2_000);
-    expect(t.last().playing).toBe(true);
+    expect(isPlaying(t.last().status)).toBe(true);
   });
 
   it("a pause from outside the app is respected, not undone by the watchdog", async () => {
@@ -273,8 +274,8 @@ describe("PlayerEngine: fast hands", () => {
     await run(1_000);
     active().externalPause();
     await run(STALL_MS * 3);
-    expect(t.last().playing).toBe(false);
-    expect(t.last().reconnecting).toBe(false);
+    expect(isPlaying(t.last().status)).toBe(false);
+    expect(t.last().status).not.toBe("reconnecting");
   });
 
   it("loading a second book while the first is still loading leaves only the second", async () => {
@@ -285,5 +286,79 @@ describe("PlayerEngine: fast hands", () => {
     await flush();
     expect(t.last().bookId).toBe("two");
     expect(t.engine.positionMs()).toBe(5_000);
+  });
+});
+
+describe("PlayerEngine: what the listener is told", () => {
+  it("says it's starting the moment play is pressed, playing once the audio sounds, and loading while the file arrives", async () => {
+    FakeMedia.manualLoad = true;
+    const t = setup([file("a.mp3", 10 * MIN)]);
+    await t.load();
+    expect(t.last().status).toBe("paused");
+    void t.engine.play();
+    expect(t.last().status).toBe("starting");
+    active().waitForData();
+    expect(t.last().status).toBe("loading");
+    FakeMedia.loadAll();
+    await flush();
+    expect(t.last().status).toBe("playing");
+    active().waitForData();
+    expect(t.last().status).toBe("buffering");
+  });
+
+  it("a pause from outside the app mid-reconnect stops the reconnecting, and says so", async () => {
+    const t = setup([file("a.mp3", 10 * MIN)], MIN);
+    await t.load();
+    await t.engine.play();
+    await run(1_000);
+    // The share stops delivering: a stall, and a reload waits its turn.
+    const el = active();
+    el.stalled = true;
+    await run(STALL_MS + 200);
+    expect(t.last().status).toBe("reconnecting");
+    // Headphones out, say: the system pauses the element before the reload.
+    el.externalPause();
+    expect(t.last().status).toBe("paused");
+    expect(t.last().error).toBeNull();
+    await run(60_000);
+    expect(t.last().status).toBe("paused");
+  });
+
+  it("the listener's pause mid-reconnect takes away \"Still trying…\": nothing is trying any more", async () => {
+    const t = setup([file("a.mp3", 10 * MIN)], MIN);
+    await t.load();
+    await t.engine.play();
+    await run(1_000);
+    FakeMedia.broken.set("url:a.mp3", 2);
+    active().fail(2);
+    await run(40_000);
+    expect(t.last().error).toMatch(/Still trying/);
+    t.engine.pause();
+    expect(t.last().status).toBe("paused");
+    expect(t.last().error).toBeNull();
+  });
+
+  it("a refusal to play mid-reconnect ends the reconnecting and asks for a press", async () => {
+    const t = setup([file("a.mp3", 10 * MIN)], MIN);
+    await t.load();
+    await t.engine.play();
+    await run(1_000);
+    active().fail(2);
+    FakeMedia.refusePlay = true;
+    await run(recoveryDelayMs(0) + 500);
+    expect(t.last().status).toBe("paused");
+    expect(t.last().error).toBe("Press play to continue");
+  });
+
+  it("a late word from the audio after a pause is not \"Loading…\"", async () => {
+    FakeMedia.manualLoad = true;
+    const t = setup([file("a.mp3", 10 * MIN)]);
+    await t.load();
+    void t.engine.play();
+    const el = active();
+    t.engine.pause();
+    // The element's `waiting`, queued by the play, arrives after the pause.
+    el.waitForData();
+    expect(t.last().status).toBe("paused");
   });
 });

@@ -153,11 +153,11 @@ describe("the note that a new version is ready", () => {
     set({ update: ready });
     await shows("Ribbon 0.30.0 is ready");
     expect(text()).toContain("Restart to update now, or it updates the next time you close Ribbon.");
-    set({ player: { ...c.getState().player, playing: true } });
+    set({ player: { ...c.getState().player, status: "playing" } });
     await gone("Ribbon 0.30.0 is ready");
     // Gone for the book playing, not put off.
     expect(c.getState().update?.putOff).toBe(false);
-    set({ player: { ...c.getState().player, playing: false } });
+    set({ player: { ...c.getState().player, status: "paused" } });
     await shows("Ribbon 0.30.0 is ready");
   });
 

@@ -13,6 +13,7 @@ import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@rib
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
+import { isPlaying, wantsToPlay } from "@ribbon/core/playback";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
@@ -52,6 +53,8 @@ import { locate, wordIndex, type Anchor, type WordAt } from "@ribbon/core/readin
 import { placeTranscript } from "@ribbon/core/reading/placing";
 import { foundSentence } from "@ribbon/core/reading/readalong";
 import { Updater, type UpdateSource } from "./updates";
+import { Latest } from "@ribbon/core/latest";
+import { Rerun } from "@ribbon/core/rerun";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
 const HEAR_SECONDS = 8;
@@ -335,6 +338,17 @@ const SKIP_FORWARD_MS = 30_000;
 /** How often a playing book hands its place to the keeper, which throttles the writes. */
 const POSITION_WRITE_INTERVAL_MS = 1_000;
 
+/** What a scan is asked to do: whether it runs behind a visible shelf, and the folders to read again whatever their records say. */
+interface ScanAsk {
+  background: boolean;
+  forget: string[];
+}
+
+/** Two asks for one scan: it's behind the shelf only if both were, and forgets what either did. */
+function bothScans(a: ScanAsk, b: ScanAsk): ScanAsk {
+  return { background: a.background && b.background, forget: [...new Set([...a.forget, ...b.forget])] };
+}
+
 /** One source, open: its records service and everything the shelf needs from it. */
 interface Opened {
   source: Source;
@@ -354,7 +368,8 @@ interface Opened {
   seriesKeys: Set<string>;
   assetsReady: boolean;
   scanning: ScanStatus | null;
-  scanInFlight: boolean;
+  /** Its scans, one at a time: one asked for while another runs runs once more after (core/rerun.ts). */
+  scans: Rerun<ScanAsk>;
   /** The last scan's record write, which the shelf does not wait for. */
   saving: Promise<void>;
   coverJob: AbortController | null;
@@ -454,10 +469,15 @@ interface Opened {
  * - **Places are never lost.** The keeper writes a place to memory at
  *   once, to this machine within 2 s and beside the books within 15 s (at
  *   once for a pause or a seek); `flushPositions` runs when the window closes.
- * - **Slow work checks it is still wanted.** An open book that lost the
- *   race stops (`openSeq`); background reading work checks `still()`
- *   after every await; the engine carries an intent number for the same
- *   reason.
+ * - **Slow work checks it is still wanted.** Opening a book, for the
+ *   player or the reader, is an ask where only the newest counts
+ *   (`Latest`, core/latest.ts): one that lost the race stops, even after
+ *   a download. Background reading work checks `still()` after every
+ *   await; the engine carries an intent number for the same reason.
+ * - **State machines are written down.** Whether a book plays
+ *   (core/playback.ts), the sleep timer (core/sleep.ts) and the others in
+ *   docs/STATE-MACHINES.md each keep their state as one status and change
+ *   it in one place; read the map there before adding a flag.
  * - **Failures become a sentence.** A record that cannot be read or
  *   written is logged and, when it matters to the listener, put in
  *   `state.error` in plain words; the rest of the app carries on.
@@ -475,8 +495,12 @@ export class AppController {
   private pausedAt: number | null = null;
   /** The moment a Listen from here began from, before its lead-in: the text holds there until the narrator reaches it (followedMs). */
   private listenedFrom: number | null = null;
-  /** Bumped by every openBook, so a slow open that lost the race stops. */
-  private openSeq = 0;
+  /** Opening a book for the player: only the book asked for last opens, so a slow open that lost the race stops. */
+  private opening = new Latest();
+  /** Opening a book in the reader, likewise. */
+  private readerOpening = new Latest();
+  /** Downloads of a server's book begun to open it, by id: a second ask for the book while it downloads waits for the same one. */
+  private downloadsToOpen = new Map<string, Promise<ScannedBook | null>>();
   /** Sequence for history shown before the log is read back; only ever increases. */
   private localSeq = 0;
   /** Rows of each book's bookmarks CSV, by book id, once read. */
@@ -524,16 +548,14 @@ export class AppController {
         bookId: null,
         positionMs: 0,
         durationMs: 0,
-        playing: false,
-        buffering: false,
+        status: "paused",
         speed: 1,
         chapterIndex: -1,
         skippingGap: false,
         gain: 1,
-        reconnecting: false,
         error: null,
       },
-      sleep: { state: sleep.IDLE, gain: 1, remainingMs: null },
+      sleep: { state: sleep.OFF, gain: 1, remainingMs: null },
       resumeOffer: null,
       previewing: null,
       jobs: {},
@@ -857,7 +879,14 @@ export class AppController {
       seriesKeys: new Set(),
       assetsReady: false,
       scanning: null,
-      scanInFlight: false,
+      scans: new Rerun<ScanAsk>(
+        (asked) => this.scanOnce(o, asked.background, asked.forget),
+        bothScans,
+        (ok) => {
+          // A book a server's admin deleted waits for the scans to finish before it's taken off.
+          if (ok && o.server && this.opened.get(source.id) === o) void this.dropDeleted(o);
+        },
+      ),
       saving: Promise.resolve(),
       coverJob: null,
       lookup: null,
@@ -968,7 +997,7 @@ export class AppController {
     // instead of overwriting it with the older place.
     const cur = this.state.current;
     const engine = this.engine;
-    if (cur && engine && changed.includes(cur.book.book.id) && !this.state.player.playing && engine.current.bookId === cur.book.book.id) {
+    if (cur && engine && changed.includes(cur.book.book.id) && !isPlaying(this.state.player.status) && engine.current.bookId === cur.book.book.id) {
       const p = o.keeper.get(cur.book.book.id)!;
       log.info(`a newer position for the open book came from ${p.device || "another device"}: ${p.offsetMs} ms`);
       engine.seek(Math.min(p.offsetMs, cur.book.book.durationMs));
@@ -1145,15 +1174,26 @@ export class AppController {
   }
 
   /**
-   * Scan one source. Books appear as the scan streams them: the shelf
+   * Scan one source; while it's being scanned, once more after (`Rerun`).
+   * Resolves when a scan begun after the ask has ended, so whoever asked,
+   * a download looking for the book it brought, say, finds what's there now.
+   * A scan behind the shelf says what went wrong rather than throwing it.
+   */
+  private rescanSource(o: Opened, background: boolean, forget: string[] = []): Promise<void> {
+    const done = o.scans.ask({ background, forget });
+    return background ? done.catch(() => undefined) : done;
+  }
+
+  /**
+   * One scan of one source. Books appear as the scan streams them: the shelf
    * paints from folder names as soon as the walk is done, then fills in
    * authors, then durations, and the complete list lands last.
    */
-  private async rescanSource(o: Opened, background: boolean, forget: string[] = []): Promise<void> {
-    if (o.scanInFlight) return;
+  private async scanOnce(o: Opened, background: boolean, forget: string[]): Promise<void> {
     const { lib, source } = o;
     const alive = () => this.opened.get(source.id) === o;
-    o.scanInFlight = true;
+    // A source let go while a scan of it was waiting to run isn't scanned again.
+    if (!alive()) return;
     o.scanning = { walked: 0, done: 0, background };
     this.publishScanning({ scanErrors: this.state.scanErrors.filter((e) => !e.path.startsWith(`${source.id}:`)) });
     const started = Date.now();
@@ -1235,11 +1275,7 @@ export class AppController {
         this.publishScanning({ error: describe(e) });
       }
       if (!background) throw e;
-    } finally {
-      o.scanInFlight = false;
     }
-    // A book a server's admin deleted waits for a scan to finish before it's taken off.
-    if (o.server && alive()) void this.dropDeleted(o);
   }
 
   /** Covers ffmpeg still has to cut, after the library is visible. */
@@ -1671,6 +1707,21 @@ export class AppController {
     }
   }
 
+  /**
+   * Download a server's book to open it, in the player or the reader. Asked
+   * for again while it downloads (a second click), the same download is
+   * waited for rather than refused, so the later ask can still open it.
+   */
+  private downloadToOpen(book: ScannedBook): Promise<ScannedBook | null> {
+    const id = book.book.id;
+    let going = this.downloadsToOpen.get(id);
+    if (!going) {
+      going = this.downloadRemote(book).finally(() => this.downloadsToOpen.delete(id));
+      this.downloadsToOpen.set(id, going);
+    }
+    return going;
+  }
+
   /** Download a server's book without opening it: after making room, say. */
   async downloadBook(bookId: string): Promise<void> {
     const book = this.state.books.find((b) => b.book.id === bookId);
@@ -1733,7 +1784,7 @@ export class AppController {
    */
   private async dropDeleted(o: Opened): Promise<void> {
     const shelf = o.server;
-    if (!shelf || o.scanInFlight) return;
+    if (!shelf || o.scans.running) return;
     const inUse = new Set([this.state.current?.book.book.id, this.state.pane === "reader" ? this.state.readerBookId : null]);
     const gone = o.books.filter((b) => !b.remote && shelf.wasDeleted(serverIdOf(b)) && !inUse.has(b.book.id));
     let removed = 0;
@@ -1763,7 +1814,7 @@ export class AppController {
 
   /** Stop the open book, its place kept, before its files go. */
   private async letGoOfCurrent(): Promise<void> {
-    if (this.state.player.playing) {
+    if (isPlaying(this.state.player.status)) {
       this.engine?.pause();
       await this.persistPosition("pause");
     }
@@ -1939,23 +1990,24 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
-    if (player.playing && !prev.playing && player.bookId) {
+    if (isPlaying(player.status) && !isPlaying(prev.status) && player.bookId) {
       this.beginListening(player.bookId, player.positionMs, player.speed);
       // Read along with the narration, the time is listening: the stretch of reading ends.
       if (this.readingStretch?.bookId === player.bookId) void this.endReading();
     }
-    if (this.listening && (!player.playing || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
+    if (this.listening && (!isPlaying(player.status) || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
     // Stopped for any reason (the listener, the system, the end of a
     // preview, a file that failed): keep the place now.
-    if (prev.playing && !player.playing && player.bookId === prev.bookId) {
+    if (isPlaying(prev.status) && !isPlaying(player.status) && player.bookId === prev.bookId) {
       if (this.state.previewing !== null) this.set({ previewing: null });
-      if (!player.reconnecting) this.pausedAt = Date.now();
+      if (player.status !== "reconnecting") this.pausedAt = Date.now();
       void this.persistPosition("pause");
     }
-    if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
+    if (isPlaying(player.status) && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
     if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
-    if (player.playing !== prev.playing || player.reconnecting !== prev.reconnecting || Math.abs(player.positionMs - prev.positionMs) > 900) {
-      updateMediaPlayback(player.playing || player.reconnecting, player.positionMs, player.durationMs, player.speed);
+    // The system's controls show what the listener asked for: playing from the press, through loading and reconnecting.
+    if (wantsToPlay(player.status) !== wantsToPlay(prev.status) || Math.abs(player.positionMs - prev.positionMs) > 900) {
+      updateMediaPlayback(wantsToPlay(player.status), player.positionMs, player.durationMs, player.speed);
     }
   }
 
@@ -1965,10 +2017,12 @@ export class AppController {
    * and swapped in when they arrive.
    */
   async openBook(book: ScannedBook, opts: { expand?: boolean; autoplay?: boolean } = {}): Promise<void> {
-    // A server's book is downloaded before it plays (docs/SERVER.md, section 8).
+    // A server's book is downloaded before it plays (docs/SERVER.md, section 8). The ask is made first: a book
+    // asked for while this one downloads is the one that opens, and this one, arriving after, waits on the shelf.
     if (book.remote) {
-      const here = await this.downloadRemote(book);
-      if (!here) return;
+      const asked = this.opening.ask();
+      const here = await this.downloadToOpen(book);
+      if (!here || !asked.current()) return;
       book = here;
     }
     const lib = this.libOf(book);
@@ -1977,16 +2031,16 @@ export class AppController {
     const engine = this.ensureEngine();
     if (!engine) return;
     const expand = opts.expand ?? true;
-    const seq = ++this.openSeq;
+    const ask = this.opening.ask();
     if (this.state.current?.book.book.id === book.book.id && this.engine?.current.bookId === book.book.id) {
       if (expand) this.expandPlayer();
-      if (opts.autoplay && !this.state.player.playing) await this.play();
+      if (opts.autoplay && !isPlaying(this.state.player.status)) await this.play();
       return;
     }
     // Keep the place in the book being left before anything else happens.
-    if (this.state.player.playing) engine.pause();
+    if (isPlaying(this.state.player.status)) engine.pause();
     await this.persistPosition("pause");
-    if (seq !== this.openSeq) return;
+    if (!ask.current()) return;
     this.chapterProbe?.abort();
     const id = book.book.id;
     const quiet = <T>(what: string, p: Promise<T>, fallback: T): Promise<T> =>
@@ -1995,7 +2049,7 @@ export class AppController {
         return fallback;
       });
     await this.takeServerRecords(book);
-    if (seq !== this.openSeq) return;
+    if (!ask.current()) return;
     const [settings, bookmarks, loudness, silence, corrections] = await Promise.all([
       quiet("settings", lib.readSettings(id), defaultSettings(id)),
       quiet("bookmarks", this.loadBookmarks(id), [] as Bookmark[]),
@@ -2003,9 +2057,9 @@ export class AppController {
       quiet("silence", lib.readSilence(id), null),
       quiet("corrections", lib.readCorrections(id), [] as Correction[]),
     ]);
-    if (seq !== this.openSeq) return;
+    if (!ask.current()) return;
     const position = this.openedOf(book)?.keeper.get(id) ?? this.state.positions[id] ?? (await quiet("the position", lib.readPosition(id), null));
-    if (seq !== this.openSeq) return;
+    if (!ask.current()) return;
     // At the speed it was last heard at on any device, unless this machine chose one since (core/settings.ts).
     const speed = speedToPlay(settings, lastSpeed(this.state.history.sessions, id));
     const current: CurrentBook = { book, settings: { ...settings, speed }, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
@@ -2017,7 +2071,7 @@ export class AppController {
     if (ahead !== null) log.info(`starting ${book.book.title} where it was read, at ${Math.round(ahead / 1000)} s`);
     const startMs = Math.min(ahead ?? position?.offsetMs ?? 0, book.book.durationMs);
     await engine.load({ id: book.book.id, files: book.files, chapters: book.chapters, silence: settings.trimSilence ? (silence ?? undefined) : undefined }, startMs);
-    if (seq !== this.openSeq) return;
+    if (!ask.current()) return;
     engine.setSpeed(speed);
     engine.setLoudnessGainDb(loudness?.gainDb ?? 0);
     this.pausedAt = ahead !== null ? null : position ? Date.parse(position.updatedAt) : null;
@@ -2082,15 +2136,19 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (!book || !o) return;
     this.maybeNudgeSpeech(bookId);
+    // Only the book asked for last opens: another asked for meanwhile, or this one again, stops this opening.
+    const asked = this.readerOpening.ask();
     // A server's book is downloaded before it opens, as before it plays.
     if (book.remote) {
-      const here = await this.downloadRemote(book);
-      if (here) await this.openReading(here.book.id);
+      const here = await this.downloadToOpen(book);
+      if (here && asked.current()) await this.openReading(here.book.id);
       return;
     }
     // What the server has heard of it comes first, so it isn't heard again here.
     await this.takeServerRecords(book);
+    if (!asked.current()) return;
     if (this.state.reading) await this.closeReading();
+    if (!asked.current()) return;
     perf.begin("open the reader");
     this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
     const started = performance.now();
@@ -2129,7 +2187,7 @@ export class AppController {
           .catch(() => undefined),
       ),
     ]);
-    if (this.state.reading?.bookId !== bookId) return;
+    if (this.state.reading?.bookId !== bookId || !asked.current()) return;
     if (!result.ok) {
       log.warn(`could not open the text of ${book.book.title}: ${result.message}`);
       this.set({ reading: { bookId, status: "failed", message: result.message } });
@@ -2140,7 +2198,7 @@ export class AppController {
     const audio = !readerOnly(book.book);
     const kept = this.keptPlaces()[bookId];
     // Opened while its audio plays: the pages follow the narrator.
-    const following = this.state.current?.book.book.id === bookId && this.state.player.playing;
+    const following = this.state.current?.book.book.id === bookId && isPlaying(this.state.player.status);
     // The book opens at the newest of this machine's reading place, the log's, and the narrator's. Only the
     // narrator's needs the text paired with the audio first; when it is not the newest, the book opens at
     // once and is paired just after, so the page can be read and turned while read-along gets ready.
@@ -2151,7 +2209,7 @@ export class AppController {
     /** The records read, and the text paired with the audio; null if the reader moved on meanwhile. */
     const pair = async (): Promise<{ rd: ReadingData; alignment: Alignment | undefined } | null> => {
       const rd = await records;
-      if (this.state.reading?.bookId !== bookId) return null;
+      if (this.state.reading?.bookId !== bookId || !asked.current()) return null;
       this.rd = rd;
       rd.overlay = overlayAnchors(text, { files: withChapters.files.map((f) => ({ path: f.path, durationMs: f.durationMs })), durationMs: withChapters.book.durationMs });
       if (rd.overlay) log.info(`${book.book.title} has a Media Overlay for this recording: ${rd.overlay.length} passages`);
@@ -2432,7 +2490,7 @@ export class AppController {
         index: this.wordsOf(text),
         alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
         // Gently while a book plays, so playback comes first.
-        hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, this.state.player.playing),
+        hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
         model: modelName(model),
         keep: async () => {
           await this.keepAligned(ctx);
@@ -2663,7 +2721,7 @@ export class AppController {
       files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
       index,
       alignment: () => alignment,
-      hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, this.state.player.playing),
+      hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
       model: modelName(model),
       keep: async () => {
         await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
@@ -2808,7 +2866,7 @@ export class AppController {
     const ms = live ? this.engine!.positionMs() : this.state.positions[bookId]?.offsetMs;
     if (ms === undefined) return undefined;
     // Playing now is now; paused, it is when it paused.
-    const t = live && this.state.player.playing ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
+    const t = live && isPlaying(this.state.player.status) ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
     return { ms, t };
   }
 
@@ -2906,7 +2964,7 @@ export class AppController {
   private readingStretch: { bookId: string; claims: string[]; start: number; last: number; from: number; to: number } | null = null;
 
   private readOn(bookId: string, text: BookText, place: TextPlace): void {
-    if (this.state.player.playing && this.state.player.bookId === bookId) return;
+    if (isPlaying(this.state.player.status) && this.state.player.bookId === bookId) return;
     const now = Date.now();
     const at = text.locator(place).locations?.totalProgression ?? 0;
     const s = this.readingStretch;
@@ -3093,8 +3151,8 @@ export class AppController {
   }
 
   togglePlay(): void {
-    // While a file is being reconnected the listener is still "playing": the button pauses.
-    if (this.state.player.playing || this.state.player.reconnecting) this.pause();
+    // From the press until it's paused again the listener wants it playing, heard yet or not: the button pauses.
+    if (wantsToPlay(this.state.player.status)) this.pause();
     else void this.play();
   }
 
@@ -3201,7 +3259,7 @@ export class AppController {
    * whatever it does not take is already in the local copy.
    */
   async flushPositions(timeoutMs = 4_000): Promise<void> {
-    if (this.state.player.playing) this.engine?.pause();
+    if (isPlaying(this.state.player.status)) this.engine?.pause();
     await this.persistPosition("close");
     const reading = this.readingKeeper;
     const all = Promise.all([this.endReading(), ...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
@@ -3378,17 +3436,16 @@ export class AppController {
   private sleepTick(): void {
     const cur = this.state.current;
     const st = this.state.sleep.state;
-    if (!st.mode) return this.stopSleepLoop();
+    if (!sleep.isSet(st)) return this.stopSleepLoop();
     const ch = cur?.book.chapters[this.state.player.chapterIndex] ?? null;
-    let paused = st;
-    if (!this.state.player.playing && st.pausedAt === null) paused = sleep.pause(st, Date.now());
-    else if (this.state.player.playing && st.pausedAt !== null) paused = sleep.resume(st, Date.now());
-    const [next, out] = sleep.tick(paused, {
+    // Minutes count only while the book plays.
+    const held = isPlaying(this.state.player.status) ? sleep.resume(st, Date.now()) : sleep.pause(st, Date.now());
+    const [next, out] = sleep.tick(held, {
       nowMs: Date.now(),
       positionMs: this.state.player.positionMs,
       chapterEndMs: ch ? ch.endMs : null,
       speed: this.state.player.speed,
-      playing: this.state.player.playing,
+      playing: isPlaying(this.state.player.status),
     });
     this.engine?.setSleepGain(out.gain);
     this.set({ sleep: { state: next, gain: out.gain, remainingMs: out.remainingMs } });
@@ -3789,7 +3846,7 @@ export class AppController {
 
   /** Listening and reading going on now, not kept in the log yet. */
   private liveMs(now: number): number {
-    const listening = this.listening && this.state.player.playing ? now - this.listening.start : 0;
+    const listening = this.listening && isPlaying(this.state.player.status) ? now - this.listening.start : 0;
     const s = this.readingStretch;
     const reading = s ? Math.min(now, s.last + READING_LINGER_MS) - s.start : 0;
     return Math.max(0, listening) + Math.max(0, reading);

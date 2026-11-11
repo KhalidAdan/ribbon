@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FADE_MS, IDLE, cancel, extend, pause, resume, start, tick, type SleepTick } from "@ribbon/core/sleep";
+import { FADE_MS, OFF, cancel, extend, pause, resume, start, tick, type SleepTick } from "@ribbon/core/sleep";
 
 const base: SleepTick = { nowMs: 0, positionMs: 0, chapterEndMs: null, speed: 1, playing: true };
 
@@ -49,7 +49,7 @@ describe("duration mode", () => {
 
   it("cancel returns to idle with gain 1", () => {
     const s = cancel();
-    expect(s).toEqual(IDLE);
+    expect(s).toEqual(OFF);
     expect(tick(s, base)[1]).toEqual({ gain: 1, fire: false, remainingMs: null });
   });
 
@@ -81,7 +81,7 @@ describe("chapter mode", () => {
   it("extend converts to a duration timer", () => {
     let s = start({ kind: "chapter" }, 0);
     s = extend(s, 300_000, 1000);
-    expect(s.mode).toEqual({ kind: "duration", ms: 300_000 });
+    expect(s).toEqual({ status: "counting", endsAt: 301_000 });
     expect(tick(s, { ...base, nowMs: 1000 })[1].remainingMs).toBe(300_000);
   });
 });

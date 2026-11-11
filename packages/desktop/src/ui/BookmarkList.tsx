@@ -4,6 +4,7 @@ import { formatDuration } from "@ribbon/core/speed";
 import { useAppState, useController } from "./store";
 import { IconButton } from "./Button";
 import { EmptyState } from "./kit";
+import { isPlaying } from "@ribbon/core/playback";
 
 /** Bookmarks in the open book: where, the note or the words highlighted, the thirty seconds before it, the words in the text, and delete. */
 export function BookmarkList() {
@@ -22,7 +23,7 @@ export function BookmarkList() {
   return (
     <ul role="list" className="flex flex-col">
       {cur.bookmarks.map((bm) => {
-        const previewing = state.previewing === bm.offsetMs && state.player.playing;
+        const previewing = state.previewing === bm.offsetMs && isPlaying(state.player.status);
         return (
           <li key={bm.id} className={clsx("group/row flex items-start gap-1 rounded-md", previewing && "bg-raised")}>
             <button type="button" onClick={() => c.seek(bm.offsetMs)} className="flex min-w-0 flex-1 items-baseline gap-3 rounded-md py-2 pr-2 pl-3 text-left focus-ring hover:bg-raised">
