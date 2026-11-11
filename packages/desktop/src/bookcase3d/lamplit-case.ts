@@ -90,6 +90,8 @@ export class LamplitCase {
       // Each renderer has its own graphics-card memory, so each loads the cloth and the studio for itself.
       const [shelfTextures, handTextures] = await Promise.all([loadBookTextures(shelfRenderer), loadBookTextures(handRenderer)]);
       const opened = new LamplitCase(develop, shelfRenderer, handRenderer, shelfTextures, handTextures, coverOf);
+      // Not waited for: the shelves are laid meanwhile, and a book taken down before it is done waits only for what's left.
+      void opened.hand?.prepare(handRenderer);
       opened.times.opened = performance.now() - began;
       return opened;
     } catch (error) {
@@ -263,7 +265,7 @@ export class LamplitCase {
     cancelAnimationFrame(this.frame);
     window.clearTimeout(this.building);
     for (const shelf of this.shelves) shelf.row?.dispose();
-    this.hand?.clear();
+    this.hand?.dispose();
     for (const renderer of [this.shelfRenderer, this.handRenderer]) {
       renderer?.dispose();
       renderer?.forceContextLoss();
