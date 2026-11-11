@@ -54,6 +54,7 @@ import { placeTranscript } from "@ribbon/core/reading/placing";
 import { foundSentence } from "@ribbon/core/reading/readalong";
 import { Updater, type UpdateSource } from "./updates";
 import { Latest } from "@ribbon/core/latest";
+import { Rerun } from "@ribbon/core/rerun";
 
 /** How much of each chapter's start is heard: a heading and a sentence or two. */
 const HEAR_SECONDS = 8;
@@ -337,6 +338,17 @@ const SKIP_FORWARD_MS = 30_000;
 /** How often a playing book hands its place to the keeper, which throttles the writes. */
 const POSITION_WRITE_INTERVAL_MS = 1_000;
 
+/** What a scan is asked to do: whether it runs behind a visible shelf, and the folders to read again whatever their records say. */
+interface ScanAsk {
+  background: boolean;
+  forget: string[];
+}
+
+/** Two asks for one scan: it's behind the shelf only if both were, and forgets what either did. */
+function bothScans(a: ScanAsk, b: ScanAsk): ScanAsk {
+  return { background: a.background && b.background, forget: [...new Set([...a.forget, ...b.forget])] };
+}
+
 /** One source, open: its records service and everything the shelf needs from it. */
 interface Opened {
   source: Source;
@@ -356,7 +368,8 @@ interface Opened {
   seriesKeys: Set<string>;
   assetsReady: boolean;
   scanning: ScanStatus | null;
-  scanInFlight: boolean;
+  /** Its scans, one at a time: one asked for while another runs runs once more after (core/rerun.ts). */
+  scans: Rerun<ScanAsk>;
   /** The last scan's record write, which the shelf does not wait for. */
   saving: Promise<void>;
   coverJob: AbortController | null;
@@ -866,7 +879,14 @@ export class AppController {
       seriesKeys: new Set(),
       assetsReady: false,
       scanning: null,
-      scanInFlight: false,
+      scans: new Rerun<ScanAsk>(
+        (asked) => this.scanOnce(o, asked.background, asked.forget),
+        bothScans,
+        (ok) => {
+          // A book a server's admin deleted waits for the scans to finish before it's taken off.
+          if (ok && o.server && this.opened.get(source.id) === o) void this.dropDeleted(o);
+        },
+      ),
       saving: Promise.resolve(),
       coverJob: null,
       lookup: null,
@@ -1154,15 +1174,26 @@ export class AppController {
   }
 
   /**
-   * Scan one source. Books appear as the scan streams them: the shelf
+   * Scan one source; while it's being scanned, once more after (`Rerun`).
+   * Resolves when a scan begun after the ask has ended, so whoever asked,
+   * a download looking for the book it brought, say, finds what's there now.
+   * A scan behind the shelf says what went wrong rather than throwing it.
+   */
+  private rescanSource(o: Opened, background: boolean, forget: string[] = []): Promise<void> {
+    const done = o.scans.ask({ background, forget });
+    return background ? done.catch(() => undefined) : done;
+  }
+
+  /**
+   * One scan of one source. Books appear as the scan streams them: the shelf
    * paints from folder names as soon as the walk is done, then fills in
    * authors, then durations, and the complete list lands last.
    */
-  private async rescanSource(o: Opened, background: boolean, forget: string[] = []): Promise<void> {
-    if (o.scanInFlight) return;
+  private async scanOnce(o: Opened, background: boolean, forget: string[]): Promise<void> {
     const { lib, source } = o;
     const alive = () => this.opened.get(source.id) === o;
-    o.scanInFlight = true;
+    // A source let go while a scan of it was waiting to run isn't scanned again.
+    if (!alive()) return;
     o.scanning = { walked: 0, done: 0, background };
     this.publishScanning({ scanErrors: this.state.scanErrors.filter((e) => !e.path.startsWith(`${source.id}:`)) });
     const started = Date.now();
@@ -1244,11 +1275,7 @@ export class AppController {
         this.publishScanning({ error: describe(e) });
       }
       if (!background) throw e;
-    } finally {
-      o.scanInFlight = false;
     }
-    // A book a server's admin deleted waits for a scan to finish before it's taken off.
-    if (o.server && alive()) void this.dropDeleted(o);
   }
 
   /** Covers ffmpeg still has to cut, after the library is visible. */
@@ -1757,7 +1784,7 @@ export class AppController {
    */
   private async dropDeleted(o: Opened): Promise<void> {
     const shelf = o.server;
-    if (!shelf || o.scanInFlight) return;
+    if (!shelf || o.scans.running) return;
     const inUse = new Set([this.state.current?.book.book.id, this.state.pane === "reader" ? this.state.readerBookId : null]);
     const gone = o.books.filter((b) => !b.remote && shelf.wasDeleted(serverIdOf(b)) && !inUse.has(b.book.id));
     let removed = 0;

@@ -511,6 +511,45 @@ describe("the desktop on a server", () => {
     expect(app.getState().current?.book.book.title).toBe("Long Book");
   }, 30_000);
 
+  it("plays a book that finished downloading while its folder was being scanned", async () => {
+    // The download asked for a scan to find the book it brought, and was told one was already running: it found
+    // nothing, and play did nothing, though the book had downloaded.
+    withAudio();
+    await stocked();
+    let holdScans = false;
+    let openScans = () => {};
+    const scansOpen = new Promise<void>((resolve) => (openScans = resolve));
+    let downloaded = 0;
+    const base = nodeHost();
+    const host: Host = {
+      ...base,
+      scan: async (...args) => {
+        if (holdScans) await scansOpen;
+        return base.scan(...args);
+      },
+      serverDownload: async (...args) => {
+        await base.serverDownload!(...args);
+        downloaded++;
+      },
+    };
+    const { app } = await aDesktop("admin", { host });
+    const red = book(app, "Red Book");
+
+    // A check for changes, held partway.
+    holdScans = true;
+    const checking = app.rescanSourceById(app.getState().sources.find((s) => s.server)!.id);
+    await soon(() => app.getState().scanning).not.toBeNull();
+    const opening = app.openBook(red, { expand: false });
+    await soon(() => downloaded).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    holdScans = false;
+    openScans();
+    await Promise.all([opening, checking]);
+    expect(book(app, "Red Book").remote).toBeUndefined();
+    expect(app.getState().current?.book.book.title).toBe("Red Book");
+  }, 30_000);
+
   it("opens in the reader the book asked for last, though one asked for before it finishes downloading after it", async () => {
     await serverWithTools();
     await importAs(server, admin, toldBook("Told Book"));
