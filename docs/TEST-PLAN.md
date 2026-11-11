@@ -273,6 +273,30 @@ Given files of durations `[1000, 2000, 3000]`:
   events and 250 random ones of ten, but for those three fixes, each
   reached (`lifecycle-before-after.test.ts`).
 
+### Transcribing on this machine (`core/transcriber.ts`)
+
+- The open book is heard once at a time; asked again while it's heard,
+  it's heard once more after, and only once.
+- A server's worker waits when it has to, once however many reasons: a
+  minute, doubling to half an hour, and from a minute again after a book
+  is whole. Beginning work ends a wait.
+- The computer is kept awake while the open book is heard or a server's
+  books are worked on, never while the worker only waits; a reset stops
+  all of it.
+- The worker downloading a book to transcribe it, on a full disk, asks
+  the person nothing and leaves a question they have open about room for
+  their own download as it was; it says in a note that there wasn't room
+  (`desktop-on-server.test.ts`).
+- Resetting Ribbon's own folder stops transcribing for the server: what
+  was being heard isn't sent, nothing more is asked, and the computer may
+  sleep again (`desktop-on-server.test.ts`).
+- Before and after: with a speech model whose answers the test holds,
+  the controller asks the model what the old one did (every call, its
+  clips, gently while a book plays), keeps the computer awake alike, and
+  shows the same reader, progress, read-along, notes and top bar, in
+  every sequence of three of ten events and 500 random ones of ten
+  (`transcribing-before-after.test.ts`).
+
 ### Loudness (`core/loudness.ts`)
 
 - Parses `I: -23.4 LUFS` and `Peak: -1.2 dBFS` from ebur128 summary.

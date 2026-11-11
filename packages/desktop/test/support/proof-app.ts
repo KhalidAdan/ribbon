@@ -80,8 +80,8 @@ export function proofHost(m: MemoryHost, holds: Holds, over: Partial<Host> = {})
 }
 
 /** A platform for one run: the library already added (or these folders), a fixed device id, the settings in memory. */
-export function proofPlatform(host: Host, extra: Partial<Platform> = {}, roots: readonly string[] = [ROOT]): Platform {
-  let settings: Record<string, unknown> = { deviceId: "proof-device" };
+export function proofPlatform(host: Host, extra: Partial<Platform> = {}, roots: readonly string[] = [ROOT], kept: Record<string, unknown> = {}): Platform {
+  let settings: Record<string, unknown> = { deviceId: "proof-device", ...kept };
   const sources = memorySources();
   void sources.save(roots.map((root) => ({ root, addedAt: "2026-11-01T00:00:00.000Z" })));
   return {

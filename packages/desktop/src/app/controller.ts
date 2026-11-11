@@ -42,6 +42,7 @@ import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typogra
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
 import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
+import { hearing, IDLE, keepsAwake, transcribingAfter, type Transcribing, type TranscribingEvent } from "@ribbon/core/transcriber";
 import { LIBRARY, pageBook, screenAfter, type Drawer, type FullPlayer, type OnScreen, type Screen, type ScreenEvent } from "@ribbon/core/screen";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
@@ -497,9 +498,12 @@ interface Opened {
  *   a download. Background reading work checks `still()` after every
  *   await; the engine carries an intent number for the same reason.
  * - **State machines are written down.** Whether a book plays
- *   (core/playback.ts), the sleep timer (core/sleep.ts) and the others in
- *   docs/STATE-MACHINES.md each keep their state as one status and change
- *   it in one place; read the map there before adding a flag.
+ *   (core/playback.ts), the sleep timer (core/sleep.ts), the reader's
+ *   session (core/reading/session.ts), what's on screen (core/screen.ts),
+ *   the library's lifecycle (core/lifecycle.ts), transcribing
+ *   (core/transcriber.ts) and the others in docs/STATE-MACHINES.md each
+ *   keep their state as one status and change it in one place; read the
+ *   map there before adding a flag.
  * - **Failures become a sentence.** A record that cannot be read or
  *   written is logged and, when it matters to the listener, put in
  *   `state.error` in plain words; the rest of the app carries on.
@@ -1742,12 +1746,17 @@ export class AppController {
    * first. The book as it is on this device afterwards, or null when it
    * isn't (not enough space, the server out of reach).
    */
-  private async downloadRemote(book: ScannedBook): Promise<ScannedBook | null> {
+  private downloadRemote(book: ScannedBook): Promise<ScannedBook | null>;
+  /** Downloaded only to transcribe it, which nobody asked for: no room is the answer, not a question to the person. */
+  private downloadRemote(book: ScannedBook, why: "to transcribe"): Promise<ScannedBook | "no room" | null>;
+  private async downloadRemote(book: ScannedBook, why: "to open" | "to transcribe" = "to open"): Promise<ScannedBook | "no room" | null> {
     const o = this.openedOf(book);
     const serverId = book.remote?.serverId;
     if (!o?.server || !serverId || this.state.downloads[book.book.id]) return null;
     const id = book.book.id;
-    this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, spaceShort: null });
+    const asked = why === "to open";
+    // A question about room the person has open stays open for a download they didn't ask for.
+    this.set({ downloads: { ...this.state.downloads, [id]: { done: 0, total: book.book.sizeBytes } }, ...(asked ? { spaceShort: null } : {}) });
     try {
       const analysis = await o.server.download(book, (done, total) => this.set({ downloads: { ...this.state.downloads, [id]: { done, total } } }));
       await this.rescanSource(o, true);
@@ -1756,6 +1765,7 @@ export class AppController {
       if (here && analysis) await this.keepMeasurements(o, here.book.id, analysis);
       return here;
     } catch (e) {
+      if (e instanceof NotEnoughSpace && !asked) return "no room";
       if (e instanceof NotEnoughSpace) this.set({ spaceShort: { bookId: id, title: book.book.title, neededBytes: e.neededBytes, freeBytes: e.freeBytes } });
       else this.set({ error: `Couldn't download ${book.book.title}: ${describe(e)}` });
       return null;
@@ -2511,15 +2521,13 @@ export class AppController {
    * until then. A machine without one hears nothing: a server's book is
    * transcribed by one of the admin's machines that has one.
    */
-  private hearAgain = false;
-
   private async hearPlaces(): Promise<void> {
     const ctx = this.readingCtx;
     const model = this.state.speech.model;
     if (!ctx || !model) return;
     // Already hearing (another book, or this one before it was reopened): once that stops, start again.
-    if (this.hearing) {
-      this.hearAgain = true;
+    if (hearing(this.transcribing)) {
+      this.toTranscribing({ type: "asked again" });
       return;
     }
     const host = ctx.o.lib.host;
@@ -2529,8 +2537,7 @@ export class AppController {
     const bookId = book.book.id;
     const language = narrationLanguage(text.ebook.meta.language, book.book.language);
     const still = () => this.readingCtx === ctx && readyReading(this.state.reading)?.bookId === bookId;
-    this.hearing = true;
-    this.keepAwake("reader", true);
+    this.toTranscribing({ type: "hearing began" });
     const started = performance.now();
     try {
       // Never timed on this machine: timed now, which says whether it hears quickly enough (a graphics card) to transcribe.
@@ -2571,14 +2578,11 @@ export class AppController {
           if (this.readingCtx === ctx) void this.hearPlaces();
         }, 60_000);
     } finally {
-      this.hearing = false;
-      this.keepAwake("reader", false);
+      const was = this.toTranscribing({ type: "hearing ended" });
       await this.keepAligned(ctx, true);
       if (readyReading(this.state.reading)?.listening) this.toReading({ type: "listening", bookId, listening: null });
-      if (this.hearAgain) {
-        this.hearAgain = false;
-        if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
-      }
+      // Asked for meanwhile, by another book opened: that one is heard now.
+      if (was.reader.status === "hearing" && was.reader.again && this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
       void this.transcribeForServer();
     }
   }
@@ -2630,22 +2634,37 @@ export class AppController {
 
   /** The server's books not yet transcribed whole that couldn't be this session, so they aren't tried again until the next. */
   private untranscribable = new Set<string>();
-  private transcribingServer = false;
-  /** The server's books downloaded only to be transcribed, taken off again once sent; kept meanwhile when sending has to wait. */
+  /** The server's books downloaded only to be transcribed, taken off again once sent; kept meanwhile when sending has to wait. A set of books, not a status: it outlasts the worker's runs. */
   private downloadedToTranscribe = new Set<string>();
-  /** When the worker tries again, after the server couldn't be reached or the speech model stalled: a wait that doubles, up to half an hour. */
-  private serverRetry: ReturnType<typeof setTimeout> | null = null;
-  private serverRetryMs = 0;
+  /** The open book's hearing and the server's worker (core/transcriber.ts). */
+  private transcribing: Transcribing = IDLE;
+  /** The server's worker's wait, while it's waiting: the timer that starts it again. */
+  private waitTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Who is transcribing (the open book's hearing, the server's worker): the computer stays awake while either is (#158). */
-  private awakeFor = new Set<"reader" | "server">();
-
-  private keepAwake(who: "reader" | "server", on: boolean): void {
-    const was = this.awakeFor.size > 0;
-    if (on) this.awakeFor.add(who);
-    else this.awakeFor.delete(who);
-    const now = this.awakeFor.size > 0;
-    if (now !== was) void this.platform.host.stayAwake?.(now).catch((e: unknown) => log.warn("could not keep the computer awake:", describe(e)));
+  /**
+   * Tell transcribing what happened (core/transcriber.ts), the one way it
+   * changes, and do what the change means: keep the computer awake while
+   * it hears or works (#158), and set or clear the server's worker's wait.
+   * Returns how it was, before.
+   */
+  private toTranscribing(event: TranscribingEvent): Transcribing {
+    const was = this.transcribing;
+    const now = transcribingAfter(was, event);
+    this.transcribing = now;
+    if (keepsAwake(now) !== keepsAwake(was)) void this.platform.host.stayAwake?.(keepsAwake(now)).catch((e: unknown) => log.warn("could not keep the computer awake:", describe(e)));
+    if (was.server.status === "waiting" && now.server.status !== "waiting" && this.waitTimer) {
+      clearTimeout(this.waitTimer);
+      this.waitTimer = null;
+    }
+    if (now.server.status === "waiting" && was.server.status !== "waiting") {
+      log.info(`transcribing the server's books again in ${Math.round(now.server.ms / 60_000)} min`);
+      this.waitTimer = setTimeout(() => {
+        this.waitTimer = null;
+        this.toTranscribing({ type: "wait over" });
+        void this.transcribeForServer();
+      }, now.server.ms);
+    }
+    return was;
   }
 
   /**
@@ -2660,14 +2679,15 @@ export class AppController {
    */
   private async transcribeForServer(): Promise<void> {
     // A model downloading (Ribbon's, replacing an older one) is waited for: setSpeechModel starts this again with it.
-    if (this.transcribingServer || this.hearing || this.state.speech.downloading) return;
+    if (this.transcribing.server.status === "working" || hearing(this.transcribing) || this.state.speech.downloading) return;
     const o = this.openedInOrder().find((x) => x.server && x.serverAdmin);
     // Never timed here: the first book is timed before it's transcribed (transcribeServerBook).
     if (!o?.server || !this.state.speech.model || (this.clipMs() !== null && !this.transcribesHere(o.lib.host))) return;
-    this.transcribingServer = true;
-    this.keepAwake("server", true);
+    this.toTranscribing({ type: "work began" });
+    // Still the work to do: not stopped for the open book, nor by a reset, and the server still here.
+    const working = () => this.transcribing.server.status === "working" && !hearing(this.transcribing) && this.opened.get(o.source.id) === o;
     try {
-      while (!this.hearing) {
+      while (working()) {
         // The model as it is now, for each book: one chosen meanwhile hears the next.
         const model = this.state.speech.model;
         if (!model) return;
@@ -2679,35 +2699,24 @@ export class AppController {
         if (!onShelf()) await this.refreshServer(o);
         const book = onShelf();
         // Still not there, the server couldn't be asked. There's nothing wrong with the book.
-        if (!book) return this.transcribeForServerLater();
-        const result = await this.transcribeServerBook(o, book, model);
+        if (!book) return void this.toTranscribing({ type: "wait" });
+        const result = await this.transcribeServerBook(o, book, model, working);
         if (result === "failed") this.untranscribable.add(next.id);
         if (result === "whole") {
-          this.serverRetryMs = 0;
+          this.toTranscribing({ type: "whole" });
           this.notify({ what: "reads-along", title: book.book.title, forServer: true });
         }
-        if (result === "retry") return this.transcribeForServerLater();
+        if (result === "retry") return void this.toTranscribing({ type: "wait" });
         if (result === "stopped") return;
       }
     } catch (e) {
       log.warn("could not transcribe the server's books:", describe(e));
-      this.transcribeForServerLater();
+      // Again in a while: once, however many reasons there are.
+      this.toTranscribing({ type: "wait" });
     } finally {
-      this.transcribingServer = false;
-      this.keepAwake("server", false);
+      this.toTranscribing({ type: "work ended" });
       this.set({ transcribingForServer: null });
     }
-  }
-
-  /** The worker again in a while: once, however many reasons there are. */
-  private transcribeForServerLater(): void {
-    if (this.serverRetry) return;
-    this.serverRetryMs = Math.min(30 * 60_000, Math.max(60_000, this.serverRetryMs * 2));
-    log.info(`transcribing the server's books again in ${Math.round(this.serverRetryMs / 60_000)} min`);
-    this.serverRetry = setTimeout(() => {
-      this.serverRetry = null;
-      void this.transcribeForServer();
-    }, this.serverRetryMs);
   }
 
   /**
@@ -2716,23 +2725,25 @@ export class AppController {
    * when it has to wait: the download or the sending failed, which the
    * server being out of reach does, and the book is never given up on for it.
    */
-  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+  private async transcribeServerBook(o: Opened, listed: ScannedBook, model: string, still: () => boolean): Promise<"whole" | "stopped" | "failed" | "retry"> {
     const serverId = serverIdOf(listed);
-    let book: ScannedBook | null = listed;
-    if (listed.remote) book = await this.downloadRemote(listed);
+    let book: ScannedBook | "no room" | null = listed;
+    // Downloaded for transcribing, which nobody asked for: no room for it is said in a note, never asked.
+    if (listed.remote) book = await this.downloadRemote(listed, "to transcribe");
     // Downloaded here before the server had its EPUB: the EPUB comes down beside it first.
     else if (!listed.book.ebook) book = await this.withServerEbook(o, listed);
     // No room for it here is the one download failure that waiting doesn't mend.
-    if (!book) return this.state.spaceShort?.bookId === listed.book.id ? this.notTranscribed(listed, true, "There isn't room on this computer to download it.") : "retry";
+    if (book === "no room") return this.notTranscribed(listed, true, "There isn't room on this computer to download it.");
+    if (!book) return "retry";
     if (listed.remote) this.downloadedToTranscribe.add(serverId);
     // A stall or an error leaves it as it is, transcript so far and all, for the next try.
     let result: "whole" | "stopped" | "failed" | "retry" = "retry";
     try {
-      result = await this.hearServerBook(o, book, model);
+      result = await this.hearServerBook(o, book, model, still);
       return result;
     } finally {
       // Downloaded only to be transcribed: taken off again once sent, or when it can't be transcribed at all.
-      if (this.downloadedToTranscribe.has(serverId) && (result === "whole" || result === "failed") && !this.hearing) {
+      if (this.downloadedToTranscribe.has(serverId) && (result === "whole" || result === "failed") && !hearing(this.transcribing)) {
         this.downloadedToTranscribe.delete(serverId);
         await this.removeDownload(book.book.id).catch(() => undefined);
       }
@@ -2746,7 +2757,7 @@ export class AppController {
   }
 
   /** A server's book, downloaded here, heard whole and sent. `retry` when it's whole and the server couldn't take it. */
-  private async hearServerBook(o: Opened, book: ScannedBook, model: string): Promise<"whole" | "stopped" | "failed" | "retry"> {
+  private async hearServerBook(o: Opened, book: ScannedBook, model: string, still: () => boolean): Promise<"whole" | "stopped" | "failed" | "retry"> {
     if (!book.book.ebook) return this.notTranscribed(book, true, "This book has no EPUB beside it.");
     const host = o.lib.host;
     const transcribe = host.speechTranscribe!;
@@ -2779,14 +2790,16 @@ export class AppController {
         alignment = this.pairUp(text, withChapters, rd);
       },
       progress: (done, total) => this.set({ transcribingForServer: { title: book.book.title, done, total } }),
-      // The reader's book comes first.
-      still: () => !this.hearing,
+      // The reader's book comes first, and a reset or the server gone stops it.
+      still,
     });
     log.info(`transcribing ${book.book.title} for the server ${outcome} after ${Math.round((performance.now() - started) / 1000)} s`);
     if (outcome === "failed") return this.notTranscribed(book, true, NOTHING_HEARD);
     if (outcome !== "whole") return outcome;
     this.placeWhole(rd, index);
     await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy, true).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
+    // Stopped meanwhile by a reset, or the server gone from the library: kept here, and sent to nobody.
+    if (this.transcribing.server.status !== "working" || this.opened.get(o.source.id) !== o) return "stopped";
     // Whole but not sent: kept here, transcript and all, and sent when the server is back.
     return (await this.sendTranscript(o, book, rd)) ? "whole" : "retry";
   }
@@ -2991,7 +3004,7 @@ export class AppController {
     if (by !== "follow") this.readOn(r.bookId, r.text, place);
     this.toReading({ type: "moved", bookId: r.bookId, place, by });
     // Reading on into chapters not yet checked: hear them, when nothing else is being heard.
-    if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
+    if (!hearing(this.transcribing) && p.section !== place.section) void this.hearPlaces();
   }
 
   /**
@@ -3960,6 +3973,8 @@ export class AppController {
     // Every place was kept a moment ago: the reader and the sleep timer go without writing again.
     this.letGoOfReading();
     this.cancelSleep();
+    // Transcribing stops, the server's worker and its wait with it: the computer may sleep again.
+    this.toTranscribing({ type: "reset" });
     for (const o of this.opened.values()) {
       void o.keeper.close();
       this.letGoOfServerPlaces(o);
