@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ReadAlong } from "@ribbon/core/reading/readalong";
 import { countWords } from "@ribbon/core/reading/wordcount";
 import type { BookIndex } from "./books.ts";
-import { readStored } from "./prepare.ts";
+import { readStored } from "./book-folder.ts";
 import type { ReadAlongs } from "./readalong.ts";
 
 /** A sentence found: the book, where the sentence is, and its words with the ones searched for marked. */
@@ -49,8 +49,12 @@ export class SearchIndex {
     return this.db.prepare("SELECT 1 FROM sentence_index WHERE book_id = ? AND stamp = ?").get(book, stamp) !== undefined;
   }
 
-  /** Index a book's read-along, in place of what was indexed of it before, and count its words. */
+  /**
+   * Index a book's read-along, in place of what was indexed of it before, and count its words. Only a book on the
+   * server's list: one deleted while its read-along was made stays out of the index.
+   */
   index(book: string, stamp: string, readAlong: ReadAlong): void {
+    if (!this.db.prepare("SELECT 1 FROM book WHERE id = ?").get(book)) return;
     const insert = this.db.prepare("INSERT INTO sentence_text (text, book_id, n, ms, chapter) VALUES (?, ?, ?, ?, ?)");
     this.db.exec("BEGIN");
     try {

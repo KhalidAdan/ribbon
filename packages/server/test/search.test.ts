@@ -43,6 +43,11 @@ const OZ = readAlongOf([
   },
 ]);
 
+/** A book on the server's list, as an import leaves it: only a book there is indexed. */
+function list(db: DatabaseSync, ...ids: string[]): void {
+  for (const id of ids) db.prepare("INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, added_at) VALUES (?, ?, ?, '', '', '', NULL, 0, 0, 1, 1, 0)").run(id, id, id);
+}
+
 describe("searching books' sentences", () => {
   let dir: string;
   let db: DatabaseSync;
@@ -52,6 +57,7 @@ describe("searching books' sentences", () => {
     dir = mkdtempSync(path.join(tmpdir(), "ribbon-search-"));
     db = openDatabase(dir);
     search = new SearchIndex(db);
+    list(db, "oz", "other", "heresy");
     search.index("oz", "stamp-1", OZ);
     search.index("other", "stamp-1", readAlongOf([{ title: "One", paragraphs: [["A scarecrow stood in the field of another book."]] }]));
   });
@@ -113,9 +119,13 @@ describe("searching books' sentences", () => {
     expect(search.isCurrent("other", "stamp-1")).toBe(false);
     expect(search.search("scarecrow", { book: "other" })).toEqual([]);
     expect(search.search("woodman").map((f) => f.book)).toEqual(["other"]);
+    db.prepare("DELETE FROM book WHERE id = 'other'").run();
     search.remove("other");
     expect(search.search("woodman")).toEqual([]);
     expect(search.isCurrent("other", "stamp-2")).toBe(false);
+    // A read-along made while it was deleted isn't indexed after.
+    search.index("other", "stamp-3", readAlongOf([{ title: "One", paragraphs: [["Nothing but a tin woodman here."]] }]));
+    expect(search.search("woodman")).toEqual([]);
   });
 });
 

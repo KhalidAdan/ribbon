@@ -1,7 +1,7 @@
 import { parseNumbered } from "@ribbon/core/scan/metadata";
+import { changeStored, readStored } from "./book-folder.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
 import { hydrateStamp } from "./hydrate.ts";
-import { readStored, writeStored } from "./prepare.ts";
 
 /**
  * Descriptions from Audible's catalog, for the books that came with none of
@@ -224,13 +224,14 @@ export async function describeBooks(catalog: Catalog, dataDir: string, ids: read
       try {
         const description = await describe(catalog, stored.book);
         unreachable = 0;
-        // Read again just before writing: other work writes the record too.
-        const now = await readStored(dataDir, id);
-        if (now && !now.book.description?.trim()) {
-          const asked = { asked: askedBy(now.book), asin: description?.asin ?? null };
-          await writeStored(dataDir, id, { ...now, book: description ? { ...now.book, description: description.text } : now.book, described: asked });
-          if (description) progress.described++;
-        }
+        // Kept on the record as it is now, unless it was given a description meanwhile.
+        let gave = false;
+        await changeStored(dataDir, id, (now) => {
+          if (now.book.description?.trim()) return now;
+          gave = description !== null;
+          return { ...now, book: description ? { ...now.book, description: description.text } : now.book, described: { asked: askedBy(now.book), asin: description?.asin ?? null } };
+        });
+        if (gave) progress.described++;
       } catch {
         unreachable++;
       }

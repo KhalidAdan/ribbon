@@ -2,8 +2,8 @@ import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { inTurn, readStored } from "./book-folder.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
-import { readStored } from "./prepare.ts";
 
 const run = promisify(execFile);
 
@@ -21,7 +21,9 @@ export interface FrameStart {
  * guess (Apple's on the TV; docs/SERVER.md, section 8): the frame a moment
  * falls in, found by the `ribbon-frames` command (packages/desktop/src-tauri/frames), the
  * code the app plays its own MP3s with. Each file's frame index is made
- * once, reading the file whole, and kept in the book's folder (`frames/`).
+ * once, reading the file whole, and kept in the book's folder (`frames/`),
+ * in the book's turn (book-folder.ts), so none is kept for a book deleted
+ * meanwhile.
  */
 export class Mp3Frames {
   private readonly found = new Map<string, FrameStart>();
@@ -62,8 +64,7 @@ export class Mp3Frames {
     const kept = this.found.get(key);
     if (kept) return kept;
     const order = stored.files.findIndex((f) => f.path === file);
-    const dir = bookDir(this.dataDir, id);
-    const { stdout } = await run(this.tool!, [path.join(dir, file), path.join(dir, "frames", `${order}.bin`), String(ms)]);
+    const { stdout } = await inTurn(this.dataDir, id, (book) => run(this.tool!, [path.join(book.dir, file), path.join(book.dir, "frames", `${order}.bin`), String(ms)]));
     const start = JSON.parse(stdout) as FrameStart;
     this.found.set(key, start);
     if (this.found.size > KEPT) this.found.delete(this.found.keys().next().value!);
