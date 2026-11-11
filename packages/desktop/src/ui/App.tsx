@@ -20,6 +20,7 @@ import { useSearch } from "./useSearch";
 import { EditBook } from "./EditBook";
 import { useKept } from "./modal";
 import { MoveToServer, SpaceShort } from "./Servers";
+import { MoveHome } from "./MoveHome";
 import { StatsPane } from "./StatsPane";
 import { TheEnd } from "./TheEnd";
 import { Notices } from "./Notices";
@@ -158,6 +159,7 @@ function Ready() {
       <EditBookHost />
       <SpaceShort />
       <MoveToServer />
+      <MoveHome />
       <TheEnd />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={matchCount} onSubmit={openFirst} />
       <Tabs

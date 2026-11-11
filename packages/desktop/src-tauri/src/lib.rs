@@ -5,6 +5,7 @@ pub mod awake;
 pub mod quit;
 pub mod speech;
 mod home;
+mod home_move;
 mod online;
 mod scan;
 mod server;
@@ -111,6 +112,8 @@ pub fn run() {
             home::reset_home,
             home::app_settings_read,
             home::app_settings_write,
+            home_move::home_move_check,
+            home_move::home_move,
             online::catalog_search,
             ebook::ebook_open,
             ebook::export::ebook_export,
@@ -145,6 +148,8 @@ pub fn run() {
         )
         .setup(|app| {
             log::info!("ribbon {} starting; home folder {}", app.package_info().version, home::home_dir().display());
+            // A Ribbon folder moved last time leaves its old copy to delete now, when nothing has its files open (home_move.rs).
+            std::thread::spawn(home_move::finish);
             // Updating itself from Ribbon's GitHub releases, and starting again once it has (src/app/updates.ts).
             // Only on a computer: a phone updates from its store.
             #[cfg(desktop)]

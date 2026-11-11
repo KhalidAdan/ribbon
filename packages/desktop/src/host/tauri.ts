@@ -6,12 +6,15 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { channel, type Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, KnownFile, RunResult, ScannedFile, ScanOutput, ScanProgress, TextFile, Tool } from "@ribbon/core/host";
 import { joinPath } from "@ribbon/core/paths";
 import type { SourceEntry } from "@ribbon/core/sources";
 import { log } from "../app/log";
 import type { UpdateSource } from "../app/updates";
+import type { HomeMover } from "../app/controller";
+import type { HomeMovePlan } from "@ribbon/core/home-move";
 
 const BATCH_EVENT = "ribbon://scan-batch";
 
@@ -290,6 +293,31 @@ export function revealHome(): Promise<void> {
 
 export function resetHome(): Promise<void> {
   return invoke<void>("reset_home");
+}
+
+/**
+ * Moving the Ribbon folder to another place on this computer (home_move.rs),
+ * where Ribbon can start itself again after: Windows and the Mac.
+ */
+export function tauriHomeMove(): HomeMover | undefined {
+  const os = platform();
+  if (os !== "windows" && os !== "macos") return undefined;
+  return {
+    async pick() {
+      const picked = await openDialog({ directory: true, multiple: false, title: "Move the Ribbon folder to…" });
+      return typeof picked === "string" ? picked : null;
+    },
+    check: (picked) => invoke<Omit<HomeMovePlan, "picked">>("home_move_check", { picked }),
+    async run(picked, onProgress) {
+      const unlisten = await listen<{ done: number; total: number }>("ribbon://home-move", (e) => onProgress(e.payload.done, e.payload.total));
+      try {
+        await invoke("home_move", { picked });
+      } finally {
+        unlisten();
+      }
+    },
+    restart: () => relaunch(),
+  };
 }
 
 /** App-level settings, a JSON object in the Ribbon folder. */

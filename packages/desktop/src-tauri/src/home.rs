@@ -3,13 +3,49 @@
 //! records and covers, the logs, and the registry of libraries opened
 //! here. Records beside the books stay the truth and travel with them;
 //! this folder is what the app needs to open fast and to remember you.
+//! It can be moved to another disk (home_move.rs); where it started out
+//! then holds only a note saying where it went.
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
-/// Where Ribbon keeps its own files. Computable before the app exists,
-/// because the log plugin needs it first.
+/// The note left where the Ribbon folder started out once it has been moved: one line, the folder it's in now.
+pub const MOVED_NOTE: &str = "moved.txt";
+
+/// The Ribbon folder, worked out once: reading the note is a file read, and
+/// the mirror asks for this on every record and cover.
+static HOME: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Where Ribbon keeps its own files: where it started out, or wherever it
+/// was moved to. Computable before the app exists, because the log plugin
+/// needs it first.
 pub fn home_dir() -> PathBuf {
+    if let Some(home) = HOME.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return home.clone();
+    }
+    let home = located(&base_dir());
+    *HOME.write().unwrap_or_else(|e| e.into_inner()) = Some(home.clone());
+    home
+}
+
+/// After a move, everything this process writes goes to the new folder at once.
+pub fn set_home_dir(dir: PathBuf) {
+    *HOME.write().unwrap_or_else(|e| e.into_inner()) = Some(dir);
+}
+
+/// The folder Ribbon is in, starting from where it started out: the one the
+/// note there names, or that place itself.
+pub fn located(base: &Path) -> PathBuf {
+    match std::fs::read_to_string(base.join(MOVED_NOTE)) {
+        Ok(text) if !text.trim().is_empty() => PathBuf::from(text.trim()),
+        _ => base.to_path_buf(),
+    }
+}
+
+/// Where the Ribbon folder starts out: `RIBBON_HOME`, or the system's place
+/// for an app's own files.
+pub fn base_dir() -> PathBuf {
     if let Ok(custom) = std::env::var("RIBBON_HOME") {
         if !custom.trim().is_empty() {
             return PathBuf::from(custom);
@@ -53,8 +89,9 @@ fn parse_tsv(text: &str) -> Vec<(String, String)> {
 }
 
 fn write_tsv(file: PathBuf, rows: impl Iterator<Item = (String, String)>) -> Result<(), String> {
-    let dir = home_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let body: String = rows.map(|(stamp, path)| format!("{stamp}\t{path}\n")).collect();
     let tmp = file.with_extension("tsv.tmp");
     std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
@@ -120,8 +157,17 @@ fn source_row(s: SourceEntry) -> (String, String) {
 }
 
 fn read_sources_file() -> Option<Vec<SourceEntry>> {
-    let text = std::fs::read_to_string(sources_path()).ok()?;
+    sources_in(&sources_path())
+}
+
+/// The sources kept in a sources file, or None when there's no such file.
+pub(crate) fn sources_in(file: &Path) -> Option<Vec<SourceEntry>> {
+    let text = std::fs::read_to_string(file).ok()?;
     Some(parse_tsv(&text).into_iter().map(|(added_at, rest)| source_from_row(added_at, rest)).collect())
+}
+
+pub(crate) fn write_sources_to(file: &Path, sources: Vec<SourceEntry>) -> Result<(), String> {
+    write_tsv(file.to_path_buf(), sources.into_iter().map(source_row))
 }
 
 /// The library's sources, in the order they were added. The first time
@@ -143,7 +189,7 @@ pub fn sources_read() -> Vec<SourceEntry> {
 
 #[tauri::command]
 pub fn sources_write(sources: Vec<SourceEntry>) -> Result<(), String> {
-    write_tsv(sources_path(), sources.into_iter().map(source_row))
+    write_sources_to(&sources_path(), sources)
 }
 
 #[derive(Serialize)]
@@ -228,8 +274,13 @@ pub fn reset_home() -> Result<(), String> {
 }
 
 fn same_root(a: &str, b: &str) -> bool {
-    let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
-    norm(a) == norm(b)
+    comparable(a) == comparable(b)
+}
+
+/// A path as two can be compared: forward slashes, no slash at the end, and
+/// lower case, as Windows and the Mac don't mind case in a folder's name.
+pub(crate) fn comparable(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
 
 /// ISO 8601 UTC without pulling in a date crate: the registry only sorts by it.

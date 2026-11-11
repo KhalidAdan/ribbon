@@ -397,14 +397,23 @@ Your library folder/                 the database: sync it, back it up
     aligned/<book>.csv               the narration transcribed, phrase by phrase
     loudness/, silence/, settings/, edits/, covers/, ebooks.csv
 
-%LOCALAPPDATA%\Ribbon\               this machine only
+%LOCALAPPDATA%\Ribbon\               this machine only, unless moved (below)
   settings.json                      app settings, reading places, the speech model
+  sources.tsv                        the library's folders and servers
   mirror/                            a local copy of each library's records, for a fast start
   mirror/ebooks/<hash>/              each EPUB's parsed model and images
   mirror/frames/<hash>.bin           each MP3's frame index
+  servers/<id>/                      a server's books, downloaded to play here
   logs/ribbon.log
   models/                            a downloaded speech model
+  moved.txt                          once moved: where it is now, and nothing else here
 ```
+
+The Ribbon folder can be moved to another disk from Settings
+(`home_move.rs`, `core/home-move.ts`): everything is copied, with each
+file's time kept, then `moved.txt` where it started says where it went and
+Ribbon starts again there. The old copy is deleted on that next start, when
+nothing has its files open.
 
 Anything in `.ribbon/` is either rebuilt on demand or yours:
 
