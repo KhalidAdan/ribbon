@@ -13,7 +13,7 @@ import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@rib
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
-import { isPlaying } from "@ribbon/core/playback";
+import { isPlaying, wantsToPlay } from "@ribbon/core/playback";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
@@ -1953,9 +1953,9 @@ export class AppController {
     }
     if (isPlaying(player.status) && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
     if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
-    const busy = (p: EngineState) => isPlaying(p.status) || p.status === "reconnecting";
-    if (isPlaying(player.status) !== isPlaying(prev.status) || (player.status === "reconnecting") !== (prev.status === "reconnecting") || Math.abs(player.positionMs - prev.positionMs) > 900) {
-      updateMediaPlayback(busy(player), player.positionMs, player.durationMs, player.speed);
+    // The system's controls show what the listener asked for: playing from the press, through loading and reconnecting.
+    if (wantsToPlay(player.status) !== wantsToPlay(prev.status) || Math.abs(player.positionMs - prev.positionMs) > 900) {
+      updateMediaPlayback(wantsToPlay(player.status), player.positionMs, player.durationMs, player.speed);
     }
   }
 
@@ -3093,8 +3093,8 @@ export class AppController {
   }
 
   togglePlay(): void {
-    // While a file is being reconnected the listener is still "playing": the button pauses.
-    if (isPlaying(this.state.player.status) || this.state.player.status === "reconnecting") this.pause();
+    // From the press until it's paused again the listener wants it playing, heard yet or not: the button pauses.
+    if (wantsToPlay(this.state.player.status)) this.pause();
     else void this.play();
   }
 
