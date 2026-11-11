@@ -14,6 +14,11 @@ import { useRef, type PointerEvent as ReactPointerEvent, type RefObject, type Wh
  *
  * Touch and pen swipe; a mouse selects text, and turns with the page's
  * edges or the keys instead.
+ *
+ * A gesture goes idle → pressed → dragging → (let go) springing back, or
+ * sliding over until the turn commits → idle. Each slide is numbered, so a
+ * slide's fallback (the page coming back when a turn never commits) only
+ * ever settles that slide, never a later one already sliding.
  */
 export function usePageSwipe({ track, width, has, turn }: { track: RefObject<HTMLElement | null>; width: number; has: (step: 1 | -1) => boolean; turn: (step: 1 | -1) => void }) {
   // The latest of what the reader passes, for handlers that outlive a render.
@@ -21,8 +26,9 @@ export function usePageSwipe({ track, width, has, turn }: { track: RefObject<HTM
   latest.current = { width, has, turn };
   const drag = useRef<{ id: number; x0: number; y0: number; dx: number; moving: boolean; samples: { t: number; x: number }[] } | null>(null);
   const wheel = useRef<{ dx: number; samples: { t: number; x: number }[]; idle: ReturnType<typeof setTimeout> | null } | null>(null);
-  /** A slide is finishing: input waits for the turn to commit. */
-  const sliding = useRef(false);
+  /** The slide finishing, by its number, or null: input waits for the turn to commit. */
+  const sliding = useRef<number | null>(null);
+  const slides = useRef(0);
   /** When the last swipe ended, so the click that follows a touch is not taken as a tap. */
   const ended = useRef(0);
 
@@ -53,19 +59,21 @@ export function usePageSwipe({ track, width, has, turn }: { track: RefObject<HTM
       place(0, 200);
       return;
     }
-    sliding.current = true;
+    const slide = ++slides.current;
+    sliding.current = slide;
     // The rest of the way at the finger's speed or faster, never slower than a quick turn.
     const ms = Math.round(Math.min(280, Math.max(120, (w - Math.abs(dx)) / Math.max(Math.abs(v), 1.6))));
     place(-step * w, ms);
     setTimeout(() => {
       go(step);
-      // Should the turn not come (a chapter that never arrives), the page comes back rather than staying off screen.
-      setTimeout(() => sliding.current && settle(), 1500);
+      // Should the turn not come (a chapter that never arrives), the page comes back rather than staying off screen:
+      // this slide's page, if it is still the one sliding.
+      setTimeout(() => sliding.current === slide && settle(), 1500);
     }, ms);
   };
 
   const settle = () => {
-    sliding.current = false;
+    sliding.current = null;
     place(0);
   };
 
@@ -77,7 +85,7 @@ export function usePageSwipe({ track, width, has, turn }: { track: RefObject<HTM
       return performance.now() - ended.current < 300;
     },
     onPointerDown(e: ReactPointerEvent) {
-      if (e.pointerType === "mouse" || sliding.current || drag.current) return;
+      if (e.pointerType === "mouse" || sliding.current !== null || drag.current) return;
       drag.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, moving: false, samples: [{ t: e.timeStamp, x: e.clientX }] };
     },
     onPointerMove(e: ReactPointerEvent) {
@@ -113,7 +121,7 @@ export function usePageSwipe({ track, width, has, turn }: { track: RefObject<HTM
     },
     onWheel(e: ReactWheelEvent) {
       // A trackpad's sideways swipe; a wheel's up and down is not a turn.
-      if (sliding.current || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      if (sliding.current !== null || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       const w = (wheel.current ??= { dx: 0, samples: [], idle: null });
       w.dx -= e.deltaX;
       w.samples.push({ t: e.timeStamp, x: w.dx });
