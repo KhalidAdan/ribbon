@@ -13,6 +13,7 @@ import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@rib
 import { AboutLookup, type LookupStatus } from "./about";
 import { ChapterNamer, wantsNames, type NameRecord } from "./chapternames";
 import { PlayerEngine, type EngineState } from "../player/engine";
+import { isPlaying } from "@ribbon/core/playback";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
@@ -524,13 +525,11 @@ export class AppController {
         bookId: null,
         positionMs: 0,
         durationMs: 0,
-        playing: false,
-        buffering: false,
+        status: "paused",
         speed: 1,
         chapterIndex: -1,
         skippingGap: false,
         gain: 1,
-        reconnecting: false,
         error: null,
       },
       sleep: { state: sleep.OFF, gain: 1, remainingMs: null },
@@ -968,7 +967,7 @@ export class AppController {
     // instead of overwriting it with the older place.
     const cur = this.state.current;
     const engine = this.engine;
-    if (cur && engine && changed.includes(cur.book.book.id) && !this.state.player.playing && engine.current.bookId === cur.book.book.id) {
+    if (cur && engine && changed.includes(cur.book.book.id) && !isPlaying(this.state.player.status) && engine.current.bookId === cur.book.book.id) {
       const p = o.keeper.get(cur.book.book.id)!;
       log.info(`a newer position for the open book came from ${p.device || "another device"}: ${p.offsetMs} ms`);
       engine.seek(Math.min(p.offsetMs, cur.book.book.durationMs));
@@ -1763,7 +1762,7 @@ export class AppController {
 
   /** Stop the open book, its place kept, before its files go. */
   private async letGoOfCurrent(): Promise<void> {
-    if (this.state.player.playing) {
+    if (isPlaying(this.state.player.status)) {
       this.engine?.pause();
       await this.persistPosition("pause");
     }
@@ -1939,23 +1938,24 @@ export class AppController {
   private onPlayerState(player: EngineState): void {
     const prev = this.state.player;
     this.set({ player });
-    if (player.playing && !prev.playing && player.bookId) {
+    if (isPlaying(player.status) && !isPlaying(prev.status) && player.bookId) {
       this.beginListening(player.bookId, player.positionMs, player.speed);
       // Read along with the narration, the time is listening: the stretch of reading ends.
       if (this.readingStretch?.bookId === player.bookId) void this.endReading();
     }
-    if (this.listening && (!player.playing || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
+    if (this.listening && (!isPlaying(player.status) || player.bookId !== this.listening.bookId)) this.endListening(prev.positionMs);
     // Stopped for any reason (the listener, the system, the end of a
     // preview, a file that failed): keep the place now.
-    if (prev.playing && !player.playing && player.bookId === prev.bookId) {
+    if (isPlaying(prev.status) && !isPlaying(player.status) && player.bookId === prev.bookId) {
       if (this.state.previewing !== null) this.set({ previewing: null });
-      if (!player.reconnecting) this.pausedAt = Date.now();
+      if (player.status !== "reconnecting") this.pausedAt = Date.now();
       void this.persistPosition("pause");
     }
-    if (player.playing && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
+    if (isPlaying(player.status) && Date.now() - this.lastWrite > POSITION_WRITE_INTERVAL_MS) void this.persistPosition("periodic");
     if (player.chapterIndex !== prev.chapterIndex || player.bookId !== prev.bookId) this.refreshMediaMetadata();
-    if (player.playing !== prev.playing || player.reconnecting !== prev.reconnecting || Math.abs(player.positionMs - prev.positionMs) > 900) {
-      updateMediaPlayback(player.playing || player.reconnecting, player.positionMs, player.durationMs, player.speed);
+    const busy = (p: EngineState) => isPlaying(p.status) || p.status === "reconnecting";
+    if (isPlaying(player.status) !== isPlaying(prev.status) || (player.status === "reconnecting") !== (prev.status === "reconnecting") || Math.abs(player.positionMs - prev.positionMs) > 900) {
+      updateMediaPlayback(busy(player), player.positionMs, player.durationMs, player.speed);
     }
   }
 
@@ -1980,11 +1980,11 @@ export class AppController {
     const seq = ++this.openSeq;
     if (this.state.current?.book.book.id === book.book.id && this.engine?.current.bookId === book.book.id) {
       if (expand) this.expandPlayer();
-      if (opts.autoplay && !this.state.player.playing) await this.play();
+      if (opts.autoplay && !isPlaying(this.state.player.status)) await this.play();
       return;
     }
     // Keep the place in the book being left before anything else happens.
-    if (this.state.player.playing) engine.pause();
+    if (isPlaying(this.state.player.status)) engine.pause();
     await this.persistPosition("pause");
     if (seq !== this.openSeq) return;
     this.chapterProbe?.abort();
@@ -2140,7 +2140,7 @@ export class AppController {
     const audio = !readerOnly(book.book);
     const kept = this.keptPlaces()[bookId];
     // Opened while its audio plays: the pages follow the narrator.
-    const following = this.state.current?.book.book.id === bookId && this.state.player.playing;
+    const following = this.state.current?.book.book.id === bookId && isPlaying(this.state.player.status);
     // The book opens at the newest of this machine's reading place, the log's, and the narrator's. Only the
     // narrator's needs the text paired with the audio first; when it is not the newest, the book opens at
     // once and is paired just after, so the page can be read and turned while read-along gets ready.
@@ -2432,7 +2432,7 @@ export class AppController {
         index: this.wordsOf(text),
         alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
         // Gently while a book plays, so playback comes first.
-        hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, this.state.player.playing),
+        hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
         model: modelName(model),
         keep: async () => {
           await this.keepAligned(ctx);
@@ -2663,7 +2663,7 @@ export class AppController {
       files: withChapters.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
       index,
       alignment: () => alignment,
-      hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, this.state.player.playing),
+      hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
       model: modelName(model),
       keep: async () => {
         await o.lib.writeAligned(book.book.id, rd.spans, rd.said, rd.heardBy).catch((e: unknown) => log.warn("could not keep the transcript:", describe(e)));
@@ -2808,7 +2808,7 @@ export class AppController {
     const ms = live ? this.engine!.positionMs() : this.state.positions[bookId]?.offsetMs;
     if (ms === undefined) return undefined;
     // Playing now is now; paused, it is when it paused.
-    const t = live && this.state.player.playing ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
+    const t = live && isPlaying(this.state.player.status) ? new Date().toISOString() : live && this.pausedAt !== null ? new Date(this.pausedAt).toISOString() : (this.state.positions[bookId]?.updatedAt ?? new Date(0).toISOString());
     return { ms, t };
   }
 
@@ -2906,7 +2906,7 @@ export class AppController {
   private readingStretch: { bookId: string; claims: string[]; start: number; last: number; from: number; to: number } | null = null;
 
   private readOn(bookId: string, text: BookText, place: TextPlace): void {
-    if (this.state.player.playing && this.state.player.bookId === bookId) return;
+    if (isPlaying(this.state.player.status) && this.state.player.bookId === bookId) return;
     const now = Date.now();
     const at = text.locator(place).locations?.totalProgression ?? 0;
     const s = this.readingStretch;
@@ -3094,7 +3094,7 @@ export class AppController {
 
   togglePlay(): void {
     // While a file is being reconnected the listener is still "playing": the button pauses.
-    if (this.state.player.playing || this.state.player.reconnecting) this.pause();
+    if (isPlaying(this.state.player.status) || this.state.player.status === "reconnecting") this.pause();
     else void this.play();
   }
 
@@ -3201,7 +3201,7 @@ export class AppController {
    * whatever it does not take is already in the local copy.
    */
   async flushPositions(timeoutMs = 4_000): Promise<void> {
-    if (this.state.player.playing) this.engine?.pause();
+    if (isPlaying(this.state.player.status)) this.engine?.pause();
     await this.persistPosition("close");
     const reading = this.readingKeeper;
     const all = Promise.all([this.endReading(), ...this.openedInOrder().map((o) => o.keeper.flush()), reading?.finish(), this.saveAppSettingsNow()]);
@@ -3381,13 +3381,13 @@ export class AppController {
     if (!sleep.isSet(st)) return this.stopSleepLoop();
     const ch = cur?.book.chapters[this.state.player.chapterIndex] ?? null;
     // Minutes count only while the book plays.
-    const held = this.state.player.playing ? sleep.resume(st, Date.now()) : sleep.pause(st, Date.now());
+    const held = isPlaying(this.state.player.status) ? sleep.resume(st, Date.now()) : sleep.pause(st, Date.now());
     const [next, out] = sleep.tick(held, {
       nowMs: Date.now(),
       positionMs: this.state.player.positionMs,
       chapterEndMs: ch ? ch.endMs : null,
       speed: this.state.player.speed,
-      playing: this.state.player.playing,
+      playing: isPlaying(this.state.player.status),
     });
     this.engine?.setSleepGain(out.gain);
     this.set({ sleep: { state: next, gain: out.gain, remainingMs: out.remainingMs } });
@@ -3788,7 +3788,7 @@ export class AppController {
 
   /** Listening and reading going on now, not kept in the log yet. */
   private liveMs(now: number): number {
-    const listening = this.listening && this.state.player.playing ? now - this.listening.start : 0;
+    const listening = this.listening && isPlaying(this.state.player.status) ? now - this.listening.start : 0;
     const s = this.readingStretch;
     const reading = s ? Math.min(now, s.last + READING_LINGER_MS) - s.start : 0;
     return Math.max(0, listening) + Math.max(0, reading);

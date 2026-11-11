@@ -5,6 +5,7 @@ import { transcribingIn, type AppState, type Notice } from "../app/controller";
 import { offersRestart } from "../app/updates";
 import { Button } from "./Button";
 import { useAppState, useController } from "./store";
+import { isPlaying } from "@ribbon/core/playback";
 
 /** How long a note that asks nothing of you stays before it goes on its own. Hovering over it holds it. */
 const BRIEF_MS = 6_000;
@@ -192,7 +193,7 @@ function useNoteWhile<T>(name: string, value: T | null, show: (value: T, id: str
 export function restartOffered(s: AppState): string | null {
   const u = s.update;
   if (!u) return null;
-  return offersRestart({ ready: u.ready, putOff: u.putOff, playing: s.player.playing, transcribing: transcribingIn(s) !== null }) ? u.ready : null;
+  return offersRestart({ ready: u.ready, putOff: u.putOff, playing: isPlaying(s.player.status), transcribing: transcribingIn(s) !== null }) ? u.ready : null;
 }
 
 /** What a transcribing note says: a line in bold, and one under it. */

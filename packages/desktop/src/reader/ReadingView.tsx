@@ -27,6 +27,7 @@ import { msToText, precise, type Alignment } from "@ribbon/core/reading/align";
 import type { Sentence } from "@ribbon/core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
 import * as perf from "../app/perf";
+import { isPlaying } from "@ribbon/core/playback";
 
 /** A sentence marked in the text: the one a tap would listen from, or the one being read aloud. */
 interface Mark extends Sentence {
@@ -594,7 +595,7 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
     return {
       sentence: sentence ? `${sentence.section}:${sentence.block}:${sentence.start}` : "",
       inView: visible ? chars >= text.chars(visible.from) && chars <= text.chars(visible.to) : null,
-      playing: s.player.playing,
+      playing: isPlaying(s.player.status),
       following: !!s.reading?.following,
     };
   });

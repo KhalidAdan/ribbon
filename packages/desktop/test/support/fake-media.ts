@@ -15,6 +15,8 @@ export class FakeMedia implements MediaElement {
   static broken = new Map<string, number>();
   /** When true, sources load only when the test calls `loadAll()`. */
   static manualLoad = false;
+  /** When true, play() is refused as a browser refuses it without a press: NotAllowedError. */
+  static refusePlay = false;
 
   preload: "" | "auto" | "metadata" | "none" = "";
   crossOrigin: string | null = null;
@@ -45,6 +47,7 @@ export class FakeMedia implements MediaElement {
     FakeMedia.durations.clear();
     FakeMedia.broken.clear();
     FakeMedia.manualLoad = false;
+    FakeMedia.refusePlay = false;
   }
 
   static loadAll(): void {
@@ -103,6 +106,7 @@ export class FakeMedia implements MediaElement {
 
   play(): Promise<void> {
     this.plays++;
+    if (FakeMedia.refusePlay) return Promise.reject(named("NotAllowedError", "play() can't start without a press"));
     if (this.error) return Promise.reject(named("NotSupportedError", "The element has no supported sources."));
     if (!this._src) return Promise.reject(named("NotSupportedError", "no src"));
     if (this.readyState >= 2) {
@@ -160,6 +164,11 @@ export class FakeMedia implements MediaElement {
     this.readyState = 0;
     this.rejectPending("NotSupportedError");
     this.fire("error");
+  }
+
+  /** The element runs short of the file: a `waiting` event, as Chromium sends while it fetches more. */
+  waitForData(): void {
+    this.fire("waiting");
   }
 
   /** Something outside the app paused it (the system, another app). */

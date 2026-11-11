@@ -11,6 +11,7 @@ import { useAppState, useController, useCovers } from "./store";
 import { Button } from "./Button";
 import { Cover, CoverStack } from "./Cover";
 import { EmptyState, SegmentedProgress, Short } from "./kit";
+import { isPlaying } from "@ribbon/core/playback";
 
 /** Where you are in a series: its books in the listener's order, how far along each is, and what comes next. */
 export interface SeriesStanding {
@@ -55,7 +56,7 @@ function hoursOf(ms: number): string {
  * a rail of lines (SeriesRail).
  */
 export function SeriesPage() {
-  const state = useAppState((s) => ({ books: s.books, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, playing: s.player.playing, downloads: s.downloads }));
+  const state = useAppState((s) => ({ books: s.books, sources: s.sources, series: s.series, seriesKey: s.seriesKey, current: s.current, playing: isPlaying(s.player.status), downloads: s.downloads }));
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();

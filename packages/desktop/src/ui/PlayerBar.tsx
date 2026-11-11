@@ -8,6 +8,7 @@ import { Button, IconButton, pressed } from "./Button";
 import { Cover } from "./Cover";
 import { Scrubber } from "./Scrubber";
 import { scanLine, scanning } from "./LoudnessScan";
+import { isLoading, isPlaying } from "@ribbon/core/playback";
 
 /**
  * The player as a bar along the bottom: what is playing and where, the
@@ -29,7 +30,7 @@ export function PlayerBar() {
   const inChapter = Math.min(length, Math.max(0, p.positionMs - start));
   const bookLeft = remainingAtSpeed(p.durationMs - p.positionMs, p.speed);
   const sleeping = isSet(state.sleep.state);
-  const status = p.reconnecting ? "Reconnecting…" : p.error ? p.error : p.buffering ? "Loading…" : scanning(state.job) ? scanLine(state.job) : null;
+  const status = p.status === "reconnecting" ? "Reconnecting…" : p.error ? p.error : isLoading(p.status) ? "Loading…" : scanning(state.job) ? scanLine(state.job) : null;
 
   return (
     <div className="shrink-0 border-t border-line bg-surface" role="region" aria-label="Now playing">
@@ -92,7 +93,7 @@ export const Transport = memo(function Transport({ size }: { size: "sm" | "md" }
 
 /** The one primary control: inverted ink, round. Pause while reconnecting, because the listener still wants to hear it. dock sits in the phone reader's capsule. */
 export const PlayButton = memo(function PlayButton({ size }: { size: "dock" | "sm" | "md" }) {
-  const on = useAppState((s) => s.player.playing || s.player.reconnecting);
+  const on = useAppState((s) => isPlaying(s.player.status) || s.player.status === "reconnecting");
   const c = useController();
   return (
     <button

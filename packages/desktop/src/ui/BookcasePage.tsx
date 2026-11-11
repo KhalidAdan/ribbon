@@ -13,6 +13,7 @@ import { CASE_SCALE, caseBookOf, loadPicture, useCoverCloths, useShelvedBooks } 
 import { Cover } from "./Cover";
 import { howFar, lengthOf, progressOf, useShelfProgress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
+import { isPlaying } from "@ribbon/core/playback";
 
 declare const __RIBBON_MEASURE__: boolean;
 
@@ -254,7 +255,7 @@ function FindABook({ query, onQuery, onSubmit }: { query: string; onQuery: (q: s
 function Lectern({ book, canvas, flat, onTurn }: { book: ScannedBook | null; canvas: HTMLCanvasElement | null; flat: boolean; onTurn: (dx: number) => void }) {
   const c = useController();
   const progress = useShelfProgress();
-  const playing = useAppState((s) => s.player.playing);
+  const playing = useAppState((s) => isPlaying(s.player.status));
   // The case draws the book in hand on a canvas of its own making; it is put on the page here.
   const hand = useRef<HTMLDivElement>(null);
   useEffect(() => {

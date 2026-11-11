@@ -5,6 +5,7 @@ import { clampSpeed } from "@ribbon/core/speed";
 import { findRange, gapRate } from "@ribbon/core/silence";
 import { dbToLinear } from "@ribbon/core/loudness";
 import { recoveryDelayMs, STALL_MS } from "@ribbon/core/recovery";
+import { isPlaying, nextStatus, type PlaybackEvent, type PlaybackStatus } from "@ribbon/core/playback";
 
 /** How often the position clock, the gap check and the watchdog run. */
 const TICK_MS = 200;
@@ -36,16 +37,15 @@ export interface EngineState {
   bookId: string | null;
   positionMs: number;
   durationMs: number;
-  playing: boolean;
-  buffering: boolean;
+  /** Whether it plays, and if not why not (core/playback.ts). Only `move` changes it. */
+  status: PlaybackStatus;
   speed: number;
   chapterIndex: number;
   /** True while the rate is raised to cross a recorded gap. */
   skippingGap: boolean;
   /** Linear loudness gain in effect. */
   gain: number;
-  /** True while a stalled or failed file is being reloaded at the last good position. */
-  reconnecting: boolean;
+  /** What's wrong, in a sentence, while it's worth saying: a press needed to play, or a file that won't open as it's tried again. */
   error: string | null;
 }
 
@@ -90,6 +90,12 @@ export interface EngineOptions {
  * again with backoff, for as long as the listener wants to be playing.
  * Every play and pause carries an intent number, so a slow `play()`
  * that resolves after a pause does not start the audio again.
+ *
+ * What the listener hears is one status (core/playback.ts): paused,
+ * starting, loading, playing, buffering or reconnecting. The engine says
+ * what happened, `move(event)`, and the status machine says where that
+ * leads; nothing else sets it. `wantPlaying` is apart from it: the
+ * listener's wish, which the status follows but the audio can outrun.
  */
 export class PlayerEngine {
   private readonly els: [MediaElement, MediaElement];
@@ -113,13 +119,11 @@ export class PlayerEngine {
     bookId: null,
     positionMs: 0,
     durationMs: 0,
-    playing: false,
-    buffering: false,
+    status: "paused",
     speed: 1,
     chapterIndex: -1,
     skippingGap: false,
     gain: 1,
-    reconnecting: false,
     error: null,
   };
   /** What the listener asked for most recently. */
@@ -146,12 +150,12 @@ export class PlayerEngine {
       el.preservesPitch = true;
       el.addEventListener("ended", () => this.onEnded(el));
       el.addEventListener("waiting", () => {
-        if (el === this.activeEl) this.emit({ buffering: true });
+        if (el === this.activeEl) this.move("waiting");
       });
       el.addEventListener("playing", () => {
         if (el !== this.activeEl) return;
         this.markProgress();
-        this.emit({ buffering: false, playing: true, error: null, reconnecting: false });
+        this.move("sounding", { error: null });
       });
       el.addEventListener("timeupdate", () => {
         if (el === this.activeEl) this.readTrusted();
@@ -197,13 +201,10 @@ export class PlayerEngine {
     this.preloadNext();
     this.applyRate();
     this.applyGain();
-    this.emit({
+    this.move("load", {
       bookId: book.id,
       durationMs: total,
       positionMs: start,
-      playing: false,
-      buffering: false,
-      reconnecting: false,
       chapterIndex: chapterAt(book.chapters, start),
       error: null,
     });
@@ -213,6 +214,7 @@ export class PlayerEngine {
     if (!this.book) return;
     const intent = ++this.intent;
     this.wantPlaying = true;
+    if (nextStatus(this.state.status, "play") !== this.state.status) this.move("play");
     this.markProgress();
     this.startLoop();
     if (this.ctx && this.ctx.state !== "running") await this.ctx.resume().catch(() => undefined);
@@ -238,7 +240,7 @@ export class PlayerEngine {
     this.readTrusted();
     this.activeEl.pause();
     this.stopLoop();
-    this.emit({ playing: false, buffering: false, reconnecting: false, positionMs: this.trusted });
+    this.move("pause", { positionMs: this.trusted });
   }
 
   /** Seek anywhere in the book. Crosses files when needed. */
@@ -407,7 +409,7 @@ export class PlayerEngine {
       if (name === "NotAllowedError") {
         this.wantPlaying = false;
         this.stopLoop();
-        this.emit({ playing: false, error: "Press play to continue" });
+        this.move("refused", { error: "Press play to continue" });
         return;
       }
       this.onFailure((e as Error).message || "playback failed", 0);
@@ -430,7 +432,7 @@ export class PlayerEngine {
       this.stopLoop();
       this.readTrusted();
     }
-    this.emit({ playing: false, buffering: false, positionMs: this.trusted });
+    this.move("paused-outside", { positionMs: this.trusted });
   }
 
   private onEnded(el: MediaElement): void {
@@ -441,7 +443,7 @@ export class PlayerEngine {
       this.wantPlaying = false;
       this.stopLoop();
       this.trusted = totalDuration(this.durations);
-      this.emit({ playing: false, buffering: false, positionMs: this.trusted });
+      this.move("ended", { positionMs: this.trusted });
       this.opts.onEnded?.();
       return;
     }
@@ -470,7 +472,7 @@ export class PlayerEngine {
     this.opts.onLog?.(`playback trouble at ${this.trusted} ms in file ${this.fileIndex + 1}: ${message}`);
     if (!this.wantPlaying) {
       // Nothing is waiting on it. Remember the trouble; the next play reloads.
-      this.emit({ playing: false, buffering: false, reconnecting: false, error: null });
+      this.move("failed", { error: null });
       return;
     }
     if (code === MEDIA_ERR_DECODE) {
@@ -490,12 +492,7 @@ export class PlayerEngine {
     if (this.recovery.timer !== null) return;
     const attempt = this.recovery.attempts++;
     const delay = recoveryDelayMs(attempt);
-    this.emit({
-      playing: false,
-      buffering: false,
-      reconnecting: true,
-      error: attempt >= QUIET_ATTEMPTS ? `${capitalise(message)}. Still trying…` : null,
-    });
+    this.move("retry", { error: attempt >= QUIET_ATTEMPTS ? `${capitalise(message)}. Still trying…` : null });
     const intent = this.intent;
     this.recovery.timer = setTimeout(() => {
       this.recovery.timer = null;
@@ -531,7 +528,7 @@ export class PlayerEngine {
     }
     if (this.trusted !== this.lastProgressPos) {
       this.markProgress();
-      if (this.recovery.attempts > 0 && this.state.playing) this.recovery.attempts = 0;
+      if (this.recovery.attempts > 0 && isPlaying(this.state.status)) this.recovery.attempts = 0;
       return;
     }
     if (Date.now() - this.lastProgressAt > STALL_MS) {
@@ -633,6 +630,18 @@ export class PlayerEngine {
   private stopLoop(): void {
     if (this.ticker !== null) clearInterval(this.ticker);
     this.ticker = null;
+  }
+
+  /**
+   * Something happened to the playing: the status machine says what it means
+   * now. A sentence about trying again goes with the trying: once it stops
+   * (a pause, from the listener or from outside), so does the sentence.
+   */
+  private move(event: PlaybackEvent, patch: Partial<EngineState> = {}): void {
+    const from = this.state.status;
+    const status = nextStatus(from, event);
+    const error = from === "reconnecting" && status === "paused" && !("error" in patch) ? { error: null } : {};
+    this.emit({ ...patch, ...error, status });
   }
 
   private emit(patch: Partial<EngineState>): void {
