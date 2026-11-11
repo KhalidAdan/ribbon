@@ -12,6 +12,7 @@ import {
   type CaseBook,
   type MeasureRun,
 } from "@ribbon/core/bookcase/case";
+import { lampsOnInView, nextToLight } from "@ribbon/core/bookcase/lighting";
 import { findOnShelf, foldForSearch, searchScore } from "@ribbon/core/bookcase/search";
 import { clothForBook, coverColour, fromHsl, hexOf, hslOf, nearestCloth, rgb, SWATCHES } from "@ribbon/core/bookcase/cloth";
 
@@ -186,5 +187,40 @@ describe("finding a book on the shelf", () => {
     expect(found("fulgirm")).toEqual(["The Horus Heresy: Fulgrim"]);
     expect(found("horus zzz")).toEqual([]);
     expect(searchScore("", shelf[0]!)).toBeNull();
+  });
+});
+
+describe("the order the lamps come on in", () => {
+  const view = { first: 2, last: 3 };
+  const lit = (...on: number[]) => [0, 1, 2, 3, 4, 5].map((shelf) => on.includes(shelf));
+
+  it("lights the shelves in view first, from the top one down", () => {
+    expect(nextToLight(lit(), view, false)).toBe(2);
+    expect(nextToLight(lit(2), view, false)).toBe(3);
+  });
+
+  it("lights a shelf in view even while something is moving", () => {
+    expect(nextToLight(lit(2), view, true)).toBe(3);
+  });
+
+  it("then the shelves out of view, the nearest first, and of two as near the one below", () => {
+    expect(nextToLight(lit(2, 3), view, false)).toBe(4);
+    expect(nextToLight(lit(2, 3, 4), view, false)).toBe(1);
+    expect(nextToLight(lit(1, 2, 3, 4), view, false)).toBe(5);
+    expect(nextToLight(lit(1, 2, 3, 4, 5), view, false)).toBe(0);
+  });
+
+  it("leaves the shelves out of view dark while something is moving", () => {
+    expect(nextToLight(lit(2, 3), view, true)).toBeNull();
+  });
+
+  it("has nothing to light once every lamp is on", () => {
+    expect(nextToLight(lit(0, 1, 2, 3, 4, 5), view, false)).toBeNull();
+  });
+
+  it("lets a book be taken down once every shelf in view is lit", () => {
+    expect(lampsOnInView(lit(2), view)).toBe(false);
+    expect(lampsOnInView(lit(2, 3), view)).toBe(true);
+    expect(lampsOnInView([], view)).toBe(true);
   });
 });

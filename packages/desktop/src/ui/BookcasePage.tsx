@@ -2,11 +2,13 @@ import { BookOpenIcon, ChevronRightIcon, MagnifyingGlassIcon, PauseIcon, PlayIco
 import { clsx } from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { layOutCase, type CaseItem } from "@ribbon/core/bookcase/case";
+import type { ShelvesInView } from "@ribbon/core/bookcase/lighting";
 import { findOnShelf } from "@ribbon/core/bookcase/search";
 import { readerOnly } from "@ribbon/core/ebook";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { LamplitCase } from "../bookcase3d/lamplit-case";
-import { frameOnRow, rowSize } from "../bookcase3d/shelf-row";
+import { hasGraphicsCard } from "../bookcase3d/lamplight";
+import { drawFlatShelf, frameOnRow, rowSize } from "../bookcase3d/shelf-row";
 import { loadSpineFaces, measureRun } from "../bookcase3d/spine-art";
 import { Button, pressed } from "./Button";
 import { CASE_SCALE, caseBookOf, loadPicture, useCoverCloths, useShelvedBooks } from "./case-books";
@@ -48,6 +50,10 @@ function useSettledWidth<T extends HTMLElement>(): [(el: T | null) => void, numb
  * standing spine-out under the lamp, the newest first, each in a cloth matched to its cover. The book the pointer is
  * on comes off its shelf into your hand at the left, with what it is and how far you are; a click on it opens its
  * page. A search finds a book and brings it into view.
+ *
+ * The page opens on the case in the dark: every shelf drawn flat and dim, straight away. Then the lamps come on, a
+ * shelf at a time from the top of what's in view, each lit picture fading in over its flat one; and then the first
+ * book comes to hand. The order is the case's (lamplit-case.ts): nothing moves while a shelf in view is being lit.
  *
  * It is always a room at night, whatever the app's own light or dark. The Apple app's page is
  * packages/apple/Ribbon/Bookcase/BookcaseView.swift; the drawing is in src/bookcase3d (lamplit-case.ts is the map).
@@ -103,9 +109,23 @@ export default function BookcasePage() {
     };
   }, []);
 
-  // The shelves laid on their canvases whenever the layout changes, lit from the one in view.
+  // Each shelf is two canvases, one over the other: the shelf drawn flat, and its lamp-lit picture, which the case
+  // draws and marks `data-lit` when it has. The flat shelves are drawn here, as soon as there is a layout, without
+  // waiting for the case to open.
+  const flats = useRef<(HTMLCanvasElement | null)[]>([]);
   const canvases = useRef<(HTMLCanvasElement | null)[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    shelves?.forEach((items, i) => {
+      const canvas = flats.current[i];
+      if (!canvas) return;
+      canvas.width = Math.round(width * CASE_SCALE);
+      canvas.height = Math.round(rowSize(K).height * CASE_SCALE);
+      drawFlatShelf(canvas.getContext("2d")!, items, width, K, CASE_SCALE);
+    });
+  }, [shelves, width]);
+  // Until the case has opened, whether it will be lit is this machine's graphics card to say.
+  const [willLight] = useState(hasGraphicsCard);
   const [taken, setTaken] = useState<string | null>(null);
   const takeDown = useCallback(
     (id: string) => {
@@ -116,18 +136,22 @@ export default function BookcasePage() {
     [lamplit],
   );
   const { height: rowHeight } = rowSize(K);
+  /** The shelves on screen now, for the case to light first. */
+  const inView = useCallback((): ShelvesInView => {
+    const top = scroller.current?.scrollTop ?? 0, tall = scroller.current?.clientHeight ?? 0;
+    return { first: Math.max(0, Math.floor(top / rowHeight)), last: Math.max(0, Math.ceil((top + tall) / rowHeight) - 1) };
+  }, [rowHeight]);
   useEffect(() => {
     if (!lamplit || !shelves) return;
-    const first = Math.max(0, Math.floor((scroller.current?.scrollTop ?? 0) / rowHeight));
-    lamplit.lay({ shelves: shelves.map((items, i) => ({ items, canvas: canvases.current[i]! })), width, k: K, scale: CASE_SCALE, first });
-    lamplit.sizeHand(LECTERN, HAND_HEIGHT);
-    // The shelf opens at its start, on the newest book, unless a book is already in hand.
+    // The shelf opens at its start, on the newest book, unless a book is already in hand: then with its shelf in view.
     const all = shelves.flat();
     const back = lamplit.taken === null ? all.find((it) => it.book.id === lastTaken) : undefined;
     const keep = all.find((it) => it.book.id === lamplit.taken) ?? back ?? all[0];
-    if (keep) takeDown(keep.book.id);
     if (back) canvases.current[shelves.findIndex((shelf) => shelf.includes(back))]?.scrollIntoView({ block: "center" });
-  }, [lamplit, shelves, width, rowHeight, takeDown]);
+    lamplit.lay({ shelves: shelves.map((items, i) => ({ items, canvas: canvases.current[i]! })), width, k: K, scale: CASE_SCALE, view: inView() });
+    lamplit.sizeHand(LECTERN, HAND_HEIGHT);
+    if (keep) takeDown(keep.book.id);
+  }, [lamplit, shelves, width, inView, takeDown]);
 
   // The pointer resting on a book takes it down; passing over on the way elsewhere doesn't.
   const resting = useRef(0);
@@ -150,7 +174,7 @@ export default function BookcasePage() {
   };
 
   const inHand = taken ? (byId.get(taken) ?? null) : null;
-  const flat = lamplit !== null && !lamplit.lit;
+  const flat = lamplit ? !lamplit.lit : !willLight;
   return (
     <section className="lamplit flex h-full gap-8 bg-canvas px-4 pt-6 text-ink sm:px-8" aria-label="Bookcase">
       <aside className="flex shrink-0 flex-col gap-3.5" style={{ width: LECTERN }}>
@@ -163,16 +187,26 @@ export default function BookcasePage() {
           <p className="text-sm/5 text-ink-2">{books.length === 1 ? "Your book, on the shelf." : `All ${books.length} books, newest first.`}</p>
         </header>
         {/* The shelves' edges dissolve into the page, so the bookcase reads as a pool of light, not a box pasted on. */}
-        <div ref={scroller} className="case-fade min-h-0 flex-1 overflow-y-auto quiet-scroll">
+        <div ref={scroller} onScroll={() => lamplit?.look(inView())} className="case-fade min-h-0 flex-1 overflow-y-auto quiet-scroll">
           <div ref={caseBox} className="pb-10">
             {shelves?.map((shelf, i) => (
               <div key={i} className="relative" style={{ height: rowHeight }}>
+                {/* The shelf in the dark: drawn flat, and dim unless flat is all this machine can draw. */}
+                <canvas
+                  ref={(el) => {
+                    flats.current[i] = el;
+                  }}
+                  aria-hidden="true"
+                  className={clsx("block transition-opacity duration-300", !flat && "opacity-35")}
+                  style={{ width, height: rowHeight }}
+                />
+                {/* Its lamps coming on: the lit picture fades in over it. Only coming on is a fade; laid again, it is dark at once. */}
                 <canvas
                   ref={(el) => {
                     canvases.current[i] = el;
                   }}
                   aria-hidden="true"
-                  className="block"
+                  className="absolute inset-0 opacity-0 data-lit:opacity-100 data-lit:transition-opacity data-lit:duration-500 data-lit:ease-out"
                   style={{ width, height: rowHeight }}
                 />
                 {shelf.map((item) => {

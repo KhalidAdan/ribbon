@@ -58,8 +58,11 @@ export class BookInHand {
     return this.shown;
   }
 
-  /** Take a book in hand: spine-on at first, turning to its cover a moment later. `cover` is its picture, if it has one. */
-  show(item: CaseItem, cover: CanvasImageSource | null, k: number, scale: number, now: number): void {
+  /**
+   * Take a book in hand: spine-on at first, turning to its cover a moment later. `cover` is its picture, if it has one.
+   * The turn is timed from when the book has been built, which takes a frame or several.
+   */
+  show(item: CaseItem, cover: CanvasImageSource | null, k: number, scale: number): void {
     const fit = (CASE_SHELF_HEIGHT * k) / 0.95;
     this.camera.position.set(0, fit * 0.18, fit / (2 * Math.tan((11 * Math.PI) / 180)));
     this.camera.lookAt(0, 0, 0);
@@ -68,7 +71,7 @@ export class BookInHand {
     this.shown = item.book.id;
     this.scene.add(this.book);
     this.yaw = 0;
-    this.turning = { start: now + 140, from: 0 };
+    this.turning = { start: performance.now() + 140, from: 0 };
   }
 
   /** Put the book down, and let it go from the graphics card. */

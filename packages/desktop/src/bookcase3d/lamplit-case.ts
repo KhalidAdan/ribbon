@@ -1,30 +1,47 @@
 import type { WebGLRenderer } from "three";
 import type { CaseItem } from "@ribbon/core/bookcase/case";
+import { lampsOnInView, nextToLight, type ShelvesInView } from "@ribbon/core/bookcase/lighting";
 import { BookInHand } from "./book-in-hand";
 import { hasGraphicsCard, LAMP, makeRenderer, type Develop } from "./lamplight";
-import { drawFlatShelf, rowSize, ShelfRow } from "./shelf-row";
+import { rowSize, ShelfRow } from "./shelf-row";
 import { loadSpineFaces } from "./spine-art";
-import { loadBookTextures, type BookTextures } from "./textures";
+import { loadBookPictures, makeBookTextures, type BookTextures } from "./textures";
 
-/** One shelf on the page: its books, the canvas its picture is drawn on, and its 3D scene once that is built. */
+/** One shelf on the page: its books, the canvas its lamp-lit picture is drawn on, and its 3D scene once that is built. */
 interface Shelf {
   items: readonly CaseItem[];
   canvas: HTMLCanvasElement;
   row: ShelfRow | null;
-  /** Its lamp-lit picture has been drawn; until then the canvas shows it flat. */
+  /** Its lamp-lit picture has been drawn; until then its canvas is empty, and the page shows the shelf flat beneath it. */
   lit: boolean;
+}
+
+/**
+ * Run `then` once the page has had the chance to put a frame on screen. A hidden window draws no frames, so it is
+ * not waited for longer than a moment.
+ */
+function afterAFrame(then: () => void): void {
+  let gone = false;
+  const go = () => {
+    if (gone) return;
+    gone = true;
+    then();
+  };
+  // A frame's callback runs before the frame is drawn; a timer set inside it runs after.
+  requestAnimationFrame(() => window.setTimeout(go, 0));
+  window.setTimeout(go, 100);
 }
 
 /** What the page gives the case to draw on, and to draw with. */
 export interface CaseSetting {
-  /** The canvas of each shelf, top to bottom. */
+  /** Each shelf's books and the canvas for its lamp-lit picture, top to bottom. */
   shelves: readonly { items: readonly CaseItem[]; canvas: HTMLCanvasElement }[];
   /** How wide a shelf is and how big its books, in points, and the pixels to a point it is drawn at (ui/case-books.ts, `CASE_SCALE`). */
   width: number;
   k: number;
   scale: number;
-  /** Which shelf to light first: the one in view. */
-  first: number;
+  /** The shelves on screen, which are lit first. */
+  view: ShelvesInView;
 }
 
 /**
@@ -37,7 +54,13 @@ export interface CaseSetting {
  * copied to that shelf's canvas; the other draws the book in hand straight onto its own. (A page may only have a
  * handful of 3D canvases, far fewer than a library has shelves.)
  *
- * On a machine with no graphics card the shelves stay as they are first drawn, flat, and there is no book in hand.
+ * Opening is the one time there is a lot to draw at once, and a shelf's first picture is a block of work the page can
+ * do nothing else during. So the lamps come on in an order (core/bookcase/lighting.ts): the shelves in view first,
+ * each marked `data-lit` for the page to fade in over the flat shelf beneath; then the book asked for is taken down;
+ * and the shelves out of view are lit whenever nothing is moving.
+ *
+ * On a machine with no graphics card nothing is lit: the page's flat shelves are all there is, and there is no book
+ * in hand.
  */
 export class LamplitCase {
   private shelves: Shelf[] = [];
@@ -45,17 +68,24 @@ export class LamplitCase {
   private k = 1;
   private scale = 1;
   private readonly hand: BookInHand | null;
+  /** The book asked for, and the book off its shelf now: the same once the lamps in view are on. */
   private selected: string | null = null;
+  private lifted: string | null = null;
+  private view: ShelvesInView = { first: 0, last: 0 };
   private frame = 0;
-  private building = 0;
+  /** A shelf is being lit now, and how many times the case has been laid: a shelf lit for an older laying is dropped. */
+  private lighting = false;
+  private laid = 0;
   private closed = false;
   /** Asks for the book in hand, newest last: an answer to an older ask than the last is thrown away. */
   private asks = 0;
+  /** Covers being fetched for the book in hand: it is about to move. */
+  private fetching = 0;
   /**
    * How long things took, in milliseconds, for the measurement build: opening the case, then, from the moment the
-   * shelves were last laid out, drawing them all flat, lighting the first, and lighting the last.
+   * shelves were last laid out, lighting the first, and lighting the last.
    */
-  readonly times: { opened: number; flat?: number; firstLit?: number; allLit?: number } = { opened: 0 };
+  readonly times: { opened: number; firstLit?: number; allLit?: number } = { opened: 0 };
   /** The gaps between the frames drawn since this was last emptied, in milliseconds. */
   frames: number[] = [];
   private laidAt = 0;
@@ -87,8 +117,10 @@ export class LamplitCase {
     if (!hasGraphicsCard()) return new LamplitCase(develop, null, null, null, null, coverOf);
     try {
       const shelfRenderer = makeRenderer(document.createElement("canvas"), develop), handRenderer = makeRenderer(document.createElement("canvas"), develop, false, true);
-      // Each renderer has its own graphics-card memory, so each loads the cloth and the studio for itself.
-      const [shelfTextures, handTextures] = await Promise.all([loadBookTextures(shelfRenderer), loadBookTextures(handRenderer)]);
+      // Each renderer has its own graphics-card memory, so each makes its own textures, from pictures loaded once.
+      const pictures = await loadBookPictures();
+      const shelfTextures = makeBookTextures(shelfRenderer, pictures), handTextures = makeBookTextures(handRenderer, pictures);
+      pictures.studio.dispose();
       const opened = new LamplitCase(develop, shelfRenderer, handRenderer, shelfTextures, handTextures, coverOf);
       // Not waited for: the shelves are laid meanwhile, and a book taken down before it is done waits only for what's left.
       void opened.hand?.prepare(handRenderer);
@@ -106,50 +138,86 @@ export class LamplitCase {
   }
 
   /**
-   * Lay the case out on the page's canvases: every shelf flat at once, then each lit in turn, the one in view first.
-   * Called again when the page changes size, or the books do.
+   * Lay the case out on the page's canvases, and light it: the shelves in view first. Called again when the page
+   * changes size, or the books do.
    */
   lay(setting: CaseSetting): void {
-    window.clearTimeout(this.building);
     for (const shelf of this.shelves) shelf.row?.dispose();
+    this.laid++;
+    this.lighting = false;
     this.laidAt = performance.now();
     delete this.times.firstLit;
     delete this.times.allLit;
     this.width = setting.width;
     this.k = setting.k;
     this.scale = setting.scale;
+    this.view = setting.view;
     const { height } = rowSize(this.k);
     this.shelves = setting.shelves.map(({ items, canvas }) => {
+      // Sizing a canvas empties it, so the flat shelf beneath shows until this one is lit again.
       canvas.width = Math.round(this.width * this.scale);
       canvas.height = Math.round(height * this.scale);
-      drawFlatShelf(canvas.getContext("2d")!, items, this.width, this.k, this.scale);
+      delete canvas.dataset.lit;
       return { items, canvas, row: null, lit: false };
     });
-    this.times.flat = performance.now() - this.laidAt;
     this.shelfRenderer?.setPixelRatio(this.scale);
     this.shelfRenderer?.setSize(this.width, Math.round(height * this.scale) / this.scale, false);
-    const taken = this.selected;
-    this.selected = null;
-    if (taken) this.takeDown(taken);
-    this.lightFrom(setting.first);
+    // The shelves are new, so no book is off them, and a cover on its way was for the old ones.
+    this.lifted = null;
+    this.asks++;
+    this.light();
   }
 
-  /** Light the shelves one at a time, nearest `first` first, leaving the page free to answer between each. */
-  private lightFrom(first: number): void {
-    if (!this.shelfRenderer) return;
-    const order = this.shelves.map((_, i) => i).sort((a, b) => Math.abs(a - first) - Math.abs(b - first));
-    const next = () => {
-      const i = order.find((n) => !this.shelves[n]!.lit);
-      if (this.closed) return;
-      if (i === undefined) {
-        this.times.allLit ??= performance.now() - this.laidAt;
-        return;
-      }
-      this.draw(this.shelves[i]!);
+  /** The page was scrolled: these shelves are in view now. */
+  look(view: ShelvesInView): void {
+    this.view = view;
+    this.light();
+  }
+
+  /** Whether anything is moving, or about to: a book on its way off a shelf, or turning in hand. */
+  private get moving(): boolean {
+    return this.frame !== 0 || this.fetching > 0;
+  }
+
+  /**
+   * Light the next shelf whose turn it is, and the one after once this one's picture is on screen, so each lamp is
+   * seen to come on and the page can answer in between. With none left to light in view, the book asked for comes
+   * down, and the shelves out of view wait until it has.
+   */
+  private light(): void {
+    if (this.lighting || this.closed) return;
+    // The book first, if the lamps in view are on: then it is moving, and the shelves out of view wait for it.
+    this.bring();
+    const lit = this.shelves.map((shelf) => shelf.lit);
+    const next = this.shelfRenderer ? nextToLight(lit, this.view, this.moving) : null;
+    if (next === null) {
+      if (this.shelfRenderer && lit.every(Boolean)) this.times.allLit ??= performance.now() - this.laidAt;
+      return;
+    }
+    const laid = this.laid;
+    this.lighting = true;
+    void this.lightShelf(this.shelves[next]!).then(() => {
+      if (laid !== this.laid || this.closed) return;
       this.times.firstLit ??= performance.now() - this.laidAt;
-      this.building = window.setTimeout(next, 0);
-    };
-    this.building = window.setTimeout(next, 0);
+      afterAFrame(() => {
+        if (laid !== this.laid) return;
+        this.lighting = false;
+        this.light();
+      });
+    });
+  }
+
+  /** Build a shelf, draw it under its lamps, and mark its canvas lit for the page to fade in. */
+  private async lightShelf(shelf: Shelf): Promise<void> {
+    const renderer = this.shelfRenderer!, laid = this.laid;
+    const row = this.rowOf(shelf);
+    // The programs a shelf is drawn with are compiled alongside the page where the browser can
+    // (KHR_parallel_shader_compile), not in the frame it is first drawn. Only the first shelf has any to compile.
+    await renderer.compileAsync(row.scene, row.camera);
+    if (laid !== this.laid || this.closed) return;
+    row.settle();
+    this.draw(shelf);
+    shelf.canvas.dataset.lit = "";
   }
 
   /** A shelf's 3D scene, built the first time it is wanted. */
@@ -174,31 +242,51 @@ export class LamplitCase {
     return this.selected;
   }
 
-  /** Take a book down: off its shelf, tipped then drawn out, and into your hand. The book taken before goes back. */
+  /**
+   * Take a book down: off its shelf, tipped then drawn out, and into your hand. The book taken before goes back.
+   * It waits for the lamps in view to come on.
+   */
   takeDown(id: string): void {
     if (id === this.selected || this.closed) return;
     this.selected = id;
-    const now = performance.now();
-    for (const shelf of this.shelves) {
-      const item = shelf.items.find((it) => it.book.id === id);
-      // A shelf not yet built has nothing to put back, and is built only to take a book from it.
-      if (item && this.shelfRenderer) this.rowOf(shelf).lift(id, now);
-      else shelf.row?.lift(null, now);
-      if (item) this.hold(item);
-    }
-    this.run();
+    this.bring();
   }
 
-  private hold(item: CaseItem): void {
+  /**
+   * Bring the book asked for down, unless a shelf in view is still to be lit: `light` calls this again when they
+   * all are. Its cover is fetched and the book in hand built before anything moves, so the building, a long frame's
+   * work, falls before the movement and not in the middle of it.
+   */
+  private bring(): void {
+    const id = this.selected;
+    if (id === this.lifted || id === null || this.closed) return;
+    if (this.shelfRenderer && !lampsOnInView(this.shelves.map((shelf) => shelf.lit), this.view)) return;
+    this.lifted = id;
+    const item = this.shelves.flatMap((shelf) => shelf.items).find((it) => it.book.id === id);
     const hand = this.hand, ask = ++this.asks;
-    if (!hand) return;
+    if (!item || !hand) return this.lift(id);
+    this.fetching++;
     void this.coverOf(item)
       .catch(() => null)
       .then((cover) => {
-        if (ask !== this.asks || this.closed) return;
-        hand.show(item, cover, this.k, this.scale, performance.now());
-        this.run();
+        this.fetching--;
+        // A newer ask has taken over, or the case was laid again and will ask again.
+        if (ask !== this.asks || this.closed) return this.light();
+        hand.show(item, cover, this.k, this.scale);
+        this.lift(id);
       });
+  }
+
+  /** Start the book's movement off its shelf, and the last one's back onto it. */
+  private lift(id: string): void {
+    const now = performance.now();
+    for (const shelf of this.shelves) {
+      const holds = shelf.items.some((it) => it.book.id === id);
+      // A shelf not yet built has nothing to put back, and is built only to take a book from it.
+      if (holds && this.shelfRenderer) this.rowOf(shelf).lift(id, now);
+      else shelf.row?.lift(null, now);
+    }
+    this.run();
   }
 
   /** The book in hand turned by the pointer, by `dx` points. */
@@ -230,7 +318,7 @@ export class LamplitCase {
         if (!shelf.row) continue;
         const was = shelf.row.step(now);
         // A shelf still to be lit for the first time is left to its turn, when its books will be where they've come to.
-        if (was || shelf.lit) this.drawIfMoved(shelf, was);
+        if (shelf.lit) this.drawIfMoved(shelf, was);
         moving ||= was;
       }
       if (this.hand && this.handRenderer) {
@@ -252,18 +340,21 @@ export class LamplitCase {
     else this.moved.delete(shelf);
   }
 
-  /** Everything has come to rest: shelves with no book out let their lamps' shadow maps go. */
+  /**
+   * Everything has come to rest: shelves with no book out let their lamps' shadow maps go, and the shelves out of
+   * view that were waiting for the page to be still are lit.
+   */
   private rest(): void {
     for (const shelf of this.shelves) {
-      if (shelf.row && !shelf.items.some((it) => it.book.id === this.selected)) shelf.row.restLamps();
+      if (shelf.row && !shelf.items.some((it) => it.book.id === this.lifted)) shelf.row.restLamps();
     }
+    this.light();
   }
 
   /** Close the case: stop drawing and let everything go from the graphics card. */
   close(): void {
     this.closed = true;
     cancelAnimationFrame(this.frame);
-    window.clearTimeout(this.building);
     for (const shelf of this.shelves) shelf.row?.dispose();
     this.hand?.dispose();
     for (const renderer of [this.shelfRenderer, this.handRenderer]) {

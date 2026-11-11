@@ -2,6 +2,7 @@ import {
   CanvasTexture,
   EquirectangularReflectionMapping,
   FloatType,
+  ImageLoader,
   LinearFilter,
   LinearMipmapLinearFilter,
   NearestFilter,
@@ -9,8 +10,7 @@ import {
   PMREMGenerator,
   RepeatWrapping,
   SRGBColorSpace,
-  type Texture,
-  TextureLoader,
+  Texture,
   type WebGLRenderer,
 } from "three";
 import { EXRLoader } from "three/examples/jsm/loaders/EXRLoader.js";
@@ -133,10 +133,22 @@ function normalMap(n: number, height: (x: number, y: number) => number): HTMLCan
   return canvas;
 }
 
-/** Load and make the shared textures. The studio is worked out for lighting by on this renderer's graphics card. */
-export async function loadBookTextures(renderer: WebGLRenderer, studioWhite = 1): Promise<BookTextures> {
-  const pictures = new TextureLoader();
-  const [clothNormal, clothRough, clothColour, studioPicture] = await Promise.all([
+/** The pictures the textures are made from: the scanned cloth and the studio, as they come off the disk. */
+export interface BookPictures {
+  clothNormal: HTMLImageElement;
+  clothRough: HTMLImageElement;
+  clothColour: HTMLImageElement;
+  /** The studio, to be let go (`dispose`) once every renderer has its textures. */
+  studio: Texture;
+}
+
+/**
+ * Load the pictures, once however many renderers will draw with them: decoding the studio is a tenth of a second
+ * during which the page can do nothing else.
+ */
+export async function loadBookPictures(studioWhite = 1): Promise<BookPictures> {
+  const pictures = new ImageLoader();
+  const [clothNormal, clothRough, clothColour, studio] = await Promise.all([
     pictures.loadAsync(clothNormalUrl),
     pictures.loadAsync(clothRoughUrl),
     pictures.loadAsync(clothColourUrl),
@@ -145,17 +157,36 @@ export async function loadBookTextures(renderer: WebGLRenderer, studioWhite = 1)
   // The Apple app reads the studio through a decoder that keeps nothing brighter than white, so its lamps are no
   // brighter than its walls and it lights the books evenly from all round. Read whole, its lamps are many times
   // brighter, and every book's side and top catches one: the same clipping here keeps the two pictures alike.
-  const light = studioPicture.image.data as Float32Array;
+  const light = studio.image.data as Float32Array;
   for (let i = 0; i < light.length; i++) if (light[i]! > studioWhite) light[i] = studioWhite;
-  studioPicture.mapping = EquirectangularReflectionMapping;
+  studio.mapping = EquirectangularReflectionMapping;
+  return { clothNormal, clothRough, clothColour, studio };
+}
+
+/** Load and make the shared textures, for a page with one renderer. */
+export async function loadBookTextures(renderer: WebGLRenderer, studioWhite = 1): Promise<BookTextures> {
+  const pictures = await loadBookPictures(studioWhite);
+  const textures = makeBookTextures(renderer, pictures);
+  pictures.studio.dispose();
+  return textures;
+}
+
+/** A loaded picture as a texture of its own. */
+function textureOf(image: HTMLImageElement): Texture {
+  const texture = new Texture(image);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/** Make the shared textures from their pictures. The studio is worked out for lighting by on this renderer's graphics card. */
+export function makeBookTextures(renderer: WebGLRenderer, pictures: BookPictures): BookTextures {
+  const clothNormal = textureOf(pictures.clothNormal), clothRough = textureOf(pictures.clothRough);
   const generator = new PMREMGenerator(renderer);
-  const studio = generator.fromEquirectangular(studioPicture).texture;
-  studioPicture.dispose();
+  const studio = generator.fromEquirectangular(pictures.studio).texture;
   generator.dispose();
 
-  const scan = clothColour.image as HTMLImageElement;
+  const scan = pictures.clothColour;
   const clothFibresPicture = faint(scan, scan.naturalWidth, scan.naturalHeight, 0.2);
-  clothColour.dispose();
 
   const stripes = new Map<string, Texture>();
   return {
