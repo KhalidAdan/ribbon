@@ -89,7 +89,7 @@ They are deterministic and tiny. They are never committed.
   `mvin`; index parsed as a number and may be fractional (`2.5`).
 - With no tag and no numbered folder, no series: titles are never read
   for one, however a store words them ("Leviathan Wakes (The Expanse,
-  Book 1)"). Ribbon guessed series from titles until 0.35.0.
+  Book 1)"). Ribbon guessed series from titles until 0.36.0.
 - A series deleted stays deleted: on a server for every device, in a
   folder by a record beside the books, though the tags still name it.
 - Year from the first four digits of `date`.
