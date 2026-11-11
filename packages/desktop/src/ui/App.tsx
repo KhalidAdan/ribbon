@@ -95,12 +95,10 @@ function Ready() {
     books: s.books,
     sources: s.sources,
     series: s.series,
-    pane: s.pane,
-    readerBookId: s.readerBookId,
-    readerFromBookcase: s.readerFromBookcase,
+    screen: s.screen,
     seriesKey: s.seriesKey,
     problems: s.problems,
-    playerExpanded: s.playerExpanded,
+    playerOpen: s.fullPlayer !== null,
     reading: s.reading !== null,
   }));
   const c = useController();
@@ -116,29 +114,31 @@ function Ready() {
   if (state.phase === "boot") return null;
   if (state.phase === "pick") return <PickLibrary />;
 
-  const reader = state.pane === "reader" ? (state.books.find((b) => b.book.id === state.readerBookId) ?? null) : null;
+  const at = state.screen;
+  const pane = at.pane;
+  const reader = at.pane === "reader" ? (state.books.find((b) => b.book.id === at.bookId) ?? null) : null;
   // A book in several series is under the one you came from.
-  const series = reader ? c.seriesOfBook(reader.book.id)[0] : state.pane === "series" ? c.detectedSeries().find((g) => g.key === state.seriesKey) : undefined;
+  const series = reader ? c.seriesOfBook(reader.book.id)[0] : at.pane === "series" ? c.detectedSeries().find((g) => g.key === at.key) : undefined;
   const servers = state.sources.filter((s) => s.server).length;
   const counted = (n: number, one: string) => (n === 0 ? "" : `${n} ${one}${n === 1 ? "" : "s"}`);
   const folders = state.sources.length === 1 ? state.sources[0]!.name : [counted(state.sources.length - servers, "folder"), counted(servers, "server")].filter(Boolean).join(" and ");
   const crumbs: Crumb[] =
-    state.pane === "settings"
+    pane === "settings"
       ? [{ label: "Settings" }]
-      : state.pane === "stats"
+      : pane === "stats"
         ? [{ label: "Stats" }]
       : reader
-        ? state.readerFromBookcase
+        ? at.pane === "reader" && at.fromBookcase
           ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: "Bookcase", onClick: () => c.openBookcase() }, { label: reader.book.title }]
           : [{ label: "Library", onClick: () => c.showLibrary() }, ...(series ? [{ label: series.name, onClick: () => c.openSeries(series.key) }] : []), { label: series?.titles?.[reader.book.id] ?? reader.book.title }]
-        : state.pane === "series"
+        : pane === "series"
           ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: series?.name ?? "Series" }]
-          : state.pane === "bookcase"
+          : pane === "bookcase"
             ? [{ label: "Library", onClick: () => c.showLibrary() }, { label: "Bookcase" }]
           : [{ label: folders }];
   const onQuery = (q: string) => {
     setQuery(q);
-    if (q && state.pane !== "library") c.showLibrary();
+    if (q && pane !== "library") c.showLibrary();
   };
 
   // The reader covers the window: nothing under it is drawn, so a page turn never waits on the shelf.
@@ -146,7 +146,7 @@ function Ready() {
   const screen = state.reading ? (
     <>
       <ReadingView />
-      <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
+      <PlayerSheet open={state.playerOpen} onClose={() => c.collapsePlayer()}>
         <PlayerPane />
       </PlayerSheet>
       <TheEnd />
@@ -161,22 +161,22 @@ function Ready() {
       <TheEnd />
       <TopBar crumbs={crumbs} query={query} onQuery={onQuery} count={matchCount} onSubmit={openFirst} />
       <Tabs
-        current={state.pane === "settings" ? "settings" : state.pane === "stats" ? "stats" : "library"}
+        current={pane === "settings" ? "settings" : pane === "stats" ? "stats" : "library"}
         onSelect={(t) => (t === "settings" ? c.showSettings() : t === "stats" ? c.showStats() : c.showLibrary())}
         badges={state.problems.length > 0 ? { settings: <span className="size-1.5 rounded-full bg-place" aria-label={`${state.problems.length} files could not be read`} /> } : {}}
       />
       <div className="min-h-0 flex-1">
         {state.phase === "loading" ? (
           <Loading />
-        ) : state.pane === "settings" ? (
+        ) : pane === "settings" ? (
           <SettingsPane />
-        ) : state.pane === "stats" ? (
+        ) : pane === "stats" ? (
           <StatsPane />
-        ) : state.pane === "reader" ? (
+        ) : pane === "reader" ? (
           <ReaderPage />
-        ) : state.pane === "series" ? (
+        ) : pane === "series" ? (
           <SeriesPage />
-        ) : state.pane === "bookcase" ? (
+        ) : pane === "bookcase" ? (
           <Suspense fallback={<div className="lamplit h-full bg-canvas" />}>
             <BookcasePage />
           </Suspense>
@@ -185,7 +185,7 @@ function Ready() {
         )}
       </div>
       <PlayerBar />
-      <PlayerSheet open={state.playerExpanded} onClose={() => c.collapsePlayer()}>
+      <PlayerSheet open={state.playerOpen} onClose={() => c.collapsePlayer()}>
         <PlayerPane />
       </PlayerSheet>
     </main>

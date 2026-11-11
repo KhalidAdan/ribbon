@@ -29,7 +29,7 @@ export function PlayerPane() {
   const c = useController();
   const cur = state.current;
   const scanJob = cur ? state.jobs[cur.book.book.id] : undefined;
-  const drawer = state.playerDrawer;
+  const drawer = state.fullPlayer?.drawer ?? null;
   const setDrawer = (d: typeof drawer) => c.setPlayerDrawer(d);
   const [adding, setAdding] = useState(false);
   const [moreAbout, setMoreAbout] = useState(false);

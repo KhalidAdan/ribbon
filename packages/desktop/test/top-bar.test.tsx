@@ -52,7 +52,7 @@ describe("the top bar", () => {
   it("opens Settings, which says more, when the book being transcribed is clicked", () => {
     const { app, status } = bar({ transcribingForServer: { title: "Era of Ruin", done: 40, total: 100 } });
     act(() => status!.querySelector("button")!.click());
-    expect(app.getState().pane).toBe("settings");
+    expect(app.getState().screen).toEqual({ pane: "settings" });
   });
 
   it("gives way to a check of the folders, which ends soon", () => {

@@ -22,9 +22,10 @@ interface View {
 
 function view(page: Page): Promise<View> {
   return page.evaluate(() => {
-    const c = (window as unknown as { __ribbon: { getState(): { playerDrawer: string | null; playerExpanded: boolean } } }).__ribbon;
+    const c = (window as unknown as { __ribbon: { getState(): { fullPlayer: { drawer: string | null } | null } } }).__ribbon;
     const el = document.elementFromPoint(innerWidth - 200, 200);
-    return { drawer: c.getState().playerDrawer, expanded: c.getState().playerExpanded, top: el?.closest("dialog")?.getAttribute("aria-label") ?? null };
+    const open = c.getState().fullPlayer;
+    return { drawer: open?.drawer ?? null, expanded: open !== null, top: el?.closest("dialog")?.getAttribute("aria-label") ?? null };
   });
 }
 

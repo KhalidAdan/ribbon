@@ -9,6 +9,7 @@ import type { ScannedBook } from "@ribbon/core/scan/scan";
 import type { Book, Position } from "@ribbon/core/types";
 import { defaultSettings } from "@ribbon/core/settings";
 import { newSeriesRecord } from "@ribbon/core/series";
+import type { Screen as Showing } from "@ribbon/core/screen";
 import { Screen } from "../src/ui/App";
 import { ControllerContext, shallowEqual, useAppState } from "../src/ui/store";
 
@@ -76,7 +77,7 @@ function sb(i: number): ScannedBook {
 }
 
 /** A shelf of 200 books, a third of them started, five in a series, the first one playing an hour in. */
-function controller(pane: AppState["pane"]): AppController {
+function controller(pane: Showing["pane"]): AppController {
   const platform: Platform = { host: nodeHost(), pickFolder: async () => null, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources() };
   const c = new AppController(platform);
   const books = Array.from({ length: 200 }, (_, i) => sb(i));
@@ -92,8 +93,7 @@ function controller(pane: AppState["pane"]): AppController {
     positions,
     series: { saga: series },
     assetsReady: true,
-    pane,
-    readerBookId: playing.book.id,
+    screen: pane === "reader" ? { pane, bookId: playing.book.id, fromBookcase: false } : pane === "series" ? { pane, key: "saga" } : { pane },
     current: { book: playing, settings: defaultSettings(playing.book.id), bookmarks: [], loudnessGainDb: null, silence: null, corrections: [] },
     player: { ...c.getState().player, bookId: playing.book.id, positionMs: HOUR + 1000, durationMs: playing.book.durationMs, status: "playing", chapterIndex: 3 },
   });

@@ -41,6 +41,7 @@ import { BookText, type TextPlace } from "@ribbon/core/reading/booktext";
 import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typography";
 import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
+import { LIBRARY, pageBook, screenAfter, type Drawer, type FullPlayer, type OnScreen, type Screen, type ScreenEvent } from "@ribbon/core/screen";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
 import { rowsToBytes } from "@ribbon/core/csv";
@@ -253,18 +254,12 @@ export interface AppState {
   /** Bumped when the set of locally mirrored covers changes. */
   coverVersion: number;
   error: string | null;
-  /** What fills the window above the player bar. */
-  pane: "library" | "settings" | "reader" | "stats" | "series" | "bookcase";
-  /** The book the reader page shows. */
-  readerBookId: string | null;
-  /** The book's page was opened from the bookcase, so the way back from it leads there. */
-  readerFromBookcase: boolean;
-  /** The series the series page shows, by key. */
+  /** What fills the window above the player bar, and what it shows: a book's page its book, a series' page its series (core/screen.ts). */
+  screen: Screen;
+  /** The full player, open over everything on one of its drawers or none; null while it's closed (core/screen.ts). */
+  fullPlayer: FullPlayer;
+  /** The series last opened, by key: a book in several lists it first on its page and offers its next book at its end. */
   seriesKey: string | null;
-  /** The full player is open over everything. */
-  playerExpanded: boolean;
-  /** Which drawer the full player shows, if any. */
-  playerDrawer: "chapters" | "bookmarks" | "speed" | null;
   /** The book whose details are open for editing, or null. */
   editBook: string | null;
   /** How the shelf is filtered and sorted; remembered between sessions. */
@@ -459,7 +454,8 @@ interface Opened {
  *   on GitHub, downloads it, and offers to restart into it when nothing
  *   plays and nothing is transcribed; closing installs it too (updates.ts).
  * - **Sleep timer, Bookmarks, Chapter corrections, Navigation** (which
- *   pane is showing), **History** (listen-throughs and sessions from the
+ *   page shows and whether the full player is open over it, core/screen.ts,
+ *   told through `toScreen`), **History** (listen-throughs and sessions from the
  *   position log), **Series**, **Descriptions** (book details from online
  *   catalogs, only when turned on), **Chapter names** (Audible's names
  *   for a book's numbered chapters).
@@ -574,12 +570,8 @@ export class AppController {
       assetsReady: false,
       coverVersion: 0,
       error: null,
-      pane: "library",
-      readerBookId: null,
-      readerFromBookcase: false,
+      ...LIBRARY,
       seriesKey: null,
-      playerExpanded: false,
-      playerDrawer: null,
       editBook: null,
       view: DEFAULT_VIEW,
       history: { reads: [], sessions: [], readings: [], recording: true },
@@ -612,6 +604,16 @@ export class AppController {
   private set(patch: Partial<AppState>): void {
     this.state = { ...this.state, ...patch };
     for (const l of this.listeners) l();
+  }
+
+  /** What's on screen after an event (core/screen.ts), to set with whatever else changes at the same time. */
+  private onScreen(event: ScreenEvent): OnScreen {
+    return screenAfter({ screen: this.state.screen, fullPlayer: this.state.fullPlayer }, event);
+  }
+
+  private toScreen(event: ScreenEvent): void {
+    const next = this.onScreen(event);
+    if (next.screen !== this.state.screen || next.fullPlayer !== this.state.fullPlayer) this.set(next);
   }
 
   /** Tell the reader's session what happened (core/reading/session.ts), the one way it changes; with anything else that changes at the same time. */
@@ -1780,7 +1782,7 @@ export class AppController {
     log.info("deleted from the server:", book.book.title);
     // Asked for here, so nothing waits for it to be closed.
     if (this.state.current?.book.book.id === bookId) await this.letGoOfCurrent();
-    if (this.state.pane === "reader" && this.state.readerBookId === bookId) this.showLibrary();
+    if (pageBook(this.state.screen) === bookId) this.showLibrary();
     await this.refreshServer(o);
   }
 
@@ -1788,13 +1790,14 @@ export class AppController {
    * Take off this device the downloads of books the server's admin deleted.
    * Only the books the server says were deleted go, never one merely missing
    * from its list: a server that lost its list mustn't empty every device.
-   * A book in use here, open in the player or the reader, stays until it
-   * isn't: the next book opened, the library shown, or the next launch.
+   * A book in use here, in the player, open to read or its page showing,
+   * stays until it isn't: the next book opened, the library shown, or the
+   * next launch.
    */
   private async dropDeleted(o: Opened): Promise<void> {
     const shelf = o.server;
     if (!shelf || o.scans.running) return;
-    const inUse = new Set([this.state.current?.book.book.id, this.state.pane === "reader" ? this.state.readerBookId : null]);
+    const inUse = new Set([this.state.current?.book.book.id, this.state.reading?.bookId, pageBook(this.state.screen)]);
     const gone = o.books.filter((b) => !b.remote && shelf.wasDeleted(serverIdOf(b)) && !inUse.has(b.book.id));
     let removed = 0;
     for (const b of gone) {
@@ -1829,7 +1832,7 @@ export class AppController {
     }
     this.chapterProbe?.abort();
     this.engine?.pause();
-    this.set({ current: null, playerExpanded: false, playerDrawer: null, resumeOffer: null, previewing: null });
+    this.set({ current: null, resumeOffer: null, previewing: null, ...this.onScreen({ type: "collapse" }) });
   }
 
   async removeSource(id: string): Promise<void> {
@@ -1870,11 +1873,10 @@ export class AppController {
       about,
       jobs,
       seriesSetup: this.state.seriesSetup && this.state.seriesSetup.bookIds.some((b) => gone.has(b)) ? null : this.state.seriesSetup,
-      readerBookId: this.state.readerBookId && gone.has(this.state.readerBookId) ? null : this.state.readerBookId,
-      pane: this.state.pane === "reader" && this.state.readerBookId && gone.has(this.state.readerBookId) ? "library" : this.state.pane,
+      ...this.onScreen({ type: "gone", books: gone }),
     });
     this.publishBooks();
-    this.publishScanning(this.state.sources.length === 0 ? { phase: "pick", pane: "library", playerExpanded: false } : {});
+    this.publishScanning(this.state.sources.length === 0 ? { phase: "pick", ...LIBRARY } : {});
     await this.saveSources();
   }
 
@@ -2072,7 +2074,7 @@ export class AppController {
     // At the speed it was last heard at on any device, unless this machine chose one since (core/settings.ts).
     const speed = speedToPlay(settings, lastSpeed(this.state.history.sessions, id));
     const current: CurrentBook = { book, settings: { ...settings, speed }, bookmarks, loudnessGainDb: loudness?.gainDb ?? null, silence, corrections };
-    this.set({ current, playerExpanded: expand, playerDrawer: null, resumeOffer: null });
+    this.set({ current, resumeOffer: null, ...this.onScreen(expand ? { type: "expand", drawer: null } : { type: "collapse" }) });
     // The book left behind may be one a server's admin deleted meanwhile.
     this.dropDeletedEverywhere();
     // Read further than listened: start where the reading stopped.
@@ -2159,7 +2161,7 @@ export class AppController {
     if (this.state.reading) await this.closeReading();
     if (!asked.current()) return;
     perf.begin("open the reader");
-    this.toReading({ type: "open", bookId }, { playerExpanded: false });
+    this.toReading({ type: "open", bookId }, this.onScreen({ type: "collapse" }));
     const started = performance.now();
     // Everything the reader needs, read at once: over a share each is a round trip of its own.
     const steps: string[] = [];
@@ -3040,7 +3042,7 @@ export class AppController {
    * Heresy it's also in.
    */
   openReader(bookId: string, seriesKey?: string): void {
-    this.set({ pane: "reader", readerBookId: bookId, ...(seriesKey ? { seriesKey } : {}), readerFromBookcase: this.state.pane === "bookcase" || (this.state.pane === "reader" && this.state.readerFromBookcase), playerExpanded: false });
+    this.set({ ...this.onScreen({ type: "book", bookId }), ...(seriesKey ? { seriesKey } : {}) });
     this.maybeNudgeSpeech(bookId);
   }
 
@@ -3647,30 +3649,30 @@ export class AppController {
   // Navigation ----------------------------------------------------------
 
   showLibrary(): void {
-    this.set({ pane: "library", playerExpanded: false });
+    this.toScreen({ type: "show", pane: "library" });
     this.dropDeletedEverywhere();
   }
 
   /** Open the full player over the shelf, optionally straight onto one of its drawers. */
-  expandPlayer(drawer: AppState["playerDrawer"] = null): void {
+  expandPlayer(drawer: Drawer | null = null): void {
     if (!this.state.current) return;
-    this.set({ playerExpanded: true, playerDrawer: drawer });
+    this.toScreen({ type: "expand", drawer });
   }
 
   collapsePlayer(): void {
-    this.set({ playerExpanded: false, playerDrawer: null });
+    this.toScreen({ type: "collapse" });
   }
 
-  setPlayerDrawer(drawer: AppState["playerDrawer"]): void {
-    this.set({ playerDrawer: drawer });
+  setPlayerDrawer(drawer: Drawer | null): void {
+    this.toScreen({ type: "drawer", drawer });
   }
 
   showSettings(): void {
-    this.set({ pane: "settings" });
+    this.toScreen({ type: "show", pane: "settings" });
   }
 
   showStats(): void {
-    this.set({ pane: "stats", playerExpanded: false });
+    this.toScreen({ type: "show", pane: "stats" });
   }
 
   // History -------------------------------------------------------------
@@ -3900,7 +3902,7 @@ export class AppController {
     }
     this.opened.clear();
     this.jobs.cancelAll();
-    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, pane: "library", playerExpanded: false, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null });
+    this.set({ phase: "pick", sources: [], sourceStatus: {}, books: [], positions: {}, current: null, ...LIBRARY, assetsReady: false, series: {}, problems: [], about: {}, scanning: null, canAddFolders: true, moveOffer: null });
   }
 
   // Series ----------------------------------------------------------------
@@ -3952,7 +3954,7 @@ export class AppController {
 
   /** Show the bookcase: every book on the shelf standing spine-out under the lamp (ui/BookcasePage.tsx). */
   openBookcase(): void {
-    this.set({ pane: "bookcase", playerExpanded: false });
+    this.toScreen({ type: "show", pane: "bookcase" });
   }
 
   /** What a server knows of one of its books that the files here don't say: when it came, and how long its text is. Null for a book from a folder. */
@@ -3962,7 +3964,7 @@ export class AppController {
 
   /** Show a series' page: its books in order, and how far you are through it. */
   openSeries(key: string): void {
-    this.set({ pane: "series", seriesKey: key, playerExpanded: false });
+    this.set({ ...this.onScreen({ type: "series", key }), seriesKey: key });
   }
 
   openNewSeries(): void {
@@ -4033,7 +4035,8 @@ export class AppController {
 
   /** The page of a series that's gone has nothing left to show: back to the library. */
   private leaveDeletedSeries(key: string): void {
-    if (this.state.pane === "series" && this.state.seriesKey === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
+    const s = this.state.screen;
+    if (s.pane === "series" && s.key === key && !this.detectedSeries().some((g) => g.key === key)) this.showLibrary();
   }
 
   /** Write a record beside the books in every source that holds one of its members; a server that keeps series keeps it, for every device. */
@@ -4115,9 +4118,9 @@ export class AppController {
     return [...o.books, ...this.stamp(o, o.server?.remote(o.books) ?? [])];
   }
 
-  /** After a scan: open the setup for the first series with no record, once per session. */
+  /** After a scan: open the setup for the first series with no record, once per session; never over a series dialog already open. */
   private offerSeriesSetup(): void {
-    if (this.state.seriesSetup) return;
+    if (this.state.seriesSetup || this.state.seriesNew) return;
     if (this.openedInOrder().some((o) => o.scanning)) return;
     for (const g of this.detectedSeries()) {
       if (this.state.series[g.key] || this.seriesOffered.has(g.key)) continue;
@@ -4232,9 +4235,10 @@ export class AppController {
     return a && a.source === "openlibrary" ? a : null;
   }
 
+  /** Open a series' setup: one series dialog at a time, so making one by hand closes. */
   openSeriesSetup(key: string): void {
     const g = this.detectedSeries().find((x) => x.key === key);
-    if (g) this.set({ seriesSetup: g });
+    if (g) this.set({ seriesSetup: g, seriesNew: false });
   }
 
   closeSeriesSetup(): void {

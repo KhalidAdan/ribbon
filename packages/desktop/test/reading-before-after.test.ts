@@ -49,7 +49,8 @@ function titleOf(state: AppState | OldState, id: string): string {
 }
 
 function around(s: AppState | OldState): Omit<Seen, "reading"> {
-  return { playerExpanded: s.playerExpanded, error: s.error, current: s.current ? s.current.book.book.title : null, playing: isPlaying(s.player.status) };
+  const playerExpanded = "fullPlayer" in s ? s.fullPlayer !== null : s.playerExpanded;
+  return { playerExpanded, error: s.error, current: s.current ? s.current.book.book.title : null, playing: isPlaying(s.player.status) };
 }
 
 function seenOld(s: OldState): Seen {

@@ -574,6 +574,30 @@ describe("the desktop on a server", () => {
     await app.closeReading();
   }, 60_000);
 
+  it("keeps a book deleted from the server while it's open in the reader, and takes it off once it isn't", async () => {
+    // Deleted on another device while open in the EPUB reader here, its files went from under the page being read:
+    // a book in use was only the one in the player, or the one whose page showed.
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    const { app } = await aDesktop("admin", { host: readsEpubs() });
+    const { app: other } = await aDesktop("admin");
+    await app.openReading(book(app, "Told Book").book.id);
+    expect(app.getState().reading).toMatchObject({ status: "ready" });
+    const file = fileOf(app, book(app, "Told Book"));
+
+    await other.deleteFromServer(book(other, "Told Book").book.id);
+    await soon(() => book(other, "Told Book")).toBeUndefined();
+    // Long enough for this device to hear of it, ask the server and scan.
+    await new Promise((r) => setTimeout(r, 3_000));
+    expect(existsSync(file)).toBe(true);
+    expect(book(app, "Told Book")).toBeTruthy();
+
+    await app.closeReading();
+    app.showLibrary();
+    await soon(() => book(app, "Told Book")).toBeUndefined();
+    expect(existsSync(file)).toBe(false);
+  }, 30_000);
+
   it("finds no lines on a server out of reach, and says nothing", async () => {
     await stocked();
     const { app } = await aDesktop();

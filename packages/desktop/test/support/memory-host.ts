@@ -26,9 +26,10 @@ export class MemoryHost {
   /** Calls that are still waiting, so a test can let everything that can run, run. */
   inFlight = 0;
 
+  /** Each audio file and EPUB package by its path in the library: a test adds to them as it adds files. */
   constructor(
-    private readonly audio: Record<string, FakeAudio> = {},
-    private readonly packages: Record<string, Record<string, string>> = {},
+    readonly audio: Record<string, FakeAudio> = {},
+    readonly packages: Record<string, Record<string, string>> = {},
   ) {}
 
   /** A file, with its folders, as if it had always been there. */

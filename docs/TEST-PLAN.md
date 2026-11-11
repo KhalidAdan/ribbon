@@ -229,6 +229,28 @@ Given files of durations `[1000, 2000, 3000]`:
   playing, pausing, a pairing fixed, a highlight) and 1,000 random ones
   of ten, and reaches every status of each (`reading-before-after.test.ts`).
 
+### What's on screen (`core/screen.ts`)
+
+- Each page shows from any other, and every page but Settings closes the
+  full player as it opens.
+- A book's page leads back to the bookcase when it was opened from there,
+  or from a book's page that was; from anywhere else it doesn't.
+- The full player opens on the drawer asked for, changes drawer only
+  while open, and closes.
+- A book's page whose book is gone, or a series' page whose series is,
+  goes back to the library; any other page stays.
+- One series dialog at a time: a scan never offers a series' setup over
+  the dialog for making one, and opening either closes the other
+  (`on-screen.test.ts`).
+- A book deleted from the server while it's open to read stays until
+  it's closed and the library shows, as one in the player or whose page
+  shows does (`desktop-on-server.test.ts`).
+- Before and after: the controller with the screen as one status shows
+  what the old one did, page, book, series, way back, full player and
+  drawer, and the reader over them, in every sequence of three of
+  eighteen events and 1,000 random ones of ten
+  (`screen-before-after.test.ts`).
+
 ### Loudness (`core/loudness.ts`)
 
 - Parses `I: -23.4 LUFS` and `Peak: -1.2 dBFS` from ebur128 summary.
