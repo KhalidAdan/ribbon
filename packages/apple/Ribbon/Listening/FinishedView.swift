@@ -59,7 +59,7 @@ struct FinishedView: View {
                 }
                 HStack(spacing: 24.scaled) {
                     if let next {
-                        Button { Task { await model.listenToNext(next.book) } } label: {
+                        Button { Task { await model.listenToNext(next.book, in: next.series) } } label: {
                             Label(model.opening == next.id ? "Opening…" : "Start listening", systemImage: "play.fill")
                         }
                         .buttonStyle(RibbonButtonStyle(kind: .primary))
@@ -72,7 +72,7 @@ struct FinishedView: View {
                 .padding(.top, (next == nil ? 56 : 32).scaled)
                 // What's next in the other series the book is in.
                 ForEach(nexts.dropFirst()) { other in
-                    Button { Task { await model.listenToNext(other.book) } } label: {
+                    Button { Task { await model.listenToNext(other.book, in: other.series) } } label: {
                         Label(model.opening == other.id ? "Opening…" : "Next in \(other.series.name): \(other.series.title(of: other.book))", systemImage: "play.fill")
                     }
                     .buttonStyle(RibbonButtonStyle())

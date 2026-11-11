@@ -12,6 +12,8 @@ import SwiftUI
 struct BookView: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
+    /// The id of the series the page was opened from, the one it lists; nil when it wasn't opened from a series.
+    let openedFrom: String?
     @State private var detail: ServerBookDetail?
     /// Every listen-through of the book, oldest first.
     @State private var listens: [Listen] = []
@@ -29,16 +31,18 @@ struct BookView: View {
 
     /// `kept` is the book's details when the library has them already, so a page opened again draws them
     /// from the first frame instead of a moment later.
-    init(book: ServerBook, kept: ServerBookDetail?) {
+    init(book: ServerBook, openedFrom: String? = nil, kept: ServerBookDetail?) {
         self.book = book
+        self.openedFrom = openedFrom
         _detail = State(initialValue: kept)
     }
 
     var body: some View {
         let library = model.library
         let progress = library?.progress(of: book)
-        // A book can be in several series: each is named, and the one heard most recently is listed.
-        let inSeries = library?.series(of: book) ?? []
+        // A book can be in several series: each is named, and the one listed is the one you came from, else the one
+        // heard most recently.
+        let inSeries = library?.series(of: book, openedFrom: openedFrom) ?? []
         let series = inSeries.first
         ZStack(alignment: .top) {
             // The ground and the wash reach every edge of the screen, under the safe area, or the system's own backdrop shows at the sides.
@@ -416,7 +420,8 @@ private struct SeriesList: View {
                 ForEach(Array(series.books.enumerated()), id: \.element.id) { index, book in
                     let now = book.id == current.id
                     let progress = library?.progress(of: book)
-                    Button { model.open(book) } label: {
+                    // Its page lists this series too, so moving along it stays in it.
+                    Button { model.open(book, in: series) } label: {
                         HStack(spacing: 24.scaled) {
                             Text(series.number(of: book, at: index)).font(.ui(22)).foregroundStyle(Color.ink3).monospacedDigit().frame(width: 44.scaled, alignment: .trailing)
                             CoverView(book: book, size: 72)

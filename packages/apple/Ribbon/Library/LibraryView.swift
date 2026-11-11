@@ -207,7 +207,7 @@ private struct ContinueCard: View {
 }
 
 /// A series: the next book's cover on a small stack, how much is left, what's up next, and a mark per book. It opens
-/// the next book's page.
+/// the next book's page, listing this series.
 private struct SeriesCard: View {
     @Environment(AppModel.self) private var model
     let series: Library.Series
@@ -223,7 +223,7 @@ private struct SeriesCard: View {
         }
         let allDone = finished == series.books.count
         let hours = Format.left(left).replacingOccurrences(of: #" \d+m$"#, with: "", options: .regularExpression)
-        Button { model.open(next) } label: {
+        Button { model.open(next, in: series) } label: {
             HStack(alignment: .top, spacing: 24.scaled) {
                 ZStack(alignment: .leading) {
                     if series.books.count > 2 { RoundedRectangle(cornerRadius: 6.scaled).fill(Color.raised).overlay(RoundedRectangle(cornerRadius: 6.scaled).stroke(Color.line)).frame(width: 128.scaled, height: 112.scaled).offset(x: 20.scaled) }

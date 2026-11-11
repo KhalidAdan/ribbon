@@ -387,7 +387,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
           title={group.name}
           items={[
             { label: record ? "Change the series…" : "Set up the series…", onSelect: () => c.openSeriesSetup(group.key) },
-            { label: `Open ${next.book.title}`, onSelect: () => c.openReader(next.book.id) },
+            { label: `Open ${next.book.title}`, onSelect: () => c.openReader(next.book.id, group.key) },
           ]}
         />
         {!s.allDone && (

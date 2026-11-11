@@ -164,3 +164,41 @@ describe("deleting a series its folders make", () => {
     expect(again.detectedSeries()).toEqual([{ key: "the-primarchs-2", name: "The Primarchs", bookIds: [first], added: [first] }]);
   });
 });
+
+describe("a book in two series", () => {
+  let root = "";
+  afterAll(async () => {
+    if (root) await fs.rm(root, { recursive: true, force: true });
+  });
+
+  // The owner's White Scars list starts at Scars, which The Horus Heresy has too: opened from White Scars, Scars's
+  // page listed The Horus Heresy, the series last opened.
+  it("lists the series its page was opened from", async () => {
+    root = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "ribbon-two-series-")), "The Primarchs");
+    for (const name of ["01. Lion", "02. Fulgrim", "03. Perturabo"]) await fs.cp(path.join(FIXTURE_ROOT, "20. The Primarchs"), path.join(root, name), { recursive: true });
+    const c = new AppController(platform(root));
+    await c.pickLibrary();
+    await rescanned(c);
+    const [lion, fulgrim] = orderBySeries(c.detectedSeries()[0]!.bookIds, (x) => x, []);
+    await c.createSeries("A reading list", [fulgrim!, lion!]);
+    const list = c.detectedSeries().find((g) => g.name === "A reading list")!;
+    const listed = () => c.seriesOfBook(c.getState().readerBookId!)[0]!.key;
+
+    // The Primarchs was open last; then the reading list's first book is opened from its card.
+    c.openSeries("the-primarchs");
+    c.showLibrary();
+    c.openReader(fulgrim!, list.key);
+    expect(listed()).toBe(list.key);
+    // Down its list, to a book The Primarchs has too: still the reading list.
+    c.openReader(lion!, list.key);
+    expect(listed()).toBe(list.key);
+    // From The Primarchs' page, the same book lists The Primarchs.
+    c.openSeries("the-primarchs");
+    c.openReader(lion!, "the-primarchs");
+    expect(listed()).toBe("the-primarchs");
+    // Opened from no series, as from Continue: the series opened last.
+    c.showLibrary();
+    c.openReader(fulgrim!);
+    expect(listed()).toBe("the-primarchs");
+  });
+});
