@@ -61,7 +61,7 @@ private struct Screens: View {
                 .navigationDestination(for: AppModel.Screen.self) { screen in
                     Group {
                         switch screen {
-                        case .book(let book): BookView(book: book, kept: model.library?.details[book.id]).wayBack()
+                        case .book(let book, let series): BookView(book: book, openedFrom: series, kept: model.library?.details[book.id]).wayBack()
                         case .player: PlayerView().wayBack()
                         case .search: SearchView().wayBack()
                         case .settings: SettingsView().wayBack()
@@ -151,7 +151,9 @@ private struct SaysWhichWayUp: ViewModifier {
 final class AppModel {
     /// A screen over the library.
     enum Screen: Hashable {
-        case book(ServerBook)
+        /// A book's page, with the id of the series it was opened from, whose books it lists; nil when it wasn't
+        /// opened from a series.
+        case book(ServerBook, series: String? = nil)
         case player
         case search
         case reader
@@ -224,7 +226,7 @@ final class AppModel {
     var beneath: String {
         guard path.count > 1 else { return "Library" }
         switch path[path.count - 2] {
-        case .book(let book): return book.title
+        case .book(let book, _): return book.title
         case .player: return "Player"
         case .search: return "Search"
         case .settings: return "Settings"
@@ -342,14 +344,25 @@ final class AppModel {
         if path.last != .bookcase { path.append(.bookcase) }
     }
 
-    /// A book's page. From another book's page, as from its series list, it takes that page's place.
-    func open(_ book: ServerBook) {
+    /// A book's page. From another book's page, as from its series list, it takes that page's place. Opened from a
+    /// series, its card or its list, the page lists that series' books, whatever other series the book is in.
+    func open(_ book: ServerBook, in series: Library.Series? = nil) {
         problem = nil
+        let page = Screen.book(book, series: series?.id)
         if case .book = path.last {
-            path[path.count - 1] = .book(book)
+            path[path.count - 1] = page
         } else {
-            path.append(.book(book))
+            path.append(page)
         }
+    }
+
+    /// The series a book's page was opened from, the nearest such page on the way back; nil when it wasn't opened
+    /// from one.
+    func seriesOpened(for book: ServerBook) -> String? {
+        for screen in path.reversed() {
+            if case .book(let open, let series) = screen, open.id == book.id { return series }
+        }
+        return nil
     }
 
     // Listening ------------------------------------------------------------
@@ -516,12 +529,12 @@ final class AppModel {
         var id: String { book.id }
     }
 
-    /// The next book to hear in each series this one is in: the first after it not finished yet. A book next in
-    /// two series is there once, for the first.
+    /// The next book to hear in each series this one is in: the first after it not finished yet, the series its page
+    /// was opened from first. A book next in two series is there once, for the first.
     func upNext(after book: ServerBook) -> [NextInSeries] {
         guard let library else { return [] }
         var found: [NextInSeries] = []
-        for series in library.series(of: book) {
+        for series in library.series(of: book, openedFrom: seriesOpened(for: book)) {
             guard let index = series.books.firstIndex(where: { $0.id == book.id }),
                   let next = series.books[(index + 1)...].first(where: { library.progress(of: $0)?.finished != true }),
                   !found.contains(where: { $0.book.id == next.id })
@@ -531,15 +544,16 @@ final class AppModel {
         return found
     }
 
-    /// Up next, chosen from the end of a book: its player, over its page where the book before's page was.
-    func listenToNext(_ book: ServerBook) async {
+    /// Up next, chosen from the end of a book: its player, over its page where the book before's page was, listing
+    /// the series it's next in.
+    func listenToNext(_ book: ServerBook, in series: Library.Series) async {
         finished = nil
         if reading != nil {
             reading?.session.close()
             reading = nil
         }
         path.removeAll { $0 == .reader || $0 == .player }
-        if case .book = path.last { path[path.count - 1] = .book(book) }
+        if case .book = path.last { path[path.count - 1] = .book(book, series: series.id) }
         await listen(to: book)
     }
 

@@ -2994,9 +2994,15 @@ export class AppController {
     this.saveAppSettingsSoon();
   }
 
-  /** Show a book's page, with its series along the side when it has one. */
-  openReader(bookId: string): void {
-    this.set({ pane: "reader", readerBookId: bookId, readerFromBookcase: this.state.pane === "bookcase" || (this.state.pane === "reader" && this.state.readerFromBookcase), playerExpanded: false });
+  /**
+   * Show a book's page, with its series along the side when it has one.
+   * Opened from a series (its page, its card, the list of its books), the
+   * page lists that series, by its key, whatever other series the book is
+   * in: White Scars chosen and Scars opened lists White Scars, not The Horus
+   * Heresy it's also in.
+   */
+  openReader(bookId: string, seriesKey?: string): void {
+    this.set({ pane: "reader", readerBookId: bookId, ...(seriesKey ? { seriesKey } : {}), readerFromBookcase: this.state.pane === "bookcase" || (this.state.pane === "reader" && this.state.readerFromBookcase), playerExpanded: false });
     this.maybeNudgeSpeech(bookId);
   }
 

@@ -34,7 +34,8 @@ for listening without a network.
   it, then an invitation to the bookcase. The series are the server's (`GET
   /api/series`), the same on every device, with each book's number and its
   title as the series lists it. A card is one button, which opens the
-  book's page; play is there. While a book plays, its title at the top opens the
+  book's page; play is there. A series' card opens its next book's page,
+  which lists that series, though the book is in others too. While a book plays, its title at the top opens the
   player. Menu goes back to Who's reading, when there's more than one person.
 - **The bookcase**, a page of its own on every device: every book standing
   spine-out on shelves of dark walnut under 3000 K lamps, the newest first,

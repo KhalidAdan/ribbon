@@ -63,20 +63,21 @@ export function ReaderPage() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (document.querySelector("dialog[open]")) return;
       if (e.key === "Escape") c.showLibrary();
-      if (!book || orderedIds.length === 0) return;
+      if (!book || !series || orderedIds.length === 0) return;
       const i = orderedIds.indexOf(book.book.id);
+      // Up and down stay in the series listed, though the next book is in others too.
       if (e.key === "ArrowDown" && i >= 0 && i + 1 < orderedIds.length) {
         e.preventDefault();
-        c.openReader(orderedIds[i + 1]!);
+        c.openReader(orderedIds[i + 1]!, series.key);
       }
       if (e.key === "ArrowUp" && i > 0) {
         e.preventDefault();
-        c.openReader(orderedIds[i - 1]!);
+        c.openReader(orderedIds[i - 1]!, series.key);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [c, book, orderedIds]);
+  }, [c, book, series, orderedIds]);
 
   if (!book) return null;
 
@@ -209,7 +210,7 @@ export function ReaderPage() {
                   me.finished ? { label: "Mark as not finished", onSelect: () => void c.markUnfinished(book.book.id) } : { label: "Mark as finished", onSelect: () => void c.markFinished(book.book.id) },
                   ...(me.started && !me.finished && !toRead ? [{ label: "Start again from the beginning", onSelect: () => void c.listenAgain(book.book.id) }] : []),
                   { label: "Edit details and cover…", onSelect: () => c.openEditBook(book.book.id) },
-                  ...(next ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id) }] : []),
+                  ...(next && series ? [{ label: `Open the next book, ${next.book.title}`, onSelect: () => c.openReader(next.book.id, series.key) }] : []),
                   ...(series ? [{ label: "Change the series…", onSelect: () => c.openSeriesSetup(series.key) }] : [{ label: "Make a series…", onSelect: () => c.openNewSeries() }]),
                   ...(fromServer && !remote ? [{ label: `Remove from ${c.here} (${formatBytes(book.book.sizeBytes)})`, onSelect: () => void c.removeDownload(book.book.id), danger: true }] : []),
                   ...(c.canDeleteFromServer(book.book.id) ? [{ label: "Delete from the server…", onSelect: () => setConfirmDelete(true), danger: true }] : []),

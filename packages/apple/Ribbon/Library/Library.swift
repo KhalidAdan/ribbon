@@ -122,10 +122,20 @@ final class Library {
         return books.filter { !offShelf.contains($0.id) }
     }
 
-    /// Every series a book is in that the library groups, the one heard most recently first: a book can be in
-    /// several (The Horus Heresy, and a White Scars reading list made by hand).
-    func series(of book: ServerBook) -> [Series] {
-        series.filter { group in group.books.contains { $0.id == book.id } }
+    /// Every series a book is in that the library groups. A book can be in several (The Horus Heresy, and a White
+    /// Scars reading list made by hand), and its page lists the first: the series it was opened from, by that
+    /// series' id, else the one heard most recently.
+    func series(of book: ServerBook, openedFrom opened: String? = nil) -> [Series] {
+        Library.series(of: book, among: series, openedFrom: opened)
+    }
+
+    /// The series among `all` that a book is in, in their order, with the one it was opened from moved first. A
+    /// book's page lists the series you came from, not whichever of its series you heard last: choosing White Scars
+    /// and landing on Scars, which The Horus Heresy has too, must list White Scars.
+    nonisolated static func series(of book: ServerBook, among all: [Series], openedFrom opened: String?) -> [Series] {
+        let holding = all.filter { group in group.books.contains { $0.id == book.id } }
+        guard let opened, let chosen = holding.first(where: { $0.id == opened }) else { return holding }
+        return [chosen] + holding.filter { $0.id != opened }
     }
 
     /// How far through a book, 0 to 1: through its recording, or, for a book that is only its text, through its text.

@@ -177,7 +177,7 @@ export function SeriesRail({ group, record, ids, hidden, place, className }: { g
             <li key={id} className="flex">
               <button
                 type="button"
-                onClick={() => c.openReader(id)}
+                onClick={() => c.openReader(id, group.key)}
                 aria-current={now ? "true" : undefined}
                 aria-label={`${seriesNumber(record, id, i + 1, group.numbers)}, ${title}${now ? ", your place" : ""}${p.finished ? ", finished" : ""}${off ? ", left off the shelf" : ""}`}
                 className="group/line flex h-2 w-60 items-center gap-3.5 text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-place"
@@ -223,14 +223,14 @@ export function SeriesBooks({ group, record, ids, hidden, place, label }: { grou
       {ids.map((id, i) => {
         const b = byId.get(id);
         if (!b) return null;
-        return <SeriesRow key={id} book={b} number={seriesNumber(record, id, i + 1, group.numbers)} title={group.titles?.[id] ?? b.book.title} place={place?.id === id ? place.kind : null} off={hidden.has(id)} />;
+        return <SeriesRow key={id} book={b} seriesKey={group.key} number={seriesNumber(record, id, i + 1, group.numbers)} title={group.titles?.[id] ?? b.book.title} place={place?.id === id ? place.kind : null} off={hidden.has(id)} />;
       })}
     </ol>
   );
 }
 
-/** One book in a series: its number, cover, title, and how it stands. On a phone, how it stands takes the author's line. */
-function SeriesRow({ book, number, title, place, off }: { book: ScannedBook; number: string; title: string; place: "page" | "next" | null; off: boolean }) {
+/** One book in a series: its number, cover, title, and how it stands. On a phone, how it stands takes the author's line. Its page lists this series. */
+function SeriesRow({ book, seriesKey, number, title, place, off }: { book: ScannedBook; seriesKey: string; number: string; title: string; place: "page" | "next" | null; off: boolean }) {
   const shelf = useShelfProgress();
   useCovers();
   const c = useController();
@@ -241,7 +241,7 @@ function SeriesRow({ book, number, title, place, off }: { book: ScannedBook; num
     <li className="border-b border-line">
       <button
         type="button"
-        onClick={() => c.openReader(book.book.id)}
+        onClick={() => c.openReader(book.book.id, seriesKey)}
         aria-current={place === "page" ? "page" : undefined}
         className={clsx(
           "relative grid w-full grid-cols-[1.5rem_2.5rem_minmax(0,1fr)] items-center gap-3 py-2 pr-2 pl-3 text-left focus-ring sm:grid-cols-[2rem_2.5rem_minmax(0,1fr)_auto]",
