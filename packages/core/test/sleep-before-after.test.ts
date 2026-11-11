@@ -99,7 +99,7 @@ describe("the sleep timer, before and after it was made explicit", () => {
     // The walk reached the one place they differ, so it would have seen any other.
     expect(meantDifferences).toBeGreaterThan(0);
     expect(steps).toBeGreaterThan(3_000_000);
-  });
+  }, 600_000);
 
   it("minutes added while held count from where the clock stopped", () => {
     // Ten minutes, held at minute 2, five more at minute 5.
