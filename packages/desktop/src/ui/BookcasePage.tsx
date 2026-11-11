@@ -10,7 +10,6 @@ import { LamplitCase } from "../bookcase3d/lamplit-case";
 import { hasGraphicsCard } from "../bookcase3d/lamplight";
 import { drawFlatShelf, frameOnRow, rowSize } from "../bookcase3d/shelf-row";
 import { loadSpineFaces, measureRun } from "../bookcase3d/spine-art";
-import { stopWarming } from "../bookcase3d/warm-up";
 import { Button, pressed } from "./Button";
 import { CASE_K, CASE_SCALE, caseBookOf, LECTERN, loadPicture, useCoverCloths, useShelvedBooks } from "./case-books";
 import { Cover } from "./Cover";
@@ -97,8 +96,6 @@ export default function BookcasePage() {
   const [lamplit, setLamplit] = useState<LamplitCase | null>(null);
   useEffect(() => {
     let live = true, opened: LamplitCase | null = null;
-    // Shaders being compiled ahead of this (bookcase3d/warm-up.ts) are left: the case compiles what it needs itself.
-    stopWarming();
     void LamplitCase.open((item) => coverOf.current(item)).then((made) => {
       opened = made;
       // The measurement build puts the case on the page, for a check to read how long it took.

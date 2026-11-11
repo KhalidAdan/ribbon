@@ -19,6 +19,8 @@ declare const __APP_VERSION__: string;
  * the window is: they are compiled for the window as it is now, and again, once, if the bookcase would have a
  * different number of lamps in a later window. What has been done is remembered beside the browser's own cache, for
  * this version of Ribbon: a new version may draw differently.
+ *
+ * It is only done while the library is on screen, and stops if anything else is opened.
  */
 
 /** Where the lamp counts already compiled for are remembered, as "version/count" entries. */
@@ -48,28 +50,28 @@ function standIns(): CaseBook[] {
 }
 
 let warming = false;
-let stopped = false;
-
-/** The bookcase is being opened: leave the rest, so nothing here lands in the middle of its opening. */
-export function stopWarming(): void {
-  stopped = true;
-}
 
 /**
  * Compile the bookcase's shaders for shelves `width` points wide, unless that has been done before. `k` and `scale`
  * are the bookcase page's own (ui/case-books.ts). Quietly does nothing on a machine with no graphics card, or if
  * anything goes wrong: the bookcase compiles for itself when it is opened, as it always could.
+ *
+ * `idle` says whether the library is still what's on screen. It is asked before each piece of work, and the rest is
+ * left the moment it says no: some pieces hold the page for a third of a second, which nobody notices on a library
+ * standing still, and anybody would in a book being read or a bookcase opening. Left unfinished, it is not
+ * remembered as done, and starts again the next time the library is shown.
  */
-export async function warmBookcaseOnce(width: number, k: number, scale: number): Promise<void> {
+export async function warmBookcaseOnce(width: number, k: number, scale: number, idle: () => boolean): Promise<void> {
   const entry = `${__APP_VERSION__}/${lampCount(width, k)}`, done = remembered();
-  if (warming || stopped || width < 200 || done.includes(entry) || !hasGraphicsCard()) return;
+  if (warming || !idle() || width < 200 || done.includes(entry) || !hasGraphicsCard()) return;
+  const stopped = () => !idle();
   warming = true;
   // The bookcase's own two renderers, made the same way: a program compiled for one is the same text for the other.
   const shelfRenderer = makeRenderer(document.createElement("canvas"), LAMP), handRenderer = makeRenderer(document.createElement("canvas"), LAMP, false, true);
   try {
     await loadSpineFaces();
     const pictures = await loadBookPictures();
-    if (stopped) return;
+    if (stopped()) return;
     const shelfTextures = makeBookTextures(shelfRenderer, pictures), handTextures = makeBookTextures(handRenderer, pictures);
     pictures.studio.dispose();
 
@@ -79,8 +81,9 @@ export async function warmBookcaseOnce(width: number, k: number, scale: number):
     shelfRenderer.setPixelRatio(scale);
     shelfRenderer.setSize(width, rowSize(k).height, false);
     await shelfRenderer.compileAsync(row.scene, row.camera);
-    if (!stopped) shelfRenderer.render(row.scene, row.camera);
+    if (!stopped()) shelfRenderer.render(row.scene, row.camera);
     row.dispose();
+    if (stopped()) return;
 
     // The book in hand, a hardback and then a paperback.
     const hand = new BookInHand(handTextures, LAMP);
@@ -88,13 +91,13 @@ export async function warmBookcaseOnce(width: number, k: number, scale: number):
     handRenderer.setPixelRatio(scale);
     handRenderer.setSize(280, 330, false);
     for (const item of items.slice(0, 3)) {
-      if (stopped) break;
+      if (stopped()) break;
       hand.show(item, null, k, scale);
       await handRenderer.compileAsync(hand.scene, hand.camera);
       handRenderer.render(hand.scene, hand.camera);
     }
     hand.dispose();
-    if (!stopped) localStorage.setItem(REMEMBERED, JSON.stringify([...done, entry]));
+    if (!stopped()) localStorage.setItem(REMEMBERED, JSON.stringify([...done, entry]));
   } catch (error) {
     console.warn("The bookcase's shaders weren't compiled ahead: it will compile them when it is opened.", error);
   } finally {

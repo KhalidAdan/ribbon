@@ -24,12 +24,17 @@ export function BookcaseInvitation() {
   const books = useShelvedBooks();
   const count = books.length;
   // The bookcase's shaders are compiled ahead, once, a few seconds after the library is on screen and its own
-  // picture is drawn, so the bookcase's first opening doesn't wait for them (bookcase3d/warm-up.ts).
+  // picture is drawn, so the bookcase's first opening doesn't wait for them (bookcase3d/warm-up.ts). Only while the
+  // library is what's on screen: a book's page, the reader and the bookcase all take this invitation off it.
   const any = count > 0;
   useEffect(() => {
     if (!any) return;
-    const waited = window.setTimeout(() => void import("../bookcase3d/warm-up").then((m) => m.warmBookcaseOnce(caseWidthIn(window.innerWidth), CASE_K, CASE_SCALE)), WARM_AFTER);
-    return () => window.clearTimeout(waited);
+    let onScreen = true;
+    const waited = window.setTimeout(() => void import("../bookcase3d/warm-up").then((m) => m.warmBookcaseOnce(caseWidthIn(window.innerWidth), CASE_K, CASE_SCALE, () => onScreen)), WARM_AFTER);
+    return () => {
+      onScreen = false;
+      window.clearTimeout(waited);
+    };
   }, [any]);
   if (!any) return null;
   return (
