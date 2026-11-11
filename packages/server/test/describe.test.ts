@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db.ts";
 import { BookIndex, bookDir, type StoredBook } from "../src/library/books.ts";
 import { authorNames, booksToDescribe, catalogTitles, describeBooks, matchProduct, namesNoOne, summaryText, type Catalog, type CatalogProduct } from "../src/library/describe.ts";
-import { readStored, writeStored } from "../src/library/prepare.ts";
+import { changeStored, readStored } from "../src/library/book-folder.ts";
 
 /** Audible's summary of Mortis as its catalog sends it, cut short: HTML, with entities. */
 const MORTIS_HTML = "<p>The Siege of Terra rages on.</p><p><b>The Emperor&#39;s Palace</b> burns &amp; the Lion&rsquo;s sons are far away.</p><p>Read by Jonathan Keeble.</p>";
@@ -93,7 +93,8 @@ describe("describing the server's books", () => {
     ).run(id, id, book.title, book.author, book.minutes * 60_000, book.ebook ? 1 : 0);
     mkdirSync(bookDir(dir, id), { recursive: true });
     const { minutes, ...rest } = book;
-    await writeStored(dir, id, { book: { id, path: "", rawTitle: book.title, narrator: "", series: "", seriesIndex: null, year: null, cover: "", sizeBytes: 1000, fileCount: 1, ...rest, durationMs: minutes * 60_000 }, files: [], chapters: [], parts: [], cover: null, ...more } as StoredBook);
+    const stored = { book: { id, path: "", rawTitle: book.title, narrator: "", series: "", seriesIndex: null, year: null, cover: "", sizeBytes: 1000, fileCount: 1, ...rest, durationMs: minutes * 60_000 }, files: [], chapters: [], parts: [], cover: null, ...more } as StoredBook;
+    writeFileSync(path.join(bookDir(dir, id), "book.json"), JSON.stringify(stored));
   }
 
   beforeEach(() => {
@@ -131,8 +132,7 @@ describe("describing the server's books", () => {
     expect((await readStored(dir, "raven"))?.described).toEqual({ asked: "2|Raven's Flight: The Horus Heresy Series|Gav Thorpe|69", asin: null });
     expect((await readStored(dir, "raven"))?.book.description).toBeUndefined();
     expect(await booksToDescribe(dir, index)).toEqual([]);
-    const stored = (await readStored(dir, "raven"))!;
-    await writeStored(dir, "raven", { ...stored, book: { ...stored.book, title: "Raven's Flight" } });
+    await changeStored(dir, "raven", (now) => ({ ...now, book: { ...now.book, title: "Raven's Flight" } }));
     expect(await booksToDescribe(dir, index)).toEqual(["raven"]);
   });
 

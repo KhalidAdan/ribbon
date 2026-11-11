@@ -2,7 +2,7 @@ import { wordIndex } from "@ribbon/core/reading/anchors";
 import { BookText } from "@ribbon/core/reading/booktext";
 import { placeTranscript } from "@ribbon/core/reading/placing";
 import type { BookIndex } from "./books.ts";
-import { readStored } from "./prepare.ts";
+import { readStored } from "./book-folder.ts";
 import { placeKept, type Placer } from "./records.ts";
 import type { ReadAlongs } from "./readalong.ts";
 

@@ -2,9 +2,9 @@ import fastifyStatic, { type SendOptions } from "@fastify/static";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
+import { readStored } from "./book-folder.ts";
 import { bookDir, editedStored, type BookIndex, type StoredBook } from "./books.ts";
 import { bytesToRows } from "@ribbon/core/csv";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
@@ -140,8 +140,7 @@ export function sendRevalidated(request: FastifyRequest, reply: FastifyReply, da
   return reply.type(type).send(body);
 }
 
-/** A book's full record from its folder, or null when there's no such book. */
+/** A book's full record from its folder, or null when there's no such book on the server's list. */
 export async function storedBook(deps: { books: BookIndex; dataDir: string }, id: string): Promise<StoredBook | null> {
-  if (!deps.books.has(id)) return null;
-  return JSON.parse(await readFile(path.join(bookDir(deps.dataDir, id), "book.json"), "utf8")) as StoredBook;
+  return deps.books.has(id) ? readStored(deps.dataDir, id) : null;
 }

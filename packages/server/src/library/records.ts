@@ -7,8 +7,8 @@ import { HEARD_FIELDS, heardFromRows, heardRows, mergeHeard, TRANSCRIPT_FIELDS, 
 import { untranscribed } from "@ribbon/core/reading/transcript";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import type { SilenceRange } from "@ribbon/core/types";
-import { bookDir, type StoredAnalysis } from "./books.ts";
-import { readStored, writeStored } from "./prepare.ts";
+import { inTurn, readStored, type BookInTurn } from "./book-folder.ts";
+import { bookDir, type StoredAnalysis, type StoredBook } from "./books.ts";
 
 /**
  * The records a book keeps beside it in its folder's `.ribbon/` that the
@@ -102,8 +102,9 @@ async function merged(had: readonly Row[], more: readonly Row[]): Promise<Uint8A
   return rowsToBytes(heardRows(all.heard, all.anchors), HEARD_FIELDS);
 }
 
-/** Write a book's record beside it and move it into place, unless it already holds exactly this. */
-async function replace(file: string, bytes: Uint8Array): Promise<void> {
+/** Write one of a book's records beside it and move it into place, unless it already holds exactly this. In the book's turn. */
+async function replace(book: BookInTurn, kind: HeardKind, bytes: Uint8Array): Promise<void> {
+  const file = path.join(book.dir, "records", `${kind}.csv`);
   const before = await readFile(file).catch(() => null);
   if (before && Buffer.compare(before, bytes) === 0) return;
   await mkdir(path.dirname(file), { recursive: true });
@@ -111,42 +112,25 @@ async function replace(file: string, bytes: Uint8Array): Promise<void> {
   await rename(`${file}.tmp`, file);
 }
 
-/** The book's records list `kind`, read again just before it's written: other jobs write the book's record too. */
-async function listRecord(dataDir: string, id: string, kind: HeardKind): Promise<void> {
-  const stored = await readStored(dataDir, id);
-  if (stored && !stored.records?.includes(kind)) await writeStored(dataDir, id, { ...stored, records: [...(stored.records ?? []), kind] });
-}
-
-/** Each book's last write to its records, so the next one merges with what it wrote. */
-const writing = new Map<string, Promise<unknown>>();
-
-/** Run `work` once every earlier write to the book's records has finished. */
-function inTurn<T>(id: string, work: () => Promise<T>): Promise<T> {
-  const mine = (writing.get(id) ?? Promise.resolve()).then(work, work);
-  writing.set(id, mine.catch(() => undefined));
-  return mine;
-}
-
-/** The rows of one of a stored book's heard records: its file, whatever `book.json` lists, so a list written over by another job never loses one. */
-export async function recordRows(dataDir: string, id: string, kind: HeardKind): Promise<Row[]> {
-  const bytes = await readFile(path.join(bookDir(dataDir, id), "records", `${kind}.csv`)).catch(() => null);
-  return bytes ? (await bytesToRows(new Uint8Array(bytes))).rows : [];
+/** The book's record with `kind` among its records: what devices fetch, and what its read-along is made from. */
+function listing(kind: HeardKind): (now: StoredBook) => StoredBook {
+  return (now) => (now.records?.includes(kind) ? now : { ...now, records: [...(now.records ?? []), kind] });
 }
 
 /**
  * Add rows to a stored book's record of moments heard, merged with what it
  * has, so everything every device heard stays. Rows that aren't times and
- * places are left out and counted. One write at a time per book; a write
- * that adds nothing changes nothing. Null when there's no such book.
+ * places are left out and counted. In the book's turn (book-folder.ts), so
+ * each write merges with the one before; a write that adds nothing changes
+ * nothing. Null when there's no such book.
  */
 export async function keepHeard(dataDir: string, id: string, rows: readonly Row[]): Promise<{ kept: number; refused: number } | null> {
   const fine = rows.filter((r) => holds("heard", r));
-  return inTurn(id, async () => {
-    if (!(await readStored(dataDir, id))) return null;
-    const file = path.join(bookDir(dataDir, id), "records", "heard.csv");
-    const before = await readFile(file).catch(() => null);
-    await replace(file, await merged(before ? (await bytesToRows(new Uint8Array(before))).rows : [], fine));
-    await listRecord(dataDir, id, "heard");
+  return inTurn(dataDir, id, async (book) => {
+    if (!(await book.stored())) return null;
+    const before = await readFile(path.join(book.dir, "records", "heard.csv")).catch(() => null);
+    await replace(book, "heard", await merged(before ? (await bytesToRows(new Uint8Array(before))).rows : [], fine));
+    await book.change(listing("heard"));
     return { kept: fine.length, refused: rows.length - fine.length };
   });
 }
@@ -154,20 +138,20 @@ export async function keepHeard(dataDir: string, id: string, rows: readonly Row[
 /**
  * A book's transcript, as a device that transcribed all of its narration
  * sends it: kept in place of what the book had, whole or not at all, so a
- * book's transcript is always one device's, start to end (#152). The
+ * book's transcript is always one device's, start to end (#152). Its
+ * phrases are placed in the book's text first, which takes a moment, then
+ * it's kept in the book's turn: a book deleted meanwhile keeps nothing. The
  * minutes it's missing when it isn't whole; null when there's no such book.
  */
 export async function keepTranscript(dataDir: string, id: string, rows: readonly Row[], place: Placer | null = null): Promise<{ missing: number } | null> {
-  return inTurn(id, async () => {
-    const stored = await readStored(dataDir, id);
-    if (!stored) return null;
-    const transcript = transcriptFromRows(rows.filter((r) => holds("aligned", r)));
-    const missing = untranscribed(stored.files, transcript.spans).length;
-    if (missing > 0) return { missing };
-    await keepPlaced(dataDir, id, transcript, place);
-    await listRecord(dataDir, id, "aligned");
-    return { missing: 0 };
-  });
+  const stored = await readStored(dataDir, id);
+  if (!stored) return null;
+  const transcript = transcriptFromRows(rows.filter((r) => holds("aligned", r)));
+  const missing = untranscribed(stored.files, transcript.spans).length;
+  if (missing > 0) return { missing };
+  const placed = place ? await place(transcript) : null;
+  const kept = await inTurn(dataDir, id, (book) => keepWhole(book, placed?.transcript ?? transcript, placed?.how ?? null));
+  return kept ? { missing: 0 } : null;
 }
 
 /**
@@ -177,23 +161,34 @@ export async function keepTranscript(dataDir: string, id: string, rows: readonly
  */
 export type Placer = (transcript: Transcript) => Promise<{ transcript: Transcript; how: number } | null>;
 
-/** A whole transcript kept, placed first when it can be, and the book noted as placed that way. */
-async function keepPlaced(dataDir: string, id: string, transcript: Transcript, place: Placer | null): Promise<void> {
-  const placed = place ? await place(transcript) : null;
-  await replace(path.join(bookDir(dataDir, id), "records", "aligned.csv"), await rowsToBytes(transcriptRows(placed?.transcript ?? transcript), TRANSCRIPT_FIELDS));
-  const stored = await readStored(dataDir, id);
-  if (stored && placed) await writeStored(dataDir, id, { ...stored, placed: placed.how });
+/**
+ * A whole transcript kept in place of the book's, and the book noted as
+ * placed the way its phrases were found (`how`), when they were. In the
+ * book's turn; false when the book isn't here.
+ */
+async function keepWhole(book: BookInTurn, transcript: Transcript, how: number | null): Promise<boolean> {
+  if (!(await book.stored())) return false;
+  await replace(book, "aligned", await rowsToBytes(transcriptRows(transcript), TRANSCRIPT_FIELDS));
+  await book.change((now) => listing("aligned")(how === null ? now : { ...now, placed: how }));
+  return true;
 }
 
-/** A transcript kept before it was placed by what was said, placed now (place.ts): false when it couldn't be. */
+/**
+ * A transcript kept before it was placed by what was said, placed now
+ * (place.ts). False when it couldn't be, or when another came in while it
+ * was placed: that one was placed as it came, and stays.
+ */
 export async function placeKept(dataDir: string, id: string, place: Placer): Promise<boolean> {
-  return inTurn(id, async () => {
-    const rows = await recordRows(dataDir, id, "aligned");
-    if (rows.length === 0) return false;
-    const placed = await place(transcriptFromRows(rows));
-    if (!placed) return false;
-    await keepPlaced(dataDir, id, placed.transcript, async () => placed);
-    return true;
+  const stored = await readStored(dataDir, id);
+  const file = path.join(bookDir(dataDir, id), "records", "aligned.csv");
+  const before = stored?.records?.includes("aligned") ? await readFile(file).catch(() => null) : null;
+  if (!before) return false;
+  const placed = await place(transcriptFromRows((await bytesToRows(new Uint8Array(before))).rows));
+  if (!placed) return false;
+  return inTurn(dataDir, id, async (book) => {
+    const now = await readFile(file).catch(() => null);
+    if (!now || Buffer.compare(now, before) !== 0) return false;
+    return keepWhole(book, placed.transcript, placed.how);
   });
 }
 
