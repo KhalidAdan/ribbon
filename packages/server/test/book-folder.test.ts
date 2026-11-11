@@ -60,8 +60,7 @@ function gatedTool(dir: string): { tool: string; close(): void; open(): void; re
   const tool = path.join(dir, "gated-ribbon-ebook");
   const closed = path.join(dir, "closed");
   const reached = path.join(dir, "reached");
-  const answer = path.join(dir, "answer");
-  writeFileSync(tool, `#!/bin/sh\n'${builtTool("ribbon-ebook")}' "$@" > '${answer}'\ncode=$?\ntouch '${reached}'\nwhile [ -e '${closed}' ]; do sleep 0.02; done\ncat '${answer}'\nexit $code\n`);
+  writeFileSync(tool, `#!/bin/sh\nanswer=$(mktemp)\n'${builtTool("ribbon-ebook")}' "$@" > "$answer"\ncode=$?\ntouch '${reached}'\nwhile [ -e '${closed}' ]; do sleep 0.02; done\ncat "$answer"\nrm -f "$answer"\nexit $code\n`);
   chmodSync(tool, 0o755);
   return {
     tool,
