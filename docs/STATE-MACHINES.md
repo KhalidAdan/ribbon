@@ -33,13 +33,14 @@ written down yet. Read it before adding a flag.
    ([TEST-PLAN.md](TEST-PLAN.md), "Before and after").
 6. **Listed here**, with the commit or PR that wrote it down.
 
-Three shapes come up again and again, so each has a name and a home:
+Four shapes come up again and again, so each has a name and a home:
 
 | Shape | Where | Used by |
 | --- | --- | --- |
 | **Only the newest ask counts.** Each ask supersedes the ones before it; slow work checks it's still the newest after every wait. | `Latest`, `core/latest.ts` | Opening a book for the player and for the reader. The engine's intent number and the reader's `still()` are the same idea, older. |
 | **One at a time, once more when asked again.** An ask while it runs isn't lost or run beside it: it's one more run after, shared by every ask made meanwhile. | `Rerun`, `core/rerun.ts` | A folder's scans. `ServerLog.sync` (`run`/`again`) is the same idea, older. |
 | **A table of every status by every event.** | `nextStatus`, `core/playback.ts` | Whether a book plays. |
+| **One at a time per book, and nothing after it's gone.** Each write into a thing's folder takes its turn; slow work is done before the turn, and only what it found is kept in it. Deleting it is a turn too, so nothing writes there after. | `inTurn`, `packages/server/src/library/book-folder.ts` | Everything written into a book's folder on the server. |
 
 ## Written down
 
@@ -55,6 +56,12 @@ Three shapes come up again and again, so each has a name and a home:
 | A chapter-name lookup | `ui/ChapterList.tsx` (`lookup`) | idle, busy, found, error |
 | A dialog opening and closing | `ui/modal.ts` (`useModal`) | closed, open, closing |
 | How a server's book reads along | [`packages/server/src/library/readalong.ts`](../packages/server/src/library/readalong.ts) (`stateOf`) | derived from its records, one function |
+| What's been worked out about a server's book | [`packages/server/src/library/book-folder.ts`](../packages/server/src/library/book-folder.ts) (`BookInTurn.change`, `changeStored`) | `book.json`, changed in one step on the record as it is then: each job keeps only what it worked out (`analysis`, `filled`, `described`, `placed`, `records`, `ebook`) |
+| A server's book, and work still running on it | `book-folder.ts` (`inTurn`, `removeBookDir`), and the search index (`SearchIndex.index`) | added, listed, written in its turn, deleted in its turn: nothing is written or indexed for it after |
+| The server's job queue | [`packages/server/src/jobs.ts`](../packages/server/src/jobs.ts) (`NEXT`, `move`) | waiting, running, done, failed |
+| Invites | [`packages/server/src/invites.ts`](../packages/server/src/invites.ts) (`statusOf`, `NEXT`) | fresh, held, used, expired |
+| A listen-through, written | [`core/listen-through.ts`](../packages/core/src/listen-through.ts) (`readAfter`), asked by the server's `/listened`, `/finished` and `/unfinished` | none, going, finished |
+| A server's book's read-along, made and kept | `packages/server/src/library/readalong.ts` (`ReadAlongs.of`) | not made, or made with its stamp; made again when its stamp changes |
 | A listen-through, read from the log | [`core/stats.ts`](../packages/core/src/stats.ts) (`openRead`, `endOf`) | going, finished, left |
 | The daily goal's note | [`core/goal.ts`](../packages/core/src/goal.ts) (`GoalWatch`) | one transition, `see` |
 | Resuming and recovering | `core/resume.ts`, `core/recovery.ts` | pure policies; their state is the player's |
@@ -86,17 +93,7 @@ next to write down, roughly in order of how much they touch.
 | Updating Ribbon | [`app/updates.ts`](../packages/desktop/src/app/updates.ts) (`Updater`) | `first`, `every`, `checking`, `downloaded` with `status.ready` |
 | The book in hand on the bookcase | `bookcase3d/lamplit-case.ts`, `ui/BookcasePage.tsx` | `selected` there, `taken` in React, `lastTaken` in the module |
 | A tool's run, and stopping it | `host/tauri.ts` (`run`, `stream`) | spawning, spawned, stopped: an abort listener added after the spawn |
-
-### The server
-
-| Machine | Where | What holds it today |
-| --- | --- | --- |
-| What's been worked out about a book | `book.json` (`StoredBook`, `library/books.ts`) | `analysis`, `filled`, `described`, `placed`, `records`, `ebook`, each read, changed and written back whole by its own job |
-| A book, and work still running on it | `library/importer.ts`, `library/books.ts`, `library/routes.ts` | being added (`<id>.adding-*`), listed, deleted (a `deleted_book` row and `.deleting-*`) |
-| The job queue | `jobs.ts` | `state` (waiting, running, done, failed) with `started_at`, `finished_at`, `error`: a union, its updates unchecked |
-| Invites | `invites.ts` | `reserved_at`, `used_at`, `expires_at`: fresh, held, held too long, used, expired |
-| Listen-throughs, written | `readalong-routes.ts` and the desktop's controller | each writes `read` records its own way |
-| A book's read-along, made and kept | `library/readalong.ts` | `made`, `standings`, stamped, no work shared |
+| A listen-through, written | the controller (`beginListening`, `markFinished`, `markUnfinished`, `listenAgain`) | each writes `read` records its own way; `readAfter` in `core/listen-through.ts` answers the same, but for one thing: marking a finished book finished writes nothing there, where the controller writes another listen-through, begun and finished at once |
 
 ### The Apple app
 
