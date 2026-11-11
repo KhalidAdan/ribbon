@@ -4,12 +4,14 @@ import { caseOrder } from "@ribbon/core/bookcase/case";
 import type { Cloth } from "@ribbon/core/bookcase/cloth";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { pressedCard } from "./Button";
-import { CASE_SCALE, caseBookOf, useCoverCloths, useShelvedBooks } from "./case-books";
+import { CASE_K, CASE_SCALE, caseBookOf, caseWidthIn, useCoverCloths, useShelvedBooks } from "./case-books";
 import { progressOf, useShelfProgress } from "./progress";
 import { useController, useCovers } from "./store";
 
 /** How many books stand in the picture (bookcase3d/vignette.ts, which is fetched only when the picture is drawn). */
 const PICTURE_BOOKS = 22;
+/** How long the library is left alone before the bookcase's shaders are compiled ahead, in milliseconds. */
+const WARM_AFTER = 3000;
 
 /**
  * The way into the bookcase, at the foot of the library below the series and the books: a picture of your newest
@@ -21,7 +23,15 @@ export function BookcaseInvitation() {
   const c = useController();
   const books = useShelvedBooks();
   const count = books.length;
-  if (count === 0) return null;
+  // The bookcase's shaders are compiled ahead, once, a few seconds after the library is on screen and its own
+  // picture is drawn, so the bookcase's first opening doesn't wait for them (bookcase3d/warm-up.ts).
+  const any = count > 0;
+  useEffect(() => {
+    if (!any) return;
+    const waited = window.setTimeout(() => void import("../bookcase3d/warm-up").then((m) => m.warmBookcaseOnce(caseWidthIn(window.innerWidth), CASE_K, CASE_SCALE)), WARM_AFTER);
+    return () => window.clearTimeout(waited);
+  }, [any]);
+  if (!any) return null;
   return (
     <button
       type="button"

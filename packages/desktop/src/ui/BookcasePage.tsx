@@ -10,8 +10,9 @@ import { LamplitCase } from "../bookcase3d/lamplit-case";
 import { hasGraphicsCard } from "../bookcase3d/lamplight";
 import { drawFlatShelf, frameOnRow, rowSize } from "../bookcase3d/shelf-row";
 import { loadSpineFaces, measureRun } from "../bookcase3d/spine-art";
+import { stopWarming } from "../bookcase3d/warm-up";
 import { Button, pressed } from "./Button";
-import { CASE_SCALE, caseBookOf, loadPicture, useCoverCloths, useShelvedBooks } from "./case-books";
+import { CASE_K, CASE_SCALE, caseBookOf, LECTERN, loadPicture, useCoverCloths, useShelvedBooks } from "./case-books";
 import { Cover } from "./Cover";
 import { howFar, lengthOf, progressOf, useShelfProgress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
@@ -19,8 +20,8 @@ import { isPlaying } from "@ribbon/core/playback";
 
 declare const __RIBBON_MEASURE__: boolean;
 
-/** The books' size on the desktop, the lectern's width beside the shelves, and the room for the book in hand. */
-const K = 1, LECTERN = 280, HAND_HEIGHT = 330;
+/** The books' size on the desktop, and the room for the book in hand. */
+const K = CASE_K, HAND_HEIGHT = 330;
 /** The book last in hand, so coming back from its page finds it in hand still, its shelf in view. */
 let lastTaken: string | null = null;
 /** A day, for "Added this week". */
@@ -96,6 +97,8 @@ export default function BookcasePage() {
   const [lamplit, setLamplit] = useState<LamplitCase | null>(null);
   useEffect(() => {
     let live = true, opened: LamplitCase | null = null;
+    // Shaders being compiled ahead of this (bookcase3d/warm-up.ts) are left: the case compiles what it needs itself.
+    stopWarming();
     void LamplitCase.open((item) => coverOf.current(item)).then((made) => {
       opened = made;
       // The measurement build puts the case on the page, for a check to read how long it took.
