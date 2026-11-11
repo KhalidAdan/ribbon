@@ -13,6 +13,7 @@ here. If a behaviour is not in this file, it is not done.
 | Fixture        | Vitest + ffmpeg         | `npm test`          | Scan and probe against real codecs. |
 | Real library   | Vitest, opt-in          | `RIBBON_BOOKS=books npm test` | The user's actual files.    |
 | Rust           | `cargo test`            | `npm run test:rust` | Tauri commands and path scoping.    |
+| Apple          | XCTest                  | `xcodebuild test` in `packages/apple` | The thin app's rules, and its player on real audio. |
 | Manual         | Checklist below         | The app             | Audio, keys, lock screen.           |
 
 Fixtures are generated into `packages/desktop/test/fixtures/generated/` by
@@ -303,6 +304,44 @@ Run with `cargo test --release` in `packages/desktop/src-tauri`.
 - ffprobe spawn with a missing binary returns a typed error.
 - The asset protocol serves a range request with the right
   `Content-Range`.
+
+## Apple cases (`packages/apple/RibbonTests`)
+
+Run with `xcodebuild test` (packages/apple/README.md).
+
+### Listening (`Listening.swift`, `BookPlayer.swift`, `Dozing.swift`, `Remote.swift`)
+
+`Listening` is driven on a stand-in for its player that keeps
+`BookPlayer`'s own table and only pretends the sound
+(`Support/FakePlayer.swift`); `BookPlayerTests` holds that table to Apple's
+player, on files of silence.
+
+- Every event has an answer in every status, the narration's and the
+  player's (`ListeningStatusTests`, `BookPlayerStateTests`).
+- Play after the end is heard: the book plays again from its start, as a
+  new listen-through.
+- The headphones going, or a call, during a chapter's card pause it; the
+  card's moment passing plays nothing; the call's end plays on.
+- A call's end leaves alone a book played again by hand since the call
+  began: paused since, or played to its end.
+- A move during a fade (a doze's, from the lock screen; the sleep timer's,
+  back past it) and an end during one leave the narration in full; a
+  sleep timer set as a doze fades out fades it on, never a moment in full.
+- Still listening? is put away at the end, and the next press goes to the
+  screen; nothing is asked as the sleep timer stops it.
+- The sleep timer's clock waits after the end, as it does while paused.
+- Closed, nothing plays it again.
+- Two things waiting for the remote's next press are both woken by it; one
+  that stops waiting leaves the other.
+- On real audio: after its last file the player rests at the end, nothing
+  queued, and its pause tells no other place; played on from rest it plays;
+  held for a card, the system stopping it is said; paused, it isn't; a
+  call's end asks for the narration back unless it was played since.
+- Before and after: the old `Listening` (`Before/`) and the new one do and
+  show the same, after every step of every sequence of three of eighteen
+  events, 10,000 random ones of twelve, and four picked to reach the
+  rarer differences, but for nine differences, each a fix above
+  (`ListeningBeforeAfterTests`).
 
 ## Load-path cases (`core/scan/scan.ts`, `app/controller.ts`)
 
