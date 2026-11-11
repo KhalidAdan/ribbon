@@ -22,6 +22,20 @@ import UIKit
 /// waits a moment while the chapter's card shows. Played on for forty
 /// minutes with nothing pressed, it asks whether you're still listening
 /// (Dozing).
+///
+/// Whether it plays is one status, changed in one place (`on`), by a table
+/// that answers every event in every status (`next`); the player follows
+/// it, and so do the screen kept awake while it plays, the sleep timer's
+/// clock, the doze and how loud it plays (docs/STATE-MACHINES.md):
+///
+/// ```
+///  paused ── play ──▶ playing ── a chapter's start, on screen ──▶ carded ── its moment passes ──▶ playing
+///  playing, carded ── paused, by hand or the system ──▶ paused
+///  playing, carded ── stopped on its own: the sleep timer, dozing off ──▶ paused, on its own
+///  any ── the last file's end ──▶ ended ── play ──▶ playing, from the start, a new listen-through
+///  paused, ended ── moved ──▶ paused
+///  any ── closed ──▶ closed
+/// ```
 @MainActor
 @Observable
 final class Listening {
@@ -31,22 +45,110 @@ final class Listening {
     let bookmarks: Bookmarks
     let dozing: Dozing
 
+    /// Whether it plays: changed only by `on`.
+    private(set) var status: Status
     /// The moment of the recording, a few times a second while it plays.
     private(set) var positionMs: Int
-    private(set) var playing = false
     private(set) var speed: Double
     /// When the sleep timer stops the narration, if it's set.
     private(set) var sleep: Sleep?
-    /// When it was last paused or stopped, and whether it stopped on its own: resuming goes back by how long, and
-    /// a book the sleep timer, dozing off or its end stopped doesn't bring up the passages (AppModel).
-    private(set) var pausedAt: Date?
-    private(set) var stoppedOnItsOwn = false
     /// After a day away: the start of the chapter, offered until it's taken or something else is chosen.
     private(set) var resumeOffer: ResumeOffer?
-    /// The chapter whose card shows while the narration waits for it, by its place in the list.
-    private(set) var card: Int?
     /// How the listen-through went, once the book has ended and the server has closed it.
     private(set) var finishedRead: ListenThrough?
+
+    /// Playing, as far as anyone asks: while a chapter's card holds it too.
+    var playing: Bool { status.plays }
+    /// When it was last paused or stopped, and whether it stopped on its own: resuming goes back by how long, and
+    /// a book the sleep timer, dozing off or its end stopped doesn't bring up the passages (AppModel).
+    var pausedAt: Date? { status.pausedAt }
+    var stoppedOnItsOwn: Bool { status.onItsOwn }
+    /// The chapter whose card shows while the narration waits for it, by its place in the list.
+    var card: Int? { status.card }
+
+    enum Status: Equatable {
+        /// Nothing plays. `since` is when it stopped, for how far resuming goes back, or nil for a place chosen
+        /// exactly; `onItsOwn` when the sleep timer or dozing off stopped it.
+        case paused(since: Date?, onItsOwn: Bool)
+        case playing
+        /// Playing, and waiting a moment while this chapter's card shows: the player is held.
+        case carded(Int)
+        /// Played to its end, then: nothing is left to play.
+        case ended(Date)
+        /// Out of the book: nothing plays it again.
+        case closed
+
+        var plays: Bool {
+            switch self {
+            case .playing, .carded: true
+            case .paused, .ended, .closed: false
+            }
+        }
+
+        var pausedAt: Date? {
+            switch self {
+            case .paused(let since, _): since
+            case .ended(let at): at
+            case .playing, .carded, .closed: nil
+            }
+        }
+
+        var onItsOwn: Bool {
+            switch self {
+            case .paused(_, let onItsOwn): onItsOwn
+            case .ended: true
+            case .playing, .carded, .closed: false
+            }
+        }
+
+        var card: Int? {
+            if case .carded(let index) = self { return index }
+            return nil
+        }
+    }
+
+    /// What happens to the narration: what the person asks, what the player and the system say, and the narration
+    /// reaching a chapter's start.
+    enum Event {
+        /// Play, from a moment, or on from where the player is (nil).
+        case play(from: Int?)
+        /// Paused, by the person or by the system: a call, the headphones going.
+        case pause
+        /// Stopped on its own: the sleep timer, or dozing off.
+        case stopOnItsOwn
+        /// A chapter's start, reached with the book on screen: the narration waits while its card shows.
+        case card(Int)
+        /// The card has shown for its moment: on from the chapter's start, or from where it waits (nil).
+        case cardPassed(from: Int?)
+        /// The last file played to its end.
+        case end
+        /// Moved while it doesn't play: to a place chosen exactly (nil), or to one another device kept then.
+        case move(since: Date?)
+        /// Out of the book.
+        case close
+    }
+
+    /// What each event makes of each status: the next, or nil where it changes nothing.
+    static func next(_ status: Status, on event: Event, at now: Date) -> Status? {
+        switch (status, event) {
+        case (.closed, _): return nil
+        case (_, .close): return .closed
+        case (_, .play): return .playing
+        case (.playing, .pause), (.carded, .pause): return .paused(since: now, onItsOwn: false)
+        case (.playing, .stopOnItsOwn), (.carded, .stopOnItsOwn): return .paused(since: now, onItsOwn: true)
+        case (.paused, .pause), (.paused, .stopOnItsOwn), (.ended, .pause), (.ended, .stopOnItsOwn): return nil
+        case (.playing, .card(let index)): return .carded(index)
+        case (_, .card): return nil
+        case (.carded, .cardPassed): return .playing
+        case (_, .cardPassed): return nil
+        case (_, .end): return .ended(now)
+        case (.paused(_, let onItsOwn), .move(let since)): return .paused(since: since, onItsOwn: onItsOwn)
+        // Moved back into a book played to its end: paused there, as it stopped, on its own.
+        case (.ended, .move(let since)): return .paused(since: since, onItsOwn: true)
+        // Moved while it plays is played from there instead.
+        case (.playing, .move), (.carded, .move): return nil
+        }
+    }
 
     enum Sleep: Equatable {
         /// After so many minutes of listening: when that is if it plays on, and, while it's paused, since when. The
@@ -99,8 +201,6 @@ final class Listening {
     @ObservationIgnored private var lastHeard: Int?
     /// The next moment to stop or wait at, met by a timer set as it nears.
     @ObservationIgnored private var mark: (ms: Int, kind: Mark, timer: Timer)?
-    /// Where the narration stops for someone who has dozed off, and whether it fades there, with no sentence to end at.
-    @ObservationIgnored private var dozeStop: (ms: Int, fades: Bool)?
     /// The last chapter carded, so a card shows once for each crossing.
     @ObservationIgnored private var carded: Int?
     @ObservationIgnored private var cardShown: Task<Void, Never>?
@@ -136,7 +236,7 @@ final class Listening {
         bookmarks = Bookmarks(server: server, bookId: book.id)
         dozing = Dozing(account: server.account, book: book, at: startMs)
         positionMs = startMs
-        pausedAt = placedAt
+        status = .paused(since: placedAt, onItsOwn: false)
         let kept = UserDefaults.standard
         speed = Self.speedToPlay(
             chosen: kept.object(forKey: Self.speedKey(server.account, book)) as? Double ?? 1,
@@ -190,15 +290,12 @@ final class Listening {
 
     // What the remote asks -------------------------------------------------
 
-    /// Play from a moment of the book: a place chosen, so it plays from there exactly.
+    /// Play from a moment of the book: a place chosen, so it plays from there exactly, with no rewind on the next
+    /// resume and nothing to offer.
     func play(from ms: Int) {
         positionMs = min(max(0, ms), durationMs)
-        moved()
-        // A place chosen is exact: no rewind on the next resume, and nothing to offer.
-        pausedAt = nil
         resumeOffer = nil
-        player.play(from: positionMs)
-        started()
+        guard on(.play(from: positionMs)) else { return }
         tell(.seek)
     }
 
@@ -231,13 +328,11 @@ final class Listening {
     func catchUp(to ms: Int, at: Date?) {
         let target = min(max(0, ms), durationMs)
         guard !playing, telling == 0, !unsent, abs(target - positionMs) > 1_000 else { return }
-        moved()
         positionMs = target
-        pausedAt = at ?? pausedAt
+        guard on(.move(since: at ?? pausedAt)) else { return }
         resumeOffer = nil
         // Wherever this device dozed off, the person has been awake elsewhere since.
         dozing.forget()
-        player.unload(at: target)
         player.updateNowPlaying()
         onTime?(target)
     }
@@ -245,8 +340,16 @@ final class Listening {
     /// Play from where it is, or from the place kept when nothing has played yet: back a little first, by as much
     /// as the time away asks (Resume), never into the chapter before, and from a sentence's first word where the
     /// read-along places it. The moment it plays from, before any lead-in.
+    ///
+    /// A book played to its end has nothing left to play: it plays again from its start, as Listen does a finished
+    /// book (AppModel), as a new listen-through.
     @discardableResult
     func resume() -> Int {
+        if case .ended = status {
+            startingAgain = true
+            play(from: 0)
+            return 0
+        }
         let awayMs = pausedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
         let chapterStart = chapter?.startMs ?? 0
         var target = Resume.position(positionMs, after: awayMs, chapterStartMs: chapterStart)
@@ -259,20 +362,17 @@ final class Listening {
             }
         }
         resumeOffer = Resume.rewind(after: awayMs).offersChapterRestart && chapterStart < target ? ResumeOffer(chapterStartMs: chapterStart, awayMs: awayMs) : nil
-        pausedAt = nil
         if player.loaded && target == positionMs {
-            player.resume()
+            on(.play(from: nil))
         } else {
             positionMs = target
-            lastHeard = nil
-            player.play(from: max(chapterStart, target - leadIn))
+            on(.play(from: max(chapterStart, target - leadIn)))
         }
-        started()
         return target
     }
 
     func pause() {
-        stopPlaying(byHand: true)
+        stopPlaying(onItsOwn: false)
     }
 
     func playPause() {
@@ -293,11 +393,9 @@ final class Listening {
     /// A moment chosen: played from, or, while paused, the place moved there exactly and still paused.
     func move(to ms: Int) {
         guard !playing else { return play(from: ms) }
-        moved()
         positionMs = min(max(0, ms), durationMs)
-        pausedAt = nil
+        guard on(.move(since: nil)) else { return }
         resumeOffer = nil
-        player.unload(at: positionMs)
         player.updateNowPlaying()
         onTime?(positionMs)
         tell(.seek)
@@ -353,7 +451,7 @@ final class Listening {
     /// Stop after so many minutes of listening, fading out; nil turns the timer off.
     func sleep(after minutes: Int?) {
         sleep = minutes.map { .at(Date().addingTimeInterval(TimeInterval($0 * 60)), pausedAt: playing ? nil : Date()) }
-        player.volume = 1
+        fade()
     }
 
     /// More minutes: on a timer counting down, added to what's left; on one waiting for the chapter's end, from now,
@@ -366,7 +464,7 @@ final class Listening {
         case .endOfChapter: sleep = .at(Date().addingTimeInterval(more), pausedAt: playing ? nil : Date())
         case nil: return
         }
-        player.volume = 1
+        fade()
     }
 
     /// How long until a timer counting down stops the narration, its clock held while paused; nil for none, or one
@@ -379,57 +477,109 @@ final class Listening {
     /// Stop at the end of the chapter playing.
     func sleepAtChapterEnd() {
         sleep = chapter.map { .endOfChapter(endMs: $0.endMs) }
-        player.volume = 1
+        fade()
     }
 
     /// Out of the book: the narration stops, and the place is kept.
     func stop() {
         endStretch()
         if player.loaded { tell(.close) }
-        moved()
-        player.stop()
-        playing = false
-        KeepAwake.set("narration", false)
-        Remote.stopWaiting("dozing")
+        on(.close)
         for command in Self.remoteCommands { command.removeTarget(nil) }
     }
 
     // Inside -----------------------------------------------------------------
 
-    private func started() {
-        playing = true
-        stoppedOnItsOwn = false
-        // The sleep timer's clock goes on from where it held.
-        if case .at(let date, let paused?) = sleep { sleep = .at(date.addingTimeInterval(Date().timeIntervalSince(paused)), pausedAt: nil) }
-        if stretch == nil { beginStretch() }
-        player.nowPlayingChapter = chapter?.title ?? ""
-        player.updateNowPlaying()
-        // The screen stays on while the book is read along to.
-        KeepAwake.set("narration", true)
+    /// The one place the status changes. Whoever calls says what happened; `next` says what that means; and here the
+    /// player follows, and with it the screen kept awake while it plays, the stretch of listening, the sleep timer's
+    /// clock, the doze, and how loud it plays. False when the event changes nothing.
+    @discardableResult
+    private func on(_ event: Event) -> Bool {
+        guard let next = Self.next(status, on: event, at: Date()) else { return false }
+        let was = status
+        // Set before the player is told, so the moment a pausing player gives is only a moment.
+        status = next
+        switch event {
+        case .play(let from?):
+            moved()
+            player.play(from: from)
+        case .play(nil):
+            // On from where it is: nothing has moved, so a chapter just ahead is still crossed by playing into it.
+            player.resume()
+        case .card(let index):
+            player.hold()
+            cardShown = Task { [weak self] in
+                try? await Task.sleep(for: Self.cardHold)
+                guard !Task.isCancelled else { return }
+                self?.cardPassed(index)
+            }
+        case .cardPassed(let from):
+            cardShown = nil
+            if let from { player.play(from: from) } else { player.resume() }
+        case .pause, .stopOnItsOwn:
+            moved()
+            player.pause()
+        case .end, .move:
+            moved()
+            player.unload(at: positionMs)
+        case .close:
+            moved()
+            player.stop()
+        }
+        if next.plays && !was.plays {
+            // The sleep timer's clock goes on from where it held.
+            if case .at(let date, let paused?) = sleep { sleep = .at(date.addingTimeInterval(Date().timeIntervalSince(paused)), pausedAt: nil) }
+            if stretch == nil { beginStretch() }
+            // The screen stays on while the book is read along to.
+            KeepAwake.set("narration", true)
+        } else if was.plays && !next.plays {
+            // The sleep timer's clock holds, and nobody is asked whether they're still listening.
+            if case .at(let date, nil) = sleep { sleep = .at(date, pausedAt: Date()) }
+            dozing.stopped()
+            KeepAwake.set("narration", false)
+            endStretch()
+        }
+        if case .play = event {
+            player.nowPlayingChapter = chapter?.title ?? ""
+            player.updateNowPlaying()
+        }
+        fade()
+        return true
     }
 
-    /// Paused, by the person or on its own.
-    private func stopPlaying(byHand: Bool) {
-        moved()
-        // Not playing before the player stops, so the moment it gives as it stops is only a moment.
-        playing = false
-        player.pause()
-        pausedAt = Date()
-        stoppedOnItsOwn = !byHand
-        player.volume = 1
-        if case .at(let date, nil) = sleep { sleep = .at(date, pausedAt: Date()) }
-        dozing.stopped()
-        Remote.stopWaiting("dozing")
-        KeepAwake.set("narration", false)
-        endStretch()
+    /// Paused, by the person or on its own, and told.
+    private func stopPlaying(onItsOwn: Bool) {
+        guard on(onItsOwn ? .stopOnItsOwn : .pause) else { return }
         tell(.pause)
+    }
+
+    /// How loud the narration plays: fading out over the sleep timer's last stretch, and to where it stops for
+    /// someone who dozed off with no sentence to end at; in full otherwise, and whenever it doesn't play. Set as it
+    /// plays, and whenever what it hangs on changes.
+    private func fade() {
+        guard playing else {
+            player.volume = 1
+            return
+        }
+        var loudness = dozing.loudness(at: positionMs, speed: speed, fadeMs: Self.fadeMs)
+        if let left = sleepDueMs, left < Self.fadeMs { loudness = min(loudness, Float(max(0, left)) / Float(Self.fadeMs)) }
+        player.volume = loudness
+    }
+
+    /// How long until the sleep timer stops the narration, as it's heard: the minutes left, or the rest of the chapter
+    /// at the speed it plays.
+    private var sleepDueMs: Int? {
+        switch sleep {
+        case .at: sleepLeftMs ?? 0
+        case .endOfChapter(let endMs): Int(Double(endMs - positionMs) / speed)
+        case nil: nil
+        }
     }
 
     /// The system paused the narration: a phone call, the headphones out, a stream that couldn't be had again
     /// (BookPlayer). Paused here too, as by hand: its place kept, and resuming goes back a little.
     private func pausedBySystem() {
-        guard playing else { return }
-        stopPlaying(byHand: true)
+        stopPlaying(onItsOwn: false)
     }
 
     /// The narration moves or stops: what it was about to stop or wait at no longer stands.
@@ -437,10 +587,9 @@ final class Listening {
         lastHeard = nil
         mark?.timer.invalidate()
         mark = nil
-        dozeStop = nil
+        dozing.moved()
         cardShown?.cancel()
         cardShown = nil
-        card = nil
     }
 
     private func heard(_ ms: Int) {
@@ -451,56 +600,36 @@ final class Listening {
             player.updateNowPlaying()
         }
         onTime?(ms)
-        guard playing, card == nil else { return }
+        guard status == .playing else { return }
         sleepIfDue()
         dozeIfDue(ms)
-        guard playing else { return }
+        guard status == .playing else { return }
+        fade()
         meetNextMark(ms)
         lastHeard = ms
         if Date().timeIntervalSince(toldAt) > Self.tellEvery { tell(.periodic) }
     }
 
-    /// The sleep timer: the narrator fades over its last ten seconds, then stops.
+    /// The sleep timer: the narrator fades over its last stretch (`fade`), then stops.
     private func sleepIfDue() {
-        guard let sleep, playing else { return }
-        let left: Int
-        switch sleep {
-        case .at: left = sleepLeftMs ?? 0
-        case .endOfChapter(let endMs): left = Int(Double(endMs - positionMs) / speed)
-        }
-        if left <= 0 {
-            self.sleep = nil
-            stopPlaying(byHand: false)
-            onStop?()
-        } else if left < Self.fadeMs {
-            player.volume = Float(left) / Float(Self.fadeMs)
-        }
+        guard let left = sleepDueMs, left <= 0 else { return }
+        sleep = nil
+        stopPlaying(onItsOwn: true)
+        onStop?()
     }
 
-    /// Forty minutes with nothing pressed: ask, quietly, and a minute later stop at the end of the sentence.
+    /// Forty minutes with nothing pressed: ask, quietly, and a minute later stop at the end of the sentence. Nothing is
+    /// asked once it has stopped, as the sleep timer stops it on this moment.
     private func dozeIfDue(_ ms: Int) {
-        let due = dozing.heard(ms, quiet: sleep != nil || !inFront())
-        if dozing.asked != nil {
-            // Any press answers, and goes no further.
-            Remote.wait("dozing") {}
-            learnSentences()
+        dozing.heard(ms, quiet: sleep != nil || !inFront() || status != .playing)
+        guard dozing.asked != nil else { return }
+        learnSentences()
+        guard dozing.due else { return }
+        if let sentences, sentences.count > 0, case let sentence = sentences[sentences.read(at: ms)], sentence.exact, sentence.endMs > ms {
+            dozing.stop(at: sentence.endMs, fades: false)
         } else {
-            Remote.stopWaiting("dozing")
-            if dozeStop != nil {
-                dozeStop = nil
-                player.volume = 1
-            }
-        }
-        if due && dozeStop == nil {
-            if let sentences, sentences.count > 0, case let sentence = sentences[sentences.read(at: ms)], sentence.exact, sentence.endMs > ms {
-                dozeStop = (sentence.endMs, false)
-            } else {
-                // A book without its sentences timed fades out instead, as the sleep timer does.
-                dozeStop = (ms + Int(Double(Self.fadeMs) * speed), true)
-            }
-        }
-        if let dozeStop, dozeStop.fades {
-            player.volume = max(0, Float(Double(dozeStop.ms - ms) / speed) / Float(Self.fadeMs))
+            // A book without its sentences timed fades out instead, as the sleep timer does.
+            dozing.stop(at: ms + Int(Double(Self.fadeMs) * speed), fades: true)
         }
     }
 
@@ -534,7 +663,7 @@ final class Listening {
             MainActor.assumeIsolated {
                 guard let self, self.mark?.ms == at else { return }
                 self.mark = nil
-                if self.playing && self.card == nil { self.reach(kind) }
+                if self.status == .playing { self.reach(kind) }
             }
         }
         mark = (at, kind, timer)
@@ -543,7 +672,7 @@ final class Listening {
     /// What's ahead: where a dozing listener stops, and the next chapter's start, for its card. A card waits on
     /// nothing that would stop the narration soon: the sleep timer's last stretch, an end-of-chapter timer, a question.
     private func nextMark(after ms: Int) -> (Int, Mark)? {
-        if let dozeStop { return (dozeStop.ms, .dozed) }
+        if let stop = dozing.stop { return (stop.ms, .dozed) }
         let sleepsSoon: Bool
         switch sleep {
         case .at: sleepsSoon = (sleepLeftMs ?? 0) < 15_000
@@ -554,53 +683,37 @@ final class Listening {
         return (chapters[next].startMs, .chapter(next))
     }
 
+    /// Kurosawa's beat between scenes: crossing into a chapter with the book on screen, the narration waits while the
+    /// chapter's card shows, then goes on from the chapter's first moment (`cardPassed`). Still playing all the while,
+    /// as far as anyone asks: Play pauses it, a place chosen goes there, and either takes the card away.
     private func reach(_ kind: Mark) {
         switch kind {
         case .dozed:
             let at = positionMs
-            stopPlaying(byHand: false)
+            stopPlaying(onItsOwn: true)
             dozing.dozed(stoppedAt: at)
             onStop?()
         case .chapter(let index):
             carded = index
             guard showsCards() else { return }
-            showCard(index)
-        }
-    }
-
-    /// Kurosawa's beat between scenes: the narration waits while the chapter's card shows, then goes on from the
-    /// chapter's first moment. Still playing all the while, as far as anyone asks: Play pauses it, and a place
-    /// chosen goes there, and either takes the card away.
-    private func showCard(_ index: Int) {
-        card = index
-        player.pause()
-        cardShown = Task { [weak self] in
-            try? await Task.sleep(for: Self.cardHold)
-            guard !Task.isCancelled else { return }
-            self?.cardPassed(index)
+            on(.card(index))
         }
     }
 
     /// The chapter's card has shown for its moment: the narration goes on.
     func cardPassed(_ index: Int) {
-        guard card == index, playing else { return }
-        card = nil
-        cardShown = nil
+        guard status == .carded(index) else { return }
         // A timer a little late has played into the chapter: from its start again, so its first word isn't clipped.
         let start = chapters[index].startMs
-        if abs(player.positionMs - start) > 150 { player.play(from: start) } else { player.resume() }
+        on(.cardPassed(from: abs(player.positionMs - start) > 150 ? start : nil))
     }
 
     private func ended() {
-        moved()
-        playing = false
-        pausedAt = Date()
-        stoppedOnItsOwn = true
-        KeepAwake.set("narration", false)
         positionMs = durationMs
         tell(.end)
         // The last stretch counts before the listen-through closes.
         let last = endStretch()
+        on(.end)
         let (server, id) = (server, book.id)
         Task { [weak self] in
             await last?.value

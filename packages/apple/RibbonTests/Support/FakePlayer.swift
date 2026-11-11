@@ -1,13 +1,13 @@
 import UIKit
 @testable import Ribbon
 
-/// BookPlayer without its audio, for driving Listening in the tests: what it
-/// plays and where, what it tells, and what it does when the system stops it
-/// or its last file ends, by BookPlayer's own rules (BookPlayerTests checks
-/// those on real audio). The tests say what happens: the narration plays on,
-/// the headphones go, a call comes.
+/// BookPlayer without its audio, for driving Listening in the tests: where
+/// it is, by BookPlayer's own table (`BookPlayer.next`), and what it tells,
+/// as BookPlayer tells it; only the sound is pretend. BookPlayerTests checks
+/// on real audio that Apple's player does what the table expects. The tests
+/// say what happens: the narration plays on, the headphones go, a call comes.
 @MainActor
-final class FakePlayer: Player {
+final class FakePlayer: Player, StandIn {
     var onTime: ((Int) -> Void)?
     var onEnd: (() -> Void)?
     var onSystemPause: (() -> Void)?
@@ -19,14 +19,9 @@ final class FakePlayer: Player {
     var nowPlayingChapter = ""
     var nowPlayingCover: UIImage?
 
-    private(set) var playing = false
-    private(set) var loaded = false
-    /// Whether a file is queued: none after the last one ends, and playing on then plays nothing.
-    private var queued = false
+    private(set) var state = BookPlayer.State.resting(at: 0)
     /// Where the queued audio is.
     private var at = 0
-    /// Where it is with no file queued: the start, or where it was let go at.
-    private var restingMs = 0
     private var interruptedWhilePlaying = false
     private let durationMs: Int
 
@@ -34,44 +29,59 @@ final class FakePlayer: Player {
         self.durationMs = durationMs
     }
 
-    var positionMs: Int { queued ? at : restingMs }
+    var loaded: Bool {
+        if case .resting = state { return false }
+        return true
+    }
 
-    /// Whether the narration can be heard.
-    var sounding: Bool { playing && queued }
+    var positionMs: Int {
+        if case .resting(let ms) = state { return ms }
+        return at
+    }
+
+    var sounding: Bool { state == .playing }
+
+    @discardableResult
+    private func on(_ event: BookPlayer.Event) -> Bool {
+        guard let next = BookPlayer.next(state, on: event) else { return false }
+        state = next
+        return true
+    }
 
     func play(from ms: Int) {
         at = max(0, ms)
-        queued = true
-        loaded = true
-        resume()
+        on(.play)
+        interruptedWhilePlaying = false
     }
 
     func resume() {
-        playing = true
+        if case .resting(let ms) = state { return play(from: ms) }
+        on(.resume)
+        interruptedWhilePlaying = false
     }
 
     func pause() {
-        playing = false
+        on(.pause)
         if loaded { onTime?(positionMs) }
     }
 
+    func hold() {
+        guard on(.hold) else { return }
+        onTime?(positionMs)
+    }
+
     func unload(at ms: Int) {
-        restingMs = ms
-        queued = false
-        playing = false
-        loaded = false
+        on(.unload(at: ms))
     }
 
     func stop() {
-        queued = false
-        playing = false
+        on(.unload(at: positionMs))
     }
 
     func updateNowPlaying() {}
 
     // What happens to it --------------------------------------------------------
 
-    /// The narration plays on this long, if it can be heard, told once a second; into the end, the last file ends.
     func plays(for ms: Int) {
         var left = ms
         while left > 0 && sounding {
@@ -88,26 +98,37 @@ final class FakePlayer: Player {
     }
 
     private func lastFileEnds() {
-        queued = false
-        playing = false
+        on(.ended(at: durationMs))
         onEnd?()
     }
 
-    /// The headphones go, or a Bluetooth speaker: the system pauses it, and it tells, if it was playing.
     func systemStops() {
-        guard playing else { return }
-        playing = false
+        guard on(.systemStop) else { return }
         onSystemPause?()
     }
 
     func callBegins() {
-        interruptedWhilePlaying = playing
+        interruptedWhilePlaying = state.plays
         systemStops()
     }
 
-    /// The call ends, and asks for the narration to go on, as a phone call does.
     func callEnds() {
-        if interruptedWhilePlaying && !playing { onSystemResume?() }
+        if interruptedWhilePlaying && state != .playing { onSystemResume?() }
         interruptedWhilePlaying = false
     }
+}
+
+/// A player the tests drive: what they make happen to it, and whether the narration can be heard.
+@MainActor
+protocol StandIn: Player {
+    /// Whether the narration can be heard.
+    var sounding: Bool { get }
+    /// The narration plays on this long, if it can be heard, told once a second; into the end, the last file ends.
+    func plays(for ms: Int)
+    func playsToTheEnd()
+    /// The headphones go, or a Bluetooth speaker: the system pauses it, and it tells, if it was playing.
+    func systemStops()
+    func callBegins()
+    /// The call ends, and asks for the narration to go on, as a phone call does.
+    func callEnds()
 }

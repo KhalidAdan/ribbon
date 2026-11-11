@@ -430,6 +430,22 @@ it can still read them.
 xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
 ```
 
+## The listening tests
+
+The same command runs the rules of the book being listened to.
+`RibbonTests/ListeningTests.swift` drives `Listening` on a stand-in for its
+player (`RibbonTests/Support/FakePlayer.swift`), which keeps `BookPlayer`'s
+own table and only pretends the sound; `BookPlayerTests` plays short files of
+silence through Apple's player, to hold that table to what Apple's player
+does. `ListeningBeforeAfterTests` runs the old `Listening`, kept in
+`RibbonTests/Before/`, and the new one through every sequence of three events
+and 10,000 longer ones, and compares them after every step (docs/TEST-PLAN.md,
+"Before and after"). Deeper, every sequence of four:
+
+```bash
+TEST_RUNNER_PROOF_DEPTH=4 xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO -only-testing:RibbonTests/ListeningBeforeAfterTests
+```
+
 ## Not yet
 
 On the iPhone, books stream as they do on the iPad and the TV: nothing is

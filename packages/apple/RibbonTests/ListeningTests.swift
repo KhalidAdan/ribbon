@@ -168,6 +168,35 @@ final class ListeningTests: XCTestCase {
         XCTAssertTrue(player.sounding)
     }
 
+    func testACallsEndLeavesAloneWhatWasPausedByHandSince() async {
+        let (book, player) = played()
+        book.play(from: 5_000)
+        player.callBegins()
+        XCTAssertFalse(book.playing)
+        // Played again during the call, and paused again by hand.
+        book.playPause()
+        await settle()
+        XCTAssertTrue(book.playing)
+        book.playPause()
+        XCTAssertFalse(book.playing)
+        player.callEnds()
+        await settle()
+        XCTAssertFalse(book.playing, "paused by hand last: the call's end doesn't play it")
+    }
+
+    func testACallsEndDoesntStartAFinishedBookAgain() async {
+        let (book, player) = played()
+        book.play(from: 35_000)
+        player.callBegins()
+        book.playPause()
+        await settle()
+        player.playsToTheEnd()
+        player.callEnds()
+        await settle()
+        XCTAssertFalse(book.playing)
+        XCTAssertEqual(book.positionMs, 40_000)
+    }
+
     /// Asked whether they're still listening, and a minute later, no answer: it fades out, with no sentences to stop at.
     private func dozingOff(_ book: Listening, _ player: FakePlayer) {
         book.dozing.askAfter = 0
@@ -232,6 +261,18 @@ final class ListeningTests: XCTestCase {
         XCTAssertEqual(Remote.whoWaits, [], "the next press goes to the screen")
     }
 
+    func testNothingIsAskedAsTheSleepTimerStopsIt() {
+        let (book, player) = played()
+        book.play(from: 8_000)
+        book.sleepAtChapterEnd()
+        // Forty minutes with nothing pressed, under a timer that will stop it anyway.
+        book.dozing.askAfter = 0
+        player.plays(for: 3_000)
+        XCTAssertFalse(book.playing, "stopped at the chapter's end")
+        XCTAssertNil(book.dozing.asked, "nobody to ask: it has stopped")
+        XCTAssertEqual(Remote.whoWaits, [], "the next press goes to the screen")
+    }
+
     func testTheSleepTimersClockWaitsAfterTheEnd() async throws {
         let (book, player) = played()
         book.play(from: 35_000)
@@ -240,6 +281,70 @@ final class ListeningTests: XCTestCase {
         let left = try XCTUnwrap(book.sleepLeftMs)
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(Double(book.sleepLeftMs ?? 0), Double(left), accuracy: 5, "nothing plays, so the clock waits, as it does while paused")
+    }
+}
+
+/// Listening's status, by status and event: the whole of `Listening.next`.
+@MainActor
+final class ListeningStatusTests: XCTestCase {
+    func testEveryEventInEveryStatus() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let then = Date(timeIntervalSince1970: 10)
+        let statuses: [Listening.Status] = [.paused(since: nil, onItsOwn: false), .paused(since: then, onItsOwn: true), .playing, .carded(1), .ended(then), .closed]
+        let events: [Listening.Event] = [.play(from: nil), .pause, .stopOnItsOwn, .card(2), .cardPassed(from: nil), .end, .move(since: then), .close]
+        let paused = Listening.Status.paused(since: now, onItsOwn: false)
+        let stopped = Listening.Status.paused(since: now, onItsOwn: true)
+        // Each row a status, above; each column an event: play, pause, stop on its own, card, card passed, end, move, close.
+        let expected: [[Listening.Status?]] = [
+            [.playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: false), .closed],
+            [.playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: true), .closed],
+            [.playing, paused, stopped, .carded(2), nil, .ended(now), nil, .closed],
+            [.playing, paused, stopped, nil, .playing, .ended(now), nil, .closed],
+            [.playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: true), .closed],
+            [nil, nil, nil, nil, nil, nil, nil, nil],
+        ]
+        for (row, status) in statuses.enumerated() {
+            for (column, event) in events.enumerated() {
+                XCTAssertEqual(Listening.next(status, on: event, at: now), expected[row][column], "\(status), \(event)")
+            }
+        }
+    }
+
+    func testClosedNothingPlaysItAgain() async {
+        let player = FakePlayer(durationMs: 40_000)
+        let book = ServerBook(id: "closed", title: "A Book", author: "", narrator: "", series: "", seriesIndex: nil, durationMs: 40_000, audio: true, ebook: false, ebookBytes: nil, words: nil, cover: nil, addedAt: nil)
+        let detail = ServerBookDetail(files: [.init(path: "01.mp3", durationMs: 40_000)], chapters: [], book: .init(description: nil, year: nil, publisher: nil))
+        let account = Account(url: URL(string: "http://127.0.0.1:9")!, name: "test", token: "", cookieName: "", cookieValue: "")
+        let listening = Listening(book: book, detail: detail, startMs: 0, placedAt: nil, server: RibbonServer(account: account), player: player)
+        listening.play(from: 5_000)
+        listening.stop()
+        // A press from a screen still showing it, after another book has started.
+        listening.playPause()
+        for _ in 0..<10 { await Task.yield() }
+        listening.play(from: 0)
+        XCTAssertFalse(listening.playing)
+        XCTAssertFalse(player.sounding)
+    }
+}
+
+/// BookPlayer's state, by state and event: the whole of `BookPlayer.next`.
+@MainActor
+final class BookPlayerStateTests: XCTestCase {
+    func testEveryEventInEveryState() {
+        let states: [BookPlayer.State] = [.resting(at: 5), .paused, .playing, .held]
+        let events: [BookPlayer.Event] = [.play, .resume, .pause, .hold, .unload(at: 7), .systemStop, .ended(at: 9)]
+        // Each row a state, above; each column an event: play, resume, pause, hold, unload, the system stops it, the end.
+        let expected: [[BookPlayer.State?]] = [
+            [.playing, .playing, nil, nil, .resting(at: 7), nil, .resting(at: 9)],
+            [.playing, .playing, nil, nil, .resting(at: 7), nil, .resting(at: 9)],
+            [.playing, .playing, .paused, .held, .resting(at: 7), .paused, .resting(at: 9)],
+            [.playing, .playing, .paused, nil, .resting(at: 7), .paused, .resting(at: 9)],
+        ]
+        for (row, state) in states.enumerated() {
+            for (column, event) in events.enumerated() {
+                XCTAssertEqual(BookPlayer.next(state, on: event), expected[row][column], "\(state), \(event)")
+            }
+        }
     }
 }
 

@@ -59,4 +59,75 @@ final class BookPlayerTests: XCTestCase {
         player.pause()
         XCTAssertEqual(told.times, [], "paused at the end, it tells no other place")
     }
+
+    func testPlayedOnFromRestItPlaysFromThere() async throws {
+        let (player, told) = try book(ms: 900)
+        try await playToTheEnd(player, told)
+        player.unload(at: 300)
+        told.times = []
+        // Nothing queued: playing on asks for the book again, rather than playing nothing.
+        player.resume()
+        XCTAssertTrue(player.playing)
+        for _ in 0..<40 where told.ends < 2 {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertEqual(told.ends, 2, "it played, to the end again")
+    }
+
+    /// The system takes the headphones away: what Apple's audio session says when they're pulled out.
+    private func headphonesGo() async throws {
+        let reason = AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
+        NotificationCenter.default.post(name: AVAudioSession.routeChangeNotification, object: nil, userInfo: [AVAudioSessionRouteChangeReasonKey: reason])
+        try await Task.sleep(for: .milliseconds(100))
+    }
+
+    func testHeldForAChaptersCardTheSystemStoppingItIsSaid() async throws {
+        let (player, told) = try book(ms: 3_000)
+        player.play(from: 0)
+        try await Task.sleep(for: .milliseconds(300))
+        player.hold()
+        XCTAssertEqual(player.state, .held)
+        XCTAssertFalse(player.playing, "nothing plays while the card shows")
+        try await headphonesGo()
+        XCTAssertEqual(told.systemPauses, 1)
+        XCTAssertEqual(player.state, .paused)
+    }
+
+    /// A call: what Apple's audio session says as one begins, and as it ends asking for the narration back.
+    private func call(_ kind: AVAudioSession.InterruptionType) async throws {
+        var info: [AnyHashable: Any] = [AVAudioSessionInterruptionTypeKey: kind.rawValue]
+        if kind == .ended { info[AVAudioSessionInterruptionOptionKey] = AVAudioSession.InterruptionOptions.shouldResume.rawValue }
+        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: info)
+        try await Task.sleep(for: .milliseconds(100))
+    }
+
+    func testACallsEndAsksForTheNarrationBackUnlessItWasPlayedSince() async throws {
+        let (player, _) = try book(ms: 3_000)
+        var resumes = 0
+        player.onSystemResume = { resumes += 1 }
+        player.play(from: 0)
+        try await Task.sleep(for: .milliseconds(200))
+        try await call(.began)
+        try await call(.ended)
+        XCTAssertEqual(resumes, 1, "stopped by the call, and asked back at its end")
+        player.resume()
+        try await call(.began)
+        // Played again during the call, and paused again by hand.
+        player.resume()
+        player.pause()
+        try await call(.ended)
+        XCTAssertEqual(resumes, 1, "the person's since: the call's end asks nothing")
+    }
+
+    func testPausedTheSystemStoppingItIsNotSaid() async throws {
+        let (player, told) = try book(ms: 3_000)
+        player.play(from: 0)
+        try await Task.sleep(for: .milliseconds(300))
+        player.pause()
+        try await headphonesGo()
+        XCTAssertEqual(told.systemPauses, 0, "already paused: nothing for the system to stop")
+        player.resume()
+        try await headphonesGo()
+        XCTAssertEqual(told.systemPauses, 1)
+    }
 }
