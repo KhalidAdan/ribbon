@@ -459,8 +459,8 @@ player, on files of silence.
 
 - Every event has an answer in every status, the narration's and the
   player's (`ListeningStatusTests`, `BookPlayerStateTests`).
-- Play after the end is heard: the book plays again from its start, as a
-  new listen-through.
+- Play after the end does nothing: it doesn't say it plays, and stays at
+  the end; a moment chosen after the end plays from there.
 - The headphones going, or a call, during a chapter's card pause it; the
   card's moment passing plays nothing; the call's end plays on.
 - A call's end leaves alone a book played again by hand since the call

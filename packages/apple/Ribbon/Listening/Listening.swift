@@ -32,7 +32,8 @@ import UIKit
 ///  paused ── play ──▶ playing ── a chapter's start, on screen ──▶ carded ── its moment passes ──▶ playing
 ///  playing, carded ── paused, by hand or the system ──▶ paused
 ///  playing, carded ── stopped on its own: the sleep timer, dozing off ──▶ paused, on its own
-///  any ── the last file's end ──▶ ended ── play ──▶ playing, from the start, a new listen-through
+///  any ── the last file's end ──▶ ended ── played from a moment ──▶ playing
+///  ended ── play on ──▶ ended: nothing is left to play (Listen starts a finished book again, AppModel)
 ///  paused, ended ── moved ──▶ paused
 ///  any ── closed ──▶ closed
 /// ```
@@ -133,6 +134,8 @@ final class Listening {
         switch (status, event) {
         case (.closed, _): return nil
         case (_, .close): return .closed
+        // At the end, nothing is left to play on: Play does nothing there. A moment chosen plays.
+        case (.ended, .play(from: nil)): return nil
         case (_, .play): return .playing
         case (.playing, .pause), (.carded, .pause): return .paused(since: now, onItsOwn: false)
         case (.playing, .stopOnItsOwn), (.carded, .stopOnItsOwn): return .paused(since: now, onItsOwn: true)
@@ -341,15 +344,12 @@ final class Listening {
     /// as the time away asks (Resume), never into the chapter before, and from a sentence's first word where the
     /// read-along places it. The moment it plays from, before any lead-in.
     ///
-    /// A book played to its end has nothing left to play: it plays again from its start, as Listen does a finished
-    /// book (AppModel), as a new listen-through.
+    /// A book played to its end has nothing left to play: Play does nothing there, and it stays at the end, never
+    /// going back into the book on its own. Listen starts a finished book again from its start (AppModel), and a
+    /// moment chosen, or another device's newer place, plays from there.
     @discardableResult
     func resume() -> Int {
-        if case .ended = status {
-            startingAgain = true
-            play(from: 0)
-            return 0
-        }
+        if case .ended = status { return positionMs }
         let awayMs = pausedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
         let chapterStart = chapter?.startMs ?? 0
         var target = Resume.position(positionMs, after: awayMs, chapterStartMs: chapterStart)

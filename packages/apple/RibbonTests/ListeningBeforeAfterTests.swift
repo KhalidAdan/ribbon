@@ -26,7 +26,7 @@ final class ListeningBeforeAfterTests: XCTestCase {
 
     enum Meant: String, CaseIterable {
         case restsAtTheEnd = "after the end, the player rests there, nothing loaded"
-        case playAfterTheEnd = "Play after the end plays the book again, from its start, where it said it played and nothing was heard"
+        case playAfterTheEnd = "Play after the end does nothing, where it said it played and nothing was heard"
         case systemStopDuringACard = "the headphones going, or a call, during a chapter's card pause it"
         case askedAtTheEnd = "Still listening? is put away at the end, and the next press goes to the screen"
         case sleepHeldAtTheEnd = "the sleep timer's clock waits after the end, as it does while paused"
@@ -175,9 +175,11 @@ final class ListeningBeforeAfterTests: XCTestCase {
         var differ = Set(fields.filter { !$0.1 }.map(\.0))
         var kinds: [Meant] = []
         let justEnded = new.finishes > (before?.finishes ?? 0)
-        if step == "play or pause", before?.atTheEnd == true {
-            // The old one said it played, and nothing was heard; the new one plays from the start.
-            guard old.playing, old.heard == nil, new.playing, new.heard == 0 else { return nil }
+        if step == "play or pause", let before, before.atTheEnd {
+            // The old one said it played, and nothing was heard; the new one is just as it was, at the end.
+            var still = before
+            still.volume = new.volume
+            guard old.playing, old.heard == nil, new == still else { return nil }
             return [.playAfterTheEnd]
         }
         if step == "the call ends", before?.playing == false, old.playing, !new.playing, new.at == before?.at {
