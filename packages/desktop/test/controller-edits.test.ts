@@ -1,10 +1,17 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { nodeHost } from "@ribbon/host-node/node";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySources } from "../src/app/platform";
 import { FIXTURE_ROOT } from "../tools/make-fixtures";
+
+// The app logs as it works, and the controllers here carry on after the test (a scan asked for during another runs
+// once more after it, covers, chapter probes): a line logged once vitest has closed the file fails the run, though
+// every test passed (#224). The log isn't what's tested here, so it's kept quiet for the life of the file.
+vi.spyOn(console, "info").mockImplementation(() => undefined);
+vi.spyOn(console, "warn").mockImplementation(() => undefined);
+vi.spyOn(console, "error").mockImplementation(() => undefined);
 
 function platform(root: string): Platform {
   return { host: nodeHost(), pickFolder: async () => root, allowFolder: async () => undefined, fileUrl: (p) => `file:///${p}`, sources: memorySources() };
@@ -51,5 +58,7 @@ describe("hand edits through the app", () => {
     expect(b.book.narrator).toBe(target.book.narrator);
     expect(b.original).toBeUndefined();
     expect(b.book.cover).toBe(target.book.cover);
+    c.destroy();
+    again.destroy();
   });
 });
