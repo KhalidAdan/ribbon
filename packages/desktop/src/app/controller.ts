@@ -39,7 +39,8 @@ import { openEbook, readerOnly, type Ebook } from "@ribbon/core/ebook";
 import type { Why } from "@ribbon/core/poslog";
 import { BookText, type TextPlace } from "@ribbon/core/reading/booktext";
 import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typography";
-import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace, type ReadingState } from "./reading";
+import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace } from "./reading";
+import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
 import { followedMs, LEAD_IN_MS, msToText, textToMs, type Alignment, type PairingFix } from "@ribbon/core/reading/align";
 import { anchorsOf, HEARD_FIELDS, heardRows, pairBook, TRANSCRIPT_FIELDS, transcriptAnchors, transcriptRows } from "@ribbon/core/reading/narration";
 import { rowsToBytes } from "@ribbon/core/csv";
@@ -278,8 +279,8 @@ export interface AppState {
   goalMet: { minutes: number; streakDays: number } | null;
   /** Books whose chapter names came from Audible's data, by book id, with the ASIN. */
   namedChapters: Record<string, string>;
-  /** The book open in the reader, over everything but the player bar. */
-  reading: ReadingState | null;
+  /** The book open in the reader, over everything but the player bar (core/reading/session.ts). */
+  reading: ReadingSession | null;
   /** How the reader sets text on this machine. */
   readingSettings: ReadingSettings;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
@@ -444,7 +445,9 @@ interface Opened {
  *   `play`, `pause`, `seek`, `skip`, chapters, speed. `onPlayerState`
  *   hears the engine five times a second, keeps the place and the
  *   listening session, and updates the system's media controls.
- * - **Reading.** The EPUB reader and read-along (docs/READING.md).
+ * - **Reading.** The EPUB reader and read-along (docs/READING.md). The
+ *   book open in it is one status at a time, opening, failed or ready
+ *   (core/reading/session.ts), told what happened through `toReading`.
  *   `openReading` makes the book's `BookText`, pairs its chapters with the
  *   audio, and starts `hearPlaces`, the background work that makes the
  *   pairing precise: chapter openings heard, the narration transcribed,
@@ -609,6 +612,12 @@ export class AppController {
   private set(patch: Partial<AppState>): void {
     this.state = { ...this.state, ...patch };
     for (const l of this.listeners) l();
+  }
+
+  /** Tell the reader's session what happened (core/reading/session.ts), the one way it changes; with anything else that changes at the same time. */
+  private toReading(event: ReadingEvent, with_: Partial<AppState> = {}): void {
+    const reading = readingAfter(this.state.reading, event);
+    if (reading !== this.state.reading || Object.keys(with_).length > 0) this.set({ reading, ...with_ });
   }
 
   // Sources -------------------------------------------------------------
@@ -2150,7 +2159,7 @@ export class AppController {
     if (this.state.reading) await this.closeReading();
     if (!asked.current()) return;
     perf.begin("open the reader");
-    this.set({ reading: { bookId, status: "opening" }, playerExpanded: false });
+    this.toReading({ type: "open", bookId }, { playerExpanded: false });
     const started = performance.now();
     // Everything the reader needs, read at once: over a share each is a round trip of its own.
     const steps: string[] = [];
@@ -2190,7 +2199,7 @@ export class AppController {
     if (this.state.reading?.bookId !== bookId || !asked.current()) return;
     if (!result.ok) {
       log.warn(`could not open the text of ${book.book.title}: ${result.message}`);
-      this.set({ reading: { bookId, status: "failed", message: result.message } });
+      this.toReading({ type: "failed", bookId, message: result.message });
       return;
     }
     const ebook = result.ebook;
@@ -2230,20 +2239,19 @@ export class AppController {
         share: (loc, why, at, ms) => o.lib.writeTextPlace(bookId, ebook.meta.identifiers, loc, why, at, ms),
         // The pairing arrives after the text, and can be fixed while the book is open: always the latest.
         toMs: (p) => {
-          const a = this.state.reading?.alignment ?? alignment;
+          const a = readyReading(this.state.reading)?.alignment ?? alignment;
           return a ? textToMs(a, text.chars(p)) : null;
         },
       });
       const highlights = this.highlightsFor(bookId);
-      this.set({ reading: { bookId, status: "ready", text, place, ...(alignment ? { alignment } : {}), ...(following ? { following } : {}), ...(highlights.length > 0 ? { highlights } : {}) } });
+      this.toReading({ type: "shown", bookId, text, place, alignment: alignment ?? null, following, highlights });
     };
     /** With the text paired: listening from the page, hearing the narration, read-along. */
     const listen = (rd: ReadingData) => {
       const ctx = { o, book: withChapters, text, rd };
       this.readingCtx = ctx;
       // It reads along when its narration is transcribed whole, and opens to read only until then (#152).
-      const r = this.state.reading;
-      if (r?.bookId === bookId && this.readsAlongNow(ctx)) this.set({ reading: { ...r, readsAlong: true } });
+      if (this.readsAlongNow(ctx)) this.toReading({ type: "reads along", bookId });
       this.prepareAudio(o.lib, withChapters);
       void this.hearPlaces();
     };
@@ -2261,9 +2269,9 @@ export class AppController {
         return;
       }
       // Still this opening of the book: not closed, nor opened again meanwhile.
-      const r = this.state.reading;
-      if (!done || r?.status !== "ready" || r.text !== text) return;
-      if (done.alignment) this.set({ reading: { ...r, alignment: done.alignment } });
+      const r = readyReading(this.state.reading);
+      if (!done || r?.text !== text) return;
+      if (done.alignment) this.toReading({ type: "paired", bookId, alignment: done.alignment });
       log.info(`paired ${book.book.title} ${Math.round(performance.now() - started)} ms after opening began: ${steps.join(", ")}`);
       listen(done.rd);
       return;
@@ -2292,31 +2300,22 @@ export class AppController {
    */
   async exportReadAlong(): Promise<void> {
     const ctx = this.readingCtx;
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     const host = ctx?.o.lib.host;
-    if (!ctx || !r?.text || !r.alignment || r.exporting || !host?.exportEbook || !ctx.book.book.ebook) return;
+    if (!ctx || !r?.alignment || r.export.status === "exporting" || !host?.exportEbook || !ctx.book.book.ebook) return;
     const { o, book } = ctx;
     const plan = exportPlan(r.text, r.alignment, book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })), o.lib.absPath(book.book.ebook!));
     const started = performance.now();
-    const { exported: _, ...rest } = r;
-    this.set({ reading: { ...rest, exporting: { done: 0, total: plan.sections.length } } });
-    const update = (patch: Partial<ReadingState>) => {
-      const now = this.state.reading;
-      if (now?.bookId === r.bookId) this.set({ reading: { ...now, ...patch } });
-    };
+    // The book's export, wherever the reader is meanwhile: closed and opened again, it shows how this one is going.
+    const now = (e: ExportStatus) => this.toReading({ type: "export", bookId: r.bookId, export: e });
+    now({ status: "exporting", done: 0, total: plan.sections.length });
     try {
-      const path = await host.exportEbook.call(host, plan, (done, total) => update({ exporting: { done, total } }));
+      const path = await host.exportEbook.call(host, plan, (done, total) => now({ status: "exporting", done, total }));
       log.info(`exported the read-along EPUB of ${book.book.title} in ${Math.round((performance.now() - started) / 1000)} s: ${plan.sections.length} chapters, ${plan.sections.reduce((n, s) => n + s.sentences.length, 0)} sentences`);
-      update({ exported: { path } });
+      now({ status: "made", path });
     } catch (e) {
       log.warn("could not export the read-along EPUB:", describe(e));
-      update({ exported: { error: describe(e) } });
-    } finally {
-      const now = this.state.reading;
-      if (now?.bookId === r.bookId && now.exporting) {
-        const { exporting: _x, ...left } = now;
-        this.set({ reading: left });
-      }
+      now({ status: "failed", error: describe(e) });
     }
   }
 
@@ -2470,11 +2469,7 @@ export class AppController {
     const { o, book, text, rd } = ctx;
     const bookId = book.book.id;
     const language = narrationLanguage(text.ebook.meta.language, book.book.language);
-    const still = () => this.readingCtx === ctx && this.state.reading?.bookId === bookId && this.state.reading.status === "ready";
-    const show = (patch: Partial<ReadingState>) => {
-      const r = this.state.reading;
-      if (r?.bookId === bookId) this.set({ reading: { ...r, ...patch } });
-    };
+    const still = () => this.readingCtx === ctx && readyReading(this.state.reading)?.bookId === bookId;
     this.hearing = true;
     this.keepAwake("reader", true);
     const started = performance.now();
@@ -2488,22 +2483,23 @@ export class AppController {
         transcript: rd,
         files: book.files.map((f) => ({ path: o.lib.absPath(f.path), durationMs: f.durationMs })),
         index: this.wordsOf(text),
-        alignment: () => this.state.reading?.alignment ?? this.realign(text, book, rd),
+        alignment: () => readyReading(this.state.reading)?.alignment ?? this.realign(text, book, rd),
         // Gently while a book plays, so playback comes first.
         hear: (clips, seconds = STRETCH_MS / 1000) => transcribe.call(host, model, clips, seconds, language, isPlaying(this.state.player.status)),
         model: modelName(model),
         keep: async () => {
           await this.keepAligned(ctx);
-          if (still()) show({ alignment: this.realign(text, book, rd) });
+          if (still()) this.toReading({ type: "paired", bookId, alignment: this.realign(text, book, rd) });
         },
-        progress: (done, total) => show({ listening: { done, total, what: "aligning" } }),
+        progress: (done, total) => this.toReading({ type: "listening", bookId, listening: { done, total, what: "aligning" } }),
         still,
       });
       log.info(`transcribing ${book.book.title} ${result} after ${Math.round((performance.now() - started) / 1000)} s`);
       if (result === "whole") {
         this.placeWhole(rd, this.wordsOf(text));
         await this.keepAligned(ctx, true, true);
-        show({ alignment: this.realign(text, book, rd), readsAlong: true });
+        this.toReading({ type: "paired", bookId, alignment: this.realign(text, book, rd) });
+        this.toReading({ type: "reads along", bookId });
         this.notify({ what: "reads-along", title: book.book.title, forServer: false });
         await this.sendTranscript(o, book, rd);
       }
@@ -2519,11 +2515,7 @@ export class AppController {
       this.hearing = false;
       this.keepAwake("reader", false);
       await this.keepAligned(ctx, true);
-      const r = this.state.reading;
-      if (r?.bookId === bookId && r.listening) {
-        const { listening: _, ...rest } = r;
-        this.set({ reading: rest });
-      }
+      if (readyReading(this.state.reading)?.listening) this.toReading({ type: "listening", bookId, listening: null });
       if (this.hearAgain) {
         this.hearAgain = false;
         if (this.readingCtx && this.readingCtx !== ctx) void this.hearPlaces();
@@ -2556,7 +2548,7 @@ export class AppController {
       await o.lib.writeHeard(book.book.id, rd.heard, rd.anchors).catch((e: unknown) => log.warn("could not keep what was heard:", describe(e)));
       void this.sendHeard(ctx);
       if (!still()) return;
-      this.set({ reading: { ...this.state.reading!, alignment: this.realign(text, book, rd) } });
+      this.toReading({ type: "paired", bookId: book.book.id, alignment: this.realign(text, book, rd) });
     }
   }
 
@@ -2749,13 +2741,13 @@ export class AppController {
     const ctx = this.readingCtx;
     const model = this.state.speech.model;
     const hear = ctx?.o.lib.host.speechOpenings;
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     if (!ctx || !model || !hear || !r?.alignment || r.alignment.how !== "chapter") return false;
     const rd = ctx?.rd ?? this.rd;
     if (this.anchorList(rd).some((a) => Math.abs(a.ms - ms) < PINPOINT_MS)) return false;
     const { o, book, text } = ctx;
     const at = locate_(book.files.map((f) => f.durationMs), ms);
-    this.set({ reading: { ...r, finding: true } });
+    this.toReading({ type: "finding", bookId: r.bookId, on: true });
     try {
       const language = narrationLanguage(text.ebook.meta.language, book.book.language);
       const [w] = await hear.call(o.lib.host, model, [{ path: o.lib.absPath(book.files[at.fileIndex]!.path), startMs: Math.round(at.fileOffsetMs) }], HEAR_SECONDS, language);
@@ -2768,17 +2760,13 @@ export class AppController {
         .writeHeard(book.book.id, rd.heard, rd.anchors)
         .catch(() => undefined)
         .then(() => this.sendHeard({ o, book, rd }));
-      if (found && this.state.reading?.bookId === book.book.id) this.set({ reading: { ...this.state.reading, alignment: this.realign(text, book, rd) } });
+      if (found) this.toReading({ type: "paired", bookId: book.book.id, alignment: this.realign(text, book, rd) });
       return found;
     } catch (e) {
       log.warn("could not pinpoint the place:", describe(e));
       return false;
     } finally {
-      const now = this.state.reading;
-      if (now?.finding) {
-        const { finding: _, ...rest } = now;
-        this.set({ reading: rest });
-      }
+      this.toReading({ type: "finding", bookId: r.bookId, on: false });
     }
   }
 
@@ -2828,15 +2816,15 @@ export class AppController {
    * around it.
    */
   async fixPairing(textRef: string, choice: number | null | "auto"): Promise<void> {
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     const book = r && this.state.books.find((b) => b.book.id === r.bookId);
     const o = book && this.openedOf(book);
-    if (!r?.text || !book || !o) return;
+    if (!r || !book || !o) return;
     const fixes = this.rd.fixes.filter((f) => f.text !== textRef);
     if (choice !== "auto") fixes.push({ text: textRef, audioMs: choice });
     this.rd.fixes = fixes;
     const alignment = this.pairUp(r.text, book);
-    this.set({ reading: { ...r, alignment } });
+    this.toReading({ type: "paired", bookId: r.bookId, alignment });
     try {
       await o.lib.writePairing(r.bookId, fixes);
     } catch (e) {
@@ -2872,8 +2860,8 @@ export class AppController {
 
   /** In the reader: the narrator's place in the text, or null when this book's audio is not loaded. */
   narratorInText(): TextPlace | null {
-    const r = this.state.reading;
-    if (!r?.text || !r.alignment || this.state.current?.book.book.id !== r.bookId) return null;
+    const r = readyReading(this.state.reading);
+    if (!r?.alignment || this.state.current?.book.book.id !== r.bookId) return null;
     return r.text.place(msToText(r.alignment, this.narratorMs()));
   }
 
@@ -2894,24 +2882,19 @@ export class AppController {
   /** In the reader: follow the narrator, or stop. */
   setFollowing(on: boolean): void {
     const r = this.state.reading;
-    if (!r || !!r.following === on) return;
-    if (on) this.set({ reading: { ...r, following: true } });
-    else {
-      const { following: _, ...rest } = r;
-      this.set({ reading: rest });
-    }
+    if (r) this.toReading({ type: "following", bookId: r.bookId, on });
   }
 
   /** In the reader: play this book's audio from a place in the text, the top of the page unless one is given (a tapped sentence). */
   async listenFromHere(at?: TextPlace): Promise<void> {
-    const r = this.state.reading;
-    if (!r?.text || !r.alignment || !r.place) return;
+    const r = readyReading(this.state.reading);
+    if (!r?.alignment) return;
     const book = this.state.books.find((b) => b.book.id === r.bookId);
     if (!book) return;
     const chars = r.text.chars(at ?? r.place);
     // Heard first when no checkpoint is near, so the narrator starts on the page's first words.
     await this.pinpoint(textToMs(r.alignment, chars));
-    const alignment = this.state.reading?.alignment ?? r.alignment;
+    const alignment = readyReading(this.state.reading)?.alignment ?? r.alignment;
     const ms = textToMs(alignment, chars);
     if (this.state.current?.book.book.id !== r.bookId) await this.openBook(book, { expand: false });
     if (this.state.current?.book.book.id !== r.bookId) return;
@@ -2941,15 +2924,13 @@ export class AppController {
    * may be either (the scroll's own input says which), it does not.
    */
   moveReading(place: TextPlace, why: Why = "periodic", by: "hand" | "follow" | "scroll" = "hand"): void {
-    const r = this.state.reading;
-    if (!r || r.status !== "ready" || !this.readingKeeper) return;
+    const r = readyReading(this.state.reading);
+    if (!r || !this.readingKeeper) return;
     const p = r.place;
-    if (p && p.section === place.section && p.block === place.block && p.offset === place.offset) return;
+    if (p.section === place.section && p.block === place.block && p.offset === place.offset) return;
     this.readingKeeper.move(place, why);
-    if (by !== "follow" && r.text) this.readOn(r.bookId, r.text, place);
-    // A line found by a search is marked until the reader moves on.
-    const { following, found: _found, ...rest } = r;
-    this.set({ reading: { ...rest, place, ...(following && by !== "hand" ? { following } : {}) } });
+    if (by !== "follow") this.readOn(r.bookId, r.text, place);
+    this.toReading({ type: "moved", bookId: r.bookId, place, by });
     // Reading on into chapters not yet checked: hear them, when nothing else is being heard.
     if (!this.hearing && p && p.section !== place.section) void this.hearPlaces();
   }
@@ -2995,7 +2976,7 @@ export class AppController {
     const keeper = this.readingKeeper;
     this.readingKeeper = null;
     this.readingCtx = null;
-    if (this.state.reading) this.set({ reading: null });
+    if (this.state.reading) this.toReading({ type: "closed" });
     if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
     this.rd = emptyReading();
   }
@@ -3030,18 +3011,17 @@ export class AppController {
   /** Open the reader on a line a search found, marked, downloading the book first when it's still on the server. */
   async readLine(line: FoundLine): Promise<void> {
     if (this.state.reading?.bookId !== line.bookId || this.state.reading.status !== "ready") await this.openReading(line.bookId);
-    const r = this.state.reading;
-    if (r?.bookId !== line.bookId || r.status !== "ready" || !r.text) return;
+    const r = readyReading(this.state.reading);
+    if (r?.bookId !== line.bookId) return;
     const found = foundSentence(r.text, line.sentence, line.text);
     if (!found) return;
     this.moveReading(found.from, "seek");
-    const now = this.state.reading;
-    if (now?.bookId === line.bookId) this.set({ reading: { ...now, found } });
+    this.toReading({ type: "found", bookId: line.bookId, range: found });
   }
 
   /** A URL for an image in the open book's text, when it was kept on this machine. */
   readingImageUrl(src: string): string | undefined {
-    const abs = this.state.reading?.text?.ebook.files?.[src];
+    const abs = readyReading(this.state.reading)?.text.ebook.files?.[src];
     return abs ? this.platform.fileUrl(abs) : undefined;
   }
 
@@ -3492,10 +3472,10 @@ export class AppController {
    * so the bookmark is in the player's list too, with its clip.
    */
   async addHighlight(a: TextPlace, b: TextPlace): Promise<Highlight | null> {
-    const r = this.state.reading;
+    const r = readyReading(this.state.reading);
     const book = r && this.state.books.find((x) => x.book.id === r.bookId);
     const lib = book && this.libOf(book);
-    if (!r?.text || !book || !lib) return null;
+    if (!r || !book || !lib) return null;
     const range = trimRange(r.text, a, b);
     if (!range) return null;
     const text = highlightOf(r.text, book.book.id, range);
@@ -3522,12 +3502,10 @@ export class AppController {
 
   /** The reader's highlights, again from the log, when they changed. */
   private refreshHighlights(): void {
-    const r = this.state.reading;
-    if (!r || r.status !== "ready") return;
+    const r = readyReading(this.state.reading);
+    if (!r) return;
     const highlights = this.highlightsFor(r.bookId);
-    if (JSON.stringify(highlights) === JSON.stringify(r.highlights ?? [])) return;
-    const { highlights: _, ...rest } = r;
-    this.set({ reading: { ...rest, ...(highlights.length > 0 ? { highlights } : {}) } });
+    if (JSON.stringify(highlights) !== JSON.stringify(r.highlights)) this.toReading({ type: "highlights", bookId: r.bookId, highlights });
   }
 
   /** Open a highlight's words in the reader. */
@@ -3535,8 +3513,8 @@ export class AppController {
     const h = this.highlightsFor(bookId).find((x) => x.id === id);
     if (!h) return;
     if (this.state.reading?.bookId !== bookId || this.state.reading.status !== "ready") await this.openReading(bookId);
-    const r = this.state.reading;
-    if (r?.bookId !== bookId || !r.text) return;
+    const r = readyReading(this.state.reading);
+    if (r?.bookId !== bookId) return;
     this.moveReading(r.text.fromLocator(h.text.start), "seek");
   }
 
@@ -4366,7 +4344,7 @@ export function transcribingIn(state: AppState): string | null {
   const percent = (done: number, total: number) => `${Math.floor((100 * done) / Math.max(1, total))}%`;
   const server = state.transcribingForServer;
   if (server) return `${server.title} for the server, ${percent(server.done, server.total)} of the way`;
-  const r = state.reading;
+  const r = readyReading(state.reading);
   const open = r?.listening?.what === "aligning" ? state.books.find((b) => b.book.id === r.bookId) : undefined;
   return open && r?.listening ? `${open.book.title}, ${percent(r.listening.done, r.listening.total)} of the way` : null;
 }

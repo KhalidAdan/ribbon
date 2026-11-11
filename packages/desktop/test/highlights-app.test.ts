@@ -8,6 +8,10 @@ import { EBOOK_FORMAT } from "@ribbon/core/ebook";
 import { AppController, type Platform } from "../src/app/controller";
 import { memorySettings, memorySources } from "../src/app/platform";
 import { parseLog, type LogRecord, type MarkRecord } from "@ribbon/core/poslog";
+import { readyReading } from "@ribbon/core/reading/session";
+
+/** The book open in the reader, which these tests expect to be ready. */
+const ready = (c: AppController) => readyReading(c.getState().reading)!;
 
 const ONE = "Section zero has exactly forty letters in.";
 const TWO = "The waygate hung before them, a giant circle of wraithbone.";
@@ -49,14 +53,14 @@ describe("bookmarks from highlights, in the app", () => {
     const book = c.getState().books.find((b) => b.book.path === "Ebooks/Only.epub")!;
     await c.openReading(book.book.id);
     expect(c.getState().reading).toMatchObject({ status: "ready" });
-    expect(c.getState().reading!.highlights).toBeUndefined();
+    expect(ready(c).highlights).toEqual([]);
 
     // Selected from the end back to the start, with a space either side.
     const from = { section: 1, block: 0, offset: TWO.indexOf(" a giant") };
     const to = { section: 1, block: 0, offset: TWO.indexOf("wraithbone") + "wraithbone".length };
     const h = await c.addHighlight(to, from);
     expect(h).toMatchObject({ offsetMs: null, clip: "", text: { quote: "a giant circle of wraithbone", ids: [`urn:ribbon:${book.book.id}-text`, "urn:isbn:9781836093152"] } });
-    expect(c.getState().reading!.highlights?.map((x) => x.id)).toEqual([h!.id]);
+    expect(ready(c).highlights.map((x) => x.id)).toEqual([h!.id]);
 
     // In the log beside the books, as a bookmark without a time.
     const marks = (await logRecords()).filter((r): r is MarkRecord => r.k === "mark");
@@ -69,10 +73,10 @@ describe("bookmarks from highlights, in the app", () => {
     // Opened from elsewhere, it goes to its words.
     c.moveReading({ section: 0, block: 0, offset: 0 }, "seek");
     await c.readHighlight(book.book.id, h!.id);
-    expect(c.getState().reading!.place).toEqual({ section: 1, block: 0, offset: TWO.indexOf("a giant") });
+    expect(ready(c).place).toEqual({ section: 1, block: 0, offset: TWO.indexOf("a giant") });
 
     await c.removeBookmark(book.book.id, h!.id);
-    expect(c.getState().reading!.highlights).toBeUndefined();
+    expect(ready(c).highlights).toEqual([]);
     expect((await logRecords()).some((r) => r.k === "del" && r.of === h!.id)).toBe(true);
     await c.closeReading();
     c.destroy();

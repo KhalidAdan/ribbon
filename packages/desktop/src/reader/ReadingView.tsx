@@ -24,6 +24,7 @@ import type { SectionLayout } from "./layout";
 import { PlayButton } from "../ui/PlayerBar";
 import { formatDuration } from "@ribbon/core/speed";
 import { msToText, precise, type Alignment } from "@ribbon/core/reading/align";
+import { readyReading, type ExportStatus } from "@ribbon/core/reading/session";
 import type { Sentence } from "@ribbon/core/reading/sentences";
 import { cut, spansIn, type Marked, type Span, type Tone } from "./marks";
 import * as perf from "../app/perf";
@@ -63,14 +64,16 @@ export function ReadingView() {
   // The listening bar shows itself while this book's audio is loaded; the header button shows or hides it either way.
   const [barPref, setBarPref] = useState<"auto" | "shown" | "hidden">("auto");
   if (!r) return null;
-  const text = r.text;
+  // Only a book that's ready has a text and a place (core/reading/session.ts).
+  const ready = r.status === "ready" ? r : null;
+  const text = ready?.text;
   const ebook = text?.ebook;
-  const place = r.place;
+  const place = ready?.place;
   const entry = text && place ? text.tocEntryAt(place) : -1;
   const chapter = ebook && entry >= 0 ? ebook.toc[entry]!.label : "";
   const barOpen = barPref === "shown" || (barPref === "auto" && loadedHere);
   // Listening from the page needs to know when its sentences are read: only once the book reads along (#152).
-  const listen = !!r.alignment && !!r.readsAlong && !!book && book.book.durationMs > 0;
+  const listen = !!ready?.alignment && ready.readsAlong && !!book && book.book.durationMs > 0;
   const title = book?.book.title ?? "";
   // The dock's menu: listening from the page, the full player, and what the header holds on a wider window.
   const menu: MenuItem[] = [
@@ -124,18 +127,18 @@ export function ReadingView() {
         </Middle>
       )}
       {r.status === "failed" && idleDock}
-      {r.status === "ready" && text && ebook && place && (
+      {ready && (
         <Text
-          key={ebook.meta.title + r.bookId}
-          bookId={r.bookId}
-          text={text}
-          place={place}
+          key={ready.text.ebook.meta.title + ready.bookId}
+          bookId={ready.bookId}
+          text={ready.text}
+          place={ready.place}
           settings={settings}
           bar={barOpen}
           listen={listen}
-          alignment={loadedHere && r.readsAlong ? r.alignment : undefined}
-          highlights={r.highlights ?? NO_HIGHLIGHTS}
-          found={r.found}
+          alignment={loadedHere && ready.readsAlong ? (ready.alignment ?? undefined) : undefined}
+          highlights={ready.highlights.length > 0 ? ready.highlights : NO_HIGHLIGHTS}
+          found={ready.found ?? undefined}
           compact={compact}
           title={title}
           menu={menu}
@@ -145,21 +148,21 @@ export function ReadingView() {
         />
       )}
 
-      {ebook && compact && (
+      {ready && compact && (
         <Drawer open={type} onClose={() => setType(false)} title="Text">
           <TypeFields settings={settings} justified={justified} onChange={(p) => c.setReadingSettings(p)} />
         </Drawer>
       )}
 
-      {ebook && (
+      {ready && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
-          <Contents ebook={ebook} alignment={r.alignment} readsAlong={!!r.readsAlong} listening={r.listening} entry={entry} c={c} onGo={() => setContents(false)} />
-          {r.alignment && r.alignment.how !== "overlay" && <ExportReadAlong exporting={r.exporting} exported={r.exported} c={c} />}
+          <Contents ebook={ready.text.ebook} alignment={ready.alignment ?? undefined} readsAlong={ready.readsAlong} listening={ready.listening ?? undefined} entry={entry} c={c} onGo={() => setContents(false)} />
+          {ready.alignment && ready.alignment.how !== "overlay" && <ExportReadAlong exported={ready.export} c={c} />}
         </Drawer>
       )}
-      {ebook && (
+      {ready && (
         <Drawer open={bookmarks} onClose={() => setBookmarks(false)} title="Bookmarks">
-          <HighlightList text={text!} highlights={r.highlights ?? NO_HIGHLIGHTS} listen={listen} c={c} onGo={() => setBookmarks(false)} />
+          <HighlightList text={ready.text} highlights={ready.highlights.length > 0 ? ready.highlights : NO_HIGHLIGHTS} listen={listen} c={c} onGo={() => setBookmarks(false)} />
         </Drawer>
       )}
     </div>
@@ -171,10 +174,11 @@ export function ReadingView() {
  * narration inside, timed sentence by sentence, for any reader that plays
  * Media Overlays. Offered once the whole narration is transcribed.
  */
-function ExportReadAlong({ exporting, exported, c }: { exporting: { done: number; total: number } | undefined; exported: { path: string } | { error: string } | undefined; c: AppController }) {
+function ExportReadAlong({ exported, c }: { exported: ExportStatus; c: AppController }) {
   const transcribed = c.narrationTranscribed();
   const ready = !!transcribed && transcribed.total > 0 && transcribed.done >= transcribed.total;
-  const name = exported && "path" in exported ? exported.path.split(/[\\/]/).pop() : null;
+  const exporting = exported.status === "exporting" ? exported : null;
+  const name = exported.status === "made" ? exported.path.split(/[\\/]/).pop() : null;
   return (
     <section aria-label="Read-along EPUB" className="mt-6 flex flex-col gap-2 border-t border-line pt-4">
       <div className="flex items-center justify-between gap-3">
@@ -188,7 +192,7 @@ function ExportReadAlong({ exporting, exported, c }: { exporting: { done: number
           ? `Putting the narration in, chapter by chapter… ${exporting.done} of ${exporting.total}`
           : name
             ? `Saved beside the book as “${name}”.`
-            : exported && "error" in exported
+            : exported.status === "failed"
               ? `Could not export: ${exported.error}`
               : ready
                 ? "A copy of this book with the narration inside, timed sentence by sentence, for any reader that plays read-along. Your EPUB is not changed."
@@ -596,7 +600,7 @@ function Text({ bookId, text, place, settings, bar, listen, alignment, highlight
       sentence: sentence ? `${sentence.section}:${sentence.block}:${sentence.start}` : "",
       inView: visible ? chars >= text.chars(visible.from) && chars <= text.chars(visible.to) : null,
       playing: isPlaying(s.player.status),
-      following: !!s.reading?.following,
+      following: !!readyReading(s.reading)?.following,
     };
   });
   // The same sentence keeps the same mark, so the pages draw again only when the narrator moves on.

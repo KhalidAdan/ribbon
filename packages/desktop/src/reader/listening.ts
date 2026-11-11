@@ -4,6 +4,7 @@ import { chapterAt } from "@ribbon/core/scan/chapters";
 import { formatLeft } from "@ribbon/core/speed";
 import { useAppState } from "../ui/store";
 import { isPlaying } from "@ribbon/core/playback";
+import { readyReading } from "@ribbon/core/reading/session";
 
 /** What the reader shows: from the first character on screen to the last. */
 export interface Visible {
@@ -35,6 +36,6 @@ export function useListening(bookId: string, text: BookText | null, visible: Vis
         onPage = n >= text.chars(visible.from) && n <= text.chars(visible.to);
       }
     }
-    return { loaded: !!cur, title: cur?.book.book.title, here, where, onPage, playing: isPlaying(p.status), finding: !!s.reading?.finding, following: !!s.reading?.following };
+    return { loaded: !!cur, title: cur?.book.book.title, here, where, onPage, playing: isPlaying(p.status), finding: !!readyReading(s.reading)?.finding, following: !!readyReading(s.reading)?.following };
   });
 }

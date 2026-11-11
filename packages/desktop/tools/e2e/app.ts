@@ -171,7 +171,8 @@ export function visibleLines(page: Page): Promise<number> {
 /** Where the reader is, as a short string to compare. */
 export function placeNow(page: Page): Promise<string> {
   return page.evaluate(() => {
-    const p = window.__ribbon.getState().reading?.place;
+    const r = window.__ribbon.getState().reading;
+    const p = r?.status === "ready" ? r.place : null;
     return p ? `${p.section}:${p.block}:${p.offset}` : "(no place)";
   });
 }

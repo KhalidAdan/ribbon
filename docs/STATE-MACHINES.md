@@ -50,6 +50,7 @@ Three shapes come up again and again, so each has a name and a home:
 | Opening a book, in the player or the reader | `Latest` in `AppController` (`opening`, `readerOpening`) | each ask current until a newer one begins |
 | A folder's scans | `Rerun` in `AppController` (`Opened.scans`) | idle, running, running with one more after |
 | A page swipe | [`reader/swipe.ts`](../packages/desktop/src/reader/swipe.ts) | idle, pressed, dragging, springing back, sliding (each slide numbered) |
+| The reader's session | [`core/reading/session.ts`](../packages/core/src/reading/session.ts) (`readingAfter`), told by the controller (`toReading`) | opening, failed, ready; a ready book's export: none, exporting, made, failed |
 | A book's loudness and silence, measured | [`app/jobs.ts`](../packages/desktop/src/app/jobs.ts) (`JobStatus`) | queued, running, done, failed |
 | Transcribing a whole book | [`app/transcribing.ts`](../packages/desktop/src/app/transcribing.ts) (`transcribeWhole`) | its result: whole, stopped, failed |
 | A chapter-name lookup | `ui/ChapterList.tsx` (`lookup`) | idle, busy, found, error |
@@ -68,7 +69,6 @@ next to write down, roughly in order of how much they touch.
 
 | Machine | Where | What holds it today |
 | --- | --- | --- |
-| The reader's session | `AppState.reading` ([`app/reading.ts`](../packages/desktop/src/app/reading.ts)), written by the controller | `status` (opening, ready, failed) and eleven optional fields beside it: `text`, `place`, `alignment`, `readsAlong`, `listening`, `exporting`, `exported`, `following`, `finding`, `found`, `highlights`; privately `rd`, `readingCtx`, `readingKeeper` |
 | What's on screen | `AppState` | `pane`, `readerBookId`, `readerFromBookcase`, `seriesKey`, `playerExpanded`, `playerDrawer`, with `reading` drawn over everything |
 | The library's lifecycle | `AppState.phase` | `phase` (boot, pick, loading, ready), `sources`, `error`, and the controller's `opened` |
 | The book open in the player | the controller | `current`, `resumeOffer`, `previewing`, `theEnd`, and privately `pausedAt`, `listenedFrom`, `listening`, `chapterProbe` |

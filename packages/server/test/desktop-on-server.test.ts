@@ -9,6 +9,7 @@ import { AppController, type Platform } from "../../desktop/src/app/controller.t
 import { LibraryService } from "../../desktop/src/app/library.ts";
 import { memorySettings, memorySources } from "../../desktop/src/app/platform.ts";
 import { ribbonClaim } from "@ribbon/core/poslog";
+import { readyReading } from "@ribbon/core/reading/session";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { endOf, readsOf } from "@ribbon/core/stats";
 import type { Host } from "@ribbon/core/host";
@@ -405,7 +406,7 @@ describe("the desktop on a server", () => {
     const id = book(app, "Told Book").book.id;
     await app.openReading(id);
     expect(app.getState().reading).toMatchObject({ bookId: id, status: "ready" });
-    expect(app.getState().reading!.readsAlong).toBeFalsy();
+    expect(readyReading(app.getState().reading)!.readsAlong).toBe(false);
     await app.closeReading();
 
     // The last minute heard, the whole transcript sent, and the download taken off, as it came.
@@ -416,7 +417,7 @@ describe("the desktop on a server", () => {
     // Opened again in the same session: downloaded with the whole transcript, it reads along.
     await app.openReading(book(app, "Told Book").book.id);
     expect(app.getState().reading).toMatchObject({ bookId: id, status: "ready" });
-    await soon(() => app.getState().reading!.readsAlong).toBe(true);
+    await soon(() => readyReading(app.getState().reading)?.readsAlong).toBe(true);
     await app.closeReading();
   }, 90_000);
 
@@ -435,14 +436,14 @@ describe("the desktop on a server", () => {
     // Still on the server: downloaded, then opened on the line, marked.
     await app.readLine(lines[0]!);
     expect(book(app, "Told Book").remote).toBeUndefined();
-    const r = app.getState().reading!;
+    const r = readyReading(app.getState().reading)!;
     expect(r).toMatchObject({ bookId: told.book.id, status: "ready" });
-    expect(r.text!.text(r.found!)).toBe(SENTENCES[1]);
+    expect(r.text.text(r.found!)).toBe(SENTENCES[1]);
     expect(r.place).toEqual(r.found!.from);
 
     // Reading on takes the mark away.
-    app.moveReading({ ...r.place!, offset: 0 }, "seek");
-    expect(app.getState().reading!.found).toBeUndefined();
+    app.moveReading({ ...r.place, offset: 0 }, "seek");
+    expect(readyReading(app.getState().reading)!.found).toBeNull();
     await app.closeReading();
   }, 60_000);
 

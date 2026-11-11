@@ -208,6 +208,27 @@ Given files of durations `[1000, 2000, 3000]`:
 - A book that finishes downloading while its folder is scanned plays
   (`desktop-on-server.test.ts`).
 
+### The reader's session (`core/reading/session.ts`)
+
+- Opening, then ready with a text and a place, or failed with why; a
+  text or a failure lands only on the book opening, only while it opens.
+- Another book, or the same one again, opens from anywhere; closing
+  closes from anywhere.
+- What comes for a book that isn't open, or is still opening (its
+  pairing, its transcription, its export, a highlight), is dropped:
+  work goes on after a book is closed.
+- A turn by hand stops following the narrator; one the narrator made,
+  or a scroll, doesn't. A line a search found is marked until the reader
+  moves on, whichever way.
+- The export is one status: running, made or failed, never two at once.
+- Before and after: the controller with the session as one status does
+  with the reader what the old one did, on a library in memory (a book
+  with its EPUB, an EPUB alone, one that can't be read), in every
+  sequence of three of fifteen events (opening each, texts slow to load
+  and arriving, closing, turning, following, the export made or failing,
+  playing, pausing, a pairing fixed, a highlight) and 1,000 random ones
+  of ten, and reaches every status of each (`reading-before-after.test.ts`).
+
 ### Loudness (`core/loudness.ts`)
 
 - Parses `I: -23.4 LUFS` and `Peak: -1.2 dBFS` from ebur128 summary.
