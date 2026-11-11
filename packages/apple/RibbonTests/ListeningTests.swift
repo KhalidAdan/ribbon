@@ -113,29 +113,32 @@ final class ListeningTests: XCTestCase {
 
     // As it plays ---------------------------------------------------------------
 
-    func testPlayAfterTheEndIsHeard() async {
+    func testPlayAfterTheEndDoesNothing() async {
         let (book, player) = played()
         book.play(from: 35_000)
         player.playsToTheEnd()
         XCTAssertFalse(book.playing)
         XCTAssertEqual(book.positionMs, 40_000)
-        // Play, a moment after the end, from the lock screen or the player.
+        // Play, a moment after the end, from the lock screen or the player: nothing is left to play.
         book.playPause()
         await settle()
-        XCTAssertEqual(book.playing, player.sounding, "it says it plays: something must be heard")
+        XCTAssertFalse(book.playing, "it mustn't say it plays when nothing is heard")
+        XCTAssertFalse(player.sounding)
+        XCTAssertEqual(book.positionMs, 40_000, "still at the end")
     }
 
-    func testPlayAfterTheEndStartsTheBookAgain() async {
+    func testAfterTheEndAMomentChosenPlaysFromThere() async {
         let (book, player) = played()
         book.play(from: 35_000)
         player.playsToTheEnd()
+        // Back thirty seconds, from the lock screen, then Play.
+        book.skip(by: -Listening.skipMs)
+        XCTAssertEqual(book.positionMs, 10_000)
         book.playPause()
         await settle()
-        // As Listen does for a finished book: from its start, as a new listen-through.
         XCTAssertTrue(book.playing)
-        XCTAssertEqual(book.positionMs, 0)
-        player.plays(for: 2_000)
-        XCTAssertEqual(book.positionMs, 2_000)
+        player.plays(for: 1_000)
+        XCTAssertEqual(book.positionMs, 11_000)
     }
 
     func testTheHeadphonesGoingDuringAChaptersCardPauseIt() {
@@ -291,17 +294,18 @@ final class ListeningStatusTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000)
         let then = Date(timeIntervalSince1970: 10)
         let statuses: [Listening.Status] = [.paused(since: nil, onItsOwn: false), .paused(since: then, onItsOwn: true), .playing, .carded(1), .ended(then), .closed]
-        let events: [Listening.Event] = [.play(from: nil), .pause, .stopOnItsOwn, .card(2), .cardPassed(from: nil), .end, .move(since: then), .close]
+        let events: [Listening.Event] = [.play(from: nil), .play(from: 5_000), .pause, .stopOnItsOwn, .card(2), .cardPassed(from: nil), .end, .move(since: then), .close]
         let paused = Listening.Status.paused(since: now, onItsOwn: false)
         let stopped = Listening.Status.paused(since: now, onItsOwn: true)
-        // Each row a status, above; each column an event: play, pause, stop on its own, card, card passed, end, move, close.
+        // Each row a status, above; each column an event: play on, play from a moment, pause, stop on its own, card,
+        // card passed, end, move, close.
         let expected: [[Listening.Status?]] = [
-            [.playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: false), .closed],
-            [.playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: true), .closed],
-            [.playing, paused, stopped, .carded(2), nil, .ended(now), nil, .closed],
-            [.playing, paused, stopped, nil, .playing, .ended(now), nil, .closed],
-            [.playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: true), .closed],
-            [nil, nil, nil, nil, nil, nil, nil, nil],
+            [.playing, .playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: false), .closed],
+            [.playing, .playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: true), .closed],
+            [.playing, .playing, paused, stopped, .carded(2), nil, .ended(now), nil, .closed],
+            [.playing, .playing, paused, stopped, nil, .playing, .ended(now), nil, .closed],
+            [nil, .playing, nil, nil, nil, nil, .ended(now), .paused(since: then, onItsOwn: true), .closed],
+            [nil, nil, nil, nil, nil, nil, nil, nil, nil],
         ]
         for (row, status) in statuses.enumerated() {
             for (column, event) in events.enumerated() {
