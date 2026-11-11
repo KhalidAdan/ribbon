@@ -17,6 +17,18 @@ import { useAppState, useController } from "./store";
  */
 export const CASE_SCALE = 2;
 
+/** The books' size on the bookcase page, and the width of the lectern beside its shelves, in points. */
+export const CASE_K = 1, LECTERN = 280;
+
+/**
+ * How wide the bookcase page's shelves are in a window this wide: the window less the page's margins, the lectern and
+ * the gap beside it (ui/BookcasePage.tsx). For compiling the bookcase's shaders before the page is ever opened.
+ */
+export function caseWidthIn(windowWidth: number): number {
+  const margin = windowWidth >= 640 ? 32 : 16, gap = 32;
+  return windowWidth - 2 * margin - LECTERN - gap;
+}
+
 /** Every book on the shelf, for the bookcase: all but those a series leaves off it. */
 export function useShelvedBooks(): ScannedBook[] {
   const c = useController();

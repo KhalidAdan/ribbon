@@ -77,6 +77,9 @@ export async function drawVignette(books: readonly CaseBook[], width: number, he
 
     renderer.setPixelRatio(scale);
     renderer.setSize(width, height, false);
+    // The picture's programs are compiled alongside the page, then it is drawn. Drawn straight away, the first time
+    // ever, the library stood frozen for four seconds while they compiled: on a Mac, 0.39.0, measured.
+    await renderer.compileAsync(scene, camera);
     renderer.render(scene, camera);
     const picture = document.createElement("canvas");
     picture.width = drawing.width;

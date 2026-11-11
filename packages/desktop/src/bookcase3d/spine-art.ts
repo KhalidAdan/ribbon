@@ -153,8 +153,6 @@ export function drawSpine(ctx: CanvasRenderingContext2D, s: SpineLayout, cloth: 
   }
 }
 
-const BLACK = rgb(0x000000), WHITE = rgb(0xffffff);
-
 /** A spine's art at a number of pixels to the point, with the cloth's threads laid faintly over it, a thread every twelve points. */
 export function spineArt(s: SpineLayout, cloth: Cloth, k: number, scale: number, fibres: HTMLCanvasElement | null): HTMLCanvasElement {
   const { canvas, ctx } = canvasOf(s.width * scale, s.height * scale);
@@ -170,6 +168,8 @@ export function spineArt(s: SpineLayout, cloth: Cloth, k: number, scale: number,
   return canvas;
 }
 
+const BLACK = rgb(0x000000), WHITE = rgb(0xffffff);
+
 // The foil's metal, and the roughness of the cloth and of the lettering, as bytes.
 const METAL = 0xb3, CLOTH_ROUGH = 0xdb, LETTERING_ROUGH = 0x5c;
 
@@ -177,20 +177,24 @@ const METAL = 0xb3, CLOTH_ROUGH = 0xdb, LETTERING_ROUGH = 0x5c;
  * A spine's foil, as one picture: how rough each point is (green) and how metal (blue), both from one drawing of where
  * the foil and lettering are. Lettering is stamped foil, metal 0.7 and smooth (0.36) against the cloth's 0.86, and an
  * edge part covered by a letter is part metal: both follow from how much of each point the lettering covers.
+ *
+ * The drawing is white where a point is covered and black where it isn't. Two washes over it turn that into the
+ * numbers, on the graphics card where the drawing is: multiplying by a colour leaves `covered` times that colour, and
+ * the difference from the cloth's roughness then counts green down from it. (Reading the pixels back to work the same
+ * out one by one fetched them from the graphics card, a third of the time it took to light a shelf.)
  */
 export function spineFoil(s: SpineLayout, k: number, scale: number): HTMLCanvasElement {
   const { canvas, ctx } = canvasOf(Math.ceil(s.width * scale), Math.ceil(s.height * scale));
   ctx.scale(scale, scale);
   drawSpine(ctx, s, { ground: BLACK, ink: WHITE, foil: WHITE, alternatives: [] }, k, true);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const image = ctx.getImageData(0, 0, canvas.width, canvas.height), px = image.data;
-  for (let i = 0; i < px.length; i += 4) {
-    const covered = px[i]!;
-    px[i] = 0;
-    px[i + 1] = CLOTH_ROUGH + Math.trunc(((LETTERING_ROUGH - CLOTH_ROUGH) * covered) / 255);
-    px[i + 2] = Math.trunc((METAL * covered + 127) / 255);
-    px[i + 3] = 255;
-  }
-  ctx.putImageData(image, 0, 0);
+  // Green: covered × (cloth − lettering). Blue: covered × metal.
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = `rgb(0, ${CLOTH_ROUGH - LETTERING_ROUGH}, ${METAL})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Green: cloth − covered × (cloth − lettering), which is the cloth's roughness where nothing is stamped.
+  ctx.globalCompositeOperation = "difference";
+  ctx.fillStyle = `rgb(0, ${CLOTH_ROUGH}, 0)`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   return canvas;
 }

@@ -96,7 +96,9 @@ next to write down, roughly in order of how much they touch.
 | Looking up descriptions | [`app/about.ts`](../packages/desktop/src/app/about.ts) | `abort` doubling as "running" |
 | A dialog's work | `ui/Servers.tsx`, `ui/EditBook.tsx`, `ui/PlayerPane.tsx` | `busy`, `saving`, `error`, `freed` per dialog |
 | Updating Ribbon | [`app/updates.ts`](../packages/desktop/src/app/updates.ts) (`Updater`) | `first`, `every`, `checking`, `downloaded` with `status.ready` |
-| The book in hand on the bookcase | `bookcase3d/lamplit-case.ts`, `ui/BookcasePage.tsx` | `selected` there, `taken` in React, `lastTaken` in the module |
+| The book in hand on the bookcase | `bookcase3d/lamplit-case.ts`, `ui/BookcasePage.tsx` | `selected` (asked for) and `lifted` (off its shelf) there, `taken` in React, `lastTaken` in the module |
+| The bookcase's lamps coming on | [`core/bookcase/lighting.ts`](../packages/core/src/bookcase/lighting.ts) (`nextToLight`, `lampsOnInView`), run by `bookcase3d/lamplit-case.ts` | each shelf dark or `lit`; `lighting` (one at a time), `laid` (a generation), `view`, and `moving` holding back the shelves out of view |
+| The bookcase's shaders, compiled ahead | `bookcase3d/warm-up.ts` | `warming`, `stopped` (the bookcase was opened), and what was done, kept in `localStorage` by version and lamp count |
 | A tool's run, and stopping it | `host/tauri.ts` (`run`, `stream`) | spawning, spawned, stopped: an abort listener added after the spawn |
 | A listen-through, written | the controller (`beginListening`, `markFinished`, `markUnfinished`, `listenAgain`) | each writes `read` records its own way; `readAfter` in `core/listen-through.ts` answers the same, but for one thing: marking a finished book finished writes nothing there, where the controller writes another listen-through, begun and finished at once |
 
