@@ -17,7 +17,7 @@ import { isPlaying, wantsToPlay } from "@ribbon/core/playback";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
-import { applyEdits, changedFields, diffEdits, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
+import { applyEdits, changedFields, diffEdits, readAlongOff, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
 import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 import { finishedByRead, openRead } from "@ribbon/core/stats";
@@ -727,6 +727,31 @@ export class AppController {
       current: cur && refreshed && refreshed !== cur.book ? { ...cur, book: { ...refreshed, chapters: cur.book.chapters } } : cur,
       ...extra,
     });
+    // The books' edits arrive here, from the form or from the server: the open book's read-along switch among them.
+    this.heedReadAlongSwitch();
+  }
+
+  /**
+   * The book open in the reader does what its read-along switch says
+   * (core/edits.ts, `readAlong`) when the switch moves while it's open:
+   * turned off, it reads only from here; turned back on, it reads along if
+   * its transcript is whole, and is heard if it isn't, as opening it does.
+   */
+  private heedReadAlongSwitch(): void {
+    const ctx = this.readingCtx;
+    const r = readyReading(this.state.reading);
+    if (!ctx || r?.bookId !== ctx.book.book.id) return;
+    const off = this.readAlongIsOff(ctx.book);
+    if (off === ctx.off) return;
+    ctx.off = off;
+    if (off) this.toReading({ type: "reads only", bookId: r.bookId });
+    else if (this.readsAlongNow(ctx)) this.toReading({ type: "reads along", bookId: r.bookId });
+    else void this.hearPlaces();
+  }
+
+  /** Whether read-along is turned off for a book, as the shelf has it now: the book as it was opened may be from before the switch moved. */
+  private readAlongIsOff(book: ScannedBook): boolean {
+    return readAlongOff((this.state.books.find((b) => b.book.id === book.book.id) ?? book).book);
   }
 
   /** The scan status across every source, for the header; with a folder whose books are on the shelf now, `shown`. */
@@ -2336,7 +2361,7 @@ export class AppController {
     };
     /** With the text paired: listening from the page, hearing the narration, read-along. */
     const listen = (rd: ReadingData) => {
-      const ctx = { o, book: withChapters, text, rd };
+      const ctx = { o, book: withChapters, text, rd, off: this.readAlongIsOff(withChapters) };
       this.readingCtx = ctx;
       // It reads along when its narration is transcribed whole, and opens to read only until then (#152).
       if (this.readsAlongNow(ctx)) this.toReading({ type: "reads along", bookId });
@@ -2420,7 +2445,7 @@ export class AppController {
   private rd: ReadingData = emptyReading();
   private readingIndex: { text: BookText; index: WordAt[] } | null = null;
   /** The open book with its text paired. */
-  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData } | null = null;
+  private readingCtx: { o: Opened; book: ScannedBook; text: BookText; rd: ReadingData; /** Whether read-along was turned off for it when last looked (heedReadAlongSwitch). */ off: boolean } | null = null;
   private hearing = false;
   /** How long a clip took to hear, last measured: a fast machine hears the whole book, a slow one only around the reader. */
   private msPerClip: number | null = null;
@@ -2538,7 +2563,8 @@ export class AppController {
    * start to end (transcribing.ts) and kept beside the book as it goes. The
    * book reads along once its transcript is whole, and opens to read only
    * until then. A machine without one hears nothing: a server's book is
-   * transcribed by one of the admin's machines that has one.
+   * transcribed by one of the admin's machines that has one. A book whose
+   * read-along is turned off isn't heard at all: nobody would read it along.
    */
   private async hearPlaces(): Promise<void> {
     const ctx = this.readingCtx;
@@ -2551,11 +2577,12 @@ export class AppController {
     }
     const host = ctx.o.lib.host;
     const transcribe = host.speechTranscribe;
-    if (!host.speechOpenings || !transcribe || this.readsAlongNow(ctx)) return;
+    if (!host.speechOpenings || !transcribe || this.readsAlongNow(ctx) || this.readAlongIsOff(ctx.book)) return;
     const { o, book, text, rd } = ctx;
     const bookId = book.book.id;
     const language = narrationLanguage(text.ebook.meta.language, book.book.language);
-    const still = () => this.readingCtx === ctx && readyReading(this.state.reading)?.bookId === bookId;
+    // Turned off while it's heard: it stops at the next few minutes, with what's heard so far kept.
+    const still = () => this.readingCtx === ctx && readyReading(this.state.reading)?.bookId === bookId && !this.readAlongIsOff(book);
     this.toTranscribing({ type: "hearing began" });
     const started = performance.now();
     try {
@@ -2640,8 +2667,13 @@ export class AppController {
     return !!this.state.speech.model && !!host.speechTranscribe && ms !== null && ms < FAST_CLIP_MS;
   }
 
-  /** Whether a book reads along: by its own Media Overlay, or its narration is transcribed whole (#152). */
+  /**
+   * Whether a book reads along: by its own Media Overlay, or its narration
+   * is transcribed whole (#152). Never while read-along is turned off for
+   * it, whatever it has: that's what the switch is for.
+   */
   private readsAlongNow(ctx: { book: ScannedBook; rd: ReadingData }): boolean {
+    if (this.readAlongIsOff(ctx.book)) return false;
     return !!ctx.rd.overlay || untranscribed(ctx.book.files, ctx.rd.spans).length === 0;
   }
 

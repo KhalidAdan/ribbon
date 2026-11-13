@@ -3,6 +3,7 @@ import { clsx } from "clsx";
 import { memo, Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import type { Ebook } from "@ribbon/core/ebook";
 import type { Highlight } from "@ribbon/core/types";
+import { readAlongOff } from "@ribbon/core/edits";
 import { bookPage, itemsIn, pageOf, placeAtY, yOfPlace, type LaidBlock, type Placed } from "@ribbon/core/reading/pages";
 import { comparePlaces, type BookText, type TextPlace, type TextRange } from "@ribbon/core/reading/booktext";
 import { inRange, rangeOf } from "@ribbon/core/reading/highlights";
@@ -156,7 +157,7 @@ export function ReadingView() {
 
       {ready && (
         <Drawer open={contents} onClose={() => setContents(false)} title="Contents">
-          <Contents ebook={ready.text.ebook} alignment={ready.alignment ?? undefined} readsAlong={ready.readsAlong} listening={ready.listening ?? undefined} entry={entry} c={c} onGo={() => setContents(false)} />
+          <Contents ebook={ready.text.ebook} alignment={ready.alignment ?? undefined} readsAlong={ready.readsAlong} off={readAlongOff(book?.book)} listening={ready.listening ?? undefined} entry={entry} c={c} onGo={() => setContents(false)} />
           {ready.alignment && ready.alignment.how !== "overlay" && <ExportReadAlong exported={ready.export} c={c} />}
         </Drawer>
       )}
@@ -211,7 +212,7 @@ const UNSURE = 0.4;
  * Fixing the pairing puts a choice on each entry: automatic, not in the
  * audio, or a chapter of the recording; it is kept beside the book.
  */
-function Contents({ ebook, alignment, readsAlong, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; readsAlong: boolean; listening: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" } | undefined; entry: number; c: AppController; onGo: () => void }) {
+function Contents({ ebook, alignment, readsAlong, off, listening, entry, c, onGo }: { ebook: Ebook; alignment: Alignment | undefined; readsAlong: boolean; off: boolean; listening: { done: number; total: number; what: "openings" | "checkpoints" | "aligning" } | undefined; entry: number; c: AppController; onGo: () => void }) {
   const [fixing, setFixing] = useState(false);
   const units = new Map((alignment?.text ?? []).map((u) => [u.ref, u]));
   const paired = alignment?.how === "chapter";
@@ -228,15 +229,17 @@ function Contents({ ebook, alignment, readsAlong, listening, entry, c, onGo }: {
       {alignment && (
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5" aria-live="polite">
-            {listening
-              ? `Transcribing the narration for read-along… ${Math.floor((100 * listening.done) / Math.max(1, listening.total))}%`
-              : alignment.how === "overlay"
-                ? "Read-along from the book’s own narration timing"
-                : !readsAlong
-                  ? "Read only until the narration is transcribed, on a computer with a graphics card"
-                  : paired
-                    ? "Paired with the audiobook’s chapters, and read along to the sentence"
-                    : "Matched to the audiobook by length"}
+            {off
+              ? "Read-along is turned off for this book. It can be turned back on where the book’s details are edited."
+              : listening
+                ? `Transcribing the narration for read-along… ${Math.floor((100 * listening.done) / Math.max(1, listening.total))}%`
+                : alignment.how === "overlay"
+                  ? "Read-along from the book’s own narration timing"
+                  : !readsAlong
+                    ? "Read only until the narration is transcribed, on a computer with a graphics card"
+                    : paired
+                      ? "Paired with the audiobook’s chapters, and read along to the sentence"
+                      : "Matched to the audiobook by length"}
           </p>
           {alignment.how !== "overlay" && (
             <Button size="sm" variant={fixing ? "secondary" : "ghost"} aria-pressed={fixing} onClick={() => setFixing((v) => !v)}>

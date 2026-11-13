@@ -86,6 +86,23 @@ describe("a read-along", () => {
     expect(paired(false, { done: 1, total: 1 }).readAlong.ready).toBe(true);
   });
 
+  it("never reads along while it's turned off, whatever is transcribed or overlaid, and says so; its sentences still follow the audio by chapter", () => {
+    const text = new BookText(book());
+    const off = (withOverlay: boolean) => {
+      const overlay = withOverlay ? overlayAnchors(text, { files: [{ path: "x.mp3", durationMs: DURATION }], durationMs: DURATION }) : null;
+      return readAlongOf(text, pairBook(text, chapters, DURATION, { fixes: [], heard: new Map(), anchors: [], overlay }), { done: 1, total: 1 }, [], true);
+    };
+    for (const readAlong of [off(false), off(true)]) {
+      expect(readAlong).toMatchObject({ ready: false, off: true, transcribed: { done: 1, total: 1 } });
+      const all = readAlong.blocks.flatMap((b) => b.sentences ?? []);
+      // No sentence is the narrator's to mark, and a place still maps into the recording.
+      expect(all.some((s) => s.exact)).toBe(false);
+      expect(all.some((s) => s.endMs > s.ms)).toBe(true);
+    }
+    // A book it's on for doesn't mention the switch at all.
+    expect("off" in paired(true).readAlong).toBe(false);
+  });
+
   it("marks nothing exact when the text is paired with the audio only by its chapters", () => {
     const { readAlong } = paired(false);
     const all = readAlong.blocks.flatMap((b) => b.sentences ?? []);

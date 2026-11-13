@@ -11,7 +11,7 @@ import { inTurn, readStored, removeBookDir } from "./book-folder.ts";
 import { bookDir, type BookIndex, type KeptEdits } from "./books.ts";
 import { makeCovers, type Cover } from "./covers.ts";
 import type { Host } from "@ribbon/core/host";
-import { EDIT_FIELDS, sharedEdits, type EditValues } from "@ribbon/core/edits";
+import { EDIT_FIELDS, readAlongOff, sharedEdits, type EditValues } from "@ribbon/core/edits";
 import { recordRows } from "./chapters.ts";
 import { transcriptFromRows } from "@ribbon/core/reading/narration";
 import { stretchesOf, untranscribed } from "@ribbon/core/reading/transcript";
@@ -28,7 +28,9 @@ import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } f
  * The order the admin's devices transcribe books in: the ones still missing
  * minutes first, the fewest missing first, since a book a few minutes short
  * reads along after seconds of hearing where a whole one takes half an hour.
- * Among equals, the order they came in (newest first, from the route).
+ * Among equals, the order they came in (newest first, from the route). A
+ * book whose read-along is turned off never gets here: the route leaves it
+ * out, so no machine spends hours on a transcript nobody will read along.
  */
 export function inTranscribingOrder<T extends { done: number; total: number }>(books: T[]): T[] {
   const left = (b: T) => b.total - b.done;
@@ -38,8 +40,8 @@ export function inTranscribingOrder<T extends { done: number; total: number }>(b
 /**
  * The admin's side of the library: adding a folder of books, following the
  * job that does it, deleting a book, editing a book's details for everyone
- * (`PUT /api/books/:id/edits`, its fields as edited and a cover chosen for
- * it), and making, changing and deleting a
+ * (`PUT /api/books/:id/edits`, its fields as edited, a cover chosen for
+ * it, and its read-along turned off or back on), and making, changing and deleting a
  * series (`POST /api/series`, `PUT` and `DELETE /api/series/:id`, each with
  * its name and its books in order). And how every book reads along
  * (`GET /api/library/readalong`), so a book left by chapter is never found
@@ -186,14 +188,15 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
   });
 
   // How much of each book's narration is transcribed, in the order the admin's devices with a graphics card work through
-  // them (`inTranscribingOrder`), transcribing each whole and sending it (PUT /api/books/:id/transcript).
+  // them (`inTranscribingOrder`), transcribing each whole and sending it (PUT /api/books/:id/transcript). A book whose
+  // read-along the admin turned off isn't listed, so it's never picked; the transcript it has is kept as it is.
   app.get("/api/library/transcripts", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin's devices transcribe the library." });
     reply.header("cache-control", "no-store");
     const books = [];
-    for (const b of deps.books.list().filter((b) => b.ebook && b.audio)) {
+    for (const b of deps.books.list().filter((b) => b.ebook && b.audio && !readAlongOff(b.edited?.values))) {
       const stored = await readStored(deps.dataDir, b.id);
       if (!stored) continue;
       const total = stretchesOf(stored.files).length;
@@ -214,7 +217,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
 }
 
 /** The order books are listed in by how they read along: the ones that need a person first. */
-const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagged", "unpaired", "waiting", "sentence"];
+const FIRST: readonly (ReadAlongState | "unreadable")[] = ["unreadable", "flagged", "unpaired", "waiting", "sentence", "off"];
 
 /**
  * A book's edits as a request gives them: its fields as edited, each as

@@ -360,6 +360,32 @@ describe("the desktop on a server", () => {
     expect([...aligned.spans.keys()].sort((a, b) => a - b)).toEqual([0, 60_000, 120_000]);
   }, 60_000);
 
+  it("leaves a book alone once its read-along is turned off, on every device, and transcribes it when it's turned back on", async () => {
+    await serverWithTools();
+    await importAs(server, admin, toldBook("Told Book"));
+    const onServer = (await asked<{ books: { id: string }[] }>("/api/books")).books[0]!.id;
+    const readAlong = () => asked<{ ready: boolean; off?: boolean }>(`/api/books/${onServer}/readalong`).then((r) => ({ ready: r.ready, off: r.off ?? false }));
+
+    // Turned off in the edit form of a desktop that doesn't hear, before one that does has seen the book.
+    const { app: one } = await aDesktop();
+    await one.saveEdits(book(one, "Told Book").book.id, { readAlong: "off" });
+    await soon(transcribed).toEqual([]);
+    // What the iPhone, the iPad and the TV are given: not ready, and off.
+    expect(await readAlong()).toEqual({ ready: false, off: true });
+
+    // A machine that hears finds nothing to transcribe, and shows the book as off too.
+    const { app, heard } = await aHearingDesktop();
+    await soon(() => book(app, "Told Book").book.readAlong).toBe("off");
+    await new Promise((r) => setTimeout(r, 2000));
+    expect(heard).toEqual([]);
+
+    // Back on, from the first desktop: the one that hears transcribes it, and every device reads it along.
+    await one.saveEdits(book(one, "Told Book").book.id, { readAlong: "" });
+    await soon(transcribed).toEqual([expect.objectContaining({ done: 3, total: 3 })]);
+    expect(await readAlong()).toEqual({ ready: true, off: false });
+    await soon(() => book(app, "Told Book").book.readAlong).toBeUndefined();
+  }, 60_000);
+
   it("transcribes in the background without asking about room, and leaves the person's question about room open", async () => {
     // On a full disk, the worker opened "There isn't room for…" for books nobody asked to download, and each
     // download it began closed the question the person had open about their own.

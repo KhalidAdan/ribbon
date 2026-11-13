@@ -85,6 +85,10 @@ struct ReadAlong: Decodable {
     let check: Check?
     /// Whether it reads along: its narration is transcribed whole (#152). Missing from an older server, which always did.
     let ready: Bool?
+    /// Read-along is turned off for this book, by the server's admin on the desktop, because it will never work
+    /// (a different edition, a recording that strays from the text): it's never ready. Missing from a server
+    /// older than the switch, and for every book it's on for.
+    let off: Bool?
     let transcribed: Transcribed?
 
     /// Reads along, marking and following the narrator's sentence; else the book opens to read only, at your place.
@@ -93,6 +97,8 @@ struct ReadAlong: Decodable {
     /// What to tell someone opening a book that doesn't read along yet.
     var notReady: (title: String, hint: String)? {
         guard !readsAlong else { return nil }
+        // Turned off, there's nothing to wait for, so nothing is promised.
+        if off == true { return ("Reading only", "Read-along is turned off for this book") }
         let share = transcribed.map { $0.total > 0 ? Int((Double($0.done) / Double($0.total) * 100).rounded(.down)) : 0 } ?? 0
         return ("Reading only for now", "Read-along comes once the narration is transcribed, \(share)% so far, on a computer with Ribbon and a graphics card")
     }

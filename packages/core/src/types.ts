@@ -68,6 +68,14 @@ export interface Book {
   language?: string;
   isbn?: string;
   asin?: string;
+  /**
+   * Read-along turned off for this book by hand (edits.ts), because it will
+   * never work: a different edition, a recording that strays from the text.
+   * The book is listened to or read, with no sentence marked as the
+   * narrator's, and its narration isn't transcribed. Absent, it reads along
+   * when it can.
+   */
+  readAlong?: "off";
   /** Library-relative path to the cover image, or empty. */
   cover: string;
   /** Library-relative path to the EPUB that goes with the audio, when there is one. */

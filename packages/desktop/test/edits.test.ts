@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { applyEdits, bytesToEdits, diffEdits, editsToBytes, fieldText } from "@ribbon/core/edits";
+import { applyEdits, bytesToEdits, changedFields, diffEdits, editsToBytes, fieldText, readAlongOff, sharedEdits } from "@ribbon/core/edits";
 import { LibraryService } from "../src/app/library";
 import { nodeHost } from "@ribbon/host-node/node";
 import type { Book } from "@ribbon/core/types";
@@ -56,6 +56,39 @@ describe("edits", () => {
   it("round-trip through their CSV, multi-line description and all", async () => {
     const e = { bookId: "b1", values: { title: "Dune", description: 'A "desert" planet,\nand spice.' }, updatedAt: "2026-10-18T12:00:00.000Z" };
     expect(await bytesToEdits("b1", await editsToBytes(e))).toEqual(e);
+  });
+
+  it("turn read-along off for a book, and only \"off\" does: anything else leaves it reading along", () => {
+    expect(readAlongOff(files)).toBe(false);
+    const off = applyEdits(files, { readAlong: "off" });
+    expect(off.readAlong).toBe("off");
+    expect(readAlongOff(off)).toBe(true);
+    // Turned back on, or an edit that says nothing: the book is as its files have it, with no trace of the switch.
+    expect("readAlong" in applyEdits(off, { readAlong: "" })).toBe(false);
+    expect("readAlong" in applyEdits(files, { readAlong: "yes" })).toBe(false);
+    expect(readAlongOff(null)).toBe(false);
+    expect(readAlongOff({ readAlong: "" })).toBe(false);
+  });
+
+  it("keep read-along off as an edit beside the book, and stop keeping it once it's back on", async () => {
+    // A folder's book: off differs from the files, which never say it; on again is no edit.
+    expect(diffEdits(files, { readAlong: "off" })).toEqual({ readAlong: "off" });
+    expect(diffEdits(files, { readAlong: "" }, { readAlong: "off" })).toEqual({});
+    // A form that doesn't mention it leaves it as it was.
+    expect(diffEdits(files, { title: "Dune" }, { readAlong: "off" })).toEqual({ title: "Dune", readAlong: "off" });
+    const e = { bookId: "b1", values: { readAlong: "off" }, updatedAt: "2026-11-12T12:00:00.000Z" };
+    expect(new TextDecoder().decode(await editsToBytes(e))).toContain("read_along,off");
+    expect(await bytesToEdits("b1", await editsToBytes(e))).toEqual(e);
+  });
+
+  it("send a server read-along off, and nothing at all once it's back on", () => {
+    expect(fieldText({ ...files, readAlong: "off" }, "readAlong")).toBe("off");
+    expect(changedFields(files, { readAlong: "off" })).toEqual({ readAlong: "off" });
+    // Turned back on in the form: a change, which the server keeps as no edit rather than an empty one.
+    const backOn = changedFields({ ...files, readAlong: "off" }, { readAlong: "" });
+    expect(backOn).toEqual({ readAlong: "" });
+    expect(sharedEdits({ title: "Dune", readAlong: "off", ...backOn })).toEqual({ title: "Dune" });
+    expect(sharedEdits({ title: "Dune", readAlong: "off" })).toEqual({ title: "Dune", readAlong: "off" });
   });
 
   it("show as form text", () => {

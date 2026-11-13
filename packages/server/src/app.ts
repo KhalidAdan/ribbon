@@ -21,6 +21,7 @@ import { booksToHydrate, hydrateBooks, type HydrateProgress } from "./library/hy
 import { booksToPlace, placeBooks, type PlaceProgress } from "./library/place.ts";
 import { libraryApi } from "./library/api.ts";
 import { libraryRoutes } from "./library/routes.ts";
+import { readAlongOff } from "@ribbon/core/edits";
 import { ReadAlongs } from "./library/readalong.ts";
 import { SearchIndex } from "./library/search.ts";
 import { LibrarySeries } from "./library/series.ts";
@@ -144,7 +145,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // MP3s added before the server indexed them are indexed once, in the background.
   if (frames.available) jobs.start("frames", { indexed: 0 }, async () => ({ indexed: await frames.indexMissing(books) }), null);
   const search = new SearchIndex(db);
-  const readAlongs = new ReadAlongs(config.dataDir, config.ebookTool ?? null, search, app.log);
+  const readAlongs = new ReadAlongs(config.dataDir, config.ebookTool ?? null, search, app.log, (id) => readAlongOff(books.edits(id)?.values));
   // Books added before the server filled in what they came without get it from their EPUBs, in the background, before
   // their sentences are indexed with the chapters named.
   if (readAlongs.available) jobs.start<HydrateProgress>("hydrate", { books: 0, done: 0, described: 0, named: 0, current: null }, async (report) => hydrateBooks(readAlongs, config.dataDir, await booksToHydrate(config.dataDir, books), report), null);

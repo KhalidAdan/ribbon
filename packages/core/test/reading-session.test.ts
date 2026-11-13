@@ -23,6 +23,7 @@ const ready = (following = false): ReadySession => readingAfter(readingAfter(nul
 const aboutABook = (bookId: string): ReadingEvent[] => [
   { type: "paired", bookId, alignment },
   { type: "reads along", bookId },
+  { type: "reads only", bookId },
   { type: "listening", bookId, listening: { done: 1, total: 9, what: "aligning" } },
   { type: "moved", bookId, place: later, by: "hand" },
   { type: "following", bookId, on: true },
@@ -103,6 +104,15 @@ describe("the reader's session", () => {
     expect(readyReading(r)!.export).toEqual({ status: "failed", error: "the disk is full" });
     r = readingAfter(r, { type: "export", bookId: "a", export: { status: "exporting", done: 0, total: 3 } });
     expect(readyReading(r)!.export).toEqual({ status: "exporting", done: 0, total: 3 });
+  });
+
+  it("reads only again once read-along is turned off for the book, and along again when it's turned back on", () => {
+    const along = readingAfter(ready(), { type: "reads along", bookId: "a" });
+    const only = readingAfter(along, { type: "reads only", bookId: "a" });
+    expect(readyReading(only)!.readsAlong).toBe(false);
+    // Already reading only: nothing changes, so nothing redraws.
+    expect(readingAfter(only, { type: "reads only", bookId: "a" })).toBe(only);
+    expect(readyReading(readingAfter(only, { type: "reads along", bookId: "a" }))!.readsAlong).toBe(true);
   });
 
   it("answers with the same object when nothing changes, so nothing redraws", () => {

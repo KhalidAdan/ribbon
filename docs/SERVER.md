@@ -338,6 +338,17 @@ offered, and the book says what it's waiting for.
 - **A book whose text and audio don't pair** (a different edition, a missing
   chapter) is flagged on the admin pages for a person to fix. It's never
   offered as read-along on a guess.
+- **Read-along can be turned off for a book** that will never read along
+  (READING.md, section 6), by the admin, in the desktop's edit form. It's
+  one of the book's edits (`readAlong: "off"`, `PUT /api/books/:id/edits`),
+  so it's kept and listed as they are, and the last one sent stands. While
+  it's off, the read-along every device is given says so (`ready` false,
+  `off` true) and marks no sentence, so the iPhone, the iPad and the TV
+  open the book to read only and say read-along is off for it; the book is
+  left out of the list the admin's computer transcribes from (`GET
+  /api/library/transcripts`); and the admin's list has it last, as `off`.
+  Nothing is deleted: a transcript it has is kept, one sent meanwhile is
+  kept too, and turned back on, the book reads along from it at once.
 - **No book stays by chapter unnoticed** (built). A read-along reads by
   sentence when no stretch of narration goes unmarked for more than a
   minute, as it's felt while listening (#163): a stretch with nothing
@@ -354,7 +365,8 @@ offered, and the book says what it's waiting for.
   - unpaired: its chapters didn't pair, so nothing heard can be placed;
   - unreadable: its EPUB can't be read;
   - waiting for a computer with a graphics card to transcribe it whole;
-  - by sentence.
+  - by sentence;
+  - off: the admin turned its read-along off, so it waits for nothing.
 
 ## 10. The API (first milestone)
 
@@ -368,14 +380,14 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /api/books/:id` | One book: its files, chapters, parts and records, and its details as edited, with `edited` as in the list (what its files say for every field edited). |
 | `GET /api/series` | The library's series, each with its books in order: a book's number in it, its title as the list shows it ("The Solar War", not "The Solar War: Siege of Terra: The Horus Heresy, Book 1"), and whether it's on the shelf. Series are rows of the server's database (`series`, `series_book`), the same for every device and person. The server finds one when books arrive only where their files name it with a series tag (`packages/core/src/series.ts`); it never guesses one from titles, so a series it didn't find is made by hand. After that they're what people make of them. The desktop and the iPhone show a server's series as it keeps them, cached beside its books (`server-series.json`), and never find their own for it; a server from before series answers 404 and they do. Revalidated by ETag. |
 | `POST /api/series`, `PUT /api/series/:id`, `DELETE /api/series/:id` | (Admin) Makes, changes or deletes a series: its name and its books in order, each with its number, title and whether it's on the shelf. A book taken out of a series, and a series deleted, are never found again; a book can be in any number of series, so one put in a reading list stays in the series it was in, and comes into the list without the number and title it has there; a number or title left out keeps the one the book has in this series, and null clears it. The desktop's and the iPhone's series editing saves here for a server's books. A series is deleted from the desktop only, by the admin, in the series' Change… dialog; the iPhone, iPad and Apple TV apps show series and never change them. Every device hears of it (`series` event). |
-| `PUT /api/books/:id/edits` | (Admin) A book's details as corrected in the desktop's edit form (`packages/core/src/edits.ts`): its edited fields, each as the form's text, kept in place of the ones it had (`book_edit`); none takes them back. The desktop sends the fields changed in the form with the ones the server already has, and compares nothing with what its own files say: a server's book is what the server lists, downloaded or not. Two at once: the last stands. A cover chosen by hand comes in the same request, as a picture (`cover: {image}`, base64, up to 20 MB): the server makes its sizes as it does a book's own (`covers.ts`) and lists it as the book's cover (`book_cover`); `cover: null` goes back to the book's own, and leaving `cover` out leaves it as it is. Every device lists and shows the book as edited, the TV, iPhone and iPad included, and hears of it (`books` event). |
+| `PUT /api/books/:id/edits` | (Admin) A book's details as corrected in the desktop's edit form (`packages/core/src/edits.ts`): its edited fields, each as the form's text, kept in place of the ones it had (`book_edit`); none takes them back. The desktop sends the fields changed in the form with the ones the server already has, and compares nothing with what its own files say: a server's book is what the server lists, downloaded or not. Two at once: the last stands. A cover chosen by hand comes in the same request, as a picture (`cover: {image}`, base64, up to 20 MB): the server makes its sizes as it does a book's own (`covers.ts`) and lists it as the book's cover (`book_cover`); `cover: null` goes back to the book's own, and leaving `cover` out leaves it as it is. Every device lists and shows the book as edited, the TV, iPhone and iPad included, and hears of it (`books` event). One field isn't a detail but a choice: `readAlong`, `"off"` for a book whose read-along the admin turned off (section 9); any other value turns it back on, and isn't kept as an edit. |
 | `DELETE /api/books/:id` | (Admin) Deletes a book: its files go from the server, and each device that downloaded it takes it off when it next hears from the server (the deleted ids in `GET /api/books`, never a book merely missing from the list). Everyone's places in it are kept, so a book added again carries on where each person was; the folder it was added from is never touched. Adding it again brings it back. |
 | `GET /covers/:hash-:width.jpg` | A cover at one size. Immutable. |
 | `GET /api/books/:id/files/:file` | A file of the book, with Range requests, for downloads and the TV's streaming. An MP3 with `?ms=` comes from the frame where that moment falls. |
 | `GET /api/places?after=` | Your position records from every device, newer than the last row this device has read, a page at a time: an empty list when there's nothing new. Never cached; the cursor does that job. |
 | `POST /api/places` | Records this device appended (where you are, bookmarks, finished), in a batch. A record sent twice is kept once. |
 | `GET /api/places/export` | Your whole log as a file in the position-log format. |
-| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`packages/core/src/reading/readalong.ts`), for the TV, with how closely it follows the narration (`check`, also logged as it's made). Revalidated by ETag. A book that is only its text has one too, with nothing read aloud (every sentence at 0, `ready` false), to read. |
+| `GET /api/books/:id/readalong` | The book's text with when each sentence is read (`packages/core/src/reading/readalong.ts`), for the TV, with how closely it follows the narration (`check`, also logged as it's made). Revalidated by ETag. A book that is only its text has one too, with nothing read aloud (every sentence at 0, `ready` false), to read. A book whose read-along the admin turned off has `ready` false and `off` true, whatever is transcribed, and no sentence `exact`. |
 | `GET /api/books/:id/place` | Where you are in the book: the newest of your listening and reading places, as a sentence of the read-along and a moment. Never cached. |
 | `POST /api/books/:id/place` | This device is at this moment: written into its log with the book's claims, for a device that keeps no log. Or this device is reading at this sentence of the read-along (`sentence`): written as a reading place in the book's text, as the desktop's reader writes one, with where it's read in the recording as a hint. |
 | `GET /api/search?q=&book=` | The sentences that best match words someone remembers or says, in every book or one: each with its book, its sentence of the read-along, when it's read, its chapter, and the words that matched. Searched with SQLite's full-text search: the words as a line first, then all of them in any order, then any of them, each ranked by SQLite (bm25). The Apple app's Search asks it, and so does the desktop's search box, for the lines under the books that match. In every book it gives the books whose details have every word too (`books`, ids best first), as the desktop's shelf finds them (`packages/core/src/search.ts`). |

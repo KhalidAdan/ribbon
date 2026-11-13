@@ -484,6 +484,21 @@ the browser's sentence breaking, with dialogue kept whole (a sentence
 that starts lowercase, as in “Who made it?” asked Jurilan., joins the
 one before).
 
+**Turned off for a book.** Some books will never read along: the EPUB is
+a different edition from the recording, or the recording strays from the
+text (a live reading). For those, the form that edits a book's details
+has a switch, **Read along with the narration**, shown for a book with
+both its text and its narration. Off, the book is read or listened to
+and nothing else: it opens to read only, no sentence is marked as the
+narrator's, and its narration isn't transcribed, here or for a server.
+It's a switch and not a deletion, because deleting a transcript would
+have a computer with a graphics card make it again for hours, and a
+later fix may make the book work: what was transcribed is kept, and
+turned back on, the book reads along from it at once. The choice is one
+of the book's edits (`readAlong`, `packages/core/src/edits.ts`): beside
+the book in `.ribbon/edits/<book>.csv` for a folder's, and on the server
+for a server's, so every device does the same (SERVER.md, section 9).
+
 **The read-along export.** Once the whole narration is transcribed, the
 contents offer **Export**: a copy of the book's EPUB, written beside it
 as `<name> (read-along).epub`, with the narration inside as EPUB 3 Media

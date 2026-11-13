@@ -2,11 +2,12 @@ import { ArrowUturnLeftIcon, PhotoIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
-import { EDIT_FIELDS, fieldText, type EditField } from "@ribbon/core/edits";
+import { EDIT_FIELDS, fieldText, readAlongOff, READ_ALONG_OFF, type EditField } from "@ribbon/core/edits";
 import { useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { Dialog } from "./Dialog";
+import { Toggle } from "./kit";
 
 type Form = Record<Exclude<EditField, "cover">, string>;
 
@@ -61,6 +62,11 @@ const IMAGE_TYPES = "image/jpeg,image/png,image/webp";
  * Fix what the files got wrong: every field of a book's details and its
  * cover. Each field shows what the files say when it differs, with a
  * way back to it. Saved beside the book; the audio is never touched.
+ *
+ * And, for a book with both its text and its narration, whether it reads
+ * along: a switch to turn off for a book where it never will (a different
+ * edition, a recording that strays from the text). It's saved with the
+ * rest, and nothing is deleted, so it can be turned back on.
  */
 export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook; open: boolean; onClose: () => void; onClosed?: () => void }) {
   const c = useController();
@@ -83,6 +89,8 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
   const changed = (f: keyof Form) => normalise(form[f]) !== normalise(fieldText(original, f));
   const changes = (Object.keys(form) as (keyof Form)[]).filter(changed).length;
   const coverEdited = book.edits?.cover !== undefined;
+  // Only a book with text and narration has a read-along to turn off.
+  const canReadAlong = !!book.book.ebook && book.book.durationMs > 0;
 
   const chooseCover = async (file: File) => {
     setCoverError(null);
@@ -178,6 +186,24 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
                 </div>
               </fieldset>
             ))}
+            {canReadAlong && (
+              <fieldset className="min-w-0">
+                <legend className="mb-2 px-1 text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">Read-along</legend>
+                <div className="flex items-start justify-between gap-4 rounded-[10px] bg-surface p-3 ring-1 ring-line">
+                  <div className="min-w-0">
+                    <label htmlFor="edit-readAlong" className="text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">
+                      Read along with the narration
+                    </label>
+                    <p className="mt-1 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5">
+                      {readAlongOff(form)
+                        ? "Off: this book is read or listened to on every device, with no sentence marked as the narrator’s, and its narration isn’t transcribed. What was transcribed is kept, so this can be turned back on."
+                        : "Turn this off for a book where it will never work: a different edition, or a recording that strays from the text."}
+                    </p>
+                  </div>
+                  <Toggle id="edit-readAlong" label="Read along with the narration" checked={!readAlongOff(form)} onChange={(on) => set("readAlong", on ? "" : READ_ALONG_OFF)} />
+                </div>
+              </fieldset>
+            )}
           </div>
         </div>
       </div>
