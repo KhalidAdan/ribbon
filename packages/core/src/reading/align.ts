@@ -1,3 +1,4 @@
+import { blockText } from "../ebook";
 import type { Chapter } from "../types";
 import type { BookText } from "./booktext";
 import { openingMatch, OTHER, SAME, words } from "./openings";
@@ -216,8 +217,58 @@ function openings(audio: readonly { startMs: number; endMs: number }[], anchors:
   });
 }
 
-/** The contents entries in reading order, each running to the next. */
-function textUnits(book: BookText): TextIn[] {
+/** A contents entry holding more of the book than this is the book itself, not a chapter of it. */
+const WHOLE_BOOK_SHARE = 0.5;
+/** Such an entry is taken apart only into this many pieces, or more. */
+const WHOLE_BOOK_PIECES = 5;
+/** An audio chapter heard to open this close to where a file starts opens that file: about two minutes of reading. */
+const SAME_OPENING_CHARS = 2000;
+
+/**
+ * A contents entry that is the whole book, taken apart where its chapters
+ * are. The Crystal Shard's contents name three things: a page of other
+ * titles, "Prelude", and the author's page. "Prelude" runs through all
+ * thirty-one chapters, so the contents say nothing of chapters. Two things
+ * still do:
+ *
+ * - the book's own files, where its publisher broke it (a chapter a file
+ *   there, each with its title as a picture);
+ * - where each audio chapter was heard to open (`opens`), once the book is
+ *   transcribed: Homeland keeps its whole text in six files, and its
+ *   twenty-four recordings say where the chapters start.
+ *
+ * An entry that is a chapter, however long, is given back as it is.
+ */
+function takenApart(book: BookText, entry: TextIn, opens: readonly number[]): TextIn[] {
+  if (entry.end - entry.start <= WHOLE_BOOK_SHARE * book.total) return [entry];
+  const ebook = book.ebook;
+  const inside = (start: number) => start > entry.start && start < entry.end;
+  const starts: { start: number; section: number; block: number }[] = [];
+  ebook.sections.forEach((s, section) => {
+    const start = book.chars({ section, block: 0, offset: 0 });
+    if (s.linear && s.chars > 0 && inside(start)) starts.push({ start, section, block: 0 });
+  });
+  // An opening heard is taken at the start of its paragraph, unless a file or another opening starts there already.
+  for (const chars of [...opens].sort((a, b) => a - b)) {
+    const { section, block } = book.place(chars);
+    const start = book.chars({ section, block, offset: 0 });
+    if (inside(start) && Math.abs(start - entry.start) > SAME_OPENING_CHARS && starts.every((o) => Math.abs(o.start - start) > SAME_OPENING_CHARS)) starts.push({ start, section, block });
+  }
+  if (starts.length + 1 < WHOLE_BOOK_PIECES) return [entry];
+  starts.sort((a, b) => a.start - b.start);
+  const out: TextIn[] = [{ ...entry, end: starts[0]!.start }];
+  starts.forEach(({ start, section, block }, i) => {
+    const s = ebook.sections[section]!;
+    // A file is named by its heading when it has one; any other piece by the entry it was in, counted.
+    const heading = block === 0 ? s.blocks.find((b) => b.k === "h") : undefined;
+    const label = heading ? blockText(heading).trim() : `${entry.label} (${i + 2})`;
+    out.push({ ref: `${s.href}#${block}`, label, key: heading ? chapterKey(label) : "", ...(s.kind ? { kind: s.kind } : {}), start, end: starts[i + 1]?.start ?? entry.end, spoken: 0, opening: "" });
+  });
+  return out;
+}
+
+/** The contents entries in reading order, each running to the next; one that is the whole book, taken apart (`takenApart`). */
+function textUnits(book: BookText, opens: readonly number[]): TextIn[] {
   const ebook = book.ebook;
   const entries = ebook.toc
     .filter((t) => ebook.sections[t.section]?.linear)
@@ -232,6 +283,7 @@ function textUnits(book: BookText): TextIn[] {
   const total = book.total;
   out.forEach((c, i) => (c.end = out[i + 1]?.start ?? total));
   if (out.length > 0) out[0]!.start = 0;
+  out.splice(0, out.length, ...out.flatMap((c) => takenApart(book, c, opens)));
   // What a narrator could read in each: its text, less sections marked as never narrated (a contents page inside "Cover").
   const silent: [number, number][] = [];
   let at = 0;
@@ -382,11 +434,11 @@ function bestPairing(text: TextIn[], audio: AudioIn[], pace: number, fixes: Map<
  * maps to the whole recording by proportion.
  */
 export function alignBook(book: BookText, chapters: readonly Chapter[], durationMs: number, opts: { generated?: boolean; fixes?: readonly PairingFix[]; heard?: ReadonlyMap<number, string>; anchors?: readonly Anchor[] } = {}): Alignment {
-  const text = textUnits(book);
   // Audible books open and close with credits; generated titles hide them, so a short first or last track is taken for them.
   const creditsLike = (c: Chapter, j: number) => CREDITS.test(c.title) || (!!opts.generated && (j === 0 || j === chapters.length - 1) && c.endMs - c.startMs < 75_000);
   const byTime = [...(opts.anchors ?? [])].sort((a, b) => a.ms - b.ms);
   const opened = openings(chapters, byTime);
+  const text = textUnits(book, opened.filter((chars) => chars !== undefined));
   const audio: AudioIn[] = chapters.map((c, j) => ({ title: c.title, startMs: c.startMs, endMs: c.endMs, credits: creditsLike(c, j), key: opts.generated && /^\d+$/.test(chapterKey(c.title)) ? "" : chapterKey(c.title), ...(opts.heard?.has(c.startMs) ? { heard: opts.heard.get(c.startMs)!, heardWords: words(opts.heard.get(c.startMs)!).length } : {}), ...(opened[j] !== undefined ? { opensAt: opened[j] } : {}) }));
   const total = book.total;
   const whole = (): Alignment => ({
