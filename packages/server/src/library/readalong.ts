@@ -37,6 +37,8 @@ export interface Standing {
   /** Null for a book that is only its text. */
   pairedBy: Alignment["how"] | null;
   transcribed: { done: number; total: number };
+  /** Read-along is turned off for it by hand (packages/core/src/edits.ts, `readAlong`). */
+  off?: true;
 }
 
 /**
@@ -45,11 +47,13 @@ export interface Standing {
  * - `waiting`: read only, until a device with a graphics card sends its whole transcript.
  * - `unpaired`: its text and narration didn't pair by chapter, so nothing heard can be placed: fix its pairing.
  * - `flagged`: its narration is transcribed and it still doesn't read along by sentence: a different edition, or a pairing to fix.
+ * - `off`: the admin turned its read-along off, so it needs nobody: it's listened to or read, and waits for nothing.
  */
-export type ReadAlongState = "sentence" | "waiting" | "unpaired" | "flagged";
+export type ReadAlongState = "sentence" | "waiting" | "unpaired" | "flagged" | "off";
 
 /** Where a book stands (ReadAlongState). */
 export function stateOf(s: Standing): ReadAlongState {
+  if (s.off) return "off";
   if (s.pairedBy !== "overlay" && s.transcribed.done < s.transcribed.total) return "waiting";
   // By what's felt: no narration unmarked for more than a minute (#163); by the share of sentences placed when nothing says what was heard.
   if (readsBySentence(s.check)) return "sentence";
@@ -92,6 +96,11 @@ export class ReadAlongError extends Error {
  * How it reads along (`standings`) is kept for every book, with the same
  * stamp. Two asks for a book at once each make it: nothing measured says
  * that costs enough to share the work.
+ *
+ * A book whose read-along the admin turned off (`isOff`) is made like any
+ * other, and sent as not ready and off: the devices that take theirs from
+ * here (the Apple apps) open it to read only or listen only. Whether it's
+ * off is part of its stamp, so it's made again the moment the switch moves.
  */
 export class ReadAlongs {
   private readonly made = new Map<string, { stamp: string; made: MadeReadAlong }>();
@@ -101,6 +110,8 @@ export class ReadAlongs {
     private readonly tool: string | null,
     private readonly search: SearchIndex | null = null,
     private readonly log: { info(message: string): void } | null = null,
+    /** Whether read-along is turned off for a book: asked of the book's edits (app.ts). Nothing is off for a server made without it. */
+    private readonly isOff: (id: string) => boolean = () => false,
   ) {}
 
   /** How each book read along as it was last made, with what it was made from: two numbers a book, kept for every book. */
@@ -158,8 +169,9 @@ export class ReadAlongs {
     const transcript = transcriptFromRows(await recordRows(dir, stored, "aligned"));
     const stretches = stretchesOf(stored.files);
     const transcribed = { done: stretches.filter((x) => transcript.spans.has(x.startMs)).length, total: stretches.length };
-    const readAlong = readAlongOf(text, alignment, transcribed, transcript.said);
-    return { readAlong, text, alignment, json: JSON.stringify(readAlong), standing: { check: readAlong.check, pairedBy: alignment.how, transcribed } };
+    const off = this.isOff(id);
+    const readAlong = readAlongOf(text, alignment, transcribed, transcript.said, off);
+    return { readAlong, text, alignment, json: JSON.stringify(readAlong), standing: { check: readAlong.check, pairedBy: alignment.how, transcribed, ...(off ? { off: true as const } : {}) } };
   }
 
   /** A book's EPUB as `ribbon-ebook` reads it: its text and what its package says. */
@@ -182,12 +194,13 @@ export class ReadAlongs {
     }
   }
 
-  /** What a book's read-along is made from, as it is now: the book's record, its EPUB, its records, and the parser. */
+  /** What a book's read-along is made from, as it is now: the book's record, its EPUB, its records, the parser, and whether it's turned off. */
   async stamp(id: string, stored: StoredBook): Promise<string> {
     const dir = bookDir(this.dataDir, id);
     const files = ["book.json", stored.book.ebook!, ...(stored.records ?? []).map((kind) => `records/${kind}.csv`)].map((f) => path.join(dir, f));
     const stamps = await Promise.all([...files, this.tool!].map((f) => stat(f).then((s) => `${s.size}:${s.mtimeMs}`, () => "-")));
-    return stamps.join("|");
+    // Kept out of the stamp while it's on, so turning nothing off changes no stamp, and nothing is made or indexed again for it.
+    return this.isOff(id) ? `${stamps.join("|")}|off` : stamps.join("|");
   }
 }
 

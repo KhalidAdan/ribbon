@@ -26,6 +26,19 @@ final class ContractTests: XCTestCase {
         XCTAssertFalse(reading.blocks.isEmpty)
     }
 
+    /// Read-along turned off for the book by the admin (packages/core/src/edits.ts, `readAlong`): the app opens it
+    /// to read only, and says it's off rather than that it's waiting to be transcribed.
+    func testABookWithReadAlongTurnedOff() throws {
+        let reading = try answer("readalong-off", as: ReadAlong.self)
+        XCTAssertEqual(reading.off, true)
+        XCTAssertFalse(reading.readsAlong)
+        XCTAssertEqual(reading.notReady?.title, "Reading only")
+        XCTAssertFalse(reading.blocks.compactMap(\.sentences).joined().contains { $0.exact })
+        // The book it's on for says nothing of the switch, and reads along.
+        XCTAssertNil(try answer("readalong", as: ReadAlong.self).off)
+        XCTAssertTrue(try answer("readalong", as: ReadAlong.self).readsAlong)
+    }
+
     func testAPlaceAndHowFarThrough() throws {
         struct Told: Decodable { let added: Int }
         struct Place: Decodable { let place: BookPlace? }

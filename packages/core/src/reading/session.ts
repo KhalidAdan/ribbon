@@ -50,7 +50,8 @@ export interface ReadySession {
   /**
    * It reads along: its narration is transcribed whole, or its own Media
    * Overlay places it. Until then it opens to read only: no narrator's
-   * sentence marked, no pages following it (#152).
+   * sentence marked, no pages following it (#152). Never, while read-along
+   * is turned off for the book (edits.ts, `readAlong`).
    */
   readsAlong: boolean;
   /** Transcribing the narration, while it runs: minutes transcribed, of all (#152). */
@@ -87,6 +88,8 @@ export type ReadingEvent =
   | { type: "paired"; bookId: string; alignment: Alignment }
   /** Its narration is all transcribed, or placed by its own Media Overlay. */
   | { type: "reads along"; bookId: string }
+  /** Read-along was turned off for it while it's open: it reads only from here, as a book not yet transcribed does. */
+  | { type: "reads only"; bookId: string }
   /** How far transcribing its narration has got, or null when it stopped. */
   | { type: "listening"; bookId: string; listening: Listening | null }
   /** The reader is somewhere else in the text: by hand stops following the narrator; a found line's mark goes either way. */
@@ -135,6 +138,8 @@ export function readingAfter(session: ReadingSession | null, event: ReadingEvent
       return { ...session, alignment: event.alignment };
     case "reads along":
       return session.readsAlong ? session : { ...session, readsAlong: true };
+    case "reads only":
+      return session.readsAlong ? { ...session, readsAlong: false } : session;
     case "listening":
       return { ...session, listening: event.listening };
     case "moved":

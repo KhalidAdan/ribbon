@@ -24,6 +24,12 @@ export interface ReadAlong {
    * the reader's place, and marks nothing as the narrator's (#152).
    */
   ready: boolean;
+  /**
+   * Read-along is turned off for this book by hand (edits.ts, `readAlong`):
+   * it will never work, so it's never ready, however much is transcribed. A
+   * device says that rather than "not transcribed yet".
+   */
+  off?: true;
   /** How many minutes of its narration are transcribed, of how many. */
   transcribed: { done: number; total: number };
   /** The contents: each entry's title and the block it starts at. */
@@ -136,10 +142,12 @@ function* shownBlocks(text: BookText): Generator<{ section: number; block: numbe
  * much of the narration is transcribed, and what was heard in it (when each
  * phrase starts, and its words), to tell narration from quiet. A book that
  * is only its text has no pairing: its sentences are never read (they start
- * and end at 0), and it doesn't read along.
+ * and end at 0), and it doesn't read along. Nor does a book whose
+ * read-along is turned off (`off`): it's made the same, so a place still
+ * maps between its text and its audio by chapter, with no sentence exact.
  */
-export function readAlongOf(text: BookText, alignment: Alignment | null, transcribed: { done: number; total: number }, said: readonly { startMs: number; words: string }[] = []): ReadAlong {
-  const ready = alignment !== null && (alignment.how === "overlay" || transcribed.done >= transcribed.total);
+export function readAlongOf(text: BookText, alignment: Alignment | null, transcribed: { done: number; total: number }, said: readonly { startMs: number; words: string }[] = [], off = false): ReadAlong {
+  const ready = !off && alignment !== null && (alignment.how === "overlay" || transcribed.done >= transcribed.total);
   const blocks: ReadAlongBlock[] = [];
   const where: { section: number; block: number }[] = [];
   for (const { section, block, source } of shownBlocks(text)) {
@@ -172,7 +180,7 @@ export function readAlongOf(text: BookText, alignment: Alignment | null, transcr
     if (block >= 0 && contents.at(-1)?.block !== block) contents.push({ title: entry.label, block });
   }
   const check = alignment ? checkReadAlong(alignment, blocks, said) : { placed: 0, heldOut: null, unmarked: null };
-  return { format: READ_ALONG_FORMAT, ready, transcribed, contents, blocks, check };
+  return { format: READ_ALONG_FORMAT, ready, ...(off ? { off: true as const } : {}), transcribed, contents, blocks, check };
 }
 
 /** A read-along's sentences checked against what was heard of its narration (`ReadAlongCheck`). */

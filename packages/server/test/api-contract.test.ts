@@ -130,4 +130,10 @@ describe("what the server answers the Apple app", () => {
     await kept("search", await ask("GET", `/api/search?q=${encodeURIComponent("giant circle of wraithbone")}`));
     await kept("search-book", await ask("GET", `/api/search?q=${encodeURIComponent("waygate")}`));
   });
+
+  // Last, since it changes the book for everything asked after it.
+  it("a book whose read-along the admin turned off", async () => {
+    await ask("PUT", `/api/books/${id}/edits`, { values: { readAlong: "off" } });
+    await kept("readalong-off", await ask("GET", `/api/books/${id}/readalong`));
+  });
 });

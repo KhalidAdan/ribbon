@@ -8,9 +8,16 @@ import { splitList } from "./scan/sidefiles";
  * on the server too, so every device shows them (SharedEdits). They lay
  * over what the files and side files say, field by field, and each can be
  * taken back on its own. The audio files are never touched.
+ *
+ * One of them isn't a detail of the book but a choice about it:
+ * `readAlong`, "off" for a book whose read-along will never work (a
+ * different edition, a recording that strays from the text). It's kept
+ * here because it's kept the same way, beside the book or on the server,
+ * and a switch rather than a deletion: the book's transcript stays, so
+ * turning it back on costs nothing.
  */
 
-export const EDIT_FIELDS = ["title", "subtitle", "author", "narrator", "series", "seriesIndex", "year", "genres", "publisher", "language", "isbn", "asin", "description", "cover"] as const;
+export const EDIT_FIELDS = ["title", "subtitle", "author", "narrator", "series", "seriesIndex", "year", "genres", "publisher", "language", "isbn", "asin", "description", "cover", "readAlong"] as const;
 
 export type EditField = (typeof EDIT_FIELDS)[number];
 
@@ -38,10 +45,22 @@ export interface SharedEdits {
   chosenCover?: true;
 }
 
-/** The fields of a book a server keeps as text: all but the cover, which goes to it as a picture. */
+/** The one value of the `readAlong` edit that means anything: read-along is off for the book. */
+export const READ_ALONG_OFF = "off";
+
+/** Whether read-along is turned off, for a book or for its edits: both say it the same way. */
+export function readAlongOff(of: { readAlong?: string } | null | undefined): boolean {
+  return of?.readAlong === READ_ALONG_OFF;
+}
+
+/**
+ * The fields of a book a server keeps as text: all but the cover, which
+ * goes to it as a picture. Read-along turned back on is no edit at all, so
+ * it isn't kept as an empty one.
+ */
 export function sharedEdits(values: EditValues): EditValues {
-  const { cover: _here, ...shared } = values;
-  return shared;
+  const { cover: _here, readAlong: _switch, ...shared } = values;
+  return readAlongOff(values) ? { ...shared, readAlong: READ_ALONG_OFF } : shared;
 }
 
 
@@ -67,6 +86,7 @@ const COLUMN: Record<EditField, string> = {
   asin: "asin",
   description: "description",
   cover: "cover",
+  readAlong: "read_along",
 };
 const FIELD_OF = new Map(Object.entries(COLUMN).map(([f, c]) => [c, f as EditField]));
 
@@ -138,6 +158,11 @@ export function applyEdits<B extends Partial<Book>>(book: B, values: EditValues)
         break;
       case "cover":
         if (t) out.cover = t;
+        break;
+      case "readAlong":
+        // Off or nothing: anything else, an empty edit included, leaves the book reading along.
+        if (t === READ_ALONG_OFF) out.readAlong = READ_ALONG_OFF;
+        else delete out.readAlong;
         break;
       default:
         (out as unknown as Record<string, string>)[f] = t;
