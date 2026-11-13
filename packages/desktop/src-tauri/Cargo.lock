@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "ribbon"
-version = "0.40.1"
+version = "0.41.0"
 dependencies = [
  "fs4",
  "libc",

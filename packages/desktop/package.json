@@ -1,6 +1,6 @@
 {
   "name": "@ribbon/desktop",
-  "version": "0.40.1",
+  "version": "0.41.0",
   "description": "A home for your books, read or heard.",
   "scripts": {
     "dev": "vite --configLoader runner",
