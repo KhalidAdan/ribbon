@@ -207,3 +207,116 @@ describe("pairing by what each audio chapter was heard to say", () => {
     expect(textToMs(a, prologue + 50 + 400)).toBe(100_000);
   });
 });
+
+describe("a contents list that names the whole book as one entry", () => {
+  /**
+   * The Crystal Shard's shape: the contents name a page of other titles,
+   * "Prelude" and the author's page, and "Prelude" runs through every
+   * chapter, each a file of its own with its title as a picture. The
+   * recording is a file a chapter, the first with the prelude before it.
+   */
+  function crystalShard(): { ebook: Ebook; chapters: Chapter[]; durationMs: number } {
+    const lengths = WORDS.map((_, i) => (20 + (i % 4) * 5) * MIN);
+    const preludeMs = 4 * MIN;
+    const sections: EbookSection[] = [section("titles.htm", 2900), section("prelude.htm", Math.round(preludeMs * PACE))];
+    lengths.forEach((ms, i) => sections.push(section(`c${i + 1}.htm`, Math.round(ms * PACE))));
+    sections.push(section("author.htm", 1700));
+    const toc = [
+      { label: "Other titles", section: 0, block: 0, depth: 0 },
+      { label: "Prelude", section: 1, block: 0, depth: 0 },
+      { label: "About the Author", section: sections.length - 1, block: 0, depth: 0 },
+    ];
+    const ebook: Ebook = { format: EBOOK_FORMAT, meta: { title: "The Crystal Shard", authors: [], identifiers: [] }, layout: "reflowable", sections, toc };
+    const chapters: Chapter[] = [];
+    let t = 0;
+    lengths.forEach((ms, i) => {
+      const length = ms + (i === 0 ? preludeMs : 0);
+      chapters.push({ title: `The Crystal Shard: Chapter ${i + 1}`, startMs: t, endMs: t + length });
+      t += length;
+    });
+    return { ebook, chapters, durationMs: t };
+  }
+
+  it("pairs each audio chapter with the file it reads, where the contents alone left most of the recording with no text", () => {
+    const { ebook, chapters, durationMs } = crystalShard();
+    const a = alignBook(new BookText(ebook), chapters, durationMs);
+    expect(a.how).toBe("chapter");
+    expect(a.audio.every((u) => u.pair >= 0)).toBe(true);
+    expect(a.pairs).toHaveLength(chapters.length);
+    // The middle of the seventh chapter's file is read in the middle of the seventh audio chapter.
+    const book = new BookText(ebook);
+    const seventh = { start: book.chars({ section: 8, block: 0, offset: 0 }), chars: ebook.sections[8]!.chars };
+    const ms = textToMs(a, seventh.start + Math.round(seventh.chars / 2));
+    expect(Math.abs(ms - (chapters[6]!.startMs + chapters[6]!.endMs) / 2)).toBeLessThan(5_000);
+  });
+
+  it("names a file by its heading when it has one, and by the entry it was in when its title is a picture", () => {
+    const { ebook, chapters, durationMs } = crystalShard();
+    ebook.sections[3]!.blocks.unshift({ k: "h", level: 1, runs: [{ t: "Two" }] });
+    const a = alignBook(new BookText(ebook), chapters, durationMs);
+    expect(a.text.map((t) => t.label).slice(0, 4)).toEqual(["Other titles", "Prelude", "Prelude (2)", "Two"]);
+  });
+
+  it("leaves a long chapter in a few files as the one entry it is", () => {
+    const sections = [section("one.htm", 3000), section("two-a.htm", 9000), section("two-b.htm", 9000), section("two-c.htm", 9000), section("three.htm", 3000)];
+    const toc = [
+      { label: "One", section: 0, block: 0, depth: 0 },
+      { label: "Two", section: 1, block: 0, depth: 0 },
+      { label: "Three", section: 4, block: 0, depth: 0 },
+    ];
+    const ebook: Ebook = { format: EBOOK_FORMAT, meta: { title: "Short", authors: [], identifiers: [] }, layout: "reflowable", sections, toc };
+    const chapters: Chapter[] = [
+      { title: "One", startMs: 0, endMs: 3 * MIN },
+      { title: "Two", startMs: 3 * MIN, endMs: 31 * MIN },
+      { title: "Three", startMs: 31 * MIN, endMs: 34 * MIN },
+    ];
+    const a = alignBook(new BookText(ebook), chapters, 34 * MIN);
+    expect(a.text.map((t) => t.label)).toEqual(["One", "Two", "Three"]);
+  });
+});
+
+describe("a whole book in a few files, with a contents list that names no chapters", () => {
+  /**
+   * Homeland's shape: one contents entry for the whole text, which sits in
+   * three files, each chapter a run of paragraphs. Nothing in the book says
+   * where a chapter starts; the recording, a file a chapter, does, once
+   * each is heard to open.
+   */
+  function homeland(): { ebook: Ebook; chapters: Chapter[]; durationMs: number; anchors: { ms: number; chars: number }[] } {
+    const lengths = WORDS.map((_, i) => (20 + (i % 4) * 5) * MIN);
+    const paragraph = (chars: number) => ({ k: "p" as const, runs: [{ t: "aaaa ".repeat(Math.ceil(chars / 5)).slice(0, chars) }] });
+    // Four chapters a file, each chapter four paragraphs.
+    const sections: EbookSection[] = [0, 1, 2].map((file) => {
+      const blocks = lengths.slice(file * 4, file * 4 + 4).flatMap((ms) => Array.from({ length: 4 }, () => paragraph(Math.round((ms * PACE) / 4))));
+      return { href: `part${file + 1}.htm`, linear: true, overlay: null, chars: blocks.reduce((n, b) => n + b.runs[0]!.t.length, 0), blocks };
+    });
+    const ebook: Ebook = { format: EBOOK_FORMAT, meta: { title: "Homeland", authors: [], identifiers: [] }, layout: "reflowable", sections, toc: [{ label: "Homeland", section: 0, block: 0, depth: 0 }] };
+    const book = new BookText(ebook);
+    const chapters: Chapter[] = [];
+    const anchors: { ms: number; chars: number }[] = [];
+    let t = 0;
+    lengths.forEach((ms, i) => {
+      chapters.push({ title: `Homeland: Chapter ${i + 1}`, startMs: t, endMs: t + ms });
+      // Heard twenty seconds in, a few lines into the chapter's first paragraph: the narrator greets his listeners first.
+      anchors.push({ ms: t + 20_000, chars: book.chars({ section: Math.floor(i / 4), block: (i % 4) * 4, offset: 0 }) + 200 });
+      t += ms;
+    });
+    return { ebook, chapters, durationMs: t, anchors };
+  }
+
+  it("pairs every audio chapter with the paragraphs it was heard to open at", () => {
+    const { ebook, chapters, durationMs, anchors } = homeland();
+    const a = alignBook(new BookText(ebook), chapters, durationMs, { anchors });
+    expect(a.audio.every((u) => u.pair >= 0)).toBe(true);
+    expect(a.pairs).toHaveLength(chapters.length);
+    // Each pair's text starts at its chapter's first paragraph, not at the line that was heard.
+    const book = new BookText(ebook);
+    expect(a.pairs[5]!.text.start).toBe(book.chars({ section: 1, block: 4, offset: 0 }));
+  });
+
+  it("has nothing to go by until the book is heard, and pairs what it can", () => {
+    const { ebook, chapters, durationMs } = homeland();
+    const a = alignBook(new BookText(ebook), chapters, durationMs);
+    expect(a.text).toHaveLength(1);
+  });
+});
