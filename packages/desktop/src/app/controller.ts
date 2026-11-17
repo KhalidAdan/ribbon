@@ -140,6 +140,12 @@ export interface Platform {
    * unsubscribe. Hosts without a window of their own leave it out.
    */
   onWindowClose?: (flush: () => Promise<void>, mayClose: () => Promise<boolean>) => () => void;
+  /**
+   * Run `heard` each time the computer is about to sleep (a laptop's lid
+   * closed), before it does. Returns an unsubscribe. Hosts that aren't told
+   * leave it out.
+   */
+  onSystemSleep?: (heard: () => void) => () => void;
   /** Ask the person whether to close anyway, saying `why` not to; true to close. */
   askToClose?: (why: string) => Promise<boolean>;
   /** New versions of Ribbon, where it installs them itself: Windows and the Mac, not a phone (updates.ts). */
@@ -3378,12 +3384,13 @@ export class AppController {
   /**
    * Keep the place through everything the window goes through: closing
    * (pause, write everywhere, then let it close), being hidden or
-   * minimised (write, keep playing), and the page unloading in the
-   * browser harness. Returns an uninstall.
+   * minimised (write, keep playing), the computer going to sleep (pause),
+   * and the page unloading in the browser harness. Returns an uninstall.
    */
   installLifecycle(): () => void {
     const offs: (() => void)[] = [];
     if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.beforeClose(), () => this.mayClose()));
+    if (this.platform.onSystemSleep) offs.push(this.platform.onSystemSleep(() => this.pauseForSleep()));
     if (typeof document !== "undefined") {
       const onVisibility = () => {
         if (document.visibilityState === "hidden") void this.checkpoint();
@@ -3407,6 +3414,18 @@ export class AppController {
       offs.push(() => window.removeEventListener("online", onOnline));
     }
     return () => offs.forEach((f) => f());
+  }
+
+  /**
+   * The computer is about to sleep: pause, as the listener would have. A
+   * book left wanting to play is frozen with the rest of the computer, and
+   * carries on out loud the moment the lid opens. Paused, it waits to be
+   * asked, and the next play steps back for the time away as after any pause.
+   */
+  private pauseForSleep(): void {
+    if (!wantsToPlay(this.state.player.status)) return;
+    log.info("the computer is going to sleep; pausing the book");
+    this.pause();
   }
 
   /** What Ribbon is transcribing now, said for a person: the book and how far it has got. Null when nothing. */

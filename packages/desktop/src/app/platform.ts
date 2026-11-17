@@ -67,7 +67,7 @@ export function memorySources(): Platform["sources"] {
  */
 export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, tauriUpdates }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onGoingToSleep, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -151,6 +151,18 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
         return () => {
           gone = true;
           unlisten.forEach((u) => u());
+        };
+      },
+      onSystemSleep(heard) {
+        let gone = false;
+        let unlisten = () => {};
+        void onGoingToSleep(heard).then((u) => {
+          if (gone) u();
+          else unlisten = u;
+        });
+        return () => {
+          gone = true;
+          unlisten();
         };
       },
       askToClose: (why) => dialog.ask(why, { title: "Ribbon is transcribing", kind: "warning", okLabel: "Close anyway", cancelLabel: "Keep transcribing" }),

@@ -343,6 +343,14 @@ export async function onQuitAsked(asked: () => Promise<boolean>): Promise<() => 
   });
 }
 
+/**
+ * The computer is about to sleep (packages/desktop/src-tauri/src/system_sleep.rs):
+ * `heard` runs each time, before it does. Resolves to a way to stop listening.
+ */
+export function onGoingToSleep(heard: () => void): Promise<() => void> {
+  return listen("ribbon://going-to-sleep", () => heard());
+}
+
 /** How long asking GitHub for latest.json may take, and fetching the new version, before either counts as failed. */
 const CHECK_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;

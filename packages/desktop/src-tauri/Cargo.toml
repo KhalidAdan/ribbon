@@ -53,9 +53,12 @@ quick-xml = "0.39.4"
 ribbon-speech = { path = "speech", features = ["metal"] }
 
 # Keeping the computer awake while it transcribes (awake.rs): an activity on macOS, a thread's request on Windows.
+# And hearing that the Mac is about to sleep (system_sleep.rs): the workspace's notification, taken by a block.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSProcessInfo", "NSString"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObject", "NSProcessInfo", "NSString", "NSNotification", "NSOperation", "block2"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace"] }
+block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Power"] }
