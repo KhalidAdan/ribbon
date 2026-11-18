@@ -127,12 +127,19 @@ export class PositionKeeper {
    * After reading the share: every position known here that is newer than
    * what the share holds goes back to it. That is how a write made while
    * the share was away, or before a crash, reaches the books.
+   *
+   * Newer means later in time, and nothing else. The device's name can't
+   * break a tie here: a position written back is read back as this
+   * device's, under the name it has today, which need not be the name the
+   * position was kept with. Counted, that difference made the same
+   * position newer here every time it was read, and with a server it was
+   * written back every few seconds without end.
    */
   reconcile(share: ReadonlyMap<string, Position>): number {
     let behind = 0;
     for (const [id, p] of this.known) {
       const there = share.get(id);
-      if (there && comparePositions(there, p) >= 0) continue;
+      if (there && Date.parse(there.updatedAt) >= Date.parse(p.updatedAt)) continue;
       if (!this.toShare.has(id)) behind++;
       this.toShare.set(id, p);
     }
