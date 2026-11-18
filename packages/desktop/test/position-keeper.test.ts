@@ -137,6 +137,28 @@ describe("PositionKeeper", () => {
     expect(s.share.map((p) => [p.bookId, p.offsetMs])).toEqual([["a", 70_000]]);
   });
 
+  it("a position written back is not found newer again when it comes back under another device's name", async () => {
+    // A server keeps only the log, where a record is this device's whatever name the position came with:
+    // a place kept from when this computer was called something else is read back under today's name.
+    const s = sinks();
+    const k = new PositionKeeper(s.sinks);
+    k.absorb([pos("a", 888, "2026-11-01T23:01:37.924Z", "Laptop-in-the-study")], { fromLocal: true });
+    const beside = new Map<string, Position>();
+    const readBack = () => {
+      for (const p of s.share) beside.set(p.bookId, { ...p, device: "Laptop" });
+      return k.reconcile(beside);
+    };
+    expect(readBack()).toBe(1);
+    await settle(100);
+    expect(s.share).toHaveLength(1);
+    // Read again, as after every write to a server: it's there, and nothing more goes back.
+    expect(readBack()).toBe(0);
+    await settle(100);
+    expect(readBack()).toBe(0);
+    expect(s.share).toHaveLength(1);
+    expect(s.logs.filter((m) => m.includes("writing them back"))).toHaveLength(1);
+  });
+
   it("what the listener just did wins even when a clock elsewhere ran ahead", () => {
     const k = new PositionKeeper(sinks().sinks);
     k.absorb([pos("a", 99_000, "2026-10-18T13:00:00Z", "fast-clock")]);
