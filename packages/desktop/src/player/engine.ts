@@ -25,6 +25,8 @@ const QUIET_ATTEMPTS = 3;
 /** Files a media element cannot seek in exactly: MP3s, which may have no seek table (frames.rs). */
 const INEXACT = /\.mp3$/i;
 
+declare const __RIBBON_MEASURE__: boolean;
+
 export interface EngineBook {
   id: string;
   files: AudioFile[];
@@ -184,7 +186,7 @@ export class PlayerEngine {
     const intent = ++this.intent;
     this.stopLoop();
     this.cancelRecovery();
-    this.wantPlaying = false;
+    this.want(false);
     for (const el of this.els) this.unload(el);
     this.book = book;
     this.durations = book.files.map((f) => f.durationMs);
@@ -213,7 +215,7 @@ export class PlayerEngine {
   async play(): Promise<void> {
     if (!this.book) return;
     const intent = ++this.intent;
-    this.wantPlaying = true;
+    this.want(true);
     if (nextStatus(this.state.status, "play") !== this.state.status) this.move("play");
     this.markProgress();
     this.startLoop();
@@ -234,7 +236,7 @@ export class PlayerEngine {
 
   pause(): void {
     ++this.intent;
-    this.wantPlaying = false;
+    this.want(false);
     this.stopAtMs = null;
     this.cancelRecovery();
     this.readTrusted();
@@ -407,7 +409,7 @@ export class PlayerEngine {
       // A new source interrupted this play: the next playActive owns it.
       if (name === "AbortError") return;
       if (name === "NotAllowedError") {
-        this.wantPlaying = false;
+        this.want(false);
         this.stopLoop();
         this.move("refused", { error: "Press play to continue" });
         return;
@@ -427,7 +429,7 @@ export class PlayerEngine {
       // another app taking the audio. Respect it, and keep the place.
       this.opts.onLog?.("playback paused from outside the app");
       ++this.intent;
-      this.wantPlaying = false;
+      this.want(false);
       this.cancelRecovery();
       this.stopLoop();
       this.readTrusted();
@@ -440,7 +442,7 @@ export class PlayerEngine {
     this.recovery.attempts = 0;
     const next = this.fileIndex + 1;
     if (next >= this.book.files.length) {
-      this.wantPlaying = false;
+      this.want(false);
       this.stopLoop();
       this.trusted = totalDuration(this.durations);
       this.move("ended", { positionMs: this.trusted });
@@ -558,13 +560,25 @@ export class PlayerEngine {
     if (skipping !== this.state.skippingGap) this.emit({ skippingGap: skipping });
   }
 
+  /**
+   * Whether the book is wanted playing. A book that isn't has its output
+   * shut, not only its element paused: sound still on its way out when a
+   * laptop's lid closed is otherwise heard, a chirp, when the lid opens.
+   */
+  private want(playing: boolean): void {
+    this.wantPlaying = playing;
+    this.applyGain();
+  }
+
   private applyGain(): void {
     const g = this.loudnessGain * this.sleepGain;
+    const out = this.wantPlaying ? g : 0;
     if (this.gainNode) {
-      this.gainNode.gain.value = g;
-    } else {
-      // Element volume cannot exceed 1: positive loudness gain is lost here.
-      for (const el of this.els) el.volume = Math.min(1, g);
+      this.gainNode.gain.value = out;
+    } else if (this.webAudio === false) {
+      // No graph, so the elements' own volume, which cannot exceed 1: positive loudness gain is lost here.
+      // Not before it's known there is none: an element turned down and then joined to a graph stays down under it.
+      for (const el of this.els) el.volume = Math.min(1, out);
     }
     if (g !== this.state.gain) this.emit({ gain: g });
   }
@@ -587,10 +601,17 @@ export class PlayerEngine {
       this.ctx = ctx;
       this.gainNode = ctx.createGain();
       this.gainNode.connect(ctx.destination);
-      for (const el of this.els) ctx.createMediaElementSource(el as HTMLAudioElement).connect(this.gainNode);
+      const sources = this.els.map((el) => ctx.createMediaElementSource(el as HTMLAudioElement));
+      for (const source of sources) source.connect(this.gainNode);
+      // The measurement build logs how loud the book is on its way in and on its way out (sound-level.ts).
+      if (typeof __RIBBON_MEASURE__ !== "undefined" && __RIBBON_MEASURE__) {
+        const gate = this.gainNode;
+        void import("./sound-level").then((m) => m.logSoundLevels(ctx, sources, gate, (line) => this.opts.onLog?.(line)));
+      }
       // A device change or the machine waking can suspend the graph under
       // a playing element: silence while the clock runs. Wake it back up.
       ctx.addEventListener("statechange", () => {
+        this.opts.onLog?.(`audio output is ${ctx.state}`);
         if (this.wantPlaying && ctx.state !== "running" && ctx.state !== "closed") {
           this.opts.onLog?.(`audio output was ${ctx.state}; resuming`);
           void ctx.resume().catch(() => undefined);

@@ -92,6 +92,8 @@ function emptyReading(): ReadingData {
   return { fixes: [], heard: new Map(), anchors: new Map(), spans: new Map(), heardBy: new Map(), said: [], aligned: new Map(), overlay: null, dirty: false, written: 0 };
 }
 
+/** How long after the computer wakes a play the system asks for is still the wake's doing, not a person's. */
+const WAKE_QUIET_MS = 5_000;
 /** A stretch of reading ends after this long without the page moving: the reader has looked away. */
 const READING_IDLE_MS = 5 * 60_000;
 /** After the last move, this long still counts as reading: the page moved to is read. */
@@ -140,6 +142,12 @@ export interface Platform {
    * unsubscribe. Hosts without a window of their own leave it out.
    */
   onWindowClose?: (flush: () => Promise<void>, mayClose: () => Promise<boolean>) => () => void;
+  /**
+   * Run `sleeping` each time the computer is about to sleep (a laptop's lid
+   * closed) and `woke` each time it has woken. Returns an unsubscribe.
+   * Hosts that aren't told leave it out.
+   */
+  onSystemSleep?: (sleeping: () => void, woke: () => void) => () => void;
   /** Ask the person whether to close anyway, saying `why` not to; true to close. */
   askToClose?: (why: string) => Promise<boolean>;
   /** New versions of Ribbon, where it installs them itself: Windows and the Mac, not a phone (updates.ts). */
@@ -557,6 +565,10 @@ export class AppController {
   private spentHereAt = 0;
   private lastWrite = 0;
   private sleepTimer: number | null = null;
+  /** Between the computer saying it will sleep and saying it woke. */
+  private asleep = false;
+  /** When the computer last woke; long ago when it hasn't. */
+  private wokeAt = Number.NEGATIVE_INFINITY;
   private uninstallMedia: (() => void) | null = null;
   private chapterProbe: AbortController | null = null;
   /** process uptime minus performance.now(), learned once at boot. */
@@ -2098,8 +2110,11 @@ export class AppController {
         : undefined,
     });
     this.uninstallMedia = installMediaSession({
-      play: () => void this.play(),
-      pause: () => this.pause(),
+      play: () => this.playAskedBySystem(),
+      pause: () => {
+        log.info("the system's media controls asked to pause");
+        this.pause();
+      },
       seekBackward: () => this.skip(-SKIP_BACK_MS),
       seekForward: () => this.skip(SKIP_FORWARD_MS),
       previousChapter: () => this.previousChapter(),
@@ -3378,12 +3393,23 @@ export class AppController {
   /**
    * Keep the place through everything the window goes through: closing
    * (pause, write everywhere, then let it close), being hidden or
-   * minimised (write, keep playing), and the page unloading in the
-   * browser harness. Returns an uninstall.
+   * minimised (write, keep playing), the computer going to sleep (pause),
+   * and the page unloading in the browser harness. Returns an uninstall.
    */
   installLifecycle(): () => void {
     const offs: (() => void)[] = [];
     if (this.platform.onWindowClose) offs.push(this.platform.onWindowClose(() => this.beforeClose(), () => this.mayClose()));
+    if (this.platform.onSystemSleep) {
+      offs.push(
+        this.platform.onSystemSleep(
+          () => void (this.asleep = true),
+          () => {
+            this.asleep = false;
+            this.wokeAt = Date.now();
+          },
+        ),
+      );
+    }
     if (typeof document !== "undefined") {
       const onVisibility = () => {
         if (document.visibilityState === "hidden") void this.checkpoint();
@@ -3407,6 +3433,24 @@ export class AppController {
       offs.push(() => window.removeEventListener("online", onOnline));
     }
     return () => offs.forEach((f) => f());
+  }
+
+  /**
+   * The system's media controls ask for the book to play: a media key,
+   * headphones, the lock screen. And, unasked by anyone, a Mac as it wakes:
+   * it pauses the book for the sleep itself, and the moment the lid opens
+   * it asks for it back, as after a phone call, out loud wherever the laptop
+   * now is. So a play the system asks for while the computer sleeps, or just
+   * after it wakes, is left unanswered. The book stays as the Mac paused
+   * it, and plays when its listener says so.
+   */
+  playAskedBySystem(): void {
+    if (this.asleep || Date.now() - this.wokeAt < WAKE_QUIET_MS) {
+      log.info("the system asked to play as the computer woke; the book stays paused");
+      return;
+    }
+    log.info("the system's media controls asked to play");
+    void this.play();
   }
 
   /** What Ribbon is transcribing now, said for a person: the book and how far it has got. Null when nothing. */

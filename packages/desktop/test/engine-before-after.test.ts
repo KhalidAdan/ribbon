@@ -12,7 +12,9 @@ import type { AudioFile } from "@ribbon/core/types";
  * old engine (before/engine.ts, as it was) and the new one are put through
  * the same events, on the same fake audio, and after every step they must
  * have done the same to the audio (every element's source, place, play
- * count, rate and volume), kept the same place, written the same log,
+ * count and rate; not its volume, since a book that isn't wanted playing
+ * now has its output shut, which the old engine never did: engine.test.ts
+ * has that), kept the same place, written the same log,
  * ended alike, and told the app the same: whether it plays, step by step,
  * and where it is, how long, how fast, how loud, what it's waiting for and
  * what's wrong.
@@ -153,7 +155,7 @@ async function trace(make: "old" | "new", actions: number[]): Promise<Step[]> {
       playingChanges,
       last: now(),
       position: engine.positionMs(),
-      audio: JSON.stringify(FakeMedia.all.map((m) => [m.src, m.paused, Math.round(m.currentTime * 1000), m.playbackRate, m.volume, m.plays, m.readyState, m.error?.code ?? 0])),
+      audio: JSON.stringify(FakeMedia.all.map((m) => [m.src, m.paused, Math.round(m.currentTime * 1000), m.playbackRate, m.plays, m.readyState, m.error?.code ?? 0])),
       ended,
       log: [...log],
     });

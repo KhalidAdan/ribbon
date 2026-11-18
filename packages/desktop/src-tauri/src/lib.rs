@@ -4,6 +4,7 @@ pub mod frames;
 pub mod awake;
 pub mod quit;
 pub mod speech;
+mod system_sleep;
 mod home;
 mod home_move;
 mod online;
@@ -167,6 +168,8 @@ pub fn run() {
                     }
                 });
             }
+            // A book is paused before the computer sleeps, so it doesn't start by itself when the lid opens (system_sleep.rs).
+            system_sleep::watch(app.handle());
             // Covers are served from the local mirror; a local path canonicalises in microseconds.
             let base = home::mirror_base();
             let _ = std::fs::create_dir_all(&base);
