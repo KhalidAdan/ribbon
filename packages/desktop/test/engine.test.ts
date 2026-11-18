@@ -278,6 +278,58 @@ describe("PlayerEngine: fast hands", () => {
     expect(t.last().status).not.toBe("reconnecting");
   });
 
+  it("a paused book's output is shut, and opens again with play", async () => {
+    const t = setup([file("a.mp3", 10 * MIN)]);
+    await t.load();
+    expect(active().volume).toBe(0);
+    await t.engine.play();
+    await run(1_000);
+    expect(active().volume).toBe(1);
+    // Paused by its listener, or from outside as a Mac does for a sleep: nothing still on its way out is heard.
+    t.engine.pause();
+    expect(active().volume).toBe(0);
+    await t.engine.play();
+    await run(1_000);
+    active().externalPause();
+    expect(active().volume).toBe(0);
+    await t.engine.play();
+    await run(1_000);
+    expect(active().volume).toBe(1);
+  });
+
+  it("through an audio graph, a playing book is heard: the graph's gain opens and shuts, the elements stay up", async () => {
+    // As in the app: the elements feed a gain node. Shutting the output must never leave an element turned down under it.
+    const gain = { gain: { value: 1 }, connect: () => undefined };
+    class FakeContext {
+      state = "running";
+      destination = {};
+      createGain = () => gain;
+      createMediaElementSource = () => ({ connect: () => undefined });
+      addEventListener = () => undefined;
+      resume = async () => undefined;
+    }
+    vi.stubGlobal("AudioContext", FakeContext);
+    vi.stubGlobal("Audio", FakeMedia);
+    vi.stubGlobal("fetch", async () => ({ ok: true }));
+    try {
+      const engine = new PlayerEngine({ resolveUrl: (p) => `url:${p}`, onState: () => undefined });
+      await engine.load({ id: "b1", files: [file("a.mp3", 10 * MIN)], chapters: [] }, 0);
+      expect(gain.gain.value).toBe(0);
+      await engine.play();
+      await run(1_000);
+      expect(gain.gain.value).toBe(1);
+      expect(FakeMedia.all.map((m) => m.volume)).toEqual([1, 1]);
+      engine.pause();
+      expect(gain.gain.value).toBe(0);
+      expect(FakeMedia.all.map((m) => m.volume)).toEqual([1, 1]);
+      await engine.play();
+      await run(1_000);
+      expect(gain.gain.value).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("loading a second book while the first is still loading leaves only the second", async () => {
     const t = setup([file("a.mp3", 10 * MIN)]);
     const first = t.engine.load({ id: "one", files: [file("a.mp3", 10 * MIN)], chapters: [] }, 0);

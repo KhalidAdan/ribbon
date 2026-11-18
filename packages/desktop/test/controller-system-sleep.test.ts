@@ -1,73 +1,96 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppController } from "../src/app/controller";
 import { wantsToPlay } from "@ribbon/core/playback";
 import { Holds, proofHost, proofLibrary, proofPlatform, proofWorld, ROOT, settle } from "./support/proof-app";
 
 /**
- * The computer going to sleep: a book that's playing is paused first, so
- * it doesn't start by itself, out loud, the moment a laptop's lid opens.
+ * A laptop's lid closed and opened. A Mac pauses the book for the sleep
+ * through its media controls, and as it wakes it asks for the book to play
+ * again. Nobody asked for that, so Ribbon doesn't answer it.
  */
-describe("the computer going to sleep", () => {
+describe("the computer sleeping and waking", () => {
   let restore: () => void;
   beforeEach(() => {
     restore = proofWorld();
   });
   afterEach(() => restore());
 
-  /** Ribbon open on the proofs' library, and the way its computer says it's going to sleep. */
+  /** Ribbon open on the proofs' library with Paired playing, and the computer's way of saying it sleeps and wakes. */
   async function app() {
-    const sleeps: (() => void)[] = [];
-    let listening = 0;
-    const onSystemSleep = (heard: () => void) => {
-      sleeps.push(heard);
-      listening++;
-      return () => void listening--;
+    const told: { sleeping: () => void; woke: () => void }[] = [];
+    const onSystemSleep = (sleeping: () => void, woke: () => void) => {
+      const one = { sleeping, woke };
+      told.push(one);
+      return () => void told.splice(told.indexOf(one), 1);
     };
     const c = new AppController(proofPlatform(proofHost(proofLibrary(), new Holds()), { onSystemSleep }, [ROOT]));
     await c.boot();
     const uninstall = c.installLifecycle();
     await settle();
-    const paired = c.getState().books.find((b) => b.book.title === "Paired")!;
-    return { c, paired, uninstall, goToSleep: () => sleeps.forEach((heard) => heard()), listening: () => listening };
+    await c.playBook(c.getState().books.find((b) => b.book.title === "Paired")!);
+    await settle();
+    const playing = () => wantsToPlay(c.getState().player.status);
+    return {
+      c,
+      playing,
+      uninstall,
+      listening: () => told.length,
+      /** The lid closes: the Mac says so, and pauses the book as a media key would. */
+      closeLid() {
+        told.forEach((t) => t.sleeping());
+        c.pause();
+      },
+      wake: () => told.forEach((t) => t.woke()),
+    };
   }
 
-  it("pauses a book that's playing, and it stays paused after the wake", async () => {
-    const { c, paired, goToSleep } = await app();
-    await c.playBook(paired);
-    await settle();
-    expect(wantsToPlay(c.getState().player.status)).toBe(true);
+  it("a play the system asks for as the computer wakes leaves the book paused", async () => {
+    const { c, playing, closeLid, wake } = await app();
+    expect(playing()).toBe(true);
+    closeLid();
 
-    goToSleep();
+    // The lid opens. The Mac's request can come before Ribbon hears of the wake, or after.
+    c.playAskedBySystem();
+    wake();
+    c.playAskedBySystem();
+    await settle();
+    expect(playing()).toBe(false);
     expect(c.getState().player.status).toBe("paused");
-    // The lid opens: time has passed, and nothing starts the book.
-    await settle();
-    await settle();
-    expect(c.getState().player.status).toBe("paused");
-
-    // It plays again when asked.
-    await c.play();
-    await settle();
-    expect(wantsToPlay(c.getState().player.status)).toBe(true);
     c.destroy();
   });
 
-  it("leaves a paused book as it is", async () => {
-    const { c, paired, goToSleep } = await app();
-    await c.playBook(paired);
+  it("the listener's own play still works at once after a wake", async () => {
+    const { c, playing, closeLid, wake } = await app();
+    closeLid();
+    wake();
+    c.togglePlay();
     await settle();
+    expect(playing()).toBe(true);
+    c.destroy();
+  });
+
+  it("a media key plays the book again once the wake is a few seconds past", async () => {
+    const { c, playing, closeLid, wake } = await app();
+    closeLid();
+    wake();
+    await vi.advanceTimersByTimeAsync(6_000);
+    c.playAskedBySystem();
+    await settle();
+    expect(playing()).toBe(true);
+    c.destroy();
+  });
+
+  it("a media key plays a paused book when the computer never slept", async () => {
+    const { c, playing } = await app();
     c.pause();
-    const before = c.getState().player;
-
-    goToSleep();
+    c.playAskedBySystem();
     await settle();
-    expect(c.getState().player).toEqual(before);
+    expect(playing()).toBe(true);
     c.destroy();
   });
 
-  it("does nothing with no book open, and stops listening when the lifecycle is uninstalled", async () => {
-    const { c, uninstall, goToSleep, listening } = await app();
-    goToSleep();
-    expect(c.getState().player.status).toBe("paused");
+  it("stops listening when the lifecycle is uninstalled", async () => {
+    const { c, uninstall, listening } = await app();
     expect(listening()).toBe(1);
     uninstall();
     expect(listening()).toBe(0);

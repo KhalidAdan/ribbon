@@ -344,11 +344,13 @@ export async function onQuitAsked(asked: () => Promise<boolean>): Promise<() => 
 }
 
 /**
- * The computer is about to sleep (packages/desktop/src-tauri/src/system_sleep.rs):
- * `heard` runs each time, before it does. Resolves to a way to stop listening.
+ * The computer sleeping and waking (packages/desktop/src-tauri/src/system_sleep.rs):
+ * `sleeping` runs just before each sleep, `woke` after each wake. Resolves to a
+ * way to stop listening.
  */
-export function onGoingToSleep(heard: () => void): Promise<() => void> {
-  return listen("ribbon://going-to-sleep", () => heard());
+export async function onSleepAndWake(sleeping: () => void, woke: () => void): Promise<() => void> {
+  const offs = await Promise.all([listen("ribbon://going-to-sleep", () => sleeping()), listen("ribbon://woke", () => woke())]);
+  return () => offs.forEach((off) => off());
 }
 
 /** How long asking GitHub for latest.json may take, and fetching the new version, before either counts as failed. */
