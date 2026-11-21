@@ -187,6 +187,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # The tests run in an iPhone simulator, which a hosted Mac starts from
+      # cold: ten minutes of the test step with nothing in its log, in the run
+      # measured. It's asked to start here, so it does so behind the installs
+      # and the two builds, and the step before the tests waits for it.
+      - name: Start the iPhone simulator, behind the builds
+        run: |
+          phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
+          echo "PHONE=$phone" >> "$GITHUB_ENV"
+          xcrun simctl boot "$phone"
       # The app bundles the reader's own faces from the npm packages.
       - run: npm ci --ignore-scripts
       - run: brew install xcodegen
@@ -196,9 +205,11 @@ jobs:
         working-directory: packages/apple
       - run: xcodebuild -project Ribbon.xcodeproj -scheme Ribbon -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
         working-directory: packages/apple
+      # A step of its own, so each run says how long the simulator still took once the builds were done.
+      - name: The simulator has started
+        run: xcrun simctl bootstatus "$PHONE"
+        timeout-minutes: 15
       # Whether the app can read the server's real answers (packages/server/test/api-contract.test.ts writes them).
       - name: The app reads the server's answers
         working-directory: packages/apple
-        run: |
-          phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
-          xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$phone" -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$PHONE" -derivedDataPath build CODE_SIGNING_ALLOWED=NO
