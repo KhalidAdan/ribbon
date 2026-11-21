@@ -65,6 +65,8 @@ Four shapes come up again and again, so each has a name and a home:
 | A server's book, and work still running on it | `book-folder.ts` (`inTurn`, `removeBookDir`), and the search index (`SearchIndex.index`) | added, listed, written in its turn, deleted in its turn: nothing is written or indexed for it after |
 | The server's job queue | [`packages/server/src/jobs.ts`](../packages/server/src/jobs.ts) (`NEXT`, `move`) | waiting, running, done, failed |
 | Invites | [`packages/server/src/invites.ts`](../packages/server/src/invites.ts) (`statusOf`, `NEXT`) | fresh, held, used, expired |
+| A sign-in through the browser | [`packages/auth/src/sign-ins.ts`](../packages/auth/src/sign-ins.ts) (`BrowserSignIns`) | asked, returned, signed in, forgotten |
+| A sign-in for a TV | [`packages/auth/src/sign-ins.ts`](../packages/auth/src/sign-ins.ts) (`DeviceSignIns`) | waiting, approved, taken, gone |
 | A listen-through, written | [`core/listen-through.ts`](../packages/core/src/listen-through.ts) (`readAfter`), asked by the server's `/listened`, `/finished` and `/unfinished` | none, going, finished |
 | A server's book's read-along, made and kept | `packages/server/src/library/readalong.ts` (`ReadAlongs.of`) | not made, or made with its stamp; made again when its stamp changes |
 | A listen-through, read from the log | [`core/stats.ts`](../packages/core/src/stats.ts) (`openRead`, `endOf`) | going, finished, left |

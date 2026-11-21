@@ -1,15 +1,15 @@
 import fastifyCompress from "@fastify/compress";
 import fastifyCors from "@fastify/cors";
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { APIError } from "better-auth/api";
-import { getMigrations } from "better-auth/db/migration";
-import { fromNodeHeaders } from "better-auth/node";
+import Fastify, { type FastifyInstance } from "fastify";
 import type { DatabaseSync } from "node:sqlite";
-import { authOptions, makeAuth, placeholderEmail, signedIn, type Auth } from "./auth.ts";
+import { AccountRefused } from "@ribbon/auth-accounts/accounts";
+import { sessionCookie } from "@ribbon/auth/sessions";
+import { openAuth, signedIn, type Auth } from "./auth.ts";
 import type { ServerConfig } from "./config.ts";
 import { openDatabase } from "./db.ts";
 import { invitePage } from "./invite-page.ts";
-import { Invites, type Role } from "./invites.ts";
+import { Invites } from "./invites.ts";
+import { isSecure, sendsPassword, signInRoutes } from "./sign-in-routes.ts";
 import { Events } from "./events.ts";
 import { Jobs } from "./jobs.ts";
 import { nodeHost } from "@ribbon/host-node/node";
@@ -49,9 +49,7 @@ export interface RibbonServer {
  */
 export async function buildServer(config: ServerConfig, opts: { logger?: boolean } = {}): Promise<RibbonServer> {
   const db = openDatabase(config.dataDir);
-  const options = authOptions(db, config);
-  await (await getMigrations(options)).runMigrations();
-  const auth = makeAuth(options);
+  const auth = await openAuth(db, config);
   const invites = new Invites(db);
   const jobs = new Jobs(db);
   const books = new BookIndex(db);
@@ -93,8 +91,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  // Better Auth's own routes: sign in with a name, sign out, sessions, the admin's tools.
-  app.route({ method: ["GET", "POST"], url: "/api/auth/*", handler: (request, reply) => passToAuth(auth, request, reply) });
+  signInRoutes(app, { auth, config });
 
   app.get("/api/me", async (request, reply) => {
     const me = await signedIn(auth, request);
@@ -102,19 +99,25 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
     return { user: me };
   });
 
+  // Invites are how people join the accounts the server keeps itself. With another provider, its own admin lets people in.
+  const { accounts } = auth;
+  const noInvites = accounts ? null : `People join this server through ${auth.provider.kind === "browser" ? auth.provider.name : "its sign-in"}: ask its admin there.`;
+
   app.post("/api/invites", async (request, reply) => {
     const me = await signedIn(auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can invite people." });
+    if (noInvites) return reply.code(404).send({ error: noInvites });
     const invite = invites.create("user", me.id);
     return { code: invite.code, url: `${config.url}/invite/${invite.code}`, expiresAt: new Date(invite.expiresAt).toISOString() };
   });
 
   app.get<{ Params: { code: string } }>("/invite/:code", async (request, reply) => {
-    return reply.type("text/html; charset=utf-8").header("cache-control", "no-store").send(invitePage({ code: request.params.code, usable: invites.usable(request.params.code), serverUrl: config.url }));
+    return reply.type("text/html; charset=utf-8").header("cache-control", "no-store").send(invitePage({ code: request.params.code, usable: accounts !== null && invites.usable(request.params.code), serverUrl: config.url }));
   });
 
   app.post<{ Params: { code: string }; Body: { name?: unknown; password?: unknown } }>("/api/invites/:code/accept", async (request, reply) => {
+    if (!accounts) return reply.code(404).send({ error: noInvites });
     const name = typeof request.body?.name === "string" ? request.body.name.trim() : "";
     const password = typeof request.body?.password === "string" ? request.body.password : "";
     if (!name || !password) return reply.code(400).send({ error: "A name and a password, please." });
@@ -122,21 +125,15 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
     const role = invites.reserve(code);
     if (!role) return reply.code(410).send({ error: "This invite has been used already, or it has expired. Ask the server's admin for a new one." });
     try {
-      const { headers, response } = await auth.api.signUpEmail({
-        body: { email: placeholderEmail(name), name, username: name, password },
-        headers: fromNodeHeaders(request.headers),
-        returnHeaders: true,
-      });
-      setRole(db, response.user.id, role);
-      invites.spend(code, response.user.id);
-      const token = headers.get("set-auth-token");
-      return { token, user: { id: response.user.id, name, role } };
+      const person = auth.people.welcome(await accounts.signUp(name, password));
+      auth.people.setRole(person.id, role);
+      invites.spend(code, person.id);
+      const token = auth.sessions.start(person.id);
+      reply.header("set-auth-token", token).header("set-cookie", sessionCookie(token, { secure: config.url.startsWith("https://") }).header);
+      return { token, user: { id: person.id, name, role } };
     } catch (e) {
       invites.release(code);
-      if (e instanceof APIError) {
-        const said = inOurWords(e);
-        return reply.code(said.taken ? 409 : e.statusCode >= 500 ? 500 : 400).send({ error: said.message });
-      }
+      if (e instanceof AccountRefused) return reply.code(e.taken ? 409 : 400).send({ error: e.message });
       throw e;
     }
   });
@@ -164,41 +161,4 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   readAlongRoutes(app, { auth, books, places, goals: new Goals(db), events, readAlongs, search, frames, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
-}
-
-/** Hand a request to Better Auth as the Fetch request it expects, and its answer back to Fastify. */
-async function passToAuth(auth: Auth, request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const url = new URL(request.url, `${request.protocol}://${request.headers.host ?? "localhost"}`);
-  const init: RequestInit = { method: request.method, headers: fromNodeHeaders(request.headers) };
-  if (request.body !== undefined && request.method !== "GET") init.body = JSON.stringify(request.body);
-  const response = await auth.handler(new Request(url, init));
-  reply.code(response.status);
-  for (const [key, value] of response.headers) if (key !== "set-cookie") reply.header(key, value);
-  const cookies = response.headers.getSetCookie();
-  if (cookies.length > 0) reply.header("set-cookie", cookies);
-  await reply.send(response.body ? await response.text() : null);
-}
-
-/** Routes that carry a password in their body. */
-function sendsPassword(url: string): boolean {
-  const pathname = url.split("?")[0]!;
-  return pathname.startsWith("/api/auth/") || /^\/api\/invites\/[^/]+\/accept$/.test(pathname);
-}
-
-function isSecure(request: FastifyRequest): boolean {
-  return request.protocol === "https" || ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.ip);
-}
-
-/** Better Auth's admin plugin keeps the role on the user; an invite's role is set when its account is made. */
-function setRole(db: DatabaseSync, userId: string, role: Role): void {
-  db.prepare('UPDATE "user" SET role = ? WHERE id = ?').run(role, userId);
-}
-
-/** Better Auth's messages for a refused sign-up, said the way Ribbon says things, and whether the name was the trouble. */
-function inOurWords(e: APIError): { message: string; taken: boolean } {
-  const message = e.body?.message ?? e.message;
-  if (/taken|already exists/i.test(message)) return { message: "That name is taken. Try another.", taken: true };
-  if (/username.*(invalid|short|long)|invalid username/i.test(message)) return { message: "A name is 3 to 30 letters, numbers, dots and underscores.", taken: false };
-  if (/password.*short/i.test(message)) return { message: "The password needs at least 8 characters.", taken: false };
-  return { message, taken: false };
 }

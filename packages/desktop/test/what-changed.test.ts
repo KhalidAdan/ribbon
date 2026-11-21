@@ -39,6 +39,7 @@ describe("which CI jobs a change needs", () => {
 
   it("leaves the desktop out of a change to the server alone", () => {
     expect(jobsFor(["packages/server/src/app.ts"])).toEqual({ ...none, server: true, image: true });
+    expect(jobsFor(["packages/auth/src/sessions.ts", "packages/auth-pocket-id/src/pocket-id.ts"])).toEqual({ ...none, server: true, image: true });
   });
 
   it("runs the most any one file needs", () => {

@@ -1,0 +1,22 @@
+{
+  "name": "@ribbon/auth-pocket-id",
+  "version": "0.0.0",
+  "description": "Signing in with Pocket ID, a passkey provider you host: a provider for @ribbon/auth.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ribbon/auth": "*",
+    "jose": "^6.2.18"
+  }
+}
