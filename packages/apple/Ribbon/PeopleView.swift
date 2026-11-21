@@ -3,14 +3,23 @@ import SwiftUI
 /// Who's reading? Everyone signed in on this TV, side by side, and Someone
 /// else last, to sign another person in. The focus starts on whoever read
 /// last here. Holding Select on a person (on the iPad, holding them) offers to
-/// take them off this TV; their places stay on the server. A phone has two to a
-/// row.
+/// take them off this TV; their places stay on the server, and a line under
+/// everyone says how. A phone has two to a row.
 struct PeopleView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.narrow) private var narrow
     @FocusState private var focused: String?
 
     private static let someoneElse = "someone-else"
+
+    /// On the TV it's the remote's Select that's held; by touch, the person.
+    private static var howToRemove: String {
+        #if os(tvOS)
+        "Hold Select on someone to take them off this \(ThisDevice.kind)."
+        #else
+        "Hold someone to take them off this \(ThisDevice.kind)."
+        #endif
+    }
 
     var body: some View {
         ZStack {
@@ -22,6 +31,14 @@ struct PeopleView: View {
                         .padding(.horizontal, 20)
                 } else {
                     HStack(alignment: .top, spacing: 72.scaled) { everyone }
+                }
+                // Holding is the only way to take someone off, and nothing else on the screen says so.
+                if !model.people.isEmpty {
+                    Text(Self.howToRemove)
+                        .font(.ui(22))
+                        .foregroundStyle(Color.ink3)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
                 }
             }
         }
