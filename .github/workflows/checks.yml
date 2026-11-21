@@ -45,7 +45,9 @@ jobs:
         # build has not been tried there yet, so this stays on 2022 for now.
         os: [windows-2022, macos-26]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # Its budget: the slowest in twenty of 77 runs took ten and a half minutes, and one
+    # with no Rust cache to start from eleven. Past twenty, something is wrong.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
@@ -78,7 +80,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Its budget: two minutes as a rule (41 runs).
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: packages/server
@@ -129,7 +132,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Its budget: two minutes as a rule (34 runs).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - run: tools/check-server-image.sh
@@ -144,7 +148,8 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Its budget: half a minute as a rule (21 runs).
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
