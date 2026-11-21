@@ -5,27 +5,38 @@ import { Button } from "./Button";
 import { Dialog } from "./Dialog";
 import { useKept } from "./modal";
 import { ProgressLine } from "./kit";
+import type { SignInWay } from "../app/server/client";
 
 const control = "w-full rounded-md bg-raised px-2.5 py-1.5 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1 sm:text-sm/6";
 const label = "mb-1 block text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5";
 
 /**
  * Sign in to a Ribbon server (docs/SERVER.md, section 11). The server's
- * books join the shelf; each downloads before it plays. The password is
- * sent once, for a sign-in this device keeps.
+ * books join the shelf; each downloads before it plays.
+ *
+ * The address comes first, because the server says how its people sign in:
+ * with a name and a password typed here, sent once for a sign-in this
+ * device keeps, or in the browser, on the pages of whatever proves who they
+ * are (Pocket ID), where Ribbon waits for them to come back.
  */
 export function ConnectServer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const c = useController();
   const [address, setAddress] = useState("");
+  /** How the server at the address signs people in, once it has been asked. */
+  const [way, setWay] = useState<SignInWay | null>(null);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ready = address.trim() !== "" && name.trim() !== "" && password !== "";
+  const inBrowser = way?.kind === "browser";
+  const ready = address.trim() !== "" && (way?.kind !== "password" || (name.trim() !== "" && password !== ""));
 
   const close = () => {
+    // Someone still in the browser is no longer waited for.
+    if (busy && inBrowser) c.cancelServerSignIn();
     setPassword("");
     setError(null);
+    setWay(null);
     onClose();
   };
   const submit = async (e?: FormEvent) => {
@@ -34,15 +45,25 @@ export function ConnectServer({ open, onClose }: { open: boolean; onClose: () =>
     setBusy(true);
     setError(null);
     try {
-      await c.connectServer(address, name, password);
+      if (!way) {
+        setWay(await c.howToSignIn(address));
+        return;
+      }
+      if (way.kind === "browser") await c.connectServerThroughBrowser(address);
+      else await c.connectServer(address, name, password);
       setPassword("");
+      setWay(null);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const said = err instanceof Error ? err.message : String(err);
+      // Cancelled by closing this dialog: nothing to say.
+      if (said !== "cancelled") setError(said);
     } finally {
       setBusy(false);
     }
   };
+  const doing = !way ? "Finding the server…" : inBrowser ? "Waiting for your browser…" : "Signing in…";
+  const action = !way ? "Continue" : inBrowser ? `Sign in with ${way.name}` : "Sign in";
 
   return (
     <Dialog
@@ -51,14 +72,14 @@ export function ConnectServer({ open, onClose }: { open: boolean; onClose: () =>
       labelId="connect-server-title"
       title="Connect to a server"
       description="A Ribbon server of your own, or one someone runs for you. Its books join your shelf, and each one downloads before it plays, so it works away from home too."
-      hint={busy ? "Signing in…" : undefined}
+      hint={busy ? doing : undefined}
       actions={
         <>
           <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button variant="primary" disabled={!ready || busy} onClick={() => void submit()}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? doing : action}
           </Button>
         </>
       }
@@ -68,27 +89,55 @@ export function ConnectServer({ open, onClose }: { open: boolean; onClose: () =>
           <label htmlFor="server-address" className={label}>
             Address
           </label>
-          <input id="server-address" name="address" type="text" inputMode="url" autoComplete="url" autoCapitalize="off" autoCorrect="off" spellCheck={false} placeholder="books.example.net" value={address} onChange={(e) => setAddress(e.target.value)} className={control} />
-          <p className="mt-1 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5">The one in your invite, without the /invite part.</p>
+          <input
+            id="server-address"
+            name="address"
+            type="text"
+            inputMode="url"
+            autoComplete="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="books.example.net"
+            value={address}
+            disabled={busy}
+            onChange={(e) => {
+              setAddress(e.target.value);
+              // Another address is another server, which may sign people in another way.
+              setWay(null);
+              setError(null);
+            }}
+            className={control}
+          />
+          {!way && <p className="mt-1 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5">The one in your invite, without the /invite part.</p>}
         </div>
-        <div>
-          <label htmlFor="server-name" className={label}>
-            Name
-          </label>
-          <input id="server-name" name="username" type="text" autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} className={control} />
-        </div>
-        <div>
-          <label htmlFor="server-password" className={label}>
-            Password
-          </label>
-          <input id="server-password" name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={control} />
-        </div>
+        {way?.kind === "password" && (
+          <>
+            <div>
+              <label htmlFor="server-name" className={label}>
+                Name
+              </label>
+              <input id="server-name" name="username" type="text" autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} autoFocus value={name} onChange={(e) => setName(e.target.value)} className={control} />
+            </div>
+            <div>
+              <label htmlFor="server-password" className={label}>
+                Password
+              </label>
+              <input id="server-password" name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={control} />
+            </div>
+          </>
+        )}
+        {way?.kind === "browser" && (
+          <p className="text-base/6 text-pretty text-ink-2 sm:text-sm/6">
+            {busy ? `Sign in with ${way.name} in the browser that just opened, then come back here.` : `This server signs people in with ${way.name}. Ribbon opens your browser for it, and brings you back here once you’re in.`}
+          </p>
+        )}
         {error && (
           <p role="alert" className="text-sm/5 text-pretty text-red-600 dark:text-red-400 sm:text-[0.8125rem]/5">
             {error}
           </p>
         )}
-        {/* Enter in any field signs in. */}
+        {/* Enter in any field goes on. */}
         <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" />
       </form>
     </Dialog>

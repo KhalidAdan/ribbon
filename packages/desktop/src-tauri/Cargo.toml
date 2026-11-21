@@ -34,6 +34,8 @@ lofty = "0.25"
 rayon = "1.12"
 reqwest = { version = "0.13", default-features = false, features = ["native-tls"] }
 fs4 = "0.13"
+# Opens the system browser, for signing in to a server whose people sign in on its own pages (sign_in.rs).
+open = "5"
 # The EPUB parser and the MP3 frame index, crates of their own so the server can build them alone.
 ribbon-ebook = { path = "ebook" }
 ribbon-frames = { path = "frames" }

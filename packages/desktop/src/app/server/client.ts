@@ -12,6 +12,9 @@ export interface SeriesBookSent {
   shelved: boolean;
 }
 
+/** How a server signs people in: this app asks for a name and a password, or sends them to the browser. */
+export type SignInWay = { kind: "password" } | { kind: "browser"; name: string };
+
 /** Something a server said no to, or couldn't be asked, in words to show. */
 export class ServerError extends Error {
   constructor(
@@ -43,6 +46,41 @@ export class ServerClient {
     const token = r.headers.get("set-auth-token");
     if (!token) throw new ServerError("The server didn't hand back a sign-in. Is it a Ribbon server?");
     return new ServerClient(url, token);
+  }
+
+  /**
+   * How this server signs people in: with a name and a password this app
+   * asks for, or in the browser, on pages of whatever proves who its people
+   * are (`name`: "Pocket ID"). A server from before it could say takes a
+   * name and a password.
+   */
+  static async howToSignIn(url: string): Promise<SignInWay> {
+    const r = await reach(`${url}/api/sign-in`, {});
+    if (r.status === 404) return { kind: "password" };
+    if (!r.ok) throw new ServerError(await said(r, "That doesn't look like a Ribbon server."), r.status);
+    const way = (await r.json().catch(() => null)) as { kind?: string; name?: string } | null;
+    if (way?.kind === "browser") return { kind: "browser", name: way.name ?? "your browser" };
+    if (way?.kind === "password") return { kind: "password" };
+    throw new ServerError("That doesn't look like a Ribbon server.");
+  }
+
+  /**
+   * Sign in through the system browser (docs/SERVER.md, section 6).
+   * `browser` opens the server's sign-in page and resolves with what the
+   * browser came back carrying: a one-time `code`, or the `error` that says
+   * why there's none. The code alone is worth nothing: it's traded along
+   * with a secret made here, whose hash the server was given at the start.
+   */
+  static async signInThroughBrowser(url: string, device: string, browser: (start: string) => Promise<Record<string, string>>): Promise<{ client: ServerClient; person: string }> {
+    const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const challenge = base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
+    const back = await browser(`${url}/sign-in/start?challenge=${challenge}`);
+    if (!back.code) throw new ServerError(back.error ?? "The browser came back without a sign-in. Try again.");
+    const r = await reach(`${url}/api/sign-in/finish`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: back.code, verifier, device }) });
+    if (!r.ok) throw new ServerError(await said(r, "The server didn't finish that sign-in."), r.status);
+    const done = (await r.json()) as { token?: string; user?: { name?: string } };
+    if (!done.token || !done.user?.name) throw new ServerError("The server didn't hand back a sign-in. Is it a Ribbon server?");
+    return { client: new ServerClient(url, done.token), person: done.user.name };
   }
 
   /**
@@ -241,6 +279,11 @@ async function reach(url: string, init: RequestInit): Promise<Response> {
 async function said(r: Response, otherwise: string): Promise<string> {
   const body = (await r.json().catch(() => null)) as { error?: string; message?: string } | null;
   return body?.error ?? body?.message ?? otherwise;
+}
+
+/** Bytes as base64 that's safe in an address: no `+`, `/` or padding. */
+function base64Url(bytes: Uint8Array): string {
+  return toBase64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /** Bytes as base64, a piece at a time: a picture is too many bytes to spread into one call. */

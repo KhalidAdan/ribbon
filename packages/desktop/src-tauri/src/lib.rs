@@ -10,6 +10,7 @@ mod home_move;
 mod online;
 mod scan;
 mod server;
+mod sign_in;
 mod tags;
 
 use std::sync::OnceLock;
@@ -128,6 +129,8 @@ pub fn run() {
             speech::speech_model_ok,
             server::server_download,
             server::server_free_space,
+            sign_in::server_browser_sign_in,
+            sign_in::server_browser_sign_in_cancel,
             uptime_ms,
             env_library
         ])

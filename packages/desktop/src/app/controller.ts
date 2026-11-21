@@ -6,7 +6,7 @@ import { defaultChoices, deletedSeriesRecord, detectSeries, mergeSeries, newSeri
 import type { BookAbout } from "@ribbon/core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "@ribbon/core/sources";
 import { nothingMeasured } from "@ribbon/core/loudness";
-import { ServerClient, ServerError, type ServerJob } from "./server/client";
+import { ServerClient, ServerError, type ServerJob, type SignInWay } from "./server/client";
 import { NotEnoughSpace, ServerShelf, serverIdOf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
 import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@ribbon/core/server-books";
@@ -133,6 +133,16 @@ export interface Platform {
   appSettings?: {
     read(): Promise<Record<string, unknown>>;
     write(settings: Record<string, unknown>): Promise<void>;
+  };
+  /**
+   * Signing in to a server in the system browser, for a platform that can
+   * open one and hear it come back. `wait` opens the address and resolves
+   * with what the browser returned carrying; `cancel` stops a wait, which
+   * then rejects.
+   */
+  browserSignIn?: {
+    wait(start: string): Promise<Record<string, string>>;
+    cancel(): void;
   };
   /** Ask for one file, of the given kinds. Hosts without a file dialog leave it out. */
   pickFile?: (title: string, filters: { name: string; extensions: string[] }[]) => Promise<string | null>;
@@ -1430,10 +1440,46 @@ export class AppController {
    */
   async connectServer(address: string, name: string, password: string): Promise<void> {
     const server: ServerRef = { url: serverUrl(address), person: name.trim() };
+    await this.serverHome();
+    await this.serverConnected(server, await ServerClient.signIn(server.url, server.person, password));
+  }
+
+  /** How the server at an address signs people in, so the app knows what to ask for (`ServerClient.howToSignIn`). */
+  howToSignIn(address: string): Promise<SignInWay> {
+    return ServerClient.howToSignIn(serverUrl(address));
+  }
+
+  /**
+   * Connect to a server whose people sign in on pages of its own (Pocket
+   * ID): the system browser opens there, and this waits for it to come
+   * back. Who signed in is the server's to say, so there's no name to type.
+   */
+  async connectServerThroughBrowser(address: string): Promise<void> {
+    const url = serverUrl(address);
+    const browser = this.platform.browserSignIn;
+    if (!browser) throw new Error("This version of Ribbon can't open a browser to sign in.");
+    await this.serverHome();
+    // The session is named for this computer, as the server's list of someone's devices shows it.
+    const device = `Ribbon on ${await this.platform.host.deviceName().catch(() => "a computer")}`;
+    const { client, person } = await ServerClient.signInThroughBrowser(url, device, (start) => browser.wait(start));
+    await this.serverConnected({ url, person }, client);
+  }
+
+  /** Stop waiting for the browser: the person closed the dialog. */
+  cancelServerSignIn(): void {
+    this.platform.browserSignIn?.cancel();
+  }
+
+  /** Ribbon's own folder, where a server's books are kept on this device. */
+  private async serverHome(): Promise<string> {
     const home = await this.platform.home?.path();
     if (!home) throw new Error("This version of Ribbon can't keep a server's books.");
-    const client = await ServerClient.signIn(server.url, server.person, password);
-    const root = this.serverRoot(home, server);
+    return home;
+  }
+
+  /** Signed in: keep the sign-in, and add the server as a source, or give the one already here its sign-in back. */
+  private async serverConnected(server: ServerRef, client: ServerClient): Promise<void> {
+    const root = this.serverRoot(await this.serverHome(), server);
     // The app's files reach only the folders it has been allowed (allow_library): this one is Ribbon's own, made here.
     await this.platform.allowFolder(root);
     await this.platform.host.mkdir(root);
