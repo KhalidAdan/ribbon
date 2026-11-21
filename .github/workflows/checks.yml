@@ -58,7 +58,7 @@ jobs:
       # optimises it so `tauri dev` scans at full speed, which made compiling
       # it for the tests take three or four times as long (36 s rather than
       # 10 on an M2), and the tests run as fast either way.
-      - run: npm run test:rust -- --config profile.test.package.ribbon.opt-level=0
+      - run: npm run test:rust -- -v --config profile.test.package.ribbon.opt-level=0
       # A build for a phone writes the signer's Apple team into the iOS project,
       # and this repository is public (docs/MAC.md, the phone).
       - name: No Apple team in the iOS project
