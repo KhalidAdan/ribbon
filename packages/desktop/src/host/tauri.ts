@@ -194,6 +194,16 @@ export function tauriHost(): Host {
   };
 }
 
+/**
+ * Signing in to a server in the system browser (src-tauri/src/sign_in.rs):
+ * the app listens on a port of this computer, opens the address there, and
+ * hears what the browser comes back carrying.
+ */
+export const tauriBrowserSignIn = {
+  wait: (start: string) => invoke<Record<string, string>>("server_browser_sign_in", { start }),
+  cancel: () => void invoke("server_browser_sign_in_cancel"),
+};
+
 /** Widen the scoped filesystem and asset protocol to a library folder. */
 export function allowLibrary(path: string): Promise<void> {
   return invoke("allow_library", { path });

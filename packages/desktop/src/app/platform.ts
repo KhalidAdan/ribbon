@@ -67,7 +67,7 @@ export function memorySources(): Platform["sources"] {
  */
 export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onSleepAndWake, tauriUpdates }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, tauriBrowserSignIn, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onSleepAndWake, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -167,6 +167,8 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
       },
       askToClose: (why) => dialog.ask(why, { title: "Ribbon is transcribing", kind: "warning", okLabel: "Close anyway", cancelLabel: "Keep transcribing" }),
       appSettings: { read: appSettingsRead, write: appSettingsWrite },
+      // A phone has no port for the browser to come back to; its apps are the thin ones (packages/apple).
+      ...(ios ? {} : { browserSignIn: tauriBrowserSignIn }),
       ...(updates ? { updates } : {}),
       home: {
         path: async () => (await homeInfo()).path,

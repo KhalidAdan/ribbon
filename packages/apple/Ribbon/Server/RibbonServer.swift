@@ -1,4 +1,6 @@
+import CryptoKit
 import Foundation
+import Security
 import UIKit
 
 /// A book on the server, as its library lists it (packages/server/src/library/books.ts, `ListedBook`).
@@ -296,6 +298,115 @@ struct RibbonServer {
         return Account(url: url, name: name, token: token, cookieName: cookie.name, cookieValue: cookie.value)
     }
 
+    /// How a server signs people in: this app asks for a name and a password, or they sign in on pages of whatever
+    /// proves who its people are (Pocket ID), in a browser.
+    enum SignInWay: Equatable {
+        case password
+        case browser(name: String)
+    }
+
+    /// How the server at an address signs people in (docs/SERVER.md, section 6). A server from before it could say
+    /// takes a name and a password.
+    static func howToSignIn(address: String) async throws -> SignInWay {
+        guard let url = serverURL(address) else { throw ServerError(message: "That doesn't look like a server's address.") }
+        struct Answer: Decodable { let kind: String; let name: String? }
+        let (data, response) = try await reach(URLRequest(url: url.appending(path: "api/sign-in")))
+        if response.statusCode == 404 { return .password }
+        guard (200..<300).contains(response.statusCode), let answer = try? JSONDecoder().decode(Answer.self, from: data) else {
+            throw ServerError(message: said(data) ?? "That doesn't look like a Ribbon server.", status: response.statusCode)
+        }
+        return answer.kind == "browser" ? .browser(name: answer.name ?? "your browser") : .password
+    }
+
+    /// A session as the server hands one over, however the person signed in: its token, its cookie for the player,
+    /// and who they are.
+    private struct Session: Decodable {
+        struct Cookie: Decodable { let name: String; let value: String }
+        struct User: Decodable { let name: String }
+        let token: String
+        let cookie: Cookie
+        let user: User
+
+        func account(at url: URL) -> Account {
+            Account(url: url, name: user.name, token: token, cookieName: cookie.name, cookieValue: cookie.value)
+        }
+    }
+
+    /// Where the browser is sent to sign someone in, for an app that keeps `verifier` to itself and is come back to
+    /// at `returnTo` (the iPhone and the iPad: SignInView). Nil for an address that isn't one.
+    static func browserSignIn(address: String, verifier: String, returnTo: String) -> URL? {
+        guard let url = serverURL(address) else { return nil }
+        return url.appending(path: "sign-in/start").appending(queryItems: [URLQueryItem(name: "return", value: returnTo), URLQueryItem(name: "challenge", value: challenge(of: verifier))])
+    }
+
+    /// The hash of a secret the app keeps, which is all the server is told of it until the code is traded: SHA-256, in base64url.
+    static func challenge(of verifier: String) -> String {
+        Data(SHA256.hash(data: Data(verifier.utf8))).base64URL
+    }
+
+    /// A secret nobody could guess, for one sign-in.
+    static func newVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64URL
+    }
+
+    /// Trade the one-time code the browser came back with, and the secret kept here, for a session.
+    static func finishSignIn(address: String, code: String, verifier: String) async throws -> Account {
+        guard let url = serverURL(address) else { throw ServerError(message: "That doesn't look like a server's address.") }
+        return try await session(at: url, "api/sign-in/finish", ["code": code, "verifier": verifier, "device": ThisDevice.name])
+    }
+
+    /// A code for this device to show, for someone to sign in for it on their phone (the TV: SignInView).
+    struct DeviceCode: Decodable, Equatable {
+        /// Eight letters, as shown: `ABCD-EFGH`.
+        let code: String
+        /// What this device asks with; nobody else holds it.
+        let secret: String
+        /// The page to open, and the same with the code already in it, for a picture to scan.
+        let url: String
+        let complete: String
+        /// Seconds the code is good for, and between askings.
+        let expiresIn: Double
+        let interval: Double
+    }
+
+    static func askForCode(address: String) async throws -> DeviceCode {
+        guard let url = serverURL(address) else { throw ServerError(message: "That doesn't look like a server's address.") }
+        var request = URLRequest(url: url.appending(path: "api/sign-in/device"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(["device": ThisDevice.name])
+        let (data, response) = try await reach(request)
+        guard (200..<300).contains(response.statusCode) else { throw ServerError(message: said(data) ?? "The server didn't give this \(ThisDevice.kind) a code.", status: response.statusCode) }
+        return try JSONDecoder().decode(DeviceCode.self, from: data)
+    }
+
+    /// Whether someone has signed in for this device's code yet: their account once they have, nil while it waits.
+    /// Throws once the code has run out.
+    static func signedInByCode(address: String, secret: String) async throws -> Account? {
+        guard let url = serverURL(address) else { throw ServerError(message: "That doesn't look like a server's address.") }
+        var request = URLRequest(url: url.appending(path: "api/sign-in/device/poll"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(["secret": secret])
+        let (data, response) = try await reach(request)
+        if response.statusCode == 202 { return nil }
+        guard (200..<300).contains(response.statusCode) else { throw ServerError(message: said(data) ?? "That code has run out.", status: response.statusCode) }
+        return try JSONDecoder().decode(Session.self, from: data).account(at: url)
+    }
+
+    private static func session(at url: URL, _ path: String, _ body: [String: String]) async throws -> Account {
+        var request = URLRequest(url: url.appending(path: path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await reach(request)
+        guard (200..<300).contains(response.statusCode) else { throw ServerError(message: said(data) ?? "The server didn't finish that sign-in.", status: response.statusCode) }
+        guard let session = try? JSONDecoder().decode(Session.self, from: data) else { throw ServerError(message: "The server didn't hand back a sign-in. Is it a Ribbon server?") }
+        return session.account(at: url)
+    }
+
     /// Every book: the ones with a narration, to listen to, and to read along with when they have their text too; and
     /// the ones that are only their text, to read.
     func books() async throws -> [ServerBook] {
@@ -527,5 +638,12 @@ enum Moment {
     static func read(_ text: String?) -> Date? {
         guard let text else { return nil }
         return withFraction.date(from: text) ?? plain.date(from: text)
+    }
+}
+
+private extension Data {
+    /// Base64 that's safe in an address: no `+`, `/` or padding.
+    var base64URL: String {
+        base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 }

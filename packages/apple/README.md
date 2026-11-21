@@ -22,6 +22,9 @@ for listening without a network.
 ## What it does
 
 - **Sign in** to a Ribbon server once: its address, your name, your password.
+  A server whose people sign in with Pocket ID says so once its address is in:
+  the iPhone and the iPad open the system's sign-in sheet for it, and the TV
+  shows a code to sign in with from a phone (docs/SERVER.md, section 6).
   The sign-in is kept in the Keychain.
 - **Who's reading?** Several people can use one TV, as with Jellyfin: each
   signs in once, and with more than one the TV asks who's reading, starting

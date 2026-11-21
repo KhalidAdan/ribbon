@@ -465,9 +465,13 @@ and the jobs that follow.
 ## 11. The apps
 
 - **A server is a kind of library**, next to a folder. "Add a folder" gets a
-  sibling, "Connect to a server": its address, your name and password. Someone
-  new first opens their invite link, a page the server serves, to pick a name
-  and a password.
+  sibling, "Connect to a server": its address first, since the server says
+  how its people sign in. With its own accounts that's your name and
+  password (someone new first opens their invite link, a page the server
+  serves, to pick them). With Pocket ID the desktop opens the system browser
+  and waits on a port of its own for it to come back
+  (`packages/desktop/src-tauri/src/sign_in.rs`): a passkey can't be used
+  from the app's own web view.
 - **The server's list and places come through its API.** The shelf is `GET
   /api/books`, kept on the device as last seen so a launch draws it at once.
   A server's source keeps no copy of anyone's log as files:
