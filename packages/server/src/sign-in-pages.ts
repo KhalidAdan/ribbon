@@ -94,6 +94,7 @@ export function confirmDevicePage(opts: { code: string; device: string; person: 
             const answer = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(answer.error || "That didn't work. Start again on the device.");
             yes.hidden = true;
+            document.querySelector("h1").textContent = "You're in";
             document.getElementById("ask").hidden = true;
             document.getElementById("done").hidden = false;
           } catch (err) {
