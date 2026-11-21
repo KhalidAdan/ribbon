@@ -28,7 +28,9 @@ jobs:
   e2e:
     name: End-to-end, ${{ matrix.part }} (windows-2022)
     runs-on: windows-2022
-    timeout-minutes: 90
+    # Its budget: the slowest in twenty of 94 runs took fourteen minutes, and one with
+    # no Rust cache to start from sixteen. Past twenty-five, something is wrong.
+    timeout-minutes: 25
     strategy:
       # One speed failing says nothing about the other: both finish, and a re-run takes only the one that failed.
       fail-fast: false
