@@ -39,6 +39,14 @@ runs:
       with:
         # Compiled output remembers where its source was: a new key, so a cache from before the desktop moved is never used.
         prefix-key: v1-rust
+        # whisper.cpp's bindings name the compiler's own headers, and GitHub's
+        # runner image brings those with new dates each time it's refreshed:
+        # against a cache saved under an older image, Cargo compiled whisper.cpp
+        # again in every run (33 to 66 s) until the lock file next changed. With
+        # the image's version in the key, the first run on a new image builds
+        # from nothing and saves; the rest find whisper.cpp as they left it.
+        # The others are the action's own list, which naming any replaces.
+        env-vars: CARGO CC CFLAGS CXX CMAKE RUST ImageVersion
         workspaces: packages/desktop/src-tauri -> ../../../target
         # It joins a workspace's target to the workspace, so C:\t goes in whole.
         cache-directories: ${{ runner.os == 'Windows' && 'C:\t' || '' }}
