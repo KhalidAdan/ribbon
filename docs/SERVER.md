@@ -204,7 +204,10 @@ sequenceDiagram
 With the server's own accounts the app shows a form instead and posts the
 name and password. A TV, with either, shows a short code: someone opens
 `/link` on their phone, signs in there, and the TV, which has been asking
-every few seconds, gets its session.
+every few seconds, gets its session. Coming back from Pocket ID signed in
+isn't taken as a yes: the page asks whether the device showing that code is
+theirs, since a link someone else made would otherwise sign a stranger's
+device in as them.
 
 **Changing a server to Pocket ID** keeps everyone's places. The people who
 had accounts are still people; `npm run link -- <person> <Pocket ID
@@ -420,6 +423,7 @@ JSON over HTTP. A sketch, to be settled in code review:
 | `GET /sign-in/start`, `GET /sign-in/callback`, `POST /api/sign-in/finish` | Signing in through the browser: out to the provider and back to the app with a one-time code, which the app trades, with the secret it kept, for a session. |
 | `POST /api/sign-in/device`, `GET /link`, `POST /api/sign-in/device/poll` | Signing a TV in from a phone: a code to show, the page it leads to, and the TV asking whether it's in yet. |
 | `POST /api/sign-out` | Ends this device's session. |
+| `GET /api/people`, `POST /api/people/:id/sign-out` | (Admin) Everyone on the server; and signing someone out on every device, for a lost phone or a leaked password. Anyone may sign themselves out everywhere. |
 | `POST /api/auth/sign-in/username` | How apps from before 0.42 sign in, with a name and a password, answered as they expect. |
 | `POST /api/invites` | (Admin) Makes an invite: a one-time code and its link. |
 | `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, size, whether there's audio and an EPUB, how many words the EPUB has (`words`, counted from its text as its sentences are indexed for search, which is how thick the book stands on the bookcase; null until then and for a book with no EPUB), each cover's hash, aspect ratio and colour, and the ids of books the admin deleted. A book a person edited is listed as edited, with its edits (`edited`: the fields as edited, what its files say for each listed one, and when the server took them). No places or progress in it, so its ETag holds for days. Chapters come with a book's details. |

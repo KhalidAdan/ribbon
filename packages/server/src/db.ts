@@ -120,6 +120,8 @@ CREATE TABLE IF NOT EXISTS person_link (
   provider TEXT NOT NULL,
   username TEXT NOT NULL,
   person_id TEXT NOT NULL REFERENCES person (id) ON DELETE CASCADE,
+  -- When it was said: someone is expected for two weeks, not for ever.
+  created_at INTEGER NOT NULL,
   PRIMARY KEY (provider, username)
 );
 

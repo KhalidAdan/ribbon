@@ -29,7 +29,7 @@ export interface Auth {
   accounts: Accounts | null;
   people: People;
   sessions: Sessions;
-  /** Usernames that are admins whenever they sign in (`ServerConfig.admins`). */
+  /** Who is an admin whenever they sign in, by username or by the provider's own id for them (`ServerConfig.admins`). */
   admins: string[];
 }
 
@@ -59,7 +59,8 @@ export async function openAuth(db: DatabaseSync, config: ServerConfig): Promise<
 
   // Whichever provider runs now, the people who had accounts are still people here, with what's theirs.
   people.bringOver(accountsKept(db));
-  // The devices they were signed in on stay signed in, once: sessions ended since aren't brought back.
+  // The devices they were signed in on stay signed in, once: sessions ended since aren't brought back. Better Auth's
+  // own rows are left where they are, so the server before this one still finds them if it has to be put back.
   if (!wasDone(db, "sessions")) {
     for (const kept of sessionsKept(db)) sessions.adopt(kept.token, kept.subject, kept.expiresAt);
     markDone(db, "sessions");
@@ -106,10 +107,16 @@ export class People {
    * them. Someone new to the provider is the person an admin said to
    * expect under that username (`expect`), when there is one, and
    * otherwise a new person. Either way their name and picture become what
-   * the provider says now, and a username on the admins' list is an admin.
+   * the provider says now.
+   *
+   * Someone on the admins' list is made an admin. The list may name them by
+   * username or by the provider's id for them; the id is the safer of the
+   * two, since a username belongs to whoever holds it at the provider now.
+   * Being listed only ever gives the role: taking it away is `setRole`.
    */
   welcome(identity: Identity, admins: readonly string[] = []): Person {
     const known = this.db.prepare("SELECT person_id FROM person_identity WHERE provider = ? AND subject = ?").get(identity.provider, identity.subject);
+    this.db.prepare("DELETE FROM person_link WHERE created_at < ?").run(this.now() - EXPECTED_FOR_MS);
     const expected = known ? null : this.db.prepare("SELECT person_id FROM person_link WHERE provider = ? AND username = ?").get(identity.provider, identity.username.toLowerCase());
     // A person with an account here keeps the account's id, as they had before people were kept apart from accounts.
     const id = String(known?.person_id ?? expected?.person_id ?? (identity.provider === ACCOUNTS ? identity.subject : randomBytes(16).toString("base64url")));
@@ -118,7 +125,7 @@ export class People {
     this.db.prepare("UPDATE person SET name = ?, display_name = ?, picture = ? WHERE id = ?").run(identity.username, identity.displayName, identity.picture ?? null, id);
     this.db.prepare("INSERT OR IGNORE INTO person_identity (provider, subject, person_id) VALUES (?, ?, ?)").run(identity.provider, identity.subject, id);
     if (expected) this.db.prepare("DELETE FROM person_link WHERE provider = ? AND username = ?").run(identity.provider, identity.username.toLowerCase());
-    if (admins.some((name) => name.toLowerCase() === identity.username.toLowerCase())) this.setRole(id, "admin");
+    if (admins.some((listed) => listed === identity.subject || listed.toLowerCase() === identity.username.toLowerCase())) this.setRole(id, "admin");
     return this.get(id)!;
   }
 
@@ -130,20 +137,22 @@ export class People {
    * Say that someone already here will sign in to a provider under this
    * username, before they ever have: their first sign-in there is then
    * theirs. How a server's people keep their places when it changes
-   * providers (src/link.ts). False when there's no such person.
+   * providers (src/link.ts). They're expected for two weeks: a username
+   * nobody claims in that time isn't left waiting for whoever takes it
+   * later. False when there's no such person.
    */
   expect(personName: string, provider: string, username: string): boolean {
     const person = this.db.prepare("SELECT id FROM person WHERE lower(name) = lower(?)").get(personName);
     if (!person) return false;
-    this.db.prepare("INSERT INTO person_link (provider, username, person_id) VALUES (?, ?, ?) ON CONFLICT (provider, username) DO UPDATE SET person_id = excluded.person_id").run(provider, username.toLowerCase(), String(person.id));
+    this.db.prepare("INSERT INTO person_link (provider, username, person_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (provider, username) DO UPDATE SET person_id = excluded.person_id, created_at = excluded.created_at").run(provider, username.toLowerCase(), String(person.id), this.now());
     return true;
   }
 
   /** Who is expected at a provider, and under what username. */
   expected(provider: string): { username: string; person: string }[] {
     return this.db
-      .prepare("SELECT l.username, p.name FROM person_link l JOIN person p ON p.id = l.person_id WHERE l.provider = ? ORDER BY l.username")
-      .all(provider)
+      .prepare("SELECT l.username, p.name FROM person_link l JOIN person p ON p.id = l.person_id WHERE l.provider = ? AND l.created_at >= ? ORDER BY l.username")
+      .all(provider, this.now() - EXPECTED_FOR_MS)
       .map((row) => ({ username: String(row.username), person: String(row.name) }));
   }
 
@@ -164,6 +173,9 @@ export class People {
     return brought;
   }
 }
+
+/** How long someone is expected at a provider under a username before the expectation lapses. */
+const EXPECTED_FOR_MS = 14 * 86_400_000;
 
 function personOf(row: Record<string, unknown>): Person {
   return { id: String(row.id), name: String(row.name), displayName: String(row.display_name), picture: row.picture === null ? null : String(row.picture), role: String(row.role) };

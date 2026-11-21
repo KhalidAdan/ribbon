@@ -164,7 +164,7 @@ From the environment:
 | `RIBBON_SIGN_IN` | `accounts` | How people prove who they are: `accounts`, a name and a password the server keeps, or `pocket-id`. |
 | `RIBBON_POCKET_ID_URL` | none | With `pocket-id`: the instance's address, such as `https://id.example.com`. |
 | `RIBBON_POCKET_ID_CLIENT_ID`, `RIBBON_POCKET_ID_CLIENT_SECRET` | none | With `pocket-id`: the client registered there for this server. |
-| `RIBBON_ADMINS` | none | With `pocket-id`: the usernames of this server's admins, separated by commas. |
+| `RIBBON_ADMINS` | none | With `pocket-id`: this server's admins, separated by commas, each by their Pocket ID username or, safer, by their id there (a username belongs to whoever holds it now). Being listed gives the role at their next sign-in; taking a name off the list doesn't take the role away. |
 | `RIBBON_EBOOK_TOOL` | `target/release/ribbon-ebook`, else `target/debug/` | The EPUB parser, for read-along. |
 | `RIBBON_FRAMES_TOOL` | `target/release/ribbon-frames`, else `target/debug/` | The MP3 frame index, so a streamed MP3 starts at the exact moment. |
 | `RIBBON_DESCRIPTIONS` | none | `audible`: a book that came with no description, and has no EPUB with one, gets Audible's summary, after each folder is added and when the server starts. It asks Audible's catalog, sending only the book's title and author, and takes a recording only by one of its authors and as long as it (within 3%). A description already there is never replaced, and each book is asked about once. Unset, the server asks no one. |
@@ -199,7 +199,8 @@ npm run link -- annie ann     # annie here will sign in to Pocket ID as ann
 ```
 
 In the container that is `docker exec ribbon-server node --import tsx
-src/link.ts annie ann`. Devices already signed in stay signed in. The apps
+src/link.ts annie ann`. Someone is expected for two weeks, so say it once
+their Pocket ID account exists and not long before they'll sign in. Devices already signed in stay signed in. The apps
 need Ribbon 0.42 or later to sign in again: an older one asks for a password
 and is told to update.
 

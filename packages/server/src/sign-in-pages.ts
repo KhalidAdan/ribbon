@@ -54,7 +54,7 @@ export function approveDevicePage(opts: { code: string; device: string; signIn: 
             const r = await fetch("/api/sign-in/device/approve", {
               method: "POST",
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ code: ${JSON.stringify(opts.code)}, name: form.name.value.trim(), password: form.password.value }),
+              body: JSON.stringify({ code: ${inScript(opts.code)}, name: form.name.value.trim(), password: form.password.value }),
             });
             const answer = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(answer.error || "That didn't work. Try again.");
@@ -70,12 +70,37 @@ export function approveDevicePage(opts: { code: string; device: string; signIn: 
   );
 }
 
-/** A device was signed in from this browser. */
-export function deviceSignedInPage(opts: { device: string; person: string }): string {
+/**
+ * Someone came back from the provider signed in, for a device's code: ask
+ * whether the device is theirs before it's let in (`DeviceSignIns.propose`).
+ */
+export function confirmDevicePage(opts: { code: string; device: string; person: string; ticket: string }): string {
   return ribbonPage(
-    "You're in",
-    `<h1>You're in</h1>
-      <p class="lede"><strong>${escapeHtml(opts.device || "The device")}</strong> is signed in as <strong>${escapeHtml(opts.person)}</strong>. Look at its screen: it's opening your library. You can close this page.</p>`,
+    "Sign in a device",
+    `<h1>Sign in ${escapeHtml(opts.device || "a device")} as ${escapeHtml(opts.person)}?</h1>
+      <p class="code">${escapeHtml(opts.code)}</p>
+      <p class="lede" id="ask">Only if that code is on a screen in front of you. Whoever holds that device will have your library and your places.</p>
+      <p id="error" class="error" role="alert"></p>
+      <button id="yes" type="button">Sign it in</button>
+      <div id="done" hidden><p class="lede">You're in. Look at the device: it's opening your library. You can close this page.</p></div>
+      <script>
+        const yes = document.getElementById("yes");
+        yes.addEventListener("click", async () => {
+          const error = document.getElementById("error");
+          error.textContent = "";
+          yes.disabled = true;
+          try {
+            const r = await fetch("/api/sign-in/device/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticket: ${inScript(opts.ticket)} }) });
+            const answer = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(answer.error || "That didn't work. Start again on the device.");
+            yes.hidden = true;
+            document.getElementById("ask").hidden = true;
+            document.getElementById("done").hidden = false;
+          } catch (err) {
+            error.textContent = err.message;
+          }
+        });
+      </script>`,
   );
 }
 
@@ -86,4 +111,9 @@ export function signInFailedPage(why: string): string {
     `<h1>That didn't work</h1>
       <p class="lede">${escapeHtml(why)}</p>`,
   );
+}
+
+/** A value written into a page's script: JSON, with `<` escaped so nothing in it can end the script. */
+function inScript(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }

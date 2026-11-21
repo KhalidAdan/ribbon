@@ -61,13 +61,14 @@ export function pocketId(settings: PocketIdSettings): BrowserProvider {
       if (!query.code) throw new SignInRefused("Pocket ID sent no sign-in back. Try again.", 400);
       // Pocket ID says who is answering; an answer that names another issuer was meant for someone else.
       if (query.iss && query.iss !== issuer) throw new SignInRefused("That sign-in came from somewhere other than this server's Pocket ID.", 400);
-      const { verifier, nonce } = JSON.parse(memo) as { verifier: string; nonce: string };
+      const { verifier, nonce } = remembered(memo);
       const { token_endpoint, keys } = await discovered();
 
       const answer = await fetch(token_endpoint, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
         body: new URLSearchParams({ grant_type: "authorization_code", code: query.code, redirect_uri: callbackUrl, client_id: settings.clientId, client_secret: settings.clientSecret, code_verifier: verifier }),
+        signal: AbortSignal.timeout(PATIENCE_MS),
       }).catch(() => null);
       if (!answer) throw new SignInRefused("Pocket ID couldn't be reached. Try again in a moment.", 502);
       const tokens = (await answer.json().catch(() => ({}))) as { id_token?: string; error?: string; error_description?: string };
@@ -83,6 +84,20 @@ export function pocketId(settings: PocketIdSettings): BrowserProvider {
       return identityFrom(claims);
     },
   };
+}
+
+/** How long the instance has to answer a request of ours before the person is told it couldn't be reached. */
+const PATIENCE_MS = 10_000;
+
+/** What `begin` asked to be kept, read back. A memo that isn't one of ours is a sign-in this server never started. */
+function remembered(memo: string): { verifier: string; nonce: string } {
+  try {
+    const kept = JSON.parse(memo) as { verifier?: unknown; nonce?: unknown };
+    if (typeof kept.verifier === "string" && typeof kept.nonce === "string") return { verifier: kept.verifier, nonce: kept.nonce };
+  } catch {
+    // Not JSON: the same answer as JSON without the two secrets.
+  }
+  throw new SignInRefused("That sign-in wasn't one this server started. Try again.", 400);
 }
 
 /**
@@ -129,7 +144,7 @@ interface Discovered {
 }
 
 async function discover(issuer: string): Promise<Discovered> {
-  const answer = await fetch(`${issuer}/.well-known/openid-configuration`, { headers: { accept: "application/json" } }).catch(() => null);
+  const answer = await fetch(`${issuer}/.well-known/openid-configuration`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(PATIENCE_MS) }).catch(() => null);
   if (!answer?.ok) throw new SignInRefused("Pocket ID couldn't be reached. Try again in a moment.", 502);
   const said = (await answer.json()) as { issuer?: string; authorization_endpoint?: string; token_endpoint?: string; jwks_uri?: string };
   if (said.issuer !== issuer || !said.authorization_endpoint || !said.token_endpoint || !said.jwks_uri) {

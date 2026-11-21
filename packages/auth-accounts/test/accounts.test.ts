@@ -41,6 +41,20 @@ describe("accounts the server keeps itself", () => {
     expect(await accounts.check("ann", "a long password")).not.toBeNull();
   });
 
+  it("counts tries sent all at once, each of them", async () => {
+    await accounts.signUp("ann", "a long password");
+    await Promise.all(Array.from({ length: 8 }, () => accounts.check("ann", "a guess")));
+    await expect(accounts.check("ann", "a long password")).rejects.toThrow(SignInRefused);
+  });
+
+  it("leaves out someone the older server's admin banned", async () => {
+    const ann = await accounts.signUp("ann", "a long password");
+    await accounts.signUp("yusuf", "another long password");
+    db.exec(`ALTER TABLE "user" ADD COLUMN banned INTEGER`);
+    db.prepare(`UPDATE "user" SET banned = 1 WHERE id = ?`).run(ann.subject);
+    expect(accountsKept(db).map((account) => account.username)).toEqual(["yusuf"]);
+  });
+
   it("refuses a name that's taken or a password that's too short, in plain words", async () => {
     await accounts.signUp("ann", "a long password");
     await expect(accounts.signUp("Ann", "another long password")).rejects.toMatchObject({ message: "That name is taken. Try another.", taken: true });

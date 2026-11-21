@@ -81,6 +81,33 @@ describe("a sign-in for a TV", () => {
     expect(signIns.answer(asked.secret)).toBe("gone");
   });
 
+  it("isn't approved by someone merely arriving signed in: they're asked, and only their yes lets the device in", () => {
+    const asked = signIns.ask("Ribbon on Living Room");
+    const ticket = signIns.propose(asked.code, "ann")!;
+    // Sent here by a link, signed in without a click: the device still waits.
+    expect(signIns.answer(asked.secret)).toBe("waiting");
+    expect(signIns.confirm("a guess at the ticket")).toBeNull();
+    expect(signIns.confirm(ticket)).toEqual({ device: "Ribbon on Living Room" });
+    expect(signIns.confirm(ticket)).toBeNull();
+    expect(signIns.answer(asked.secret)).toMatchObject({ personId: "ann" });
+  });
+
+  it("has nothing to ask about a code that isn't waiting, and forgets the question after five minutes", () => {
+    expect(signIns.propose("BBBB-BBBC", "ann")).toBeNull();
+    const asked = signIns.ask("Ribbon on Living Room");
+    const ticket = signIns.propose(asked.code, "ann")!;
+    clock += 6 * MINUTE;
+    expect(signIns.confirm(ticket)).toBeNull();
+    expect(signIns.answer(asked.secret)).toBe("waiting");
+  });
+
+  it("keeps only so many at once, so asking can't fill the server", () => {
+    for (let i = 0; i < 5000; i++) signIns.ask("a TV");
+    expect(() => signIns.ask("one more")).toThrow("Too many sign-ins");
+    clock += 11 * MINUTE;
+    expect(signIns.ask("a TV later").code).toMatch(/^[A-Z]{4}-[A-Z]{4}$/);
+  });
+
   it("reads a code however it was typed", () => {
     const asked = signIns.ask("Ribbon on Living Room");
     const typed = asked.code.toLowerCase().replace("-", " ");

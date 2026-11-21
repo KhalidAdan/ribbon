@@ -55,6 +55,13 @@ describe("signing in with Pocket ID", () => {
     await expect(pocket.finish(query, CALLBACK, mine.memo)).rejects.toThrow(SignInRefused);
   });
 
+  it("refuses, rather than falls over, when what it asked to be kept didn't come back", async () => {
+    const pocket = provider();
+    const { url } = await pocket.begin("the state", CALLBACK);
+    const { query } = await signInAt(url);
+    await expect(pocket.finish(query, CALLBACK, "")).rejects.toThrow(SignInRefused);
+  });
+
   it("won't take an answer that says it's from another issuer", async () => {
     const pocket = provider();
     const { url, memo } = await pocket.begin("the state", CALLBACK);

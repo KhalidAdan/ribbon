@@ -1,6 +1,14 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { SignInRefused } from "./identity.ts";
 
 const MINUTE_MS = 60_000;
+
+/** Sign-ins kept at once, of each kind. Starting one needs no sign-in, so without a limit anyone could fill the server's memory with them. */
+const MOST = 5_000;
+
+function room(kept: number): void {
+  if (kept >= MOST) throw new SignInRefused("Too many sign-ins are under way on this server. Try again in a few minutes.", 503);
+}
 
 /**
  * Sign-ins under way, for apps that can't take a password themselves.
@@ -34,6 +42,7 @@ export class BrowserSignIns {
   /** Someone is about to be sent to the provider. The `state` to send with them. */
   ask(purpose: Purpose): string {
     this.forget();
+    room(this.asked.size);
     const state = randomBytes(24).toString("base64url");
     this.asked.set(state, { purpose, memo: "", until: this.now() + 10 * MINUTE_MS });
     return state;
@@ -112,18 +121,20 @@ export type DeviceAnswer = "waiting" | "gone" | { personId: string; device: stri
  * meant. The TV, asking every few seconds with a secret only it holds,
  * then gets its session.
  *
- *     waiting ──someone signed in approves it──▶ approved ──the device asks──▶ taken
+ *     waiting ──someone signed in says it's theirs──▶ approved ──the device asks──▶ taken
  *        │                                          │
  *        └────────────ten minutes pass──────────────┴──▶ gone
  */
 export class DeviceSignIns {
   private readonly byCode = new Map<string, { secret: string; device: string; personId: string | null; until: number }>();
+  private readonly proposed = new Map<string, { code: string; personId: string; until: number }>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
   /** A device wants someone signed in. The code to show, the secret to ask with, and how long both are good for. */
   ask(device: string): { code: string; secret: string; expiresIn: number } {
     this.forget();
+    room(this.byCode.size);
     let code = shortCode();
     while (this.byCode.has(code)) code = shortCode();
     const secret = randomBytes(32).toString("base64url");
@@ -147,6 +158,34 @@ export class DeviceSignIns {
     return true;
   }
 
+  /**
+   * Someone signed in in a browser that was sent here for this code, but
+   * hasn't yet said the device is theirs. The one-time ticket for the page
+   * that asks them, or null when the code isn't waiting.
+   *
+   * Asking matters because coming back signed in can take no action at
+   * all: a link someone else made, opened by a person whose provider
+   * already knows them, would otherwise sign a stranger's device in as
+   * them. Only the page shown to that person holds the ticket.
+   */
+  propose(code: string, personId: string): string | null {
+    if (!this.waiting(code)) return null;
+    room(this.proposed.size);
+    const ticket = randomBytes(24).toString("base64url");
+    this.proposed.set(ticket, { code: plain(code), personId, until: this.now() + 5 * MINUTE_MS });
+    return ticket;
+  }
+
+  /** They said yes on the page that held the ticket: the device is approved. The device, or null when the ticket or the code is no longer good. */
+  confirm(ticket: string): { device: string } | null {
+    this.forget();
+    const asked = this.proposed.get(ticket);
+    if (!asked) return null;
+    this.proposed.delete(ticket);
+    const device = this.waiting(asked.code);
+    return device && this.approve(asked.code, asked.personId) ? device : null;
+  }
+
   /** The device asks whether it's in yet. Once it is, it's told once. */
   answer(secret: string): DeviceAnswer {
     this.forget();
@@ -162,6 +201,7 @@ export class DeviceSignIns {
   private forget(): void {
     const now = this.now();
     for (const [code, found] of this.byCode) if (found.until <= now) this.byCode.delete(code);
+    for (const [ticket, asked] of this.proposed) if (asked.until <= now) this.proposed.delete(ticket);
   }
 }
 

@@ -134,10 +134,56 @@ describe("signing in with Pocket ID", () => {
     const started = await get(`/sign-in/start?device=${asked.code}`);
     const back = await throughIssuer(started);
     expect(back.statusCode).toBe(200);
-    expect(back.body).toContain("<strong>Ribbon on Living Room</strong> is signed in as <strong>Ann</strong>");
+    expect(back.body).toContain("Sign in Ribbon on Living Room as Ann?");
+    expect(back.body).toContain(asked.code);
+    // Arriving signed in is not a yes: the TV still waits.
+    expect((await post("/api/sign-in/device/poll", { secret: asked.secret })).statusCode).toBe(202);
+
+    const ticket = /ticket: "([^"]+)"/.exec(back.body)![1]!;
+    expect((await post("/api/sign-in/device/confirm", { ticket })).statusCode).toBe(200);
+    expect((await post("/api/sign-in/device/confirm", { ticket })).statusCode).toBe(410);
 
     const answer = await post("/api/sign-in/device/poll", { secret: asked.secret });
     expect(answer.json()).toMatchObject({ user: { name: "ann" } });
+  });
+
+  it("doesn't sign a stranger's TV in as someone who only followed a link", async () => {
+    // Someone else asks for a code and sends a person, already known to Pocket ID, a link straight past the code's page.
+    const theirs = (await post("/api/sign-in/device", { device: "A TV somewhere else" })).json() as { code: string; secret: string };
+    const back = await throughIssuer(await get(`/sign-in/start?device=${theirs.code}`));
+    expect(back.body).toContain("Only if that code is on a screen in front of you");
+    expect((await post("/api/sign-in/device/poll", { secret: theirs.secret })).statusCode).toBe(202);
+    expect((await post("/api/sign-in/device/confirm", { ticket: "not the page's ticket" })).statusCode).toBe(410);
+    expect((await post("/api/sign-in/device/poll", { secret: theirs.secret })).statusCode).toBe(202);
+  });
+
+  it("makes an admin of someone listed by Pocket ID's own id for them, whatever they're called", async () => {
+    await server.app.close();
+    server.db.close();
+    server = await buildServer({ ...config(), admins: [YUSUF.sub] });
+    issuer.person = { ...YUSUF, preferred_username: "renamed" };
+    const signedIn = (await (await signInAsApp()).finish()).json() as { user: { name: string; role: string } };
+    expect(signedIn.user).toMatchObject({ name: "renamed", role: "admin" });
+  });
+
+  it("lets the admin sign someone out everywhere, and nobody else", async () => {
+    issuer.person = ANN;
+    const ann = (await (await signInAsApp()).finish()).json() as { token: string; user: { id: string } };
+    issuer.person = YUSUF;
+    const yusuf = (await (await signInAsApp()).finish()).json() as { token: string; user: { id: string } };
+    // Ann is no admin on this server now (only Yusuf's id is listed), though she was made one earlier and stays one.
+    const people = (await server.app.inject({ method: "GET", url: "/api/people", headers: bearer(yusuf.token) })).json() as { people: { id: string }[] };
+    expect(people.people.map((person) => person.id)).toContain(ann.user.id);
+    expect((await post(`/api/people/${ann.user.id}/sign-out`, {})).statusCode).toBe(401);
+    expect((await post(`/api/people/${ann.user.id}/sign-out`, {}, bearer(yusuf.token))).statusCode).toBe(200);
+    expect((await server.app.inject({ method: "GET", url: "/api/me", headers: bearer(ann.token) })).statusCode).toBe(401);
+    expect((await server.app.inject({ method: "GET", url: "/api/me", headers: bearer(yusuf.token) })).statusCode).toBe(200);
+  });
+
+  it("answers an address with a name given twice, rather than falling over", async () => {
+    expect((await get("/link?code=a&code=b")).statusCode).toBe(200);
+    expect((await get("/sign-in/start?device=a&device=b")).statusCode).toBe(410);
+    expect((await get("/sign-in/callback?state=a&state=b")).statusCode).toBe(410);
   });
 
   it("has no passwords and no invites: Pocket ID's admin lets people in", async () => {
@@ -206,6 +252,13 @@ describe("changing a server from its own accounts to Pocket ID", () => {
     // Expected once: after that it's Pocket ID's own id for them that finds them.
     expect(server.auth.people.expected("pocket-id")).toEqual([]);
     expect((await signIn()).user.id).toBe(annId);
+  });
+
+  it("stops expecting someone after two weeks, so the username isn't left for whoever takes it later", () => {
+    const db = server.db;
+    expect(server.auth.people.expect("ann", "pocket-id", "left-waiting")).toBe(true);
+    db.prepare("UPDATE person_link SET created_at = created_at - ? WHERE username = 'left-waiting'").run(15 * 86_400_000);
+    expect(server.auth.people.expected("pocket-id")).toEqual([]);
   });
 
   it("makes someone nobody was expecting a new person, with nothing of anyone else's", async () => {

@@ -60,19 +60,19 @@ export async function openAccounts(db: DatabaseSync, settings: { url: string; se
 
     async check(name, password) {
       const key = name.trim().toLowerCase();
-      const tried = wrong.get(key);
-      if (tried && now() - tried.since >= WAIT_MS) wrong.delete(key);
-      else if (tried && tried.tries >= TRIES) throw new SignInRefused("Too many wrong tries at that name. Wait ten minutes, then try again.", 429);
+      const since = now();
+      // Names that waited out their ten minutes are let go, so the list is only ever of names tried lately.
+      for (const [tried, at] of wrong) if (since - at.since >= WAIT_MS) wrong.delete(tried);
+      const before = wrong.get(key);
+      if (before && before.tries >= TRIES) throw new SignInRefused("Too many wrong tries at that name. Wait ten minutes, then try again.", 429);
+      // Counted before the password is looked at, so tries sent all at once are each counted. A right one clears it.
+      wrong.set(key, { tries: (before?.tries ?? 0) + 1, since: before?.since ?? since });
 
       const row = db
         .prepare(`SELECT u.id, u.username, u.displayUsername, u.name, a.password FROM "user" u JOIN account a ON a.userId = u.id AND a.providerId = 'credential' WHERE u.username = ?`)
         .get(key);
       const right = await verifyPassword({ hash: String(row?.password ?? nobody), password });
-      if (!row || !right) {
-        const before = wrong.get(key);
-        wrong.set(key, { tries: (before?.tries ?? 0) + 1, since: before?.since ?? now() });
-        return null;
-      }
+      if (!row || !right) return null;
       wrong.delete(key);
       return identityOf({ id: String(row.id), username: String(row.username), shown: String(row.displayUsername ?? row.name) });
     },
@@ -107,8 +107,10 @@ export function accountsKept(db: DatabaseSync): KeptAccount[] {
   const columns = columnsOf(db, "user");
   if (columns.length === 0) return [];
   const role = columns.includes("role") ? "role" : "NULL";
+  // Someone the older server's admin banned isn't brought over, nor their sessions.
+  const allowed = columns.includes("banned") ? "AND (banned IS NULL OR banned = 0)" : "";
   return db
-    .prepare(`SELECT id, username, displayUsername, name, ${role} AS role FROM "user" WHERE username IS NOT NULL`)
+    .prepare(`SELECT id, username, displayUsername, name, ${role} AS role FROM "user" WHERE username IS NOT NULL ${allowed}`)
     .all()
     .map((row) => ({ subject: String(row.id), username: String(row.username), displayName: String(row.displayUsername ?? row.name), role: String(row.role ?? "user") }));
 }
@@ -126,7 +128,7 @@ export function sessionsKept(db: DatabaseSync, now = Date.now()): KeptSession[] 
   return db
     .prepare(`SELECT token, userId, expiresAt FROM "session"`)
     .all()
-    .map((row) => ({ token: String(row.token), subject: String(row.userId), expiresAt: Date.parse(String(row.expiresAt)) }))
+    .map((row) => ({ token: String(row.token), subject: String(row.userId), expiresAt: typeof row.expiresAt === "number" ? row.expiresAt : Date.parse(String(row.expiresAt)) }))
     .filter((session) => session.expiresAt > now);
 }
 
