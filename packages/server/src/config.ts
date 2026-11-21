@@ -11,8 +11,19 @@ export interface ServerConfig {
   port: number;
   /** The address people and apps use to reach it, as the host has set it up. Invite links are made from it. */
   url: string;
-  /** Signs sessions. Made once and kept in the data folder, unless RIBBON_SECRET gives one. */
+  /** A secret of the server's own, for the accounts it keeps. Made once and kept in the data folder, unless RIBBON_SECRET gives one. */
   secret: string;
+  /**
+   * How people prove who they are (auth.ts). Accounts the server keeps itself, a name and a password each, unless
+   * RIBBON_SIGN_IN is `pocket-id`: then a Pocket ID instance beside it does (RIBBON_POCKET_ID_URL, and the client
+   * registered there for this server: RIBBON_POCKET_ID_CLIENT_ID and RIBBON_POCKET_ID_CLIENT_SECRET).
+   */
+  signIn?: SignInSettings;
+  /**
+   * The usernames of this server's admins, when something outside it signs people in (RIBBON_ADMINS, separated by
+   * commas). With its own accounts the first invite makes the admin, and this isn't read.
+   */
+  admins?: string[];
   /** Where Ribbon's apps sign in from, besides the server's own address. The desktop and phone apps' own origins unless given. */
   appOrigins?: string[];
   /** The `ribbon-ebook` command, which parses EPUBs as the apps do (packages/desktop/src-tauri/ebook), or null when there's none: no read-along. */
@@ -33,6 +44,9 @@ export interface ServerConfig {
   folders?: string[];
 }
 
+/** How people prove who they are: to the server itself, or to a Pocket ID instance it's a client of. */
+export type SignInSettings = { with: "accounts" } | { with: "pocket-id"; url: string; clientId: string; clientSecret: string };
+
 /** The origins Ribbon's apps run at: Tauri's on each system, and the browser harness in development. */
 export const APP_ORIGINS = ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", "http://localhost:1420"];
 
@@ -47,12 +61,26 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port,
     url: (env.RIBBON_URL ?? `http://localhost:${port}`).replace(/\/+$/, ""),
     secret: env.RIBBON_SECRET ?? keptSecret(dataDir),
+    signIn: signInFrom(env),
+    admins: (env.RIBBON_ADMINS ?? "").split(",").map((name) => name.trim()).filter(Boolean),
     appOrigins: env.RIBBON_APP_ORIGINS ? env.RIBBON_APP_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean) : APP_ORIGINS,
     ebookTool: env.RIBBON_EBOOK_TOOL ?? builtTool("ribbon-ebook"),
     framesTool: env.RIBBON_FRAMES_TOOL ?? builtTool("ribbon-frames"),
     descriptions: env.RIBBON_DESCRIPTIONS === "audible" ? { store: env.RIBBON_AUDIBLE_STORE || "us" } : null,
     folders: (env.RIBBON_FOLDERS ?? "").split(path.delimiter).filter(Boolean).map((folder) => path.resolve(folder)),
   };
+}
+
+/** How this server signs people in, as the environment says. A Pocket ID half set up stops the start, rather than leaving nobody able to sign in. */
+function signInFrom(env: NodeJS.ProcessEnv): SignInSettings {
+  const chosen = env.RIBBON_SIGN_IN ?? "accounts";
+  if (chosen === "accounts") return { with: "accounts" };
+  if (chosen !== "pocket-id") throw new Error(`RIBBON_SIGN_IN is "${chosen}": it can be "accounts" or "pocket-id".`);
+  const url = env.RIBBON_POCKET_ID_URL;
+  const clientId = env.RIBBON_POCKET_ID_CLIENT_ID;
+  const clientSecret = env.RIBBON_POCKET_ID_CLIENT_SECRET;
+  if (!url || !clientId || !clientSecret) throw new Error("Signing in with Pocket ID needs RIBBON_POCKET_ID_URL, RIBBON_POCKET_ID_CLIENT_ID and RIBBON_POCKET_ID_CLIENT_SECRET.");
+  return { with: "pocket-id", url, clientId, clientSecret };
 }
 
 /**

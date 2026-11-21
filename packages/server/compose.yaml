@@ -21,6 +21,13 @@ services:
     environment:
       RIBBON_URL: ${RIBBON_URL:-http://localhost:7766}
       RIBBON_FOLDERS: /media
+      # How people sign in: accounts the server keeps itself, unless these say a Pocket ID instance does
+      # (packages/server/README.md, "Signing in with Pocket ID").
+      RIBBON_SIGN_IN: ${RIBBON_SIGN_IN:-accounts}
+      RIBBON_POCKET_ID_URL: ${RIBBON_POCKET_ID_URL:-}
+      RIBBON_POCKET_ID_CLIENT_ID: ${RIBBON_POCKET_ID_CLIENT_ID:-}
+      RIBBON_POCKET_ID_CLIENT_SECRET: ${RIBBON_POCKET_ID_CLIENT_SECRET:-}
+      RIBBON_ADMINS: ${RIBBON_ADMINS:-}
     volumes:
       - ./ribbon-data:/data
       - ${RIBBON_BOOKS:?say where your books are}:/media:ro

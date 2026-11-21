@@ -9,8 +9,9 @@ with places of their own.
 
 What it does:
 
-- **Accounts.** People sign in with a name and a password (Better Auth), and
-  the admin invites them.
+- **Accounts.** People sign in with a name and a password the server keeps,
+  and the admin invites them; or with passkeys, through a Pocket ID instance
+  you run beside it ("Signing in with Pocket ID", below).
 - **Adding a folder.** The admin points the server at a folder on its
   machine (in Ribbon, Settings → Add a folder, as the admin); it copies in
   each book it doesn't have yet, reads its chapters, makes its covers, and
@@ -159,12 +160,49 @@ From the environment:
 | `RIBBON_HOST` | `127.0.0.1` | Where it listens. This machine only, until you choose otherwise. |
 | `RIBBON_PORT` | `7766` | |
 | `RIBBON_URL` | `http://localhost:7766` | The address people use to reach it. Invite links are made from it. |
-| `RIBBON_SECRET` | made on the first start | Signs sessions. Kept in the data folder unless given here. |
+| `RIBBON_SECRET` | made on the first start | A secret of the server's own, for the accounts it keeps. Kept in the data folder unless given here. |
+| `RIBBON_SIGN_IN` | `accounts` | How people prove who they are: `accounts`, a name and a password the server keeps, or `pocket-id`. |
+| `RIBBON_POCKET_ID_URL` | none | With `pocket-id`: the instance's address, such as `https://id.example.com`. |
+| `RIBBON_POCKET_ID_CLIENT_ID`, `RIBBON_POCKET_ID_CLIENT_SECRET` | none | With `pocket-id`: the client registered there for this server. |
+| `RIBBON_ADMINS` | none | With `pocket-id`: this server's admins, separated by commas, each by their Pocket ID username or, safer, by their id there (a username belongs to whoever holds it now). Being listed gives the role at their next sign-in; taking a name off the list doesn't take the role away. |
 | `RIBBON_EBOOK_TOOL` | `target/release/ribbon-ebook`, else `target/debug/` | The EPUB parser, for read-along. |
 | `RIBBON_FRAMES_TOOL` | `target/release/ribbon-frames`, else `target/debug/` | The MP3 frame index, so a streamed MP3 starts at the exact moment. |
 | `RIBBON_DESCRIPTIONS` | none | `audible`: a book that came with no description, and has no EPUB with one, gets Audible's summary, after each folder is added and when the server starts. It asks Audible's catalog, sending only the book's title and author, and takes a recording only by one of its authors and as long as it (within 3%). A description already there is never replaced, and each book is asked about once. Unset, the server asks no one. |
 | `RIBBON_AUDIBLE_STORE` | `us` | Which Audible store to ask: `us`, `uk`, `ca`, `au`, `de`, `fr`, `it`, `es`, `in` or `jp`. |
 | `RIBBON_FOLDERS` | none | Where the server has the share the apps add folders from, so a folder picked on a Windows PC or a Mac is found here: the longest stretch of its path that's under one of these. Separated by `:` (`;` on Windows). Unset, a folder is found only at the path it was picked at. |
+
+## Signing in with Pocket ID
+
+[Pocket ID](https://pocket-id.org) signs people in with passkeys, and one
+instance can do it for every app you run. With it, Ribbon keeps no
+passwords and sends no invites: who may come in is decided in Pocket ID,
+and what they may do here stays Ribbon's.
+
+1. In Pocket ID, under Administration → OIDC Clients, add a client for
+   Ribbon. Not a public client: the server keeps its secret. Its callback
+   URL is your server's address followed by `/sign-in/callback`.
+2. Choose who may use it: the client's allowed user groups, or everyone.
+3. Start the server with `RIBBON_SIGN_IN=pocket-id`, the instance's address
+   and the client's id and secret (Settings, below), and your own Pocket ID
+   username in `RIBBON_ADMINS`.
+
+Someone signing in for the first time becomes a person here, with nothing
+yet. Their name and picture are Pocket ID's, as of their last sign-in.
+
+**Changing a server that has accounts already.** Its people keep their
+places, goals and devices if you say who each of them is at Pocket ID
+before they sign in there:
+
+```bash
+npm run link                  # everyone on this server
+npm run link -- annie ann     # annie here will sign in to Pocket ID as ann
+```
+
+In the container that is `docker exec ribbon-server node --import tsx
+src/link.ts annie ann`. Someone is expected for two weeks, so say it once
+their Pocket ID account exists and not long before they'll sign in. Devices already signed in stay signed in. The apps
+need Ribbon 0.42 or later to sign in again: an older one asks for a password
+and is told to update.
 
 ## Reaching it from elsewhere
 

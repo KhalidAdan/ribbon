@@ -122,6 +122,10 @@ jobs:
           workspaces: packages/desktop/src-tauri -> ../../../target
       - run: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
         working-directory: .
+      # Signing in is three packages of its own (packages/auth, auth-accounts, auth-pocket-id), each with its tests.
+      - name: Signing in
+        run: npm run typecheck -w @ribbon/auth -w @ribbon/auth-accounts -w @ribbon/auth-pocket-id && npm test -w @ribbon/auth -w @ribbon/auth-accounts -w @ribbon/auth-pocket-id
+        working-directory: .
       - run: npm run typecheck
       - run: npm test
 

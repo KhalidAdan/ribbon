@@ -24,11 +24,18 @@ WORKDIR /ribbon
 COPY package.json package-lock.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/host-node/package.json packages/host-node/
+COPY packages/auth/package.json packages/auth/
+COPY packages/auth-accounts/package.json packages/auth-accounts/
+COPY packages/auth-pocket-id/package.json packages/auth-pocket-id/
 COPY packages/desktop/package.json packages/desktop/
 COPY packages/server/package.json packages/server/
-RUN npm ci --workspace @ribbon/server --workspace @ribbon/core --workspace @ribbon/host-node --include-workspace-root=false --ignore-scripts
+RUN npm ci --workspace @ribbon/server --workspace @ribbon/core --workspace @ribbon/host-node --workspace @ribbon/auth --workspace @ribbon/auth-accounts --workspace @ribbon/auth-pocket-id --include-workspace-root=false --ignore-scripts
 COPY packages/core packages/core
 COPY packages/host-node packages/host-node
+# Signing in: the sessions, the accounts the server keeps itself, and Pocket ID (packages/auth/README.md).
+COPY packages/auth packages/auth
+COPY packages/auth-accounts packages/auth-accounts
+COPY packages/auth-pocket-id packages/auth-pocket-id
 COPY packages/server packages/server
 COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /usr/local/bin/
 ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames

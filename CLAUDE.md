@@ -83,6 +83,7 @@ order:
 | `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). |
+| `packages/auth/`, `packages/auth-accounts/`, `packages/auth-pocket-id/` | Signing in, apart from Ribbon: the `Identity` a provider answers with and the sessions devices keep; names and passwords the server keeps itself; Pocket ID. The server runs one provider (docs/SERVER.md, section 6). |
 | `packages/apple/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (packages/apple/README.md). |
 | `packages/desktop/tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`packages/desktop/tools/e2e`). |
 

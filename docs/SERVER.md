@@ -38,7 +38,7 @@ finished result.
 | Read the books where they are, or copy them in? | **Copy them onto the server** when a folder is added. |
 | A book that's already on the server? | **Never added again.** |
 | Files or a database? | **Files for the books; SQLite for everything else**, each person's places included (they come back as a file in the position-log format whenever asked). Decided again on 2026-10-22, after keeping places as files on the server and copying them onto every device proved the fiddly part. |
-| How do people sign in? | **Usernames and passwords, with [Better Auth](https://better-auth.com).** |
+| How do people sign in? | **Usernames and passwords, with [Better Auth](https://better-auth.com).** Since November 2026 that is one of two providers behind one interface; the other is [Pocket ID](https://pocket-id.org) (section 6). |
 | Who brings people in? | **The admin invites them.** |
 | Hosting, privacy, HTTPS? | **The host's business.** The server doesn't depend on Tailscale or any network; the owner runs his behind Tailscale so it isn't on the open internet. |
 | Streaming, or keeping books on the device? | **Download before playing** on desktops and phones. The Apple TV streams (section 8). |
@@ -148,28 +148,72 @@ EPUB down beside it. A book that has an EPUB keeps the one it has.
 
 ## 6. Accounts
 
-Accounts are **[Better Auth](https://better-auth.com)** (decided), rather
-than written by hand: it has a [Fastify integration](https://better-auth.com/docs/integrations/fastify),
-keeps its tables in the same SQLite database, and hashes passwords with
-scrypt. The plugins it needs:
+Signing in is three parts that don't know about one another
+(`packages/server/src/auth.ts`):
 
-- **username:** people sign in with a name and a password.
-- **admin:** the admin pages list people and their sessions, change roles,
-  and sign anyone out.
-- **bearer:** the desktop and phone apps send their session as a token in a
-  header rather than a cookie.
+- **A provider proves who someone is**, and nothing more. It answers with
+  an `Identity` (`packages/auth/src/identity.ts`): the provider's own id for
+  the person, which never changes, their username, the name to show, and a
+  picture, an email and groups when it has them. A server runs one:
+  - **accounts the server keeps itself** (`packages/auth-accounts`), a name
+    and a password each, the default. They are
+    [Better Auth](https://better-auth.com)'s tables and its scrypt hashing,
+    and nothing else of it. **The admin invites people**: an invite is a
+    link with a one-time code, good for a few days, where the person picks
+    their name and password.
+  - **[Pocket ID](https://pocket-id.org)** (`packages/auth-pocket-id`), a
+    passkey provider run beside the server. The server is one of its
+    clients; who may come in is decided there, and Ribbon has no passwords
+    and no invites.
+- **People are Ribbon's own** (`People`). A person is whoever a provider says
+  they are; their role (admin or not) is Ribbon's to give, and their places,
+  goals and devices are kept against the person, never the provider. Their
+  name and picture follow what their sign-in last said.
+- **Devices are sessions** (`packages/auth/src/sessions.ts`). Signing in on a
+  device starts a long-lived session for it, named for the device ("Ribbon
+  on Khalid's iPhone"): a token the app sends in a header, and a cookie for
+  a player that can't. A phone stays signed in: a session lasts a year from
+  the last day it was used. Sessions are the same whichever provider signed
+  the person in.
 
-How Ribbon uses it:
+**The apps talk only to the server**, so they work the same with either
+provider (`packages/server/src/sign-in-routes.ts`). An app asks how this
+server signs people in, and then:
 
-- **People:** an admin and members. **The admin invites people** from the
-  admin pages: an invite is a link with a one-time code, good for a few days,
-  where the person picks their name and password. Signing up is closed to
-  everyone else: a check on Better Auth's sign-up lets it through only with a
-  valid code, and spends the code.
-- **Devices are sessions.** Signing in on a device makes a long-lived session
-  for it, named for the device ("Ribbon on Khalid's iPhone"), kept by the app.
-  The admin pages list each person's sessions, and any of them can be signed
-  out. A phone stays signed in.
+```mermaid
+sequenceDiagram
+    participant App
+    participant Browser
+    participant Server as Ribbon server
+    participant Provider as Pocket ID
+    App->>Server: GET /api/sign-in
+    Server-->>App: "browser"
+    App->>Browser: open /sign-in/start (where to come back, a hash of a secret)
+    Browser->>Server: GET /sign-in/start
+    Server-->>Browser: on to Pocket ID
+    Browser->>Provider: sign in with a passkey
+    Provider-->>Browser: back to /sign-in/callback
+    Browser->>Server: GET /sign-in/callback
+    Server->>Provider: trade the code, check the signed answer
+    Server-->>Browser: on to the app, with a one-time code
+    Browser->>App: the code
+    App->>Server: POST /api/sign-in/finish (the code, the secret)
+    Server-->>App: a session
+```
+
+With the server's own accounts the app shows a form instead and posts the
+name and password. A TV, with either, shows a short code: someone opens
+`/link` on their phone, signs in there, and the TV, which has been asking
+every few seconds, gets its session. Coming back from Pocket ID signed in
+isn't taken as a yes: the page asks whether the device showing that code is
+theirs, since a link someone else made would otherwise sign a stranger's
+device in as them.
+
+**Changing a server to Pocket ID** keeps everyone's places. The people who
+had accounts are still people; `npm run link -- <person> <Pocket ID
+username>` says who each will sign in as, and their first sign-in there is
+theirs (packages/server/README.md, "Signing in with Pocket ID").
+
 - **HTTPS is the host's job.** The server speaks plain HTTP and expects to sit
   behind whatever the host uses: a reverse proxy such as Caddy, Tailscale
   Serve, a tunnel. It refuses passwords over plain HTTP from anywhere but the
@@ -374,7 +418,13 @@ JSON over HTTP. A sketch, to be settled in code review:
 
 | Request | What it does |
 | --- | --- |
-| `/api/auth/*` | Better Auth's own routes: sign up with an invite code, sign in with a name and password, sign out, sessions. |
+| `GET /api/sign-in` | How this server signs people in: `{ kind: "password" }`, or `{ kind: "browser", name }` for a provider with pages of its own. |
+| `POST /api/sign-in/password` | A name, a password and the device's name, for a session: `{ token, cookie, user }`. |
+| `GET /sign-in/start`, `GET /sign-in/callback`, `POST /api/sign-in/finish` | Signing in through the browser: out to the provider and back to the app with a one-time code, which the app trades, with the secret it kept, for a session. |
+| `POST /api/sign-in/device`, `GET /link`, `POST /api/sign-in/device/poll` | Signing a TV in from a phone: a code to show, the page it leads to, and the TV asking whether it's in yet. |
+| `POST /api/sign-out` | Ends this device's session. |
+| `GET /api/people`, `POST /api/people/:id/sign-out` | (Admin) Everyone on the server; and signing someone out on every device, for a lost phone or a leaked password. Anyone may sign themselves out everywhere. |
+| `POST /api/auth/sign-in/username` | How apps from before 0.42 sign in, with a name and a password, answered as they expect. |
 | `POST /api/invites` | (Admin) Makes an invite: a one-time code and its link. |
 | `GET /api/books` | The library in one answer: titles, authors, narrators, series, length, size, whether there's audio and an EPUB, how many words the EPUB has (`words`, counted from its text as its sentences are indexed for search, which is how thick the book stands on the bookcase; null until then and for a book with no EPUB), each cover's hash, aspect ratio and colour, and the ids of books the admin deleted. A book a person edited is listed as edited, with its edits (`edited`: the fields as edited, what its files say for each listed one, and when the server took them). No places or progress in it, so its ETag holds for days. Chapters come with a book's details. |
 | `GET /api/books/:id` | One book: its files, chapters, parts and records, and its details as edited, with `edited` as in the list (what its files say for every field edited). |

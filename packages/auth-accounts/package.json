@@ -1,0 +1,22 @@
+{
+  "name": "@ribbon/auth-accounts",
+  "version": "0.0.0",
+  "description": "Signing in with a name and a password the server keeps itself: a provider for @ribbon/auth, with nothing else to run.",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ribbon/auth": "*",
+    "better-auth": "^1.7.12"
+  }
+}

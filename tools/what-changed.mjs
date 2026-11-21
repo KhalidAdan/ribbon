@@ -16,7 +16,8 @@ function reaches(file) {
   // The server's tests run the desktop's own code, and its image builds these two crates.
   if (/^packages\/desktop\/src-tauri\/(ebook|frames)\//.test(file)) return ["desktop", "server", "image"];
   if (file.startsWith("packages/desktop/")) return ["desktop", "server"];
-  if (file.startsWith("packages/server/")) return ["server", "image"];
+  // Signing in (packages/auth, auth-accounts, auth-pocket-id) is the server's alone.
+  if (file.startsWith("packages/server/") || file.startsWith("packages/auth")) return ["server", "image"];
   if (file.startsWith("packages/core/") || file.startsWith("packages/host-node/")) return ["desktop", "server", "image"];
   return ["desktop", "server", "image", "apple"];
 }

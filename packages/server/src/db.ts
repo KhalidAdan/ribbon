@@ -3,8 +3,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 /**
- * The server's database, `ribbon.db` in its data folder: Better Auth's
- * tables (people, sessions) and the server's own: what is metadata, the
+ * The server's database, `ribbon.db` in its data folder: the people who
+ * sign in and the server's own tables: what is metadata, the
  * library's series, each person's places, and every book's sentences for
  * search. The books themselves are files (docs/SERVER.md, section 5).
  * SQLite is the one built into Node, so there is nothing native to compile
@@ -89,8 +89,48 @@ function bookInOneSeriesAtMost(db: DatabaseSync): boolean {
   });
 }
 
-/** The server's own tables. Better Auth makes its own (`getMigrations` in app.ts). */
+/** The server's own tables. Sessions and the accounts with passwords make theirs (packages/auth, packages/auth-accounts). */
 const SCHEMA = `
+-- Everyone who reads and listens here, whoever vouches for them (auth.ts). Their places, goals and devices are
+-- kept against the id, which never changes; the rest follows what their sign-in last said.
+CREATE TABLE IF NOT EXISTS person (
+  id TEXT PRIMARY KEY,
+  -- What they sign in as.
+  name TEXT NOT NULL,
+  -- What to call them.
+  display_name TEXT NOT NULL,
+  -- Where their picture is, when their sign-in gives one.
+  picture TEXT,
+  -- What they may do here: 'admin' or 'user'. Ribbon's own to decide, whoever signs them in.
+  role TEXT NOT NULL DEFAULT 'user',
+  created_at INTEGER NOT NULL
+);
+
+-- Who each person is to a provider: the provider's own id for them, which never changes.
+CREATE TABLE IF NOT EXISTS person_identity (
+  provider TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  person_id TEXT NOT NULL REFERENCES person (id) ON DELETE CASCADE,
+  PRIMARY KEY (provider, subject)
+);
+
+-- Someone already here who is expected under a username at a provider they haven't signed in with yet
+-- (src/link.ts): their first sign-in there becomes theirs, rather than a stranger's.
+CREATE TABLE IF NOT EXISTS person_link (
+  provider TEXT NOT NULL,
+  username TEXT NOT NULL,
+  person_id TEXT NOT NULL REFERENCES person (id) ON DELETE CASCADE,
+  -- When it was said: someone is expected for two weeks, not for ever.
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (provider, username)
+);
+
+-- Things done once to a database from an older server, so they aren't done twice.
+CREATE TABLE IF NOT EXISTS brought_over (
+  what TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS invite (
   code TEXT PRIMARY KEY,
   role TEXT NOT NULL,
