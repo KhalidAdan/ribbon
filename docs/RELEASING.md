@@ -138,6 +138,12 @@ The tag also publishes the server's image, for Intel and ARM machines, as
 ([server-image.yml](../.github/workflows/server-image.yml)). Each kind is built
 on a machine of its own kind, then the two are joined as one image.
 
+Each version's image is then copied to a second registry, as a backup, when the
+repository has the secrets `BACKUP_IMAGE` (the image's whole name there, with
+the registry first), `BACKUP_USERNAME` and `BACKUP_PASSWORD`. The job checks
+that the copy's digest is the published one. Without the secrets it does
+nothing. To bring a version back from the backup, pull it by that name.
+
 ## 5. On GitHub
 
 The notes say what changed for someone using Ribbon, in plain words. They open
