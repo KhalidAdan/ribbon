@@ -14,18 +14,26 @@ function reaches(file) {
   if (file.endsWith(".md") || file.startsWith("docs/")) return [];
   if (file.startsWith("packages/apple/")) return ["apple"];
   // The server's tests run the desktop's own code, and its image builds these two crates.
-  if (/^packages\/desktop\/src-tauri\/(ebook|frames)\//.test(file)) return ["desktop", "server", "image"];
-  if (file.startsWith("packages/desktop/")) return ["desktop", "server"];
-  // Signing in (packages/auth, auth-accounts, auth-pocket-id) is the server's alone.
-  if (file.startsWith("packages/server/") || file.startsWith("packages/auth")) return ["server", "image"];
-  if (file.startsWith("packages/core/") || file.startsWith("packages/host-node/")) return ["desktop", "server", "image"];
-  return ["desktop", "server", "image", "apple"];
+  if (/^packages\/desktop\/src-tauri\/(ebook|frames)\//.test(file)) return ["desktop", "e2e", "server", "image"];
+  if (file.startsWith("packages/desktop/")) return ["desktop", "e2e", "server"];
+  if (file.startsWith("packages/server/")) return ["server", "image"];
+  // Signing in (packages/auth, auth-accounts, auth-pocket-id) is the server's alone. The end-to-end
+  // checks have always run for it all the same, and a change here may only add checks, never drop one.
+  if (file.startsWith("packages/auth")) return ["server", "image", "e2e"];
+  if (file.startsWith("packages/core/") || file.startsWith("packages/host-node/")) return ["desktop", "e2e", "server", "image"];
+  return JOBS;
 }
+
+/**
+ * The jobs a change can need. `e2e` is the end-to-end checks, which drive the
+ * built desktop app (.github/workflows/e2e.yml); the rest are in checks.yml.
+ */
+const JOBS = ["desktop", "e2e", "server", "image", "apple"];
 
 /** Which jobs to run for these changed files. */
 export function jobsFor(files) {
   const reached = new Set(files.flatMap(reaches));
-  return Object.fromEntries(["desktop", "server", "image", "apple"].map((job) => [job, reached.has(job)]));
+  return Object.fromEntries(JOBS.map((job) => [job, reached.has(job)]));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

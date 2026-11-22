@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error a plain script, with no types of its own
 import { jobsFor } from "../../../tools/what-changed.mjs";
 
-const all = { desktop: true, server: true, image: true, apple: true };
-const none = { desktop: false, server: false, image: false, apple: false };
+const all = { desktop: true, e2e: true, server: true, image: true, apple: true };
+const none = { desktop: false, e2e: false, server: false, image: false, apple: false };
 
 // A mistake here is silent: a job skipped that should have run shows as a pass.
 describe("which CI jobs a change needs", () => {
@@ -24,22 +24,29 @@ describe("which CI jobs a change needs", () => {
   });
 
   it("runs the server's tests for a desktop change, since they run the desktop's own code", () => {
-    expect(jobsFor(["packages/desktop/src/app/controller.ts"])).toEqual({ ...none, desktop: true, server: true });
+    expect(jobsFor(["packages/desktop/src/app/controller.ts"])).toEqual({ ...none, desktop: true, e2e: true, server: true });
   });
 
   it("builds the image for the crates inside the desktop that it's made from", () => {
-    expect(jobsFor(["packages/desktop/src-tauri/ebook/src/lib.rs"])).toEqual({ ...none, desktop: true, server: true, image: true });
+    expect(jobsFor(["packages/desktop/src-tauri/ebook/src/lib.rs"])).toEqual({ ...none, desktop: true, e2e: true, server: true, image: true });
     expect(jobsFor(["packages/desktop/src-tauri/src/speech.rs"]).image).toBe(false);
   });
 
   it("runs the desktop, the server and the image for what they share", () => {
-    expect(jobsFor(["packages/core/src/sources.ts"])).toEqual({ ...none, desktop: true, server: true, image: true });
-    expect(jobsFor(["packages/host-node/src/node.ts"])).toEqual({ ...none, desktop: true, server: true, image: true });
+    expect(jobsFor(["packages/core/src/sources.ts"])).toEqual({ ...none, desktop: true, e2e: true, server: true, image: true });
+    expect(jobsFor(["packages/host-node/src/node.ts"])).toEqual({ ...none, desktop: true, e2e: true, server: true, image: true });
   });
 
   it("leaves the desktop out of a change to the server alone", () => {
     expect(jobsFor(["packages/server/src/app.ts"])).toEqual({ ...none, server: true, image: true });
-    expect(jobsFor(["packages/auth/src/sessions.ts", "packages/auth-pocket-id/src/pocket-id.ts"])).toEqual({ ...none, server: true, image: true });
+  });
+
+  it("drives the desktop app for everything that drove it before the choice was made here", () => {
+    // Until main required its checks, the end-to-end workflow chose by path: everything but words, the server and the Apple app.
+    expect(jobsFor(["packages/auth/src/sessions.ts", "packages/auth-pocket-id/src/pocket-id.ts"])).toEqual({ ...none, e2e: true, server: true, image: true });
+    expect(jobsFor(["packages/server/src/app.ts"]).e2e).toBe(false);
+    expect(jobsFor(["packages/apple/Ribbon/Look.swift"]).e2e).toBe(false);
+    expect(jobsFor(["docs/READING.md"]).e2e).toBe(false);
   });
 
   it("runs the most any one file needs", () => {
