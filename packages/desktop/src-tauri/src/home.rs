@@ -4,7 +4,8 @@
 //! here. Records beside the books stay the truth and travel with them;
 //! this folder is what the app needs to open fast and to remember you.
 //! It can be moved to another disk (home_move.rs); where it started out
-//! then holds only a note saying where it went.
+//! then holds only a note saying where it went, and on Windows the program
+//! itself, which the installer puts there too.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
