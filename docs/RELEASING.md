@@ -65,6 +65,14 @@ On a pull request, `tools/what-changed.mjs` runs only the jobs a change could
 affect, and anything it doesn't recognise runs them all. `main` always runs
 everything, which is the check a release goes by.
 
+`main` requires two checks of a pull request before it merges: "Checks passed"
+and "End-to-end passed", the last job of each workflow. Each always runs, and
+fails when a job before it failed or was stopped; a job with nothing to check
+for the change counts as passed. The rule is a setting on the repository
+(Settings, Branches), not a file here. It holds pull requests only: the owner
+can still push the version's commit (section 3) straight to `main`, and can
+merge past a red check on purpose with `gh pr merge --admin`.
+
 ## 3. The version, in five files
 
 `packages/desktop/package.json` and `package-lock.json` (`npm version X.Y.Z
