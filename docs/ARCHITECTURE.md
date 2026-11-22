@@ -406,14 +406,16 @@ Your library folder/                 the database: sync it, back it up
   servers/<id>/                      a server's books, downloaded to play here
   logs/ribbon.log
   models/                            a downloaded speech model
-  moved.txt                          once moved: where it is now, and nothing else here
+  moved.txt                          once moved: where it is now, and none of the above here
+  ribbon.exe, uninstall.exe          Ribbon itself: the installer puts it here, and it stays
 ```
 
 The Ribbon folder can be moved to another disk from Settings
 (`home_move.rs`, `core/home-move.ts`): everything is copied, with each
 file's time kept, then `moved.txt` where it started says where it went and
 Ribbon starts again there. The old copy is deleted on that next start, when
-nothing has its files open.
+nothing has its files open. On Windows the program itself is in the same
+folder, and it is never copied or deleted: it stays where it was installed.
 
 Anything in `.ribbon/` is either rebuilt on demand or yours:
 

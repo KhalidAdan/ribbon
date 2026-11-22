@@ -9,6 +9,10 @@
 //! has its files open: Windows won't delete an open file, and the log is
 //! open for as long as Ribbon runs.
 //!
+//! On Windows, Ribbon itself is installed where the folder starts out
+//! (`PROGRAM`). The program isn't one of Ribbon's files: it is never copied,
+//! and never deleted.
+//!
 //! The page stops everything that writes here before it asks for the move
 //! (playing, downloading, transcribing), so the copy is the whole folder.
 
@@ -26,6 +30,12 @@ const MOVED_FROM: &str = "moved-from.txt";
 /// The name a moved Ribbon folder has. Only folders with this name, or the
 /// place the folder started out, are ever deleted after a move.
 const FOLDER_NAME: &str = "Ribbon";
+
+/// Ribbon itself, as the Windows installer leaves it at the top of the place
+/// the Ribbon folder starts out (`%LOCALAPPDATA%\Ribbon`): the app and its
+/// uninstaller, beside what Ribbon keeps. A move leaves them where they are,
+/// and the cleanup after one leaves them too, or Ribbon would delete itself.
+const PROGRAM: [&str; 2] = ["ribbon.exe", "uninstall.exe"];
 
 /// How the copy's progress reaches the page: `{ done, total }` in bytes.
 const PROGRESS: &str = "ribbon://home-move";
@@ -151,8 +161,8 @@ fn destination(from: &Path, base: &Path, picked: &Path, libraries: &[PathBuf]) -
         if !to.is_dir() {
             return Err(format!("There's a file named {FOLDER_NAME} there. Pick another folder."));
         }
-        // Where the folder started out is empty but for the note when the folder is elsewhere.
-        let others = std::fs::read_dir(&to).map_err(|e| e.to_string())?.filter_map(Result::ok).any(|e| !(same(&to, base) && e.file_name() == home::MOVED_NOTE));
+        // Where the folder started out is empty but for the note when the folder is elsewhere, and the program on Windows.
+        let others = std::fs::read_dir(&to).map_err(|e| e.to_string())?.filter_map(Result::ok).any(|e| !is_program(&e.file_name()) && !(same(&to, base) && e.file_name() == home::MOVED_NOTE));
         if others {
             return Err(format!("There's a folder named {FOLDER_NAME} there already, with files in it. Pick another folder, or empty that one first."));
         }
@@ -279,26 +289,27 @@ fn undo_copy(to: &Path, made: bool) {
 /// Delete a folder the Ribbon folder was moved from. False, and nothing
 /// deleted, when it isn't one: the folder Ribbon is in now or holds it, or a
 /// folder neither named Ribbon nor where it started out. Where it started
-/// out keeps its note.
+/// out keeps its note, and the program stays wherever it is (`PROGRAM`):
+/// a folder it's in is emptied but not removed.
 fn delete_left_behind(old: &Path, home: &Path, base: &Path) -> Result<bool, String> {
     if same(old, home) || inside(home, old) || inside(old, home) {
         return Ok(false);
     }
+    let started_here = same(old, base);
     let named = old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(FOLDER_NAME));
-    if same(old, base) {
-        empty(old, Some(home::MOVED_NOTE)).map_err(|e| e.to_string())?;
-        return Ok(true);
-    }
-    if !named {
+    if !started_here && !named {
         return Ok(false);
     }
-    match std::fs::remove_dir_all(old) {
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
-        _ => Ok(true),
+    empty(old, started_here.then_some(home::MOVED_NOTE)).map_err(|e| e.to_string())?;
+    // The folder itself goes too, unless it's where the folder started out or the program stayed in it.
+    if !started_here && std::fs::read_dir(old).is_ok_and(|mut entries| entries.next().is_none()) {
+        std::fs::remove_dir(old).map_err(|e| e.to_string())?;
     }
+    Ok(true)
 }
 
-/// Remove everything in a folder but the file named `keep`.
+/// Remove everything in a folder but the file named `keep`, and the program
+/// (`PROGRAM`), which isn't Ribbon's to remove.
 fn empty(dir: &Path, keep: Option<&str>) -> std::io::Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -306,7 +317,7 @@ fn empty(dir: &Path, keep: Option<&str>) -> std::io::Result<()> {
     };
     for entry in entries {
         let entry = entry?;
-        if keep.is_some_and(|k| entry.file_name() == k) {
+        if is_program(&entry.file_name()) || keep.is_some_and(|k| entry.file_name() == k) {
             continue;
         }
         // A link is removed, never what it leads to.
@@ -326,10 +337,15 @@ struct Tally {
     bytes: u64,
 }
 
+/// The program (`PROGRAM`) isn't counted: it's never copied.
 fn tally(dir: &Path) -> Result<Tally, String> {
     fn walk(dir: &Path, depth: usize, t: &mut Tally) -> Result<(), String> {
         for entry in std::fs::read_dir(dir).map_err(|e| format!("could not read {}: {e}", dir.display()))? {
-            let path = entry.map_err(|e| e.to_string())?.path();
+            let entry = entry.map_err(|e| e.to_string())?;
+            if depth == 0 && is_program(&entry.file_name()) {
+                continue;
+            }
+            let path = entry.path();
             let meta = std::fs::metadata(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
             if meta.is_dir() && depth < MAX_DEPTH {
                 walk(&path, depth + 1, t)?;
@@ -356,10 +372,14 @@ struct Copier<'a> {
 
 impl Copier<'_> {
     /// A link is copied as what it leads to, so nothing it reaches is lost.
+    /// The program (`PROGRAM`) isn't copied: it stays where it was installed.
     fn copy_dir(&mut self, from: &Path, to: &Path, depth: usize) -> Result<(), String> {
         std::fs::create_dir_all(to).map_err(|e| format!("could not make {}: {e}", to.display()))?;
         for entry in std::fs::read_dir(from).map_err(|e| format!("could not read {}: {e}", from.display()))? {
             let entry = entry.map_err(|e| e.to_string())?;
+            if depth == 0 && is_program(&entry.file_name()) {
+                continue;
+            }
             let (src, dst) = (entry.path(), to.join(entry.file_name()));
             let meta = std::fs::metadata(&src).map_err(|e| format!("could not read {}: {e}", src.display()))?;
             if meta.is_dir() && depth < MAX_DEPTH {
@@ -409,6 +429,11 @@ fn free_space(dir: &Path) -> Result<u64, String> {
     fs4::available_space(&at).map_err(|e| e.to_string())
 }
 
+/// Whether a name at the top of a Ribbon folder is the program's (`PROGRAM`).
+fn is_program(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|n| PROGRAM.iter().any(|p| n.eq_ignore_ascii_case(p)))
+}
+
 fn shown(path: &Path) -> String {
     path.display().to_string()
 }
@@ -447,6 +472,18 @@ mod tests {
         put(&dir.join("servers").join("cd34").join("Dune").join("Dune.mp3"), &"x".repeat(3_000_000));
         put(&dir.join("logs").join("ribbon.log"), "starting\n");
         put(&dir.join("sources.tsv"), "2026-11-11T00:00:00Z\t/books\n");
+    }
+
+    /// Ribbon itself, as the Windows installer leaves it where the Ribbon folder starts out.
+    fn installed(dir: &Path) {
+        put(&dir.join("ribbon.exe"), "the app");
+        put(&dir.join("uninstall.exe"), "its uninstaller");
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        names
     }
 
     /// A server's folder in it, with its mirror, and the speech model chosen from it.
@@ -542,6 +579,39 @@ mod tests {
 
         assert_eq!(delete_left_behind(&away, &base, &base), Ok(true));
         assert!(!away.exists());
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn the_program_stays_where_it_was_installed() {
+        let t = scratch("program");
+        let base = t.join("base");
+        ribbon_folder(&base);
+        installed(&base);
+
+        // Only what Ribbon keeps is counted, copied and deleted.
+        let to = destination(&base, &base, &t.join("disk"), &[]).unwrap();
+        let before = tally(&base).unwrap();
+        assert_eq!(before.files, 4);
+        assert_eq!(move_home(&base, &base, &to, &mut |_| ()).unwrap(), before);
+        assert!(!to.join("ribbon.exe").exists());
+        assert!(!to.join("uninstall.exe").exists());
+        assert_eq!(delete_left_behind(&base, &to, &base), Ok(true));
+        assert_eq!(names_in(&base), vec!["moved.txt", "ribbon.exe", "uninstall.exe"]);
+
+        // It can go back beside the program, and a copy of the app that an
+        // older move brought along doesn't replace the one installed.
+        put(&to.join("ribbon.exe"), "an older app");
+        let back = destination(&to, &base, &base, &[]).unwrap_or_else(|e| panic!("{e}"));
+        move_home(&to, &base, &back, &mut |_| ()).unwrap();
+        assert_eq!(home::located(&base), base);
+        assert_eq!(std::fs::read_to_string(base.join("ribbon.exe")).unwrap(), "the app");
+        assert_eq!(std::fs::read_to_string(base.join("uninstall.exe")).unwrap(), "its uninstaller");
+
+        // The folder it left is emptied of the rest, and kept while a program is in it.
+        assert_eq!(delete_left_behind(&to, &base, &base), Ok(true));
+        assert_eq!(names_in(&to), vec!["ribbon.exe"]);
+        assert!(is_program(std::ffi::OsStr::new("Uninstall.EXE")));
         let _ = std::fs::remove_dir_all(&t);
     }
 
