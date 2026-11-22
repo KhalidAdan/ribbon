@@ -554,3 +554,4 @@ tests on the real code come first (fast-check against `mergePlace`).
 Look again only when a design needs devices to coordinate, such as two
 machines sharing out work, and "what if this happens while that does"
 can't be settled on paper.
+
