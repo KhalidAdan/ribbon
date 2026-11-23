@@ -295,8 +295,13 @@ struct BookView: View {
     /// Where you are in the book, as a sentence, as the desktop says it.
     private func sentence(_ progress: BookProgress?) -> String {
         if !book.audio {
-            guard let progress, progress.started else { return "Not started. An EPUB to read; there is no audio for it." }
+            let pages = book.pages ?? 0
+            guard let progress, progress.started else {
+                return book.isComic ? "Not started. A comic\(pages > 0 ? ", \(Format.pages(pages))" : "")." : "Not started. An EPUB to read; there is no audio for it."
+            }
             if progress.finished { return "Finished. Read it again any time." }
+            // A comic says its page, as the desktop does.
+            if book.isComic, pages > 1 { return "You are on page \(Int(((model.library?.fraction(of: book) ?? 0) * Double(pages - 1)).rounded()) + 1) of \(pages)." }
             return "You are \(max(1, Int((model.library?.fraction(of: book) ?? 0) * 100)))% through."
         }
         let chapters = detail?.chapters ?? []
@@ -317,6 +322,10 @@ struct BookView: View {
         if let year = detail?.book.year { facts.append(("Year", String(year))) }
         if let publisher = detail?.book.publisher, !publisher.isEmpty { facts.append(("Publisher", publisher)) }
         if book.ebook { facts.append(("Ebook", "EPUB")) }
+        if book.isComic {
+            if let pages = book.pages { facts.append(("Pages", String(pages))) }
+            facts.append(("Comic", "CBZ"))
+        }
         return facts
     }
 }

@@ -29,6 +29,12 @@ struct ServerBook: Decodable, Identifiable, Hashable {
     let cover: Cover?
     /// When it came to the library, as ISO 8601: the bookcase stands the newest first.
     let addedAt: String?
+    /// A comic (docs/COMICS.md): read, never heard. Absent from a server from before comics.
+    var comic: Bool? = nil
+    /// A comic's pages; nil for any other book.
+    var pages: Int? = nil
+
+    var isComic: Bool { comic == true }
 }
 
 /// A series of the library, as the server keeps it (packages/server/src/library/series.ts, `ServerSeries`): its books in order.
@@ -66,6 +72,15 @@ struct ServerBookDetail: Decodable {
         let description: String?
         let year: Int?
         let publisher: String?
+        /// A comic read right to left, as it says of itself.
+        var rightToLeft: Bool? = nil
+    }
+
+    /// One page of a comic: its entry in the archive, and its picture's size in pixels.
+    struct Page: Decodable, Hashable {
+        let name: String
+        let width: Int
+        let height: Int
     }
 
     /// What the server measured of the book once, as it came in (packages/server/src/library/prepare.ts).
@@ -83,6 +98,8 @@ struct ServerBookDetail: Decodable {
     let book: About
     /// Nil until the server has measured it.
     var analysis: Analysis? = nil
+    /// A comic's pages in reading order; nil for any other book.
+    var pages: [Page]? = nil
 
     /// The gain that brings the book to the library's loudness (Loudness), in dB: none before it's measured.
     var gainDb: Double {
@@ -115,6 +132,12 @@ struct BookPlace: Decodable {
     let from: String
     /// When, as the position log writes it; nil from a server from before it said.
     let at: String?
+}
+
+/// Where the person is in a comic: the page, counted from 1, of how many.
+struct ComicPlace: Decodable {
+    let page: Int
+    let pages: Int
 }
 
 /// How one listen-through of a book went (packages/core/src/stats.ts, `ListenThrough`): the end of the book tells it.
@@ -411,7 +434,7 @@ struct RibbonServer {
     /// the ones that are only their text, to read.
     func books() async throws -> [ServerBook] {
         struct Answer: Decodable { let books: [ServerBook] }
-        return try await get(Answer.self, "api/books").books.filter { $0.audio || $0.ebook }
+        return try await get(Answer.self, "api/books").books.filter { $0.audio || $0.ebook || ($0.isComic && Self.readsComics) }
     }
 
     /// The library's series, each with its books in order.
@@ -553,6 +576,43 @@ struct RibbonServer {
     func deleteBookmark(_ mark: String, in id: String) async throws {
         struct Answer: Decodable { let deleted: String }
         _ = try await send("DELETE", "api/books/\(id)/bookmarks/\(mark)", [:], answer: Answer.self)
+    }
+
+    /// Whether this device reads comics: the iPad and the iPhone do, by touch. The Apple TV's reader for them isn't
+    /// built yet (docs/COMICS.md, section 7), so it doesn't list them.
+    static var readsComics: Bool {
+        #if os(tvOS)
+        false
+        #else
+        true
+        #endif
+    }
+
+    /// One page of a comic, counted from 1, as its file: the server reads it out of the archive.
+    func page(_ number: Int, of id: String) async throws -> Data {
+        let (data, response) = try await Self.reach(authorized("api/books/\(id)/pages/\(number)"))
+        if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
+        guard response.statusCode == 200 else { throw ServerError(message: Self.said(data) ?? "The server couldn't send page \(number) (\(response.statusCode)).", status: response.statusCode) }
+        return data
+    }
+
+    /// Where the person is in a comic, newest of every device; nil when they haven't opened it.
+    func comicPlace(in id: String) async throws -> ComicPlace? {
+        struct Answer: Decodable { let place: ComicPlace? }
+        return try await get(Answer.self, "api/books/\(id)/place").place
+    }
+
+    /// Say which page of a comic this device is on, counted from 1: the server keeps it for every other device.
+    func tell(page: Int, why: Why, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        _ = try await send("POST", "api/books/\(id)/place", ["page": page, "why": why.rawValue], answer: Answer.self)
+    }
+
+    /// A stretch of reading a comic that just ended, from one page to another, counted from 1.
+    func read(from start: Date, to end: Date, pages from: Int, to: Int, keep: Bool, in id: String) async throws {
+        struct Answer: Decodable { let added: Int }
+        let body: [String: Any] = ["start": Moment.write(start), "end": Moment.write(end), "from": from, "to": to, "keep": keep]
+        _ = try await send("POST", "api/books/\(id)/reading", body, answer: Answer.self)
     }
 
     /// A cover at one of the widths the server makes (200, 400 or 800).

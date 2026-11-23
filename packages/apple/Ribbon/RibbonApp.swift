@@ -72,6 +72,15 @@ private struct Screens: View {
                             if let reading = model.reading {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
                             }
+                        case .comic:
+                            // Only where comics are read: the Apple TV doesn't list them yet.
+                            #if os(iOS)
+                            if let comic = model.comic {
+                                ComicView(session: comic) { model.closeComic() }
+                            }
+                            #else
+                            EmptyView()
+                            #endif
                         }
                     }
                     .toolbar(.hidden, for: .navigationBar)
@@ -157,6 +166,8 @@ final class AppModel {
         case player
         case search
         case reader
+        /// A comic open to read (Comic/ComicView.swift).
+        case comic
         case settings
         case stats
         case bookcase
@@ -187,6 +198,8 @@ final class AppModel {
     /// The book being listened to: one at a time, which the player and the reader share.
     private(set) var listening: Listening?
     private(set) var reading: Reading?
+    /// The comic open to read.
+    private(set) var comic: ComicSession?
     /// The book being opened, and what went wrong opening one.
     private(set) var opening: String?
     private(set) var problem: String?
@@ -233,6 +246,7 @@ final class AppModel {
         case .stats: return "Stats"
         case .bookcase: return "Bookcase"
         case .reader: return "Read along"
+        case .comic: return comic?.book.title ?? "Comic"
         }
     }
 
@@ -321,12 +335,13 @@ final class AppModel {
 
     /// Listening and reading going on now, not sent to the server yet.
     private var liveMs: Int {
-        (listening?.stretchMs ?? 0) + (reading?.session.stretchMs ?? 0)
+        (listening?.stretchMs ?? 0) + (reading?.session.stretchMs ?? 0) + (comic?.stretchMs ?? 0)
     }
 
     /// Gone behind the home screen or the lock screen: a stretch of reading ends where it was.
     func wentBehind() {
         reading?.session.endStretch()
+        comic?.endStretch()
     }
 
     /// The books and how far through each, again: the library is shown, or shown again.
@@ -467,6 +482,8 @@ final class AppModel {
     /// Read a book that is only its text: the reader with no narration, at your place in it, or at a sentence found.
     /// A book playing meanwhile plays on.
     func read(_ book: ServerBook, at sentence: Int? = nil) async {
+        // A comic is read in a reader of its own.
+        if book.isComic { return await readComic(book) }
         guard let server, opening == nil else { return }
         opening = book.id
         problem = nil
@@ -507,6 +524,36 @@ final class AppModel {
         }
     }
     #endif
+
+    /// Read a comic: its pages from the server, at your page in it. A book playing meanwhile plays on.
+    func readComic(_ book: ServerBook) async {
+        guard let server, opening == nil else { return }
+        opening = book.id
+        problem = nil
+        defer { opening = nil }
+        do {
+            async let detail = server.book(book.id)
+            let place = try await server.comicPlace(in: book.id)
+            let whole = try await detail
+            guard let pages = whole.pages, !pages.isEmpty else {
+                problem = "This comic has no pages on the server."
+                return
+            }
+            comic?.close()
+            comic = ComicSession(book: book, server: server, pages: pages, rightToLeft: whole.book.rightToLeft == true, place: place, keepsSessions: keepsSessions)
+            path.append(.comic)
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    /// Out of the comic, back to the screen before, with its page kept and the shelf saying how far it is.
+    func closeComic() {
+        comic?.close()
+        comic = nil
+        if path.last == .comic { path.removeLast() }
+        Task { await library?.refreshProgress() }
+    }
 
     /// Out of the reader, back to the screen before. The narration plays on.
     func closeReader() {

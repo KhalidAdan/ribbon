@@ -297,7 +297,7 @@ private struct Lectern: View {
             Text(b.title).font(.ui(title, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).fixedSize(horizontal: false, vertical: true)
             #endif
             Text(b.author).font(.ui(body)).foregroundStyle(Color.ink2).lineLimit(1)
-            Text(b.textOnly ? "EPUB" : "Audiobook · \(Format.left(b.book.durationMs))")
+            Text(b.book.isComic ? "Comic · \(b.book.pages.map(Format.pages) ?? "CBZ")" : b.textOnly ? "EPUB" : "Audiobook · \(Format.left(b.book.durationMs))")
                 .font(.ui(small)).foregroundStyle(Color.ink3).monospacedDigit().padding(.top, tv ? 8 : 4)
             Text(b.finished ? "Finished." : b.fraction > 0 ? "\(Int((b.fraction * 100).rounded()))% in." : b.days < 7 ? "Added this week." : "Not started.")
                 .font(.ui(small)).foregroundStyle(Color.ink2).monospacedDigit()
@@ -411,7 +411,7 @@ private struct SearchResults: View {
                     Button { bookcase.choose(it) } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(b.title).font(.ui(24, weight: 600)).foregroundStyle(Color.ink).lineLimit(1)
-                            Text(b.textOnly ? "\(b.author) · EPUB" : "\(b.author) · \(Format.left(b.book.durationMs))")
+                            Text(b.book.isComic ? "\(b.author) · \(b.book.pages.map(Format.pages) ?? "Comic")" : b.textOnly ? "\(b.author) · EPUB" : "\(b.author) · \(Format.left(b.book.durationMs))")
                                 .font(.ui(19)).foregroundStyle(Color.ink2).lineLimit(1).monospacedDigit()
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

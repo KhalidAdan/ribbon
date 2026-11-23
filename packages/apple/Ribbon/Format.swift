@@ -10,6 +10,11 @@ enum Format {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
+    /// How long a comic is: "24 pages", "1 page".
+    static func pages(_ count: Int) -> String {
+        "\(count) \(count == 1 ? "page" : "pages")"
+    }
+
     /// How long is left, in words: "9h 40m", "12 min", "40 sec".
     static func left(_ ms: Int) -> String {
         let total = Int((Double(max(0, ms)) / 1000).rounded())
