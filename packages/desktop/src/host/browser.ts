@@ -54,6 +54,8 @@ export function browserHost(base = "/__ribbon"): Host {
     readTextDir: (dir) => call<TextFile[]>("readTextDir", { dir }),
     catalogSearch: (title, author, region) => call<string>("catalog", { title, author, region }),
     openEbook: (path) => call<string>("ebook", { path }),
+    comicEntries: (path) => call<{ name: string; size?: number; packed?: number }[]>("comicEntries", { path }),
+    comicCover: (path, entry, target, width) => call<boolean>("comicCover", { path, entry, target, width }),
     // EPUB covers only; audio covers fall back to ffmpeg, as before.
     extractCover: (src, target) => call<boolean>("cover", { src, target }),
     // In one request: the progress shows only at the end.
@@ -67,6 +69,11 @@ export function browserHost(base = "/__ribbon"): Host {
 
 export function browserFileUrl(absPath: string, base = "/__ribbon"): string {
   return `${base}/file?path=${encodeURIComponent(absPath)}`;
+}
+
+/** One page of a comic, read out of its archive by the dev server (packages/host-node/src/comic.ts). */
+export function browserComicPageUrl(absPath: string, entry: string, version: string, base = "/__ribbon"): string {
+  return `${base}/comicPage?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}&v=${encodeURIComponent(version)}`;
 }
 
 /** The harness's stand-in for Ribbon's own folder, inside the library's records. */

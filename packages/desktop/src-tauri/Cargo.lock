@@ -3156,6 +3156,7 @@ version = "0.42.0"
 dependencies = [
  "block2",
  "fs4",
+ "image",
  "libc",
  "lofty",
  "log",

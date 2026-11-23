@@ -53,8 +53,12 @@ export function comicInfoEntry(entries: readonly string[]): string | undefined {
 /** What is known of one archive entry before it is read. */
 export interface ArchiveEntry {
   name: string;
-  /** Its size once unpacked, in bytes. */
-  size: number;
+  /**
+   * Its size once unpacked, in bytes, when the host knows it. The desktop
+   * doesn't say: reading sizes costs a request per entry over a share, so
+   * Rust refuses an oversized page where it reads one instead (comic.rs).
+   */
+  size?: number;
   /** Its size in the archive, when the host knows it. */
   packed?: number;
 }
@@ -79,7 +83,7 @@ export function archiveProblem(entries: readonly ArchiveEntry[]): string | null 
   if (entries.length > ARCHIVE_LIMITS.entries) return `It holds ${entries.length.toLocaleString("en")} files, more than a comic has.`;
   let total = 0;
   for (const e of entries) {
-    if (!isPage(e.name)) continue;
+    if (!isPage(e.name) || e.size === undefined) continue;
     if (e.size > ARCHIVE_LIMITS.pageBytes) return `"${baseName(e.name)}" unpacks to more than a page could be.`;
     if (e.packed !== undefined && e.size >= 1024 * 1024 && e.size > e.packed * ARCHIVE_LIMITS.ratio) return `"${baseName(e.name)}" unpacks to far more than a picture would.`;
     total += e.size;

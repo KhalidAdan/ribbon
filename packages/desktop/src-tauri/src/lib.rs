@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod comic;
 pub mod ebook;
 pub mod frames;
 pub mod awake;
@@ -91,6 +92,11 @@ pub fn run() {
             let app = ctx.app_handle().clone();
             std::thread::spawn(move || responder.respond(audio::respond(&app, request)));
         })
+        // A comic's pages, read out of its archive one at a time (comic.rs).
+        .register_asynchronous_uri_scheme_protocol("ribboncomic", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(comic::respond(&app, request)));
+        })
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -117,6 +123,8 @@ pub fn run() {
             home_move::home_move_check,
             home_move::home_move,
             online::catalog_search,
+            comic::comic_entries,
+            comic::comic_cover,
             ebook::ebook_open,
             ebook::export::ebook_export,
             awake::stay_awake,
