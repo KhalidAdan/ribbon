@@ -236,7 +236,7 @@ private struct SeriesCard: View {
                 VStack(alignment: .leading, spacing: 8.scaled) {
                     Text(series.name).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
                     Text("\(series.books.count) books\(standing)").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
-                    Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6.scaled)
+                    Text(allDone ? "Every book finished" : started ? "\(next.audio ? "Listening to" : "Reading") \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6.scaled)
                     SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16.scaled)
                 }
                 .widthUnlessNarrow(450)

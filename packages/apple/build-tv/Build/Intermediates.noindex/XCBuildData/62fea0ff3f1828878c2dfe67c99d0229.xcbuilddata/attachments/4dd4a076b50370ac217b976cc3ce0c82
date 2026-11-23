@@ -1,0 +1,549 @@
+{
+  "" : {
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Ribbon-primary.dia",
+    "emit-module-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Ribbon-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Ribbon-primary-emit-module.dia",
+    "pch" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Ribbon-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Ribbon-primary.swiftdeps"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/BookInHand.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookInHand~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/BookModel.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookModel~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/Bookcase.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookcase~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/BookcaseInvitation.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseInvitation~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/BookcaseView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookcaseView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/Cloth.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cloth~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/GraphicsCard.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GraphicsCard~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/Lamplight.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Lamplight~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/LongShelf.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LongShelf~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/ShelfBook.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfBook~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/ShelfLayout.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfLayout~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/ShelfRow.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfRow~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/ShelfSearch.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ShelfSearch~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/SpeedPass.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpeedPass~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/Spine.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Spine~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/SpineSheets.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SpineSheets~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Bookcase/Turning.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Turning~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/CodeSignIn.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/CodeSignIn~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Comic/ComicSession.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicSession~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Comic/ComicView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ComicView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Format.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Format~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Kit.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Kit~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/BookView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/Goal.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Goal~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/Library.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Library~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/LibraryView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/LibraryView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/SearchView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SearchView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/SettingsView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SettingsView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Library/StatsView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/StatsView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/BookPlayer.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookPlayer~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/Bookmarks.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Bookmarks~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/Cards.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Cards~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/Dozing.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Dozing~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/FinishedView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/FinishedView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/Listening.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Listening~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/Loudness.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Loudness~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/PassagesView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PassagesView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/PlayerView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PlayerView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Listening/Resume.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Resume~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Look.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Look~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/PeopleView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/PeopleView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Reading/BookLayout.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BookLayout~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Reading/ReadAlong.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadAlong~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Reading/ReaderView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Reading/ReaderViewController.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReaderViewController~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Reading/ReadingSession.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/ReadingSession~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Reading/TextSettings.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/TextSettings~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Remote.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Remote~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/RibbonApp.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonApp~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Server/Account.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/Account~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Server/BrowserSignIn.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/BrowserSignIn~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/Server/RibbonServer.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/RibbonServer~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon/SignInView.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/SignInView~partial.swiftmodule"
+  },
+  "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/Ribbon.build/Debug-appletvsimulator/Ribbon.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

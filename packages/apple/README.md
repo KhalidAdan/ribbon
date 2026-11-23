@@ -63,6 +63,14 @@ for listening without a network.
   may turn sideways only there (`Ribbon/Bookcase/`). The cloth is
   ambientCG's Fabric082A and the light Poly Haven's Studio Small 09, both
   CC0.
+- **Comics**, on the iPad and the iPhone (docs/COMICS.md, section 7): a comic
+  on the server is on the shelf with its pages counted, and opens in a reader
+  of its own (`Ribbon/Comic/`). A page fills the screen; a swipe or a touch on
+  either side turns it, two fingers zoom, a touch in the middle hides what's
+  around it. Pages come from the server one at a time (`GET
+  /api/books/:id/pages/:n`), the few around yours kept decoded; your page goes
+  to the server (`POST /api/books/:id/place`, `page`) and comes back on every
+  device. The Apple TV doesn't list comics yet.
 - **Stats**, at the top of the library, as the desktop's Stats has them:
   this week as a sentence, a day lately, the streak and the books finished
   this year; a square for each day of the last year; the books and authors

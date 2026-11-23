@@ -1,0 +1,64 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "6a3590d272e70ecb343885aab608a96e635315db58bc623d150e0521f673a232"
+    }
+  ],
+  "containerPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/Ribbon.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "undefined_arch",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : true,
+      "hostTargetedPlatform" : null,
+      "platform" : "appletvsimulator",
+      "sdk" : "appletvsimulator27.0",
+      "sdkVariant" : "appletvsimulator",
+      "supportedArchitectures" : [
+        "i386",
+        "x86_64"
+      ],
+      "targetArchitecture" : "undefined_arch"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Products",
+      "derivedDataPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv",
+      "indexDataStoreFolderPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/khalidadan/code/ribbon/.claude/worktrees/comics-core/packages/apple/build-tv/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Debug",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+          "CODE_SIGNING_ALLOWED" : "NO",
+          "SDKROOT" : "appletvsimulator27.0"
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ACTION" : "build",
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}
