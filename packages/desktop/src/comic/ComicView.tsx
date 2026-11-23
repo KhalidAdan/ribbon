@@ -1,9 +1,10 @@
 import { ArrowLeftIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { onScreen, type ReadyComic } from "@ribbon/core/comic/session";
 import type { ComicSettings } from "@ribbon/core/comic/settings";
-import { PageWindow } from "@ribbon/core/comic/window";
+import { imageSize, pageBox, type PixelSize } from "@ribbon/core/comic/size";
+import { DECODED, DECODED_FACING, PageWindow } from "@ribbon/core/comic/window";
 import type { AppController } from "../app/controller";
 import { Button } from "../ui/Button";
 import { Menu, type MenuItem } from "../ui/kit";
@@ -70,63 +71,93 @@ export function folio(pages: readonly number[], of: number): string {
   return first === last ? `Page ${first} of ${of}` : `Pages ${first}–${last} of ${of}`;
 }
 
-/** A page's picture, fetched and decoded before it is needed. */
-function loadPage(url: string, signal: AbortSignal): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.decoding = "async";
-    const stop = () => {
-      // Dropping the address stops the fetch, for a page the reader has left behind.
-      img.src = "";
-      reject(new Error("no longer wanted"));
-    };
-    signal.addEventListener("abort", stop, { once: true });
-    img.onload = () => {
-      signal.removeEventListener("abort", stop);
-      // Decoded now, off the main thread, so drawing it later costs nothing; a browser that can't say still has the picture.
-      img.decode().then(
-        () => resolve(img),
-        () => resolve(img),
-      );
-    };
-    img.onerror = () => {
-      signal.removeEventListener("abort", stop);
-      reject(new Error("the page could not be read"));
-    };
-    img.src = url;
-  });
+/** A page's file, fetched and not yet decoded: its bytes, and the size its picture will be. */
+interface Fetched extends PixelSize {
+  file: Blob;
+}
+
+/** How much of a file is read to learn its picture's size: a JPEG's says after its thumbnail and colour profile. */
+const HEADER_BYTES = 256 * 1024;
+
+/**
+ * Fetch a page's file and read its size from its first bytes. Nothing is
+ * decoded: that is the dear part, done only for the nearest pages.
+ */
+async function fetchPage(address: string, signal: AbortSignal): Promise<Fetched> {
+  const answer = await fetch(address, { signal });
+  if (!answer.ok) throw new Error("the page could not be read");
+  const file = await answer.blob();
+  const start = new Uint8Array(await file.slice(0, HEADER_BYTES).arrayBuffer());
+  let size = imageSize(start) ?? (file.size > HEADER_BYTES ? imageSize(new Uint8Array(await file.arrayBuffer())) : null);
+  if (!size) {
+    // A file whose header doesn't say: decode it once to ask.
+    const picture = await createImageBitmap(file);
+    size = { width: picture.width, height: picture.height };
+    picture.close();
+  }
+  return { file, ...size };
 }
 
 function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; settings: ComicSettings; rightToLeft: boolean; c: AppController }) {
   const shown = onScreen(comic, settings.up);
   const count = comic.pages.length;
 
-  // The window of pages around this one, fetched and decoded ahead of the reader (core/comic/window.ts).
-  // Made in an effect, not while drawing: it starts fetching at once, and is let go when the comic closes.
-  const pageWindow = useRef<PageWindow<HTMLImageElement> | null>(null);
+  // Two windows around this page (core/comic/window.ts). The wide one keeps pages fetched: their files, a megabyte
+  // or two each, which is the wait over a network share. The narrow one keeps the nearest decoded, which is the
+  // wait at the turn itself, and what memory makes dear: 24 MB for a scanned page. Ribbon holds the decoded
+  // pictures itself and frees each the moment it leaves the window; left to the web view as <img>s, they stayed
+  // in its cache, 1.3 GB of them after a few dozen turns, closed comic and all (measured in the Mac build).
+  // Made in an effect: they start fetching at once, and are let go when the comic closes.
+  const fetched = useRef<PageWindow<Fetched> | null>(null);
+  const decoded = useRef<PageWindow<ImageBitmap> | null>(null);
   const page = useRef(comic.page);
+  const up = useRef(settings.up);
+  up.current = settings.up;
+  // Drawn again when a page's file or picture lands.
+  const [, landed] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
-    const made = new PageWindow<HTMLImageElement>(count, {
+    const files = new PageWindow<Fetched>(count, {
       load: async (at, signal) => {
-        const url = c.comicPageUrl(at);
-        if (!url) throw new Error("no address for the page");
-        const img = await loadPage(url, signal);
-        c.comicMeasured(comic.bookId, at, img.naturalWidth, img.naturalHeight);
-        return img;
+        const address = c.comicPageUrl(at);
+        if (!address) throw new Error("no address for the page");
+        const file = await fetchPage(address, signal);
+        c.comicMeasured(comic.bookId, at, file.width, file.height);
+        return file;
       },
-      release: (_, img) => void (img.src = ""),
+      landed,
     });
-    pageWindow.current = made;
-    made.moveTo(page.current);
+    const pictures = new PageWindow<ImageBitmap>(
+      count,
+      {
+        load: async (at) => {
+          const file = await files.get(at);
+          if (!file) throw new Error("the page's file didn't arrive");
+          return createImageBitmap(file.file);
+        },
+        release: (_, picture) => picture.close(),
+        landed,
+      },
+      up.current === "two" ? DECODED_FACING : DECODED,
+    );
+    fetched.current = files;
+    decoded.current = pictures;
+    files.moveTo(page.current);
+    pictures.moveTo(page.current);
     return () => {
-      pageWindow.current = null;
-      void made.close();
+      fetched.current = null;
+      decoded.current = null;
+      void pictures.close();
+      void files.close();
     };
   }, [comic.bookId, count, c]);
   useEffect(() => {
-    pageWindow.current?.moveTo(comic.page, comic.page >= page.current);
+    const forward = comic.page >= page.current;
+    fetched.current?.moveTo(comic.page, forward);
+    // Two pages up, the spreads either side are four pages, not two.
+    decoded.current?.resize(settings.up === "two" ? DECODED_FACING : DECODED);
+    decoded.current?.moveTo(comic.page, forward);
     page.current = comic.page;
-  }, [comic.page]);
+  }, [comic.page, settings.up]);
 
   const turn = (to: number | null) => {
     if (to !== null) c.turnComic(to);
@@ -163,27 +194,36 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
     return () => window.removeEventListener("keydown", onKey);
   }, [c]);
 
-  // A finger, or two on a trackpad, drags the page with the next one already beside it (reader/swipe.ts).
+  // The room the pages have, measured: a page's size on screen is worked out from it (core/comic/size.ts).
   const viewport = useRef<HTMLDivElement>(null);
   const track = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
+  const [room, setRoom] = useState<PixelSize>({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const el = viewport.current;
     if (!el) return;
-    const measure = () => setWidth(el.clientWidth);
+    const measure = () => setRoom((was) => (was.width === el.clientWidth && was.height === el.clientHeight ? was : { width: el.clientWidth, height: el.clientHeight }));
     measure();
     const watching = new ResizeObserver(measure);
     watching.observe(el);
     return () => watching.disconnect();
   }, []);
+
+  // A finger, or two on a trackpad, drags the page with the next one already beside it (reader/swipe.ts).
   // The swipe's "forward" is a drag to the left: for a comic read right to left, that is the way back.
   const toward = (step: 1 | -1) => (step === 1 ? onRight : onLeft);
-  const swipe = usePageSwipe({ track, width, has: (step) => toward(step) !== null, turn: (step) => turn(toward(step)) });
+  const swipe = usePageSwipe({ track, width: room.width, has: (step) => toward(step) !== null, turn: (step) => turn(toward(step)) });
   // The turn has been drawn: the track goes back to the middle in the same frame.
   useLayoutEffect(() => swipe.settled(), [comic.page, settings.up]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const neighbour = (to: number | null) => (to === null ? null : onScreen({ ...comic, page: to }, settings.up).pages);
   const fitWidth = settings.fit === "width";
+  /** One page of a spread, as it is drawn now: its place on screen, and its picture once that has been decoded. */
+  const drawn = (at: number, across: number): Drawn | null => {
+    const file = fetched.current?.peek(at);
+    if (!file || room.width === 0) return null;
+    return { page: at, box: pageBox(file, across, room, settings.fit), picture: decoded.current?.peek(at) };
+  };
+  const spread = (pages: readonly number[]) => pages.map((at) => drawn(at, pages.length));
 
   return (
     <>
@@ -196,11 +236,11 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
         onPointerCancel={swipe.onPointerCancel}
         onWheel={swipe.onWheel}
       >
-        <div ref={track} className={clsx("relative w-full", !fitWidth && "h-full")}>
-          <Spread key={shown.pages.join("-")} pages={shown.pages} rightToLeft={rightToLeft} fitWidth={fitWidth} c={c} />
+        <div ref={track} data-comic-track className={clsx("relative w-full will-change-transform", !fitWidth && "h-full")}>
+          <Spread pages={spread(shown.pages)} rightToLeft={rightToLeft} fitWidth={fitWidth} />
           {/* The spreads either side, already drawn where a swipe will bring them from. */}
-          <Beside side="right-full" pages={neighbour(onLeft)} rightToLeft={rightToLeft} fitWidth={fitWidth} c={c} />
-          <Beside side="left-full" pages={neighbour(onRight)} rightToLeft={rightToLeft} fitWidth={fitWidth} c={c} />
+          <Beside side="right-full" pages={neighbour(onLeft)?.map((at, _, all) => drawn(at, all.length)) ?? null} rightToLeft={rightToLeft} fitWidth={fitWidth} />
+          <Beside side="left-full" pages={neighbour(onRight)?.map((at, _, all) => drawn(at, all.length)) ?? null} rightToLeft={rightToLeft} fitWidth={fitWidth} />
         </div>
         {/* A click on either side of the page turns it; the middle is the page's own. */}
         <button type="button" aria-label={rightToLeft ? "Next page" : "Previous page"} disabled={onLeft === null} onClick={() => !swipe.justSwiped() && turn(onLeft)} className="absolute inset-y-0 left-0 w-1/3 cursor-w-resize disabled:cursor-default" />
@@ -231,36 +271,49 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
   );
 }
 
+/** A page as it is drawn: which, how large on screen, and its picture when that is decoded. */
+interface Drawn {
+  page: number;
+  box: PixelSize;
+  picture: ImageBitmap | undefined;
+}
+
 /** A spread waiting beside the one on screen, for a swipe to bring in. Never read out: it isn't there yet. */
-function Beside({ side, pages, rightToLeft, fitWidth, c }: { side: "right-full" | "left-full"; pages: number[] | null; rightToLeft: boolean; fitWidth: boolean; c: AppController }) {
+function Beside({ side, pages, rightToLeft, fitWidth }: { side: "right-full" | "left-full"; pages: (Drawn | null)[] | null; rightToLeft: boolean; fitWidth: boolean }) {
   if (!pages) return null;
   return (
     <div aria-hidden="true" className={clsx("absolute top-0 h-full w-full", side)}>
-      <Spread pages={pages} rightToLeft={rightToLeft} fitWidth={fitWidth} c={c} />
+      <Spread pages={pages} rightToLeft={rightToLeft} fitWidth={fitWidth} />
     </div>
   );
 }
 
-/** One page, or two that face each other, as large as the window allows. */
-function Spread({ pages, rightToLeft, fitWidth, c }: { pages: readonly number[]; rightToLeft: boolean; fitWidth: boolean; c: AppController }) {
-  return (
-    <div className={clsx("flex w-full items-center justify-center", !fitWidth && "h-full", rightToLeft && "flex-row-reverse")}>
-      {pages.map((page) => {
-        const url = c.comicPageUrl(page);
-        if (!url) return null;
-        return (
-          <img
-            key={page}
-            src={url}
-            alt={`Page ${page + 1}`}
-            draggable={false}
-            decoding="async"
-            // Each page takes its share of the width; fitted to the page, it is never taller than the window either.
-            style={fitWidth ? { width: `${100 / pages.length}%` } : { maxWidth: `${100 / pages.length}%` }}
-            className={clsx("block object-contain", fitWidth ? "h-auto" : "max-h-full")}
-          />
-        );
-      })}
-    </div>
-  );
+/** One page, or two that face each other, as large as the window allows. A page whose file hasn't landed has no place yet. */
+function Spread({ pages, rightToLeft, fitWidth }: { pages: readonly (Drawn | null)[]; rightToLeft: boolean; fitWidth: boolean }) {
+  return <div className={clsx("flex w-full items-center justify-center", !fitWidth && "h-full", rightToLeft && "flex-row-reverse")}>{pages.map((p) => p && <PageCanvas key={p.page} {...p} />)}</div>;
+}
+
+/**
+ * A page, drawn from its decoded picture onto a canvas the size it shows
+ * at, so what is kept for it is its size on screen, not the scan's. Until
+ * its picture is decoded its place is held, empty, at its size, and
+ * nothing moves when it arrives.
+ */
+function PageCanvas({ page, box, picture }: Drawn) {
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useLayoutEffect(() => {
+    const el = canvas.current;
+    if (!el || !picture) return;
+    // As many pixels as the screen shows it with, and never more than the page has.
+    const density = Math.min(window.devicePixelRatio || 1, picture.width / box.width);
+    const [w, h] = [Math.min(picture.width, Math.max(1, Math.round(box.width * density))), Math.min(picture.height, Math.max(1, Math.round(box.height * density)))];
+    if (el.width !== w) el.width = w;
+    if (el.height !== h) el.height = h;
+    const ctx = el.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(picture, 0, 0, w, h);
+    el.dataset.drawn = "true";
+  }, [picture, box.width, box.height]);
+  return <canvas ref={canvas} role="img" aria-label={`Page ${page + 1}`} data-page={page + 1} style={{ width: box.width, height: box.height }} className="block shrink-0" />;
 }

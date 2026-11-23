@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { comicAfter, onScreen, pageAt, pageLocator, pageProgress, type ComicSession, type ReadyComic } from "@ribbon/core/comic/session";
-import { PageWindow, windowAround, WINDOW } from "@ribbon/core/comic/window";
+import { DECODED, PageWindow, windowAround, WINDOW } from "@ribbon/core/comic/window";
 
 const names = (n: number) => Array.from({ length: n }, (_, i) => `p${String(i + 1).padStart(3, "0")}.jpg`);
 const ready = (pages: number, page = 0, wide: number[] = []): ReadyComic => ({ status: "ready", bookId: "c", pages: names(pages), wide: names(pages).map((_, i) => wide.includes(i)), page });
@@ -88,6 +88,8 @@ describe("the window of pages", () => {
   it("is the page, then outward, ahead before behind", () => {
     expect(windowAround(10, 100)).toEqual([10, 11, 9, 12, 8, 13, 14, 15, 16, 17, 18]);
     expect(WINDOW).toEqual({ behind: 2, ahead: 8 });
+    // Decoded pages are dear in memory: only the nearest few.
+    expect(windowAround(10, 100, DECODED)).toEqual([10, 11, 9, 12]);
   });
 
   it("stops at the comic's ends", () => {
@@ -183,11 +185,39 @@ describe("the window of pages", () => {
     await w.close();
   });
 
+  it("says when a page lands, for whoever draws from it", async () => {
+    const landed: number[] = [];
+    const w = new PageWindow<string>(5, { load: (page) => Promise.resolve(`page ${page}`), landed: (page) => void landed.push(page) }, { behind: 1, ahead: 1 });
+    w.moveTo(2);
+    await settle();
+    expect(landed).toEqual([2, 3, 1]);
+    expect(landed.every((p) => w.peek(p) !== undefined)).toBe(true);
+    await w.close();
+  });
+
   it("answers undefined for a page that couldn't be brought in, and for a page outside the comic", async () => {
     const w = new PageWindow<string>(5, { load: (page) => (page === 2 ? Promise.reject(new Error("unreadable")) : Promise.resolve("ok")) });
     expect(await w.get(2)).toBeUndefined();
     expect(await w.get(9)).toBeUndefined();
     expect(await w.get(1)).toBe("ok");
+    await w.close();
+  });
+});
+
+describe("the window, resized", () => {
+  it("holds more around the reader from the next move on", async () => {
+    const released: number[] = [];
+    const w = new PageWindow<string>(100, { load: (page) => Promise.resolve(`page ${page}`), release: (page) => void released.push(page) }, DECODED);
+    w.moveTo(10);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(w.holding()).toEqual([9, 10, 11, 12]);
+    w.resize({ behind: 2, ahead: 3 });
+    w.moveTo(10);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(w.holding()).toEqual([8, 9, 10, 11, 12, 13]);
+    w.resize(DECODED);
+    w.moveTo(10);
+    expect(released.sort((a, b) => a - b)).toEqual([8, 13]);
     await w.close();
   });
 });

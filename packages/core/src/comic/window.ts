@@ -23,6 +23,19 @@ export interface WindowSize {
 export const WINDOW: WindowSize = { behind: 2, ahead: 8 };
 
 /**
+ * The pages kept decoded, ready to draw in the same frame: far fewer than
+ * are kept fetched. A decoded page costs its width times its height times
+ * four bytes, about 35 MB for a scanned page, where its file is a megabyte
+ * or two; and fetching is what a network share makes slow, while decoding
+ * takes a tenth of a second wherever the file is. Measured in the Mac
+ * build: eleven decoded pages added 380 MB to the page's memory.
+ */
+export const DECODED: WindowSize = { behind: 1, ahead: 2 };
+
+/** The same with two pages up: the spread on screen and the one either side of it, which a swipe brings in already drawn. */
+export const DECODED_FACING: WindowSize = { behind: 2, ahead: 3 };
+
+/**
  * The pages to hold around `page`, nearest first: the page itself, then
  * outward, each step ahead before the one behind, since ahead is where
  * the reader is going. `forward` false (reading back through the comic)
@@ -47,6 +60,8 @@ export interface PageLoader<T> {
   load(page: number, signal: AbortSignal): Promise<T>;
   /** A page the window no longer holds: free what it took. */
   release?(page: number, loaded: T): void;
+  /** A page landed in the window: whoever draws from it may want to look again. */
+  landed?(page: number): void;
 }
 
 /**
@@ -65,7 +80,7 @@ export class PageWindow<T> {
   constructor(
     private readonly pages: number,
     private readonly loader: PageLoader<T>,
-    private readonly size: WindowSize = WINDOW,
+    private size: WindowSize = WINDOW,
     /** How many pages are fetched at once. */
     private readonly atOnce = 3,
   ) {
@@ -104,6 +119,7 @@ export class PageWindow<T> {
               return undefined;
             }
             this.held.set(page, loaded);
+            this.loader.landed?.(page);
             return loaded;
           },
           () => {
@@ -138,6 +154,11 @@ export class PageWindow<T> {
     for (const [p, l] of this.loading) if (!this.wanted.includes(p)) l.abort.abort();
     for (const p of [...this.waiting.keys()]) if (!this.wanted.includes(p)) this.answer(p, undefined);
     this.wake?.();
+  }
+
+  /** Hold more pages around the reader, or fewer, from the next move on. */
+  resize(size: WindowSize): void {
+    this.size = size;
   }
 
   /** A page if it is held now, without waiting. */

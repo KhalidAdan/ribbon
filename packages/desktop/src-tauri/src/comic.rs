@@ -307,6 +307,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// How long a real comic takes, when `RIBBON_COMIC_PATH` names one (it is only read):
+    /// its list, each of its first pages cold, and its cover. For the numbers a pull request
+    /// carries; run with `--release -- --ignored --nocapture comic` for the built app's speed.
+    #[test]
+    #[ignore]
+    fn reads_a_real_comic_and_reports_timing() {
+        let Some(path) = std::env::var_os("RIBBON_COMIC_PATH").map(PathBuf::from) else { return };
+        let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1000.0;
+        let t = std::time::Instant::now();
+        let listing = read_listing(&path).expect("a comic");
+        println!("list: {} pages, ComicInfo {}, {:.1} ms", listing.pages, if listing.comic_info.is_some() { "read" } else { "none" }, ms(t));
+
+        let zip = ZipArchive::new(BufReader::new(File::open(&path).unwrap())).unwrap();
+        let mut pages: Vec<String> = zip.file_names().filter(|n| is_page(n)).map(str::to_string).collect();
+        pages.sort();
+        let mut times = Vec::new();
+        for (i, page) in pages.iter().take(20).enumerate() {
+            let t = std::time::Instant::now();
+            let bytes = page_bytes(&path, page).unwrap();
+            times.push(ms(t));
+            if i < 3 {
+                println!("page {}: {} KB in {:.1} ms{}", i + 1, bytes.len() / 1024, ms(t), if i == 0 { " (opens the archive)" } else { "" });
+            }
+        }
+        let mut sorted = times[1.min(times.len() - 1)..].to_vec();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("pages 2 to {}: median {:.1} ms, slowest {:.1} ms", times.len(), sorted[sorted.len() / 2], sorted[sorted.len() - 1]);
+
+        let cover = std::env::temp_dir().join(format!("ribbon-comic-timing-{}.jpg", std::process::id()));
+        let t = std::time::Instant::now();
+        let made = make_cover(&path, &pages[0], &cover, 800).unwrap();
+        println!("cover: {} in {:.1} ms, {} KB", if made { "made" } else { "not made" }, ms(t), std::fs::metadata(&cover).map(|m| m.len() / 1024).unwrap_or(0));
+        let _ = std::fs::remove_file(cover);
+    }
+
     #[test]
     fn a_page_comes_out_of_the_archive_as_it_went_in_and_a_changed_file_is_opened_again() {
         let dir = scratch("page");
