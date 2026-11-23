@@ -12,6 +12,7 @@ import { Button } from "./Button";
 import { Cover, CoverStack } from "./Cover";
 import { EmptyState, SegmentedProgress, Short } from "./kit";
 import { isPlaying } from "@ribbon/core/playback";
+import { onlyRead } from "@ribbon/core/kind";
 
 /** Where you are in a series: its books in the listener's order, how far along each is, and what comes next. */
 export interface SeriesStanding {
@@ -87,7 +88,7 @@ export function SeriesPage() {
   const next = s.next;
   const numberOf = (id: string) => seriesNumber(record, id, s.ids.indexOf(id) + 1, group.numbers);
   const titleOf = (b: ScannedBook) => group.titles?.[b.book.id] ?? b.book.title;
-  const nextToRead = next ? readerOnly(next.book.book) : false;
+  const nextToRead = next ? onlyRead(next.book.book) : false;
   const playingNext = !!next && state.current?.book.book.id === next.book.book.id && state.playing;
   const downloading = !!next && !!state.downloads[next.book.book.id];
 
@@ -123,7 +124,7 @@ export function SeriesPage() {
                     variant="primary"
                     leading={nextToRead ? BookOpenIcon : playingNext ? PauseIcon : PlayIcon}
                     disabled={downloading}
-                    onClick={() => (nextToRead ? void c.openReading(next.book.book.id) : playingNext ? c.pause() : void c.playBook(next.book))}
+                    onClick={() => (playingNext ? c.pause() : void c.playBook(next.book))}
                     className="max-sm:flex-1"
                   >
                     {playingNext ? "Pause" : <Short phone={nextToRead ? "Read" : "Listen"}>{next.progress.started ? (nextToRead ? "Continue reading" : "Continue listening") : nextToRead ? "Start reading" : "Start listening"}</Short>}

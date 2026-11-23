@@ -16,6 +16,7 @@ import { Cover } from "./Cover";
 import { howFar, lengthOf, progressOf, useShelfProgress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
 import { isPlaying } from "@ribbon/core/playback";
+import { onlyRead } from "@ribbon/core/kind";
 
 declare const __RIBBON_MEASURE__: boolean;
 
@@ -317,7 +318,7 @@ function Lectern({ book, canvas, flat, onTurn }: { book: ScannedBook | null; can
   };
 
   const p = book ? progressOf(book, progress, (id) => c.readingProgress(id)) : null;
-  const toRead = book ? readerOnly(book.book) : false;
+  const toRead = book ? onlyRead(book.book) : false;
   const here = book !== null && progress.current?.book.book.id === book.book.id && playing;
   const came = book ? (c.listedFacts(book)?.addedAt ?? null) : null;
   const standing = !p ? "" : p.finished ? "Finished." : p.started ? `${howFar(book!, p)}.` : came !== null && Date.now() - came < 7 * DAY ? "Added this week." : "Not started.";
@@ -344,7 +345,7 @@ function Lectern({ book, canvas, flat, onTurn }: { book: ScannedBook | null; can
             </span>
           </button>
           <p className="truncate text-sm/5 text-ink-2">{book.book.author || "Unknown author"}</p>
-          <p className="mt-1 text-[0.8125rem]/5 text-ink-3 tabular-nums">{toRead ? "EPUB" : `Audiobook · ${lengthOf(book)}`}</p>
+          <p className="mt-1 text-[0.8125rem]/5 text-ink-3 tabular-nums">{toRead ? (book.book.comic ? `Comic · ${lengthOf(book)}` : "EPUB") : `Audiobook · ${lengthOf(book)}`}</p>
           <p className="text-[0.8125rem]/5 text-ink-2 tabular-nums">{standing}</p>
           {p.started && !p.finished && (
             <div className="mt-1.5 h-0.5 w-60 overflow-hidden rounded-full bg-white/15">
@@ -353,7 +354,7 @@ function Lectern({ book, canvas, flat, onTurn }: { book: ScannedBook | null; can
           )}
           <div className="mt-3 flex flex-col gap-2">
             {toRead ? (
-              <Button variant="primary" leading={BookOpenIcon} className={pressed} onClick={() => void c.openReading(book.book.id)}>
+              <Button variant="primary" leading={BookOpenIcon} className={pressed} onClick={() => void c.playBook(book)}>
                 {p.started && !p.finished ? "Continue reading" : "Read"}
               </Button>
             ) : (

@@ -26,14 +26,15 @@ export interface KeptPlace {
 export const SHARE_AFTER_MS = 5_000;
 
 /**
- * Keeps the place in one open book's text: on this machine at once, and
- * in the position log beside the books a few seconds after the reader
- * settles on a page, or at once for a jump or on close. A failed write
- * beside the books is tried again with the next one, unless the folder is
- * read-only from this device.
+ * Keeps the place in one open book: on this machine at once, and in the
+ * position log beside the books a few seconds after the reader settles
+ * on a page, or at once for a jump or on close. A failed write beside the
+ * books is tried again with the next one, unless the folder is read-only
+ * from this device. A place is whatever the book's reader turns: a place
+ * in a text (`ReadingKeeper`), or a page of a comic.
  */
-export class ReadingKeeper {
-  private place: TextPlace;
+export class PlaceKeeper<P> {
+  private place: P;
   private pending: { loc: Locator; why: Why; at: number; ms?: number } | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private writing: Promise<void> = Promise.resolve();
@@ -41,30 +42,31 @@ export class ReadingKeeper {
   private moved = false;
 
   constructor(
-    private readonly book: BookText,
-    start: TextPlace,
+    /** A place as the position log writes it. */
+    private readonly locate: (place: P) => Locator,
+    start: P,
     private readonly io: {
       /** Keep it on this machine. Cheap, and called on every move. */
       keepLocal: (kept: KeptPlace) => void;
       /** Write it beside the books, in the position log. */
       share: (loc: Locator, why: Why, atMs: number, ms?: number) => Promise<void>;
       /** The same place in the audiobook, when there is one. */
-      toMs?: (place: TextPlace) => number | null;
+      toMs?: (place: P) => number | null;
       now?: () => number;
     },
   ) {
     this.place = start;
   }
 
-  get current(): TextPlace {
+  get current(): P {
     return this.place;
   }
 
-  move(place: TextPlace, why: Why): void {
+  move(place: P, why: Why): void {
     this.place = place;
     this.moved = true;
     const now = this.io.now?.() ?? Date.now();
-    const loc = this.book.locator(place);
+    const loc = this.locate(place);
     const ms = this.io.toMs?.(place) ?? undefined;
     this.io.keepLocal({ loc, t: new Date(now).toISOString(), ...(ms !== undefined ? { ms } : {}) });
     this.pending = { loc, why, at: now, ...(ms !== undefined ? { ms } : {}) };
@@ -97,6 +99,13 @@ export class ReadingKeeper {
   finish(): Promise<void> {
     if (this.moved) this.move(this.place, "close");
     return this.flush();
+  }
+}
+
+/** Keeps the place in one open book's text. */
+export class ReadingKeeper extends PlaceKeeper<TextPlace> {
+  constructor(book: BookText, start: TextPlace, io: ConstructorParameters<typeof PlaceKeeper<TextPlace>>[2]) {
+    super((place) => book.locator(place), start, io);
   }
 }
 

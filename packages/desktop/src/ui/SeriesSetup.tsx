@@ -11,6 +11,7 @@ import { Dialog } from "./Dialog";
 import { useKept } from "./modal";
 import { Checkbox, Menu, type MenuItem } from "./kit";
 import { Cover } from "./Cover";
+import { onlyRead } from "@ribbon/core/kind";
 
 /**
  * A series, set up or changed: its name, which books belong, in what
@@ -56,8 +57,8 @@ export function SeriesSetup() {
 
   const shown = [...choices].sort((a, b) => a.order - b.order).filter((ch) => !out.has(ch.bookId));
   const included = shown.filter((ch) => ch.included).length;
-  // A book that is only its EPUB has no length to be too short by.
-  const durations = new Map(state.books.map((b) => [b.book.id, readerOnly(b.book) ? Infinity : b.book.durationMs]));
+  // A book that is only read, an EPUB alone or a comic, has no length to be too short by.
+  const durations = new Map(state.books.map((b) => [b.book.id, onlyRead(b.book) ? Infinity : b.book.durationMs]));
 
   const reorder = (fromId: string, toId: string) => {
     if (fromId === toId) return;

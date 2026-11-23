@@ -7,6 +7,7 @@ import { readsOf } from "@ribbon/core/stats";
 import { readerOnly } from "@ribbon/core/ebook";
 import { formatLeft } from "@ribbon/core/speed";
 import { readingStandingOf, standingOf } from "@ribbon/core/progress";
+import { onlyRead, pagesLabel } from "@ribbon/core/kind";
 
 export interface Progress {
   /** Position in the book, live for the open book, saved for the rest. */
@@ -46,23 +47,24 @@ export function useShelfProgress(): ProgressState {
  * position. Once a book has listen-throughs in the history, the latest
  * one says whether it is finished: marking a book finished or not, and
  * starting it again, are the listener's word on it. A book that is only
- * its EPUB is as far along as its reading place: `reading` says how far
- * through its text, 0 to 1, or null before it is read.
+ * read, an EPUB alone or a comic, is as far along as its reading place:
+ * `reading` says how far through it, 0 to 1, or null before it is read.
  */
 export function progressOf(book: ScannedBook, state: ProgressState, reading?: (bookId: string) => number | null): Progress {
   const reads = state.history ? readsOf(state.history.reads, book.book.id) : [];
-  if (readerOnly(book.book)) return { posMs: 0, ...readingStandingOf(reading?.(book.book.id) ?? 0, reads) };
+  if (onlyRead(book.book)) return { posMs: 0, ...readingStandingOf(reading?.(book.book.id) ?? 0, reads) };
   const active = state.current?.book.book.id === book.book.id;
   const posMs = active ? state.player.positionMs : (state.positions[book.book.id]?.offsetMs ?? 0);
   return { posMs, ...standingOf(posMs, book.book.durationMs, reads) };
 }
 
-/** What a book comes to before it is started: how long it is, or that it is an EPUB to read. */
+/** What a book comes to before it is started: how long it is, that it is an EPUB to read, or a comic's pages. */
 export function lengthOf(book: ScannedBook): string {
+  if (book.book.comic) return pagesLabel(book.book.pages);
   return readerOnly(book.book) ? "EPUB" : formatLeft(book.book.durationMs);
 }
 
-/** How far along a started book is: "42% · 3h 10m left", or "42% read" for one that is only its EPUB. */
+/** How far along a started book is: "42% · 3h 10m left", or "42% read" for one that is only read. */
 export function howFar(book: ScannedBook, p: Progress, percent = Math.max(1, Math.round(p.fraction * 100))): string {
-  return readerOnly(book.book) ? `${percent}% read` : `${percent}% · ${formatLeft(book.book.durationMs - p.posMs)} left`;
+  return onlyRead(book.book) ? `${percent}% read` : `${percent}% · ${formatLeft(book.book.durationMs - p.posMs)} left`;
 }

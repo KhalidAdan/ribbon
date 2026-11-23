@@ -1,6 +1,6 @@
 import type { Platform } from "./controller";
 import type { SourceEntry } from "@ribbon/core/sources";
-import { browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
+import { browserComicPageUrl, browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
 /** Where the remembered library lived before the Ribbon folder existed. */
@@ -67,7 +67,7 @@ export function memorySources(): Platform["sources"] {
  */
 export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, tauriBrowserSignIn, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onSleepAndWake, tauriUpdates }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, comicPageUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, tauriBrowserSignIn, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onSleepAndWake, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -96,6 +96,7 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
       },
       allowFolder: allowLibrary,
       fileUrl,
+      comicPageUrl,
       exactAudioUrl,
       // Only where the asset protocol won't play every book: WebView2 plays them all through `fileUrl` (#226).
       ...(onApple() ? { audioUrl } : {}),
@@ -194,6 +195,7 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
     pickFolder: () => browserLibraryRoot(),
     allowFolder: async () => undefined,
     fileUrl: browserFileUrl,
+    comicPageUrl: browserComicPageUrl,
     sources: memorySources(),
     defaultRoot: () => browserLibraryRoot(),
     appSettings: memorySettings(),
