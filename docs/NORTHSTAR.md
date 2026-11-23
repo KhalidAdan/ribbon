@@ -195,8 +195,8 @@ install as they are, so trying Ribbon never means building it.
 **Android**, later, as a thin app of its own.
 
 **Comics.** CBZ files as a third kind of book: on the shelf with their
-series, read on the desktop, the iPad and the iPhone, with your page kept
-like every other place. The plan is in [COMICS.md](COMICS.md).
+series, read on the desktop, the iPad, the iPhone and the Apple TV, with
+your page kept like every other place. The plan is in [COMICS.md](COMICS.md).
 
 **On the radar, not committed:**
 

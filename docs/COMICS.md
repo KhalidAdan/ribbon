@@ -1,10 +1,9 @@
 # Comics in Ribbon
 
-**A plan, not yet agreed.** Nothing here is built. It proposes a third kind
-of book, the comic, and says what it would take on the desktop, the server
-and the Apple apps. The questions that are the owner's to answer are in
-section 10; the changes to the north star are in section 9 and made in
-[NORTHSTAR.md](NORTHSTAR.md) on this branch, so the diff is the proposal.
+**The plan for comics, agreed on 2026-11-23 and not yet built.** A third
+kind of book, the comic, and what it takes on the desktop, the server and
+the Apple apps. Section 10 lists what was decided; the changes to the north
+star are in section 9 and made in [NORTHSTAR.md](NORTHSTAR.md).
 
 ## 1. Why
 
@@ -82,16 +81,40 @@ nothing is opened per book on the way to the first paint.
    an EPUB's, so an unchanged comic is never opened again. Through Culvert:
    Source, Transform, Sink.
 
-**On the shelf.** A comic is a `Book` with a `comic` path where an
-audiobook's EPUB has an `ebook` path. Its author is its writer; it has no
-narrator and no length in hours, so the shelf shows pages where it shows
-time. Its cover is its first page, made into Ribbon's cover sizes the way
-any cover is.
+**On the shelf** (decided): comics share the shelf with every other book.
+A comic is a `Book` with a `comic` path where an audiobook's EPUB has an
+`ebook` path. Its cover is its first page, made into Ribbon's cover sizes
+the way any cover is.
+
+**The same details as any book** (decided), or as close as a comic gets.
+A comic fills the fields a book already has, and is corrected in the same
+edit form, with the same edits kept the same way (`edits.ts`, and on a
+server `PUT /api/books/:id/edits`):
+
+| A book's field | From a comic |
+| --- | --- |
+| Title | ComicInfo's `Title`, else the file name's |
+| Author | `Writer` |
+| Series and number | `Series` and `Number`, else the file name's |
+| Year, publisher, description, language, genres | `Year`, `Publisher`, `Summary`, `LanguageISO`, `Genre` |
+| Narrator, length in hours | None: the shelf shows pages where it shows time |
+
+Only two things are a comic's own: its page count, and whether it reads
+right to left.
 
 **Series are how comics are found.** An issue alone is twenty pages; the
 series is the thing a person follows. Ribbon's series already hold books in
 order with a number each, and a book can be in many, so a run and a
 crossover reading list both fit with no new machinery.
+
+**A file name counts for the series** (decided). Many comics carry no
+ComicInfo.xml, and their names are regular: "Saga 014 (2013).cbz" is Saga,
+number 14, 2013. So for a comic, and only for a comic, the name is taken as
+the file naming its series, when ComicInfo doesn't. What a person has
+edited always stands: a series or a number set by hand is never overwritten
+by a name, and a comic taken out of a series is never put back in it, the
+rule series already have. Audiobooks and EPUBs keep theirs: a series is
+never guessed from a title.
 
 ## 5. Reading a comic on the desktop
 
@@ -104,9 +127,10 @@ the width of the window; left to right or right to left; turn by key, click,
 swipe or wheel; jump to a page; open at your page; keep your place and the
 time spent.
 
-**Where the pages come from.** A page is a picture of a megabyte or more,
-and a Tauri command reply over 8 KB takes the slow path on WebView2, so
-pages can't come through a command. The plan is a `ribboncomic` address,
+**Where the pages come from** (decided: the `ribboncomic` address, with
+the other way measured beside it). A page is a picture of a megabyte or
+more, and a Tauri command reply over 8 KB takes the slow path on WebView2,
+so pages can't come through a command. The plan is a `ribboncomic` address,
 answered in Rust like `ribbonmp3` and `ribbonaudio`: the web view asks for
 a book's page by its entry's name, and Rust reads that one entry out of the
 zip with the `zip` crate the EPUB parser already uses. The order of pages
@@ -114,9 +138,10 @@ stays core's decision; Rust only fetches the entry it is asked for.
 
 The other way is Culvert all the way: `@culvert/zip` in the web view,
 reading byte ranges through the Tauri file plugin. It is one zip reader
-instead of two, and it is what Panels does on its server. Whether it is
-fast enough is a question of numbers, not taste (section 7), so both are
-measured before one is chosen.
+instead of two, and it is what Panels does on its server. It is measured
+beside the address (section 11), and the numbers go in the pull request: if
+Culvert is as fast at 6x, that is worth knowing before a second zip reader
+is kept for good.
 
 **The page window, in Culvert.** Turning a page should never wait for one
 to decode. The window is the pages around yours, held decoded: by default
@@ -186,9 +211,22 @@ pans by touch, turns by swipe, and holds the same window of pages around
 yours. The iPad is the device comics are best on, so it is where this is
 judged. Nothing is kept on the device, as with every thin app.
 
-**The Apple TV** is left out of the first version. Reading a comic with a
-remote from across a room is a different design, and the TV must stay
-exactly as it is until that is wanted.
+**The Apple TV** (decided: it's in). A wide screen is the one place a
+spread is shown at its full size, two pages side by side as they were
+drawn. The TV streams pages from the server and keeps nothing, as it does
+with everything, and the remote does all of it:
+
+- **Left and right turn the page**, or the spread; for a comic that reads
+  right to left, they swap.
+- **A page fits the screen's height** to start with. Select brings it to
+  the screen's width, and then up and down move along it; Select again
+  goes back to the whole page.
+- **Menu leaves the comic**, with the page kept.
+
+How it sits on the screen (the ground behind a page, what shows while one
+arrives, where the page number goes) wants a design round of its own before
+it is built. Every screen the TV has today must come out of this unchanged,
+compared pixel for pixel.
 
 **Android**, when it comes, gets comics from the same requests.
 
@@ -203,7 +241,12 @@ exactly as it is until that is wanted.
   own, as Audible's descriptions are (`RIBBON_DESCRIPTIONS`).
 - **Comics on the bookcase.** An issue's spine is thinner than its title.
   Collected editions would stand well; single issues want another answer.
-- **Bringing Panels' places over**, once, from its database.
+
+**Panels retires** (decided) once Ribbon reads comics on a server and on
+the iPad. Its comics are files, so they come over as any folder does: added
+to Ribbon's server. Its places are one page per person per comic in its
+database, brought over once, by a small tool, as `pos` records for the
+people who have accounts on both. Then Panels is switched off.
 
 ## 9. The north star
 
@@ -219,21 +262,18 @@ Four edits, made in [NORTHSTAR.md](NORTHSTAR.md) on this branch:
 
 The tagline stays: a comic is a book, and it is read.
 
-## 10. For the owner to decide
+## 10. What was decided
 
-1. **Do comics share the shelf with books, or have a section of their own?**
-   The plan assumes one library, with comics found through their series.
-2. **Who opens the archive on the desktop:** Rust behind a `ribboncomic`
-   address, or Culvert in the web view? The plan measures both and takes
-   the Rust address unless Culvert is as fast at 6x.
-3. **A comic with no ComicInfo.xml:** Ribbon never guesses a series from a
-   title. Does a comic's file name count ("Saga 014 (2013).cbz"), or is its
-   series made by hand?
-4. **The Apple TV:** left out, as proposed, or wanted?
-5. **Panels itself:** retired once Ribbon reads comics, or kept?
-6. **When.** Ribbon was heading for "easy to install" and then quiet. This
-   is new work on the desktop, the server and two Apple apps. Before
-   distribution is finished, or after?
+Asked of the owner and answered on 2026-11-23.
+
+| Question | Decision |
+| --- | --- |
+| Do comics share the shelf with books, or have a section of their own? | **They share the shelf.** |
+| Who opens the archive on the desktop? | **Rust, behind a `ribboncomic` address**, with Culvert in the web view measured beside it. |
+| A comic with no ComicInfo.xml? | **Its file name counts for its series**, unless a person edited it first. Comics use the same details as any book, or as close as they get. |
+| The Apple TV? | **In the plan.** |
+| Panels? | **Retired** once Ribbon reads comics. |
+| Before "easy to install", or after? | **Alongside it**, each in its own session, so neither waits on the other. |
 
 ## 11. The order of the work
 
@@ -246,6 +286,12 @@ One pull request per step, each usable on its own, each with its numbers.
 | 3 | The desktop's comic reader, from folders: the page address, the window, the place, time spent | The end-to-end checks and the speed report at 1x and 6x |
 | 4 | The server: copy in, prepare, the page requests; the desktop reading a server's comic | Server tests; the desktop against a real server |
 | 5 | The iPad and the iPhone | The Apple tests and screens; the TV compared pixel for pixel, unchanged |
+| 6 | The Apple TV, after its design round | The TV's tests by remote; its other screens compared pixel for pixel, unchanged |
+| 7 | Panels' places brought over, and Panels switched off | Each person's page in Ribbon against their page in Panels |
+
+Comics and "easy to install" go on side by side. They touch different
+files except where a release is cut, so each step here is rebased on `main`
+before it merges, and neither holds the other's release.
 
 **Fixture comics are made, not found.** The repository is public, so the
 test comics are drawn by a script in `tools/`: numbered pages, a wide one,
@@ -262,6 +308,7 @@ of anyone's comic goes into the repository.
 | The two ways of reading a page on the desktop, side by side | Step 3, before the choice |
 | The scan of the existing library, with and without comics in it | Step 2 |
 | A page from the server to the iPad's screen | Step 5 |
+| A spread from the server to the TV's screen | Step 6 |
 
 To check before step 2: Panels uses `@culvert/zip` 0.1.1 with
 `@culvert/stream` 0.1.1, and Ribbon is on `@culvert/stream` 0.2.0. Whether
