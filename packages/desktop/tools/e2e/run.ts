@@ -25,6 +25,7 @@ import { swipeCheck } from "./checks/swipe";
 import { resizeCheck } from "./checks/resize";
 import { readAlongCheck } from "./checks/readalong";
 import { scrollCheck } from "./checks/scroll";
+import { comicCheck } from "./checks/comic";
 import { speedReport } from "./speed";
 
 export interface Check {
@@ -34,7 +35,7 @@ export interface Check {
   run(r: Ribbon, t: Tally): Promise<void>;
 }
 
-const CHECKS: Check[] = [openCheck, swipeCheck, resizeCheck, readAlongCheck, scrollCheck];
+const CHECKS: Check[] = [openCheck, swipeCheck, resizeCheck, readAlongCheck, scrollCheck, comicCheck];
 
 const root = path.resolve(import.meta.dirname, "../../../..");
 const args = process.argv.slice(2);

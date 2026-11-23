@@ -15,6 +15,15 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs, existsSync } from "node:fs";
 import * as path from "node:path";
 import type { AppController } from "../../src/app/controller";
+import { makeComic } from "@ribbon/host-node/make-comic";
+
+/**
+ * The comic the checks read: made here, into the test library, when it
+ * isn't there. Forty pages the size of a scanned page's half, the eleventh
+ * drawn across two. Drawn by a script, so no page of anyone's comic is in
+ * the repository or the library (docs/COMICS.md, section 11).
+ */
+export const CHECKS_COMIC = { file: "Made For The Checks 001.cbz", title: "Made For The Checks #1", pages: 40, wide: [10], width: 1000, height: 1500 };
 
 /** What the measurement build (RIBBON_PROFILE=1) puts on the page for the suite. */
 declare global {
@@ -31,8 +40,10 @@ declare global {
 export interface Ribbon {
   page: Page;
   cdp: CDPSession;
-  /** The test book: the first in the library. */
+  /** The test book: the first in the library with its audio and its EPUB. */
   bookId: string;
+  /** The checks' comic (`CHECKS_COMIC`), or null when the library has none. */
+  comicId: string | null;
   /** Run the CPU this many times slower (1: as it is), as a slow laptop or a phone would. */
   slow(rate: number): Promise<void>;
   close(): Promise<void>;
@@ -58,6 +69,8 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
     if (!existsSync(o.library)) throw new Error(`No test library at ${o.library}: see packages/desktop/tools/e2e/README.md.`);
     await fs.rm(o.work, { recursive: true, force: true });
     await fs.mkdir(o.work, { recursive: true });
+    const comic = path.join(o.library, CHECKS_COMIC.file);
+    if (!existsSync(comic)) await makeComic(comic, { pages: CHECKS_COMIC.pages, wide: CHECKS_COMIC.wide, width: CHECKS_COMIC.width, height: CHECKS_COMIC.height });
     child = spawn(o.exe, [], {
       env: {
         ...process.env,
@@ -90,11 +103,16 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
     await new Promise((r) => setTimeout(r, 200));
   }
   await page.waitForFunction(() => window.__ribbon.getState().phase === "ready" && window.__ribbon.getState().books.length > 0 && !window.__ribbon.getState().scanning, null, { timeout: 120_000 });
-  const bookId = await page.evaluate(() => window.__ribbon.getState().books[0]!.book.id);
+  const bookId = await page.evaluate(() => {
+    const books = window.__ribbon.getState().books;
+    return (books.find((b) => b.files.length > 0 && !!b.book.ebook) ?? books[0]!).book.id;
+  });
+  const comicId = await page.evaluate((title) => window.__ribbon.getState().books.find((b) => !!b.book.comic && b.book.title === title)?.book.id ?? null, CHECKS_COMIC.title);
   return {
     page,
     cdp,
     bookId,
+    comicId,
     slow: async (rate) => void (await cdp.send("Emulation.setCPUThrottlingRate", { rate })),
     close: async () => {
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }).catch(() => undefined);

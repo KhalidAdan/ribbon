@@ -23,6 +23,7 @@ non-zero and lists what failed.
 | `resize` | In pages and in scroll, no frame without text while the window's edge is dragged; laid out again for the new size; text when it is back. |
 | `readalong` | The narrator's sentence is marked and the mark moves on, the page turns with the narrator, the bar counts down, and a few seconds in the other words step back (the river); turning away stops following, brings every word back, and offers Go to the narrator, which brings it back; the river waits again, comes back, and goes on a pause. |
 | `scroll` | The wheel scrolls and the place follows; the whole book scrolls through in 10 s without a frame lacking text, ending in its last section. |
+| `comic` | A comic opens and its first page is drawn; the arrow keys turn, each page drawn within a tenth of a second from the window of pages kept ready; a click on either side turns; the page follows a pen and a long drag turns; End and Home jump; two pages up shows facing pages and gives a wide page the screen; left at a page and closed, it opens there again. Its comic is made by the run, into the test library (`CHECKS_COMIC` in `app.ts`). |
 
 They run on a folder of books, and that covers a server's books too: the
 reader and the player never ask where a book came from, and a downloaded book
