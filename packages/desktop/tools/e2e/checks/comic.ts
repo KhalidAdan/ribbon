@@ -28,16 +28,17 @@ function pageNow(r: Ribbon): Promise<number> {
 /**
  * Turn by a real key, and time it in the page: from the key going down to the first frame in which the page
  * turned to has its picture drawn. Inside the window of pages kept ready, that should be the next frame.
+ * The page is set listening for the key before the key is pressed: pressed while the listener was still on its
+ * way, at six times slower, the key was missed and the wait never ended.
  */
-function turnByKey(r: Ribbon, key: string, to: number): Promise<number> {
-  const timed = r.page.evaluate(
-    ({ key, to }) =>
-      new Promise<number>((done) => {
-        let t0 = 0;
+async function turnByKey(r: Ribbon, key: string, to: number): Promise<number> {
+  await r.page.evaluate(
+    ({ key, to }) => {
+      (window as unknown as { __comicTurn: Promise<number> }).__comicTurn = new Promise<number>((done) => {
         const onKey = (e: KeyboardEvent) => {
           if (e.key !== key) return;
           window.removeEventListener("keydown", onKey, true);
-          t0 = performance.now();
+          const t0 = performance.now();
           const look = () => {
             if (document.querySelector(`[role=dialog] canvas[data-page="${to + 1}"][data-drawn]`)) return done(performance.now() - t0);
             if (performance.now() - t0 > 10_000) return done(-1);
@@ -46,10 +47,14 @@ function turnByKey(r: Ribbon, key: string, to: number): Promise<number> {
           requestAnimationFrame(look);
         };
         window.addEventListener("keydown", onKey, true);
-      }),
+        // A key that never arrives is a failure to report, not a wait without end.
+        setTimeout(() => done(-1), 20_000);
+      });
+    },
     { key, to },
   );
-  return r.page.keyboard.press(key).then(() => timed);
+  await r.page.keyboard.press(key);
+  return r.page.evaluate(() => (window as unknown as { __comicTurn: Promise<number> }).__comicTurn);
 }
 
 const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
@@ -72,6 +77,8 @@ export const comicCheck: Check = {
       return { ms: Math.round(performance.now() - t0), status: window.__ribbon.getState().comic?.status ?? "closed" };
     }, r.comicId);
     t.expect(opened.status === "ready", "the comic opens", opened.status);
+    // From its first page, wherever an earlier run in this library left it.
+    await page.evaluate(() => window.__ribbon.turnComic(0, "seek"));
     t.expect(await shown(r, 0), "its first page is drawn");
     t.note(`opened in ${opened.ms} ms`);
     // The window of pages around the first fills: turns after this are from pages kept ready.
