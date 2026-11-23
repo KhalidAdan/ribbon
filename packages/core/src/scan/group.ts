@@ -1,4 +1,4 @@
-import { isAudio, isEbook, isImage, type FileEntry } from "./walk";
+import { isAudio, isComic, isEbook, isImage, type FileEntry } from "./walk";
 import { isSideFileName } from "./sidefiles";
 import { parseNumbered } from "./metadata";
 
@@ -22,6 +22,8 @@ export interface BookGroup {
   side?: FileEntry[];
   /** Library-relative path of the EPUB that goes with the audio (docs/READING.md, section 2). */
   ebook?: string;
+  /** Library-relative path of the CBZ, for a group that is a comic (docs/COMICS.md): always a book of its own. */
+  comic?: string;
   /**
    * Set when the book is an anthology: a numbered folder holding only
    * numbered subfolders, one per part. Parts are in their numbered order
@@ -110,13 +112,15 @@ function findAnthologies(foldersWithAudio: Set<string>, byFolder: Map<string, { 
  * library root, or in a folder that also has book subfolders, are each
  * their own book. A numbered folder of numbered subfolders is one book
  * with parts. An EPUB with no audio to pair with is a book with no
- * audio, after the rest. Order of the returned groups follows the walk.
+ * audio, after the rest. A comic is always a book of its own, wherever
+ * it sits, after those. Order of the returned groups follows the walk.
  */
 /** What a read-along export adds to its original's name (docs/READING.md, section 6). */
 export const READ_ALONG = " (read-along)";
 
 export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
   const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[]; ebooks: FileEntry[] }>();
+  const comics: FileEntry[] = [];
   const folderOrder: string[] = [];
   const foldersWithAudio = new Set<string>();
 
@@ -137,6 +141,8 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
       bucket.side.push(f);
     } else if (isEbook(f.name)) {
       bucket.ebooks.push(f);
+    } else if (isComic(f.name)) {
+      comics.push(f);
     }
   }
   // A read-along export stands in for the EPUB it was made from, beside it: the same book, exact.
@@ -233,10 +239,17 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
       books.push({ path: e.relPath, name: stem(e.name), audio: [], covers: [], ebook: e.relPath });
     }
   }
+  // Each comic is one book: never paired with audio or an EPUB, never joined with its neighbours.
+  for (const c of comics) books.push({ path: c.relPath, name: stem(c.name), audio: [], covers: [], comic: c.relPath });
   return books;
 }
 
 /** A group that is only an EPUB: a book to read, with no audio. */
 export function isReaderOnlyGroup(g: BookGroup): boolean {
   return g.audio.length === 0 && !!g.ebook;
+}
+
+/** A group that is a comic. */
+export function isComicGroup(g: BookGroup): boolean {
+  return !!g.comic;
 }

@@ -45,9 +45,12 @@ export interface ScannedFile {
    * with their contents in tags.text. An EPUB is "ebook": when fresh, its
    * package's title, author (semicolons between names), isbn (spaces
    * between), language, publisher, date and description are its tags,
-   * and hasCover says the package names a cover image.
+   * and hasCover says the package names a cover image. A CBZ is "comic":
+   * when fresh, `pages` is how many pictures its archive lists and
+   * `comicinfo` is its ComicInfo.xml as text, when it has one
+   * (core/scan/comics.ts reads both).
    */
-  kind: "audio" | "image" | "text" | "ebook";
+  kind: "audio" | "image" | "text" | "ebook" | "comic";
   sizeBytes: number;
   mtimeMs: number;
   /** True when tags were read on this pass; false means "unchanged, reuse". */
@@ -129,8 +132,9 @@ export interface Host {
   /** A stable, human-readable name for this machine. */
   deviceName(): Promise<string>;
   /**
-   * Walk a library and read tags from every audio file and the package
-   * of every EPUB not in `known`, in one call. Implementations are free to
+   * Walk a library and read tags from every audio file, the package of
+   * every EPUB and the archive list of every comic not in `known`, in one
+   * call. Implementations are free to
    * do this in parallel and without ffprobe. `onFiles` receives files as
    * they are found and as they are read: first the whole walk with
    * unread audio and EPUBs marked pending, then finished files, each
@@ -157,6 +161,26 @@ export interface Host {
    * packages itself. Optional.
    */
   readEbookPackage?(path: string): Promise<{ tags: Record<string, string>; hasCover: boolean } | null>;
+  /**
+   * Every file in a comic's archive, by name, with its size unpacked and
+   * packed: read from the archive's own list, with no page opened. Rejects
+   * when the file is not a zip. Optional: hosts that can't open one leave
+   * it out, and their comics have no cover and can't be read.
+   */
+  comicEntries?(path: string): Promise<import("./comic/pages").ArchiveEntry[]>;
+  /**
+   * One entry of a comic's archive, whole. For the reference scanner and
+   * the server, which read ComicInfo.xml and pages in their own process;
+   * Tauri's scanner reads ComicInfo.xml itself and serves pages by address,
+   * since bytes of this size are slow to bring through a command. Optional.
+   */
+  comicEntry?(path: string, entry: string): Promise<Uint8Array>;
+  /**
+   * Make a comic's cover from one of its pages: a JPEG at `target`, no
+   * wider than `width`, so the shelf never decodes a page at full size.
+   * Resolves false when the page can't be read as a picture. Optional.
+   */
+  comicCover?(path: string, entry: string, target: string, width: number): Promise<boolean>;
   /**
    * Hear the first `seconds` of each clip with a whisper.cpp model on this
    * machine (#65): one answer per clip, null when a clip could not be

@@ -9,11 +9,13 @@ import { createInterface } from "node:readline";
 import type { Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "@ribbon/core/host";
 import { scanWithFfprobe } from "./scan-with-ffprobe";
+import { comicCover, comicEntries, comicEntry } from "./comic";
 
 /**
  * Node implementation of Host. Used by tests and the CLI. Node cannot
  * read an EPUB's package itself; give it a reader (the dev server runs
- * the Rust one) and its scans read them too.
+ * the Rust one) and its scans read them too. A comic it reads itself,
+ * with Culvert (comic.ts).
  */
 export function nodeHost(opts: Pick<Host, "readEbookPackage" | "extractCover"> = {}): Host {
   const host: Host = {
@@ -113,6 +115,9 @@ export function nodeHost(opts: Pick<Host, "readEbookPackage" | "extractCover"> =
       return os.hostname();
     },
     scan: (root, known, onProgress, onFiles) => scanWithFfprobe(host, root, known, onProgress, onFiles),
+    comicEntries,
+    comicEntry,
+    comicCover,
     async catalogSearch(title: string, author: string, region: string): Promise<string> {
       const r = await fetch(catalogUrl(title, author, region as Region), { headers: { accept: "application/json" } });
       if (!r.ok) throw new Error(`catalog answered ${r.status}`);

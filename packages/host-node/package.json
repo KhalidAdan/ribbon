@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@culvert/stream": "^0.2.0",
+    "@culvert/zip": "^0.2.0",
     "@ribbon/core": "*"
   }
 }

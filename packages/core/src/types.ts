@@ -80,6 +80,15 @@ export interface Book {
   cover: string;
   /** Library-relative path to the EPUB that goes with the audio, when there is one. */
   ebook?: string;
+  /**
+   * Library-relative path to the CBZ, for a comic (docs/COMICS.md): a book
+   * of pages already drawn, with no audio and no EPUB.
+   */
+  comic?: string;
+  /** A comic's pages, once its archive has been read. */
+  pages?: number;
+  /** A comic read right to left, as its ComicInfo.xml says. */
+  rightToLeft?: boolean;
   durationMs: number;
   sizeBytes: number;
   fileCount: number;
