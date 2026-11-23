@@ -230,6 +230,38 @@ Given files of durations `[1000, 2000, 3000]`:
   playing, pausing, a pairing fixed, a highlight) and 1,000 random ones
   of ten, and reaches every status of each (`reading-before-after.test.ts`).
 
+### Comics (`core/comic/`, `core/scan/comics.ts`)
+
+Over comics drawn for the tests (`packages/host-node/src/make-comic.ts`):
+numbered pages, a wide one, a ComicInfo.xml or none. No page of anyone's
+comic is in the repository.
+
+- Pages are the archive's pictures in the natural order of their names;
+  `__MACOSX` and hidden files are not pages. Rust counts pages by the same
+  rule (`comic.rs`), checked against the same names.
+- An archive with too many files, an enormous page, or a page that unpacks
+  to far more than a picture would is refused, in a sentence.
+- Spreads: the cover alone, facing pages in pairs, a wide page alone.
+- ComicInfo.xml gives the title, series, number, year, writers, publisher,
+  summary, genres, language and right-to-left; a file that says nothing or
+  isn't XML gives nothing.
+- A file name gives the series, number and year ("Saga 014 (2013)"); a
+  year in a title is not a number; a name that is only a title has no
+  series; a name that is only a number takes its folder's.
+- In a scan, one CBZ is one book wherever it sits, never paired; kept in
+  `comics.csv` and not read twice; a file that is no archive is shelved
+  with no pages. `library.csv` is byte for byte what it was for a library
+  with no comic.
+- The open comic: opens, shows, fails in words, drops what arrives for
+  another comic, keeps a turn inside its pages.
+- A page as a place: found again by its entry's name, then its number.
+- The window: the pages around the reader, nearest first, however long
+  the comic; what falls outside is let go and a page still on its way is
+  abandoned; a page that can't be brought in answers undefined.
+- In the app: a comic opens to read where an audiobook plays, keeps its
+  page on this machine and in the log, opens there again on another
+  machine, and is finished on its last page.
+
 ### What's on screen (`core/screen.ts`)
 
 - Each page shows from any other, and every page but Settings closes the

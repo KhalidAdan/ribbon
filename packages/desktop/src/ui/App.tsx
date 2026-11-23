@@ -25,6 +25,7 @@ import { StatsPane } from "./StatsPane";
 import { TheEnd } from "./TheEnd";
 import { Notices } from "./Notices";
 import { ReadingView } from "../reader/ReadingView";
+import { ComicView } from "../comic/ComicView";
 import { onRender, startPerf } from "../app/perf";
 import { preloadFaces } from "../reader/typeset";
 
@@ -101,6 +102,7 @@ function Ready() {
     problems: s.problems,
     playerOpen: s.fullPlayer !== null,
     reading: s.reading !== null,
+    comic: s.comic !== null,
   }));
   const c = useController();
   useKeys(c);
@@ -144,7 +146,10 @@ function Ready() {
 
   // The reader covers the window: nothing under it is drawn, so a page turn never waits on the shelf.
   // The full player opens over it from the dock on a phone; closed, it draws nothing.
-  const screen = state.reading ? (
+  const screen = state.comic ? (
+    // A comic covers the window as the reader does; nothing plays under it but what was already playing.
+    <ComicView />
+  ) : state.reading ? (
     <>
       <ReadingView />
       <PlayerSheet open={state.playerOpen} onClose={() => c.collapsePlayer()}>

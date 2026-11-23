@@ -39,7 +39,12 @@ import { openEbook, readerOnly, type Ebook } from "@ribbon/core/ebook";
 import type { Why } from "@ribbon/core/poslog";
 import { BookText, type TextPlace } from "@ribbon/core/reading/booktext";
 import { parseReading, type ReadingSettings } from "@ribbon/core/reading/typography";
-import { openingPlace, parseKeptPlaces, ReadingKeeper, type KeptPlace } from "./reading";
+import { comicAfter, pageAt, pageLocator, pageProgress, type ComicEvent, type ComicSession } from "@ribbon/core/comic/session";
+import { parseComicSettings, parseDirections, type ComicSettings } from "@ribbon/core/comic/settings";
+import { isWide } from "@ribbon/core/comic/spreads";
+import { onlyRead } from "@ribbon/core/kind";
+import { comicPages } from "./comic";
+import { openingPlace, parseKeptPlaces, PlaceKeeper, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
 import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
 import { hearing, IDLE, keepsAwake, transcribingAfter, type Transcribing, type TranscribingEvent } from "@ribbon/core/transcriber";
@@ -118,6 +123,8 @@ export interface Platform {
   exactAudioUrl?(absPath: string, ms: number): string;
   /** Where the player streams a book's audio from, when `fileUrl` won't do for every format (Apple's webview and an .m4b, #226). */
   audioUrl?(absPath: string): string;
+  /** A URL for one page of a comic, read out of its archive; `version` names the file as it is now. Absent where comics can't be read. */
+  comicPageUrl?(absPath: string, entry: string, version: string): string;
   /** The folders the library is populated from, wherever the platform keeps them. */
   sources: {
     load(): Promise<SourceEntry[]>;
@@ -335,6 +342,12 @@ export interface AppState {
   reading: ReadingSession | null;
   /** How the reader sets text on this machine. */
   readingSettings: ReadingSettings;
+  /** The comic open in its reader, over everything (core/comic/session.ts). */
+  comic: ComicSession | null;
+  /** How comics are shown on this machine. */
+  comicSettings: ComicSettings;
+  /** Comics a person said are read right to left, or aren't, by book id: over what the comic says of itself. */
+  comicDirections: Record<string, boolean>;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
   speech: { model: string | null; downloading: { done: number; total: number } | null };
   /** Say, once, that a speech model makes read-along follow the sentence: shown the first time a book with both editions opens on a computer without one. */
@@ -650,6 +663,9 @@ export class AppController {
       namedChapters: {},
       reading: null,
       readingSettings: parseReading(undefined),
+      comic: null,
+      comicSettings: parseComicSettings(undefined),
+      comicDirections: {},
       speech: { model: null, downloading: null },
       speechNudge: false,
       transcribingForServer: null,
@@ -692,6 +708,12 @@ export class AppController {
   private toReading(event: ReadingEvent, with_: Patch = {}): void {
     const reading = readingAfter(this.state.reading, event);
     if (reading !== this.state.reading || Object.keys(with_).length > 0) this.set({ reading, ...with_ });
+  }
+
+  /** Tell the comic reader's session what happened (core/comic/session.ts), the one way it changes. */
+  private toComic(event: ComicEvent, with_: Patch = {}): void {
+    const comic = comicAfter(this.state.comic, event);
+    if (comic !== this.state.comic || Object.keys(with_).length > 0) this.set({ comic, ...with_ });
   }
 
   // Sources -------------------------------------------------------------
@@ -846,7 +868,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
+      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), comicSettings: parseComicSettings(this.appSettings.comics), comicDirections: parseDirections(this.appSettings.comicDirections), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
       perf.setLogging(this.appSettings.perfLog === true);
       // Ribbon's model was whisper base until it was small (#152): one downloaded then is replaced, once, in the background,
       // where it hears (not a phone).
@@ -2004,6 +2026,7 @@ export class AppController {
     const gone = new Set(this.state.books.filter((b) => b.source === id).map((b) => b.book.id));
     // Open to read, its place is kept beside it before it goes.
     if (this.state.reading && gone.has(this.state.reading.bookId)) await this.closeReading();
+    if (this.state.comic && gone.has(this.state.comic.bookId)) await this.closeComic();
     if (o) {
       await o.keeper.close().catch(() => undefined);
       // The places still to send go before the downloads do.
@@ -2209,8 +2232,8 @@ export class AppController {
       book = here;
     }
     const lib = this.libOf(book);
-    // A book that is only its EPUB has nothing to play.
-    if (!lib || readerOnly(book.book)) return;
+    // A book that is only read, an EPUB alone or a comic, has nothing to play.
+    if (!lib || onlyRead(book.book)) return;
     const engine = this.ensureEngine();
     if (!engine) return;
     const expand = opts.expand ?? true;
@@ -2272,8 +2295,9 @@ export class AppController {
     if (mp3s.length > 0) void lib.host.audioPrepare?.(mp3s).catch(() => undefined);
   }
 
-  /** Start or continue a book from its page: the bar appears, the page stays. A book that is only its EPUB opens to read. */
+  /** Start or continue a book from its page: the bar appears, the page stays. A book that is only read opens to read: a comic in its own reader. */
   playBook(book: ScannedBook): Promise<void> {
+    if (book.book.comic) return this.openComic(book.book.id);
     if (readerOnly(book.book)) return this.openReading(book.book.id);
     return this.openBook(book, { expand: false, autoplay: true });
   }
@@ -2331,6 +2355,7 @@ export class AppController {
     await this.takeServerRecords(book);
     if (!asked.current()) return;
     if (this.state.reading) await this.closeReading();
+    if (this.state.comic) await this.closeComic();
     if (!asked.current()) return;
     perf.begin("open the reader");
     this.toReading({ type: "open", bookId }, this.onScreen({ type: "collapse" }));
@@ -3130,15 +3155,19 @@ export class AppController {
 
   private readOn(bookId: string, text: BookText, place: TextPlace): void {
     if (isPlaying(this.state.player.status) && this.state.player.bookId === bookId) return;
+    this.readingAt(bookId, () => textClaimsFor(bookId, text.ebook.meta.identifiers), text.locator(place).locations?.totalProgression ?? 0);
+  }
+
+  /** The reader of a book moved to `at`, as how far through it is: the stretch of reading starts, or goes on. */
+  private readingAt(bookId: string, claims: () => string[], at: number): void {
     const now = Date.now();
-    const at = text.locator(place).locations?.totalProgression ?? 0;
     const s = this.readingStretch;
     if (s && (s.bookId !== bookId || now - s.last > READING_IDLE_MS)) void this.endReading();
     if (this.readingStretch) {
       this.readingStretch.last = now;
       this.readingStretch.to = at;
     } else {
-      this.readingStretch = { bookId, claims: textClaimsFor(bookId, text.ebook.meta.identifiers), start: now, last: now, from: at, to: at };
+      this.readingStretch = { bookId, claims: claims(), start: now, last: now, from: at, to: at };
     }
   }
 
@@ -3213,6 +3242,121 @@ export class AppController {
   readingImageUrl(src: string): string | undefined {
     const abs = readyReading(this.state.reading)?.text.ebook.files?.[src];
     return abs ? this.platform.fileUrl(abs) : undefined;
+  }
+
+  // Comics ------------------------------------------------------------
+
+  private comicKeeper: PlaceKeeper<number> | null = null;
+  private comicOpening = new Latest();
+
+  /**
+   * Open a comic in its reader (docs/COMICS.md, section 5), at the newer
+   * of this machine's page and the log's, or at its first. Only its
+   * archive's list is read here; its pages come as they are shown.
+   */
+  async openComic(bookId: string): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book?.book.comic || !o) return;
+    // Only the comic asked for last opens.
+    const asked = this.comicOpening.ask();
+    if (this.state.reading) await this.closeReading();
+    if (this.state.comic) await this.closeComic();
+    if (!asked.current()) return;
+    this.toComic({ type: "open", bookId }, this.onScreen({ type: "collapse" }));
+    const started = performance.now();
+    const [listed, shared] = await Promise.all([
+      comicPages(o.lib.host, o.lib.absPath(book.book.comic)),
+      o.lib
+        .readTextPlaces()
+        .then((m) => {
+          const r = m.get(bookId);
+          return r ? { loc: r.loc, t: r.t } : undefined;
+        })
+        .catch(() => undefined),
+    ]);
+    if (this.state.comic?.bookId !== bookId || !asked.current()) return;
+    if (!listed.ok) {
+      log.warn(`could not open the comic ${book.book.title}: ${listed.message}`);
+      this.toComic({ type: "failed", bookId, message: listed.message });
+      return;
+    }
+    const pages = listed.pages;
+    // The newest place this machine or any other kept, as a page of this comic.
+    const kept = [this.keptPlaces()[bookId], shared].filter((k): k is KeptPlace => !!k && !Number.isNaN(Date.parse(k.t))).sort((a, b) => Date.parse(b.t) - Date.parse(a.t))[0];
+    const page = pageAt(pages, kept?.loc);
+    this.comicKeeper = new PlaceKeeper<number>((at) => pageLocator(pages, at), page, {
+      keepLocal: (k) => {
+        this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: k } };
+        this.saveAppSettingsSoon();
+      },
+      // A page is a place in the edition that is read, as a place in a text is (docs/POSITION-FORMAT.md, section 3.8).
+      share: (loc, why, at) => o.lib.writeTextPlace(bookId, [], loc, why, at),
+    });
+    this.toComic({ type: "shown", bookId, pages, page });
+    log.info(`opened the comic ${book.book.title}: ${pages.length} pages, at page ${page + 1}, in ${Math.round(performance.now() - started)} ms`);
+  }
+
+  /** Turn to a page of the open comic, counted from 0: by a turn (`periodic`), or a jump (`seek`). */
+  turnComic(page: number, why: Why = "periodic"): void {
+    const r = this.state.comic;
+    if (r?.status !== "ready" || !this.comicKeeper) return;
+    const to = Math.max(0, Math.min(r.pages.length - 1, Math.round(page)));
+    if (to === r.page) return;
+    this.comicKeeper.move(to, why);
+    this.readingAt(r.bookId, () => textClaimsFor(r.bookId, []), pageProgress(to, r.pages.length));
+    this.toComic({ type: "turned", bookId: r.bookId, page: to });
+  }
+
+  /** A page's picture arrived: whether it is drawn across two is known now. */
+  comicMeasured(bookId: string, page: number, width: number, height: number): void {
+    this.toComic({ type: "measured", bookId, page, wide: isWide(width, height) });
+  }
+
+  /** Where the picture of a page of the open comic comes from, or undefined where comics can't be read. */
+  comicPageUrl(page: number): string | undefined {
+    const r = this.state.comic;
+    const book = r && this.state.books.find((b) => b.book.id === r.bookId);
+    const o = book && this.openedOf(book);
+    const entry = r?.status === "ready" ? r.pages[page] : undefined;
+    if (!book?.book.comic || !o || !entry || !this.platform.comicPageUrl) return undefined;
+    // The id is made of the file's path and size, so a comic replaced by another is another address.
+    return this.platform.comicPageUrl(o.lib.absPath(book.book.comic), entry, book.book.id);
+  }
+
+  /** Whether a comic is read right to left: as a person said, else as it says of itself. */
+  comicRightToLeft(bookId: string): boolean {
+    return this.state.comicDirections[bookId] ?? this.state.books.find((b) => b.book.id === bookId)?.book.rightToLeft ?? false;
+  }
+
+  setComicSettings(patch: Partial<ComicSettings>): void {
+    const next = parseComicSettings({ ...this.state.comicSettings, ...patch });
+    this.appSettings = { ...this.appSettings, comics: next };
+    this.set({ comicSettings: next });
+    this.saveAppSettingsSoon();
+  }
+
+  /** Read this comic right to left, or left to right, whatever it says of itself. */
+  setComicRightToLeft(bookId: string, rightToLeft: boolean): void {
+    const next = { ...this.state.comicDirections, [bookId]: rightToLeft };
+    this.appSettings = { ...this.appSettings, comicDirections: next };
+    this.set({ comicDirections: next });
+    this.saveAppSettingsSoon();
+  }
+
+  /** Close the comic, keeping its page everywhere first. */
+  async closeComic(): Promise<void> {
+    await this.endReading();
+    const keeper = this.letGoOfComic();
+    if (keeper) await Promise.all([keeper.finish(), this.saveAppSettingsNow()]);
+  }
+
+  /** The comic closed, and nothing about it kept: its keeper, to keep its page with, when there was one. */
+  private letGoOfComic(): PlaceKeeper<number> | null {
+    const keeper = this.comicKeeper;
+    this.comicKeeper = null;
+    if (this.state.comic) this.toComic({ type: "closed" });
+    return keeper;
   }
 
   setReadingSettings(patch: Partial<ReadingSettings>): void {
@@ -3977,7 +4121,7 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     if (!b) return;
     await this.writeHistory(bookId, { k: "read", id: `urn:uuid:${globalThis.crypto.randomUUID()}`, started: new Date().toISOString() });
-    if (readerOnly(b.book)) return;
+    if (onlyRead(b.book)) return;
     await this.openBook(b, { expand: false });
     this.seek(0);
     await this.play();
@@ -4126,6 +4270,7 @@ export class AppController {
   private async letGoOfEverything(): Promise<void> {
     this.engine?.pause();
     this.letGoOfReading();
+    this.letGoOfComic();
     this.cancelSleep();
     this.toTranscribing({ type: "reset" });
     const closing: Promise<void>[] = [];

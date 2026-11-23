@@ -25,6 +25,13 @@ export const LIBRARY_HEADERS = [
   "ebook",
 ];
 
+/**
+ * What only a comic has. The columns are written only when the library has
+ * a comic in it, so a library without one keeps the file it had, byte for
+ * byte, and nothing is written to its folder for comics' sake.
+ */
+export const COMIC_HEADERS = ["comic", "pages", "right_to_left"];
+
 /** A library.csv without these columns was written before the scan read them: read every file's tags once more. */
 export const LIBRARY_DETAIL_COLUMN = "genres";
 
@@ -56,8 +63,11 @@ export function booksToBytes(books: readonly Book[]): Promise<Uint8Array> {
       asin: b.asin ?? "",
       description: b.description ?? "",
       ebook: b.ebook ?? "",
+      comic: b.comic ?? "",
+      pages: b.pages === undefined ? "" : String(b.pages),
+      right_to_left: b.rightToLeft ? "1" : "",
     })),
-    LIBRARY_HEADERS,
+    books.some((b) => b.comic) ? [...LIBRARY_HEADERS, ...COMIC_HEADERS] : LIBRARY_HEADERS,
   );
 }
 
@@ -94,6 +104,11 @@ function detailsFrom(r: Row): Partial<Book> {
   if (r.asin) out.asin = r.asin;
   if (r.description) out.description = r.description;
   if (r.ebook) out.ebook = r.ebook;
+  if (r.comic) {
+    out.comic = r.comic;
+    if (r.pages) out.pages = int(r.pages);
+    if (bool(r.right_to_left)) out.rightToLeft = true;
+  }
   return out;
 }
 

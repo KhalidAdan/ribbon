@@ -9,6 +9,8 @@ import { Dialog } from "./Dialog";
 import { useKept } from "./modal";
 import { progressOf, useShelfProgress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
+import { onlyRead } from "@ribbon/core/kind";
+import { lengthOf } from "./progress";
 
 /**
  * The end of a book: a quiet card that says when it was started and
@@ -80,7 +82,7 @@ function Card({ book, open, onClose, onClosed }: { book: ScannedBook; open: bool
                 void c.playBook(next.book);
               }}
             >
-              {readerOnly(next.book.book) ? "Start reading" : "Start listening"}
+              {onlyRead(next.book.book) ? "Start reading" : "Start listening"}
             </Button>
           )}
         </>
@@ -103,7 +105,7 @@ function Card({ book, open, onClose, onClosed }: { book: ScannedBook; open: bool
             <div className="min-w-0 flex-1">
               <p className="text-sm/5 text-ink-2 sm:text-[0.8125rem]/5">Book {n.number}</p>
               <p className="font-serif text-lg/6 font-semibold text-balance text-ink">{n.book.book.title}</p>
-              <p className="text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">{[n.book.book.author, readerOnly(n.book.book) ? "EPUB" : formatLeft(n.book.book.durationMs)].filter(Boolean).join(" · ")}</p>
+              <p className="text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">{[n.book.book.author, lengthOf(n.book)].filter(Boolean).join(" · ")}</p>
             </div>
             {/* The first is the card's own button; the next in another series starts from here. */}
             {i > 0 && (
@@ -115,7 +117,7 @@ function Card({ book, open, onClose, onClosed }: { book: ScannedBook; open: bool
                   void c.playBook(n.book);
                 }}
               >
-                {readerOnly(n.book.book) ? "Start reading" : "Start listening"}
+                {onlyRead(n.book.book) ? "Start reading" : "Start listening"}
               </Button>
             )}
           </div>

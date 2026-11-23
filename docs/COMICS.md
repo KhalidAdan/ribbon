@@ -1,9 +1,10 @@
 # Comics in Ribbon
 
-**The plan for comics, agreed on 2026-11-23 and not yet built.** A third
-kind of book, the comic, and what it takes on the desktop, the server and
-the Apple apps. Section 10 lists what was decided; the changes to the north
-star are in section 9 and made in [NORTHSTAR.md](NORTHSTAR.md).
+**The plan for comics, agreed on 2026-11-23.** A third kind of book, the
+comic, and what it takes on the desktop, the server and the Apple apps.
+Section 10 lists what was decided; the changes to the north star are in
+section 9 and made in [NORTHSTAR.md](NORTHSTAR.md). Section 11 says what
+is built so far.
 
 ## 1. Why
 
@@ -144,17 +145,35 @@ Culvert is as fast at 6x, that is worth knowing before a second zip reader
 is kept for good.
 
 **The page window, in Culvert.** Turning a page should never wait for one
-to decode. The window is the pages around yours, held decoded: by default
-two behind and eight ahead, as Panels has it.
+to arrive or to decode. The window is the pages around yours, kept ready.
 
 - `packages/core/src/comic/window.ts` decides, purely, which pages to hold
-  for a page and a direction, and which to let go. Unit-tested.
-- A Culvert pipe carries it out: a Source of the pages the window names, a
-  Transform that fetches and decodes each, a Sink that keeps them for the
-  reader and drops what the window let go. Turning the page moves the
-  window; pages no longer wanted are cancelled, not finished.
-- It holds a bounded number of decoded pages, so a 600-page omnibus costs
-  what a 24-page issue does.
+  for a page and a direction (`windowAround`), and which to let go.
+  Unit-tested.
+- A Culvert pipe carries it out (`PageWindow`): a Source of the pages the
+  window wants, nearest first, and a Sink that fetches each and keeps it
+  if it is still wanted when it lands. Turning the page moves the window;
+  a page still on its way and no longer wanted is abandoned.
+- It holds a bounded number of pages, so a 600-page omnibus costs what a
+  24-page issue does.
+
+**Two windows, because a page costs two different things.** Its file is a
+megabyte or two, and fetching it is the wait over a network share. Its
+picture, decoded, is its width times its height times four bytes, about
+24 MB for a scanned page, and decoding takes a tenth of a second wherever
+the file is. So the reader keeps a wide window of files (two pages behind,
+eight ahead, as Panels has it) and a narrow one of decoded pictures (one
+behind and two ahead; with two pages up, the spread on screen and the one
+either side).
+
+**Ribbon holds the decoded pictures itself.** Each page is drawn onto a
+canvas the size it shows at, from a picture Ribbon decoded and frees the
+moment it leaves the window. The first version left this to the web view,
+as images, and measured badly: WebKit kept every decoded page in a cache
+of its own, 1.3 GB after 177 turns of a comic of full-size scans, and
+still there with the comic closed (section 11). A page's size is read
+from the first bytes of its file (`comic/size.ts`), so a page's place on
+screen and whether it is drawn across two are known without decoding it.
 
 **Over a share.** A comic in a folder on a network share is read in
 ranges: the list of entries once, then one read per page. Nothing is
@@ -167,23 +186,28 @@ A comic's place is a `pos` record without `ms`, as a text's is
 
 ```json
 {"v":1,"k":"pos","dev":"urn:uuid:5f0c…","seq":1795000000000,"t":"2026-12-01T20:15:00.000Z",
- "book":{"ids":["urn:ribbon:3b1f09aa"]},
+ "book":{"ids":["urn:ribbon:3b1f09aa-text"]},
  "why":"close",
  "loc":{"href":"Saga 001/page-014.jpg","type":"image/jpeg",
-        "locations":{"position":14,"totalProgression":0.58}}}
+        "locations":{"position":14,"totalProgression":0.5652}}}
 ```
 
 - `href` is the page's entry in the archive, by name, so the place
   survives a reader that orders pages differently.
 - `position` is the page, counted from 1, which is what Readium's
   `position` already means.
+- `totalProgression` is 0 on the first page and 1 on the last, so a comic
+  is finished on its last page.
 - A spread's place is its first page.
+- The claim is the one a text's place has, `-text`: the edition that is
+  read rather than heard. A comic has no other, and every reader of the
+  log that merges text places merges these with no change.
 
-This is an addition to the format (a short section 3.8, "Places in a book
-of pages"), not a change: a reader that doesn't know comics skips nothing
-it understood before. Time spent is a `reading` record under the comic's
-claims, thirty seconds or more, as the EPUB reader keeps one. Bookmarks are
-a page with a note, the same `mark` with the same locator.
+This is an addition to the format (POSITION-FORMAT.md, section 3.8,
+version 1.4), not a change: a reader that doesn't know comics skips nothing
+it understood before. Time spent is a `reading` record under the same
+claim, thirty seconds or more, as the EPUB reader keeps one. Bookmarks, a
+page with a note, are not built yet.
 
 ## 7. The server and the thin apps
 
@@ -293,6 +317,46 @@ Comics and "easy to install" go on side by side. They touch different
 files except where a release is cut, so each step here is rebased on `main`
 before it merges, and neither holds the other's release.
 
+**Built so far** (November 2026): steps 2 and 3, in one pull request,
+since a comic on the shelf that couldn't be opened was not worth merging
+by itself. A comic's bookmarks are not built. Steps 4 to 7 are to come.
+
+**What steps 2 and 3 measured**, on the Mac (a debug build of the app
+under its own identity and folder, WebKit; the screen was locked, so no
+frame times). The comic is sixty pages of 1988 by 3056 JPEGs, 1.85 MB
+each, 114 MB in all, made for the purpose.
+
+| What | Measured |
+| --- | --- |
+| The scan of six comics, from nothing | 25 ms |
+| A comic's list of files, read at the scan (Rust) | 1.1 ms |
+| One page out of the archive (Rust) | 3.5 ms, median of 19 |
+| A cover, made from a full-size page | 96 ms, once per comic |
+| Opening the comic, to its pages known | 27 to 60 ms |
+| A page's bytes arriving in the web view, at the `ribboncomic` address | 15 to 19 ms |
+| Decoding a page | 74 to 104 ms |
+| A turn inside the window, to the page drawn | 5 ms at most, over 176 turns |
+
+| The web view's memory | Pages as images | Pages as now |
+| --- | --- | --- |
+| The shelf, no comic open | 208 MB | 213 MB |
+| The comic open, its windows full | 335 MB | 208 MB |
+| After 177 turns, back and forth | 1,394 MB | 215 MB |
+| Thirty seconds after closing it | 1,312 MB | 216 MB |
+
+On Windows (GitHub's runner, WebView2, the end-to-end `comic` check, forty
+pages of 1000 by 1500), a turn by key to the frame its page is drawn took
+29 ms at the median at 1x and 239 ms with the CPU six times slower. Each
+turn was drawing three spreads again: the one coming in, and both of its
+neighbours. Now a spread waiting beside keeps its canvas when it moves to
+the middle, so a turn draws nothing before the frame that shows it, and
+the one new neighbour is drawn after. Measured in the browser: no draw
+before the next frame, one after.
+
+Not measured yet: anything over a network share. Reading a page with Culvert in the web view, beside the
+`ribboncomic` address, was not tried: bytes of a page's size take the slow
+path through a command on WebView2, and the address answers in 15 ms.
+
 **Fixture comics are made, not found.** The repository is public, so the
 test comics are drawn by a script in `tools/`: numbered pages, a wide one,
 a ComicInfo.xml, one with no details, one that reads right to left. No page
@@ -310,6 +374,7 @@ of anyone's comic goes into the repository.
 | A page from the server to the iPad's screen | Step 5 |
 | A spread from the server to the TV's screen | Step 6 |
 
-To check before step 2: Panels uses `@culvert/zip` 0.1.1 with
-`@culvert/stream` 0.1.1, and Ribbon is on `@culvert/stream` 0.2.0. Whether
-the two go together is the owner's to say; they are his packages.
+Culvert: Ribbon reads archives on Node with `@culvert/zip` 0.2.0, which is
+made for the `@culvert/stream` 0.2.0 it was already on. Tried before step
+2 on three made-up CBZs, stored and deflated: every page came out byte for
+byte.

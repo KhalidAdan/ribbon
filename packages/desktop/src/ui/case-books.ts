@@ -53,11 +53,13 @@ export interface ListedFacts {
  * How long a book is in words, which is how thick it stands on the lamp-lit bookcase:
  * - its EPUB's words, where a server has counted them from its text;
  * - for an audiobook, its narration's length at the pace narrators read, which is right to about a fifth;
+ * - for a comic, its pages, as many as it has: a shelf's page is 500 words (core/bookcase/case.ts);
  * - for an EPUB not counted, its size at about five bytes a word;
  * - and a novel's length when there's nothing to go by.
  */
 export function wordsOf(b: ScannedBook, facts: ListedFacts | null): number {
   if (facts?.words && facts.words > 0) return facts.words;
+  if (b.book.comic && b.book.pages) return b.book.pages * 500;
   if (!readerOnly(b.book) && b.book.durationMs > 0) return (b.book.durationMs / 3_600_000) * WORDS_PER_HOUR;
   if (facts?.ebookBytes) return Math.min(400_000, Math.max(20_000, facts.ebookBytes / 5));
   return 90_000;

@@ -21,6 +21,7 @@ import { applyView, filterCount, SORT_LABELS } from "@ribbon/core/view";
 import { seriesStanding } from "./SeriesPage";
 import { BookcaseInvitation } from "./BookcaseInvitation";
 import { isPlaying } from "@ribbon/core/playback";
+import { onlyRead } from "@ribbon/core/kind";
 
 /**
  * The library: what you are in the middle of, then each series as a card
@@ -285,11 +286,22 @@ function BookGrid({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * What a series' card says after its count: what is finished and how long is left to hear.
+ * A series that is only read (comics, EPUBs alone) has no hours to count, and says only what is finished.
+ */
+function seriesLeft(s: { allDone: boolean; finished: number; leftMs: number }): string {
+  if (s.allDone) return " · all finished";
+  const hours = s.leftMs > 0 ? formatLeft(s.leftMs).replace(/ \d+m$/, "") : "";
+  if (s.finished > 0) return ` · ${s.finished} finished${hours ? ` · ${hours} to go` : ""}`;
+  return hours ? ` · ${hours}` : "";
+}
+
 /** What a book's card says under its title: how far, or how long. */
 function standing(book: ScannedBook, p: Progress): string {
   if (p.finished) return "Finished";
   if (p.started) return howFar(book, p);
-  if (book.remote) return `On the server · ${readerOnly(book.book) ? "EPUB" : lengthOf(book)}`;
+  if (book.remote) return `On the server · ${lengthOf(book)}`;
   return book.parts.length > 0 ? `${book.parts.length} stories · ${formatLeft(book.book.durationMs)}` : lengthOf(book);
 }
 
@@ -323,7 +335,7 @@ function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook
   const c = useController();
   const ch = book.chapters[chapterAt(book.chapters, progress.posMs)];
   const where = book.chapters.length > 1 && ch ? ch.title : `${Math.round(progress.fraction * 100)}% in`;
-  const toRead = readerOnly(book.book);
+  const toRead = onlyRead(book.book);
   return (
     <li className={clsx("relative flex items-center gap-3 rounded-[10px] bg-surface p-2 pr-3 ring-1 ring-line hover:ring-line-strong", pressedCardWithButtons)}>
       <button type="button" data-card onClick={() => c.openReader(book.book.id)} className="absolute inset-0 rounded-[10px] focus-ring" aria-label={`${book.book.title}: open its page`} />
@@ -337,7 +349,7 @@ function ContinueCard({ book, progress, coverUrl, playing }: { book: ScannedBook
       </div>
       <button
         type="button"
-        onClick={() => (toRead ? void c.openReading(book.book.id) : playing ? c.pause() : void c.playBook(book))}
+        onClick={() => (playing ? c.pause() : void c.playBook(book))}
         aria-label={toRead ? `Continue reading ${book.book.title}` : playing ? `Pause ${book.book.title}` : `Continue ${book.book.title}`}
         className={clsx("relative flex size-9 shrink-0 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary", pressed)}
       >
@@ -373,10 +385,10 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
       <div className="pointer-events-none flex min-w-0 flex-1 flex-col">
         <p className="truncate text-base/6 font-medium text-ink sm:text-sm/5">{group.name}</p>
         <p className="truncate text-sm/5 text-ink-2 tabular-nums sm:text-[0.8125rem]/5">
-          {s.books.length} books · {s.allDone ? "all finished" : s.finished > 0 ? `${s.finished} finished · ${formatLeft(s.leftMs).replace(/ \d+m$/, "")} to go` : `${formatLeft(s.leftMs).replace(/ \d+m$/, "")}`}
+          {s.books.length} books{seriesLeft(s)}
         </p>
         <p className="mt-2 truncate text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
-          {s.allDone ? "Every book finished" : nextProgress.started ? `${readerOnly(next.book) ? "Reading" : "Listening to"} ${title}` : `Up next: ${title}`}
+          {s.allDone ? "Every book finished" : nextProgress.started ? `${onlyRead(next.book) ? "Reading" : "Listening to"} ${title}` : `Up next: ${title}`}
         </p>
         <div className="mt-auto pt-3">
           <SegmentedProgress parts={s.books.map((b) => (b.progress.finished ? 1 : b.progress.fraction))} />
@@ -399,7 +411,7 @@ function SeriesCard({ group, record, byId }: { group: SeriesGroup; record: Serie
             className={clsx("relative flex size-9 items-center justify-center rounded-full bg-raised text-ink ring-1 ring-line focus-ring hover:bg-primary hover:text-on-primary hover:ring-primary", pressed)}
           >
             <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
-            {readerOnly(next.book) ? <BookOpenIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
+            {onlyRead(next.book) ? <BookOpenIcon className="size-4 fill-current" aria-hidden="true" /> : <PlayIcon className="size-4 translate-x-px fill-current" aria-hidden="true" />}
           </button>
         )}
       </div>

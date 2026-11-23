@@ -1,6 +1,7 @@
 import { pipe, collect, flatMap, from } from "@culvert/stream";
 import type { Host, KnownFile, ScanOutput, ScanProgress, ScannedFile } from "@ribbon/core/host";
-import { walk, isAudio, isEbook, type FileEntry } from "@ribbon/core/scan/walk";
+import { walk, isAudio, isComic, isEbook, type FileEntry } from "@ribbon/core/scan/walk";
+import { comicInfoEntry, isPage } from "@ribbon/core/comic/pages";
 import { isSideFileName } from "@ribbon/core/scan/sidefiles";
 import { probe } from "@ribbon/core/scan/probe";
 
@@ -39,7 +40,7 @@ export async function scanWithFfprobe(
   const baseOf = (entry: FileEntry): ScannedFile => ({
     path: entry.relPath,
     name: entry.name,
-    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : isEbook(entry.name) ? "ebook" : "image",
+    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : isEbook(entry.name) ? "ebook" : isComic(entry.name) ? "comic" : "image",
     sizeBytes: entry.sizeBytes,
     mtimeMs: entry.mtimeMs,
     fresh: false,
@@ -53,12 +54,14 @@ export async function scanWithFfprobe(
   });
   // An EPUB's package is read when the host can and it changed.
   const readsEbook = (base: ScannedFile, entry: FileEntry) => base.kind === "ebook" && !!host.readEbookPackage && !isUnchanged(entry);
+  // A comic's archive is listed when the host can and it changed.
+  const readsComic = (base: ScannedFile, entry: FileEntry) => base.kind === "comic" && !!host.comicEntries && !isUnchanged(entry);
   // The walk, with unread audio and EPUBs marked pending, so a caller can
   // show the shelf before a single tag is read.
   onFiles?.(
     entries.map((entry) => {
       const base = baseOf(entry);
-      base.pending = (base.kind === "audio" && !isUnchanged(entry)) || readsEbook(base, entry);
+      base.pending = (base.kind === "audio" && !isUnchanged(entry)) || readsEbook(base, entry) || readsComic(base, entry);
       return base;
     }),
   );
@@ -82,6 +85,21 @@ export async function scanWithFfprobe(
             // Not read stays unread, to be tried again next time.
             const p = await host.readEbookPackage!(entry.absPath).catch(() => null);
             if (p) Object.assign(base, { fresh: true, tags: p.tags, hasCover: p.hasCover });
+            onFiles?.([base]);
+          }
+          if (readsComic(base, entry)) {
+            // How many pages its archive lists, and what its ComicInfo.xml says; one that can't be opened has no pages.
+            const tags: Record<string, string> = { pages: "0" };
+            try {
+              const names = (await host.comicEntries!(entry.absPath)).map((e) => e.name);
+              tags.pages = String(names.filter(isPage).length);
+              const info = comicInfoEntry(names);
+              if (info && host.comicEntry) tags.comicinfo = new TextDecoder().decode(await host.comicEntry(entry.absPath, info));
+            } catch {
+              /* not a zip: a comic with no pages */
+            }
+            Object.assign(base, { fresh: true, tags, hasCover: tags.pages !== "0" });
+            probed++;
             onFiles?.([base]);
           }
           if (base.kind === "audio") {

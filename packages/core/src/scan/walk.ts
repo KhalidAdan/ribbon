@@ -15,6 +15,8 @@ export interface FileEntry {
 export const AUDIO_EXTENSIONS = new Set(["m4b", "m4a", "mp3", "opus", "ogg", "oga", "flac", "wav", "aac", "mp4", "wma"]);
 export const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 export const EBOOK_EXTENSIONS = new Set(["epub"]);
+/** Comics: a zip of pictures. CBR and CB7 are refused (docs/COMICS.md, section 2). */
+export const COMIC_EXTENSIONS = new Set(["cbz"]);
 export const RIBBON_DIR = ".ribbon";
 /** The records folder name before the rename. Migrated on open. */
 export const LEGACY_DIR = ".odio";
@@ -34,6 +36,10 @@ export function isImage(name: string): boolean {
 
 export function isEbook(name: string): boolean {
   return EBOOK_EXTENSIONS.has(extension(name));
+}
+
+export function isComic(name: string): boolean {
+  return COMIC_EXTENSIONS.has(extension(name));
 }
 
 /**

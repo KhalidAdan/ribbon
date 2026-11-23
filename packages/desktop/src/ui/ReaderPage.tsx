@@ -17,6 +17,7 @@ import { Badge, Menu, ProgressLine, SectionHeader, Short } from "./kit";
 import { formatBytes } from "./Servers";
 import { SeriesBooks } from "./SeriesPage";
 import { pageBook } from "@ribbon/core/screen";
+import { onlyRead, pagesLabel } from "@ribbon/core/kind";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -99,8 +100,9 @@ export function ReaderPage() {
   const storyNow = partAt(stories, me.posMs);
   const story = stories[storyNow] ?? null;
   const isCurrent = state.current?.book.book.id === book.book.id;
-  // A book that is only its EPUB: read, never played.
-  const toRead = readerOnly(book.book);
+  // A book that is only read, an EPUB alone or a comic: never played.
+  const toRead = onlyRead(book.book);
+  const pages = book.book.comic ? (book.book.pages ?? 0) : 0;
   const left = book.book.durationMs - me.posMs;
   // A server's book: downloaded before it plays or opens, and removable from this device after. Its admin can delete it from the server.
   const fromServer = !!state.sources.find((s) => s.id === book.source)?.server;
@@ -118,8 +120,12 @@ export function ReaderPage() {
       ? me.finished
         ? "Finished. Read it again any time."
         : me.started
-          ? `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through.`
-          : "Not started. An EPUB to read; there is no audio for it."
+          ? pages > 1
+            ? `You are on page ${Math.round(me.fraction * (pages - 1)) + 1} of ${pages}.`
+            : `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through.`
+          : book.book.comic
+            ? `Not started. A comic${book.book.pages === undefined ? "" : `, ${pagesLabel(book.book.pages)}`}.`
+            : "Not started. An EPUB to read; there is no audio for it."
       : me.finished
         ? "Finished. Listen again any time; your place starts over."
         : me.started
@@ -145,6 +151,7 @@ export function ReaderPage() {
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
+    ...(book.book.comic ? [...(book.book.pages === undefined ? [] : [{ term: "Pages", value: String(book.book.pages) }]), { term: "Comic", value: "CBZ" }] : []),
     ...(toRead || book.remote ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
     ...(book.remote && !toRead ? [{ term: "Download", value: formatBytes(book.book.sizeBytes) }] : []),
   ];
@@ -196,8 +203,8 @@ export function ReaderPage() {
                   {me.finished ? "Listen again" : <Short phone="Listen">{me.started ? "Continue listening" : "Start listening"}</Short>}
                 </Button>
               )}
-              {book.book.ebook && (
-                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} disabled={!!download} onClick={() => void c.openReading(book.book.id)} className="max-sm:flex-1">
+              {(book.book.ebook || book.book.comic) && (
+                <Button variant={toRead ? "primary" : "secondary"} leading={BookOpenIcon} disabled={!!download} onClick={() => void (book.book.comic ? c.openComic(book.book.id) : c.openReading(book.book.id))} className="max-sm:flex-1">
                   {(c.readingProgress(book.book.id) ?? 0) > 0 ? <Short phone="Read">Continue reading</Short> : "Read"}
                 </Button>
               )}

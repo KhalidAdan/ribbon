@@ -17,6 +17,8 @@ import type { EditValues } from "../edits";
 import { coverArgs } from "./cover";
 import { bytesToEbooks, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
 import { readerOnly } from "../ebook";
+import { bytesToComics, comicFromTags, comicsToBytes, nameComic, type ComicRecord } from "./comics";
+import { archiveProblem, pageOrder } from "../comic/pages";
 
 export interface ScannedBook {
   book: Book;
@@ -101,10 +103,13 @@ interface Records {
   previousBooks: Map<string, Book>;
   /** What earlier scans read of each EPUB's package, by path. */
   previousEbooks: Map<string, EbookPackage>;
+  /** What earlier scans read of each comic, by path. */
+  previousComics: Map<string, ComicRecord>;
   corrections: Map<string, Correction[]>;
   filesCsv: Uint8Array | null;
   libraryCsv: Uint8Array | null;
   ebooksCsv: Uint8Array | null;
+  comicsCsv: Uint8Array | null;
 }
 
 /**
@@ -130,11 +135,12 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const forgotten = (path: string) => forget.some((f) => path === f || path.startsWith(f.endsWith("/") ? f : `${f}/`));
   for (const path of [...records.previous.keys()]) if (forgotten(path)) records.previous.delete(path);
   for (const path of [...records.previousEbooks.keys()]) if (forgotten(path)) records.previousEbooks.delete(path);
+  for (const path of [...records.previousComics.keys()]) if (forgotten(path)) records.previousComics.delete(path);
   // Anthology files recorded before stories had names are read again so theirs can be.
   for (const path of unnamedStories(records.previous)) records.previous.delete(path);
   // Nothing counts as known when every file is to be read again. An
-  // EPUB whose package was read before is not opened again.
-  const known = [...(records.reread ? [] : records.previous.values()), ...records.previousEbooks.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  // EPUB whose package was read before is not opened again, nor a comic.
+  const known = [...(records.reread ? [] : records.previous.values()), ...records.previousEbooks.values(), ...records.previousComics.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,
   // and the pipeline folds them into the arrived set, rebuilds the shelf
@@ -194,7 +200,7 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   const buildMs = lap();
 
   let saving: Promise<void> | null = null;
-  const save = () => (saving ??= writeRecords(host, root, books, records, packagesOf(out.files, records)));
+  const save = () => (saving ??= writeRecords(host, root, books, records, packagesOf(out.files, records), comicsOf(out.files, records)));
   if (opts.write ?? true) {
     stage("Saving the library…");
     await save();
@@ -224,11 +230,12 @@ async function buildBooks(host: Host, root: string, files: readonly ScannedFile[
   const groups = groupBooks(files.map((f) => ({ relPath: f.path, absPath: host.join(root, ...f.path.split("/")), name: f.name, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs })));
   const byPath = new Map(files.map((f) => [f.path, f]));
   const packages = packagesOf(files, records);
+  const comics = comicsOf(files, records);
   const books = await pipe(
     from(groups),
     async function* (source) {
       for await (const group of source) {
-        const b = group.audio.length > 0 ? buildBook(group, byPath, records, errors, packages) : buildReaderOnly(group, byPath, packages);
+        const b = group.comic ? buildComic(group, byPath, comics) : group.audio.length > 0 ? buildBook(group, byPath, records, errors, packages) : buildReaderOnly(group, byPath, packages);
         if (b) yield b;
       }
     },
@@ -255,6 +262,60 @@ function packagesOf(files: readonly ScannedFile[], records: Records): Map<string
     if (was && (f.pending || !isStale(was, f))) out.set(f.path, was);
   }
   return out;
+}
+
+/**
+ * What is known of each comic, by path: read on this pass, or by an
+ * earlier one when the file is unchanged or still being read.
+ */
+function comicsOf(files: readonly ScannedFile[], records: Records): Map<string, ComicRecord> {
+  const out = new Map<string, ComicRecord>();
+  for (const f of files) {
+    if (f.kind !== "comic") continue;
+    if (f.fresh && !f.pending) {
+      out.set(f.path, comicFromTags(f, f.tags));
+      continue;
+    }
+    const was = records.previousComics.get(f.path);
+    if (was && (f.pending || !isStale(was, f))) out.set(f.path, was);
+  }
+  return out;
+}
+
+/**
+ * A comic (docs/COMICS.md, section 4): one CBZ, one book. Unlike an EPUB
+ * it is on the shelf before it is read, named by its file, since it will
+ * never pair with anything; its details and its page count arrive with
+ * its record. Its cover is its first page, made after the shelf is up.
+ */
+function buildComic(group: BookGroup, byPath: Map<string, ScannedFile>, comics: Map<string, ComicRecord>): ScannedBook | null {
+  const path = group.comic!;
+  const file = byPath.get(path);
+  if (!file) return null;
+  const record = comics.get(path);
+  const id = bookId(group.path, file.sizeBytes);
+  const folder = path.split("/").slice(-2, -1)[0] ?? "";
+  const naming = nameComic(record, group.name, folder);
+  const book: Book = {
+    id,
+    path: group.path,
+    title: naming.title,
+    rawTitle: naming.title,
+    author: authorsOf(record?.writers ?? []),
+    narrator: "",
+    series: naming.series,
+    seriesIndex: naming.seriesIndex,
+    year: naming.year,
+    ...details({ publisher: record?.publisher ?? "", description: record?.summary ?? "", language: record?.language ?? "", genres: record?.genres ?? [] }),
+    cover: record && record.pages > 0 ? `${RIBBON_DIR}/covers/${id}.jpg` : "",
+    comic: path,
+    ...(record ? { pages: record.pages } : {}),
+    ...(record?.rightToLeft ? { rightToLeft: true } : {}),
+    durationMs: 0,
+    sizeBytes: file.sizeBytes,
+    fileCount: 0,
+  };
+  return { book, files: [], chapters: [], parts: [], ...(!record && file.pending ? { pending: 1 } : {}) };
 }
 
 /**
@@ -358,6 +419,14 @@ export async function extractMissingCovers(
     }
     const name = b.book.cover.slice(prefix.length);
     if (existing.has(name)) continue;
+    if (b.book.comic) {
+      if (await comicCover(host, root, b.book)) {
+        existing.add(name);
+        changed.push(b);
+        onCover?.(b);
+      }
+      continue;
+    }
     // The audio's picture, else the cover the EPUB's package names.
     const src = b.files.find((f) => f.hasCover)?.path ?? b.book.ebook;
     if (!src) continue;
@@ -383,6 +452,28 @@ export async function extractMissingCovers(
     }
   }
   return changed;
+}
+
+/** How wide a comic's cover is made: the shelf's widest drawing of one, at 2x. A page itself is several times that. */
+export const COMIC_COVER_WIDTH = 800;
+
+/**
+ * A comic's cover: its first page, made small. The archive's list is read
+ * here, lazily and once, rather than at the scan, so the scan stays one
+ * small read per comic; an archive that isn't a comic's is left alone.
+ */
+async function comicCover(host: Host, root: string, book: Book): Promise<boolean> {
+  if (!host.comicEntries || !host.comicCover) return false;
+  const abs = host.join(root, ...book.comic!.split("/"));
+  try {
+    const entries = await host.comicEntries(abs);
+    if (archiveProblem(entries)) return false;
+    const first = pageOrder(entries.map((e) => e.name))[0];
+    if (!first) return false;
+    return await host.comicCover(abs, first, host.join(root, ...book.cover.split("/")), COMIC_COVER_WIDTH);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -665,16 +756,25 @@ async function readIfExists(host: Host, path: string): Promise<Uint8Array | null
 async function readRecords(host: Host, root: string, incremental: boolean): Promise<Records> {
   const dir = host.join(root, RIBBON_DIR);
   const encoder = new TextEncoder();
-  const [filesCsv, libraryCsv, ebooksCsv, correctionFiles] = await Promise.all([
+  const [filesCsv, libraryCsv, ebooksCsv, comicsCsv, correctionFiles] = await Promise.all([
     incremental ? readIfExists(host, host.join(dir, "files.csv")) : Promise.resolve(null),
     readIfExists(host, host.join(dir, "library.csv")),
     incremental ? readIfExists(host, host.join(dir, "ebooks.csv")) : Promise.resolve(null),
+    incremental ? readIfExists(host, host.join(dir, "comics.csv")) : Promise.resolve(null),
     host.readTextDir(host.join(dir, "corrections")),
   ]);
   let previousEbooks = new Map<string, EbookPackage>();
   if (ebooksCsv) {
     try {
       previousEbooks = await bytesToEbooks(ebooksCsv);
+    } catch {
+      /* read them again */
+    }
+  }
+  let previousComics = new Map<string, ComicRecord>();
+  if (comicsCsv) {
+    try {
+      previousComics = await bytesToComics(comicsCsv);
     } catch {
       /* read them again */
     }
@@ -710,7 +810,7 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* ignore */
     }
   }
-  return { previous, reread, previousBooks, previousEbooks, corrections, filesCsv, libraryCsv, ebooksCsv };
+  return { previous, reread, previousBooks, previousEbooks, previousComics, corrections, filesCsv, libraryCsv, ebooksCsv, comicsCsv };
 }
 
 /**
@@ -760,19 +860,22 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array): boolean {
   return true;
 }
 
-/** Write library.csv, files.csv and ebooks.csv, but only the ones that changed. */
-async function writeRecords(host: Host, root: string, books: readonly ScannedBook[], records: Records, packages: Map<string, EbookPackage>): Promise<void> {
+/** Write library.csv, files.csv, ebooks.csv and comics.csv, but only the ones that changed. */
+async function writeRecords(host: Host, root: string, books: readonly ScannedBook[], records: Records, packages: Map<string, EbookPackage>, comicRecords: Map<string, ComicRecord>): Promise<void> {
   const dir = host.join(root, RIBBON_DIR);
   const library = await booksToBytes(books.map((b) => b.book));
   const fileRows: Row[] = [];
   for (const b of books) fileRows.push(...filesToRows(b.book.id, b.files));
   const files = await filesToBytes(fileRows);
   const ebooks = await ebooksToBytes([...packages.values()]);
+  const comics = await comicsToBytes([...comicRecords.values()]);
   const writes = [
     { name: "library.csv", bytes: library, changed: !sameBytes(records.libraryCsv, library) },
     { name: "files.csv", bytes: files, changed: !sameBytes(records.filesCsv, files) },
     // Kept only once there is something in it, so a library without EPUBs gains no file.
     { name: "ebooks.csv", bytes: ebooks, changed: !sameBytes(records.ebooksCsv, ebooks) && (packages.size > 0 || !!records.ebooksCsv) },
+    // The same for comics.
+    { name: "comics.csv", bytes: comics, changed: !sameBytes(records.comicsCsv, comics) && (comicRecords.size > 0 || !!records.comicsCsv) },
   ].filter((w) => w.changed);
   if (writes.length === 0) {
     await mirrorRecords(host, root, library, files);

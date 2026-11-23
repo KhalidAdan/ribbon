@@ -9,6 +9,8 @@ import { promises as fs, createReadStream } from "node:fs";
 import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { nodeHost } from "@ribbon/host-node/node";
+import { openComic } from "@ribbon/host-node/comic";
+import { isPage, pageType } from "@ribbon/core/comic/pages";
 
 const MIME: Record<string, string> = {
   mp3: "audio/mpeg",
@@ -100,6 +102,25 @@ export function devLibrary(root: string | undefined): Plugin {
           if (op === "root") return json(res, 200, { root: absRoot });
           if (!absRoot) return json(res, 404, { error: "RIBBON_DEV_LIBRARY not set" });
 
+          if (op === "comicPage") {
+            // One page, straight out of the archive, as the app's `ribboncomic` address gives it.
+            const entry = url.searchParams.get("entry") ?? "";
+            if (!isPage(entry)) return json(res, 404, { error: "not a page" });
+            const comic = await openComic(inside(url.searchParams.get("path") ?? ""));
+            try {
+              const found = comic.entries.find((e) => e.name === entry);
+              if (!found) return json(res, 404, { error: "no such page" });
+              res.statusCode = 200;
+              res.setHeader("content-type", pageType(entry));
+              res.setHeader("cache-control", "private, max-age=86400");
+              if (found.size !== undefined) res.setHeader("content-length", String(found.size));
+              for await (const chunk of comic.source(entry)) res.write(chunk);
+              return res.end();
+            } finally {
+              await comic.close();
+            }
+          }
+
           if (op === "file") {
             const p = inside(url.searchParams.get("path") ?? "");
             if (req.method === "PUT" && url.searchParams.get("append") === "1") {
@@ -178,6 +199,10 @@ export function devLibrary(root: string | undefined): Plugin {
               const out = await ebookJson([epub, path.join(absRoot, ".ribbon", "dev-ebooks")]);
               return out.ok ? json(res, 200, out.text) : json(res, 500, { error: out.text });
             }
+            case "comicEntries":
+              return json(res, 200, await host.comicEntries!(inside(String(args.path))));
+            case "comicCover":
+              return json(res, 200, await host.comicCover!(inside(String(args.path)), String(args.entry), inside(String(args.target)), Number(args.width)));
             case "cover":
               return json(res, 200, await host.extractCover!(inside(String(args.src)), inside(String(args.target))));
             case "catalog":

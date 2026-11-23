@@ -35,6 +35,9 @@ const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
 /// identifiers, cover), to pair it with its audiobook or make it a book
 /// of its own; the chapters are read when the book is read.
 const EBOOK: &[&str] = &["epub"];
+/// A comic: a zip of pictures. A scan reads only its list of files and its
+/// ComicInfo.xml (comic.rs); no page is opened until it is read.
+const COMIC: &[&str] = &["cbz"];
 pub(crate) const RIBBON_DIR: &str = ".ribbon";
 pub(crate) const LEGACY_DIR: &str = ".odio";
 /// Block size for the caching reader used by the lofty fallback.
@@ -257,6 +260,8 @@ pub fn walk(root: &Path) -> Vec<Entry> {
                     "image"
                 } else if EBOOK.contains(&ext.as_str()) {
                     "ebook"
+                } else if COMIC.contains(&ext.as_str()) {
+                    "comic"
                 } else if is_side_file(&name) {
                     "text"
                 } else {
@@ -564,7 +569,7 @@ fn parent_of(rel: &str) -> &str {
 /// caller reuses its cache.
 ///
 /// Results stream out as `BATCH_EVENT` events tagged with `token`: first
-/// every file the walk found, with unread audio and EPUBs marked
+/// every file the walk found, with unread audio, EPUBs and comics marked
 /// pending, so the caller can put the books on screen from folder names
 /// alone; then the
 /// first file of each folder, which carries the book's author and
@@ -612,7 +617,7 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
                     file.fresh = true;
                 }
             }
-            if e.kind == "audio" || e.kind == "ebook" {
+            if e.kind == "audio" || e.kind == "ebook" || e.kind == "comic" {
                 let unchanged = known.get(&rel).map(|(s, m)| *s == e.size && (*m - e.mtime_ms).abs() <= 1000).unwrap_or(false);
                 if unchanged {
                     reused += 1;
@@ -644,6 +649,22 @@ pub async fn scan_library(app: AppHandle, root: String, known: Vec<KnownFile>, t
                     if let Some(p) = crate::ebook::read_package_at(&e.abs) {
                         file.has_cover = p.cover.is_some();
                         file.tags = p.tags();
+                    }
+                    done.fetch_add(1, Ordering::Relaxed);
+                    batcher.push(file);
+                    return;
+                }
+                if e.kind == "comic" {
+                    let mut file = files[i].clone();
+                    file.fresh = true;
+                    file.pending = false;
+                    // A file that is no archive is a comic with no pages.
+                    let listing = crate::comic::read_listing(&e.abs);
+                    let pages = listing.as_ref().map(|l| l.pages).unwrap_or(0);
+                    file.has_cover = pages > 0;
+                    file.tags.insert("pages".to_string(), pages.to_string());
+                    if let Some(info) = listing.and_then(|l| l.comic_info) {
+                        file.tags.insert("comicinfo".to_string(), info);
                     }
                     done.fetch_add(1, Ordering::Relaxed);
                     batcher.push(file);

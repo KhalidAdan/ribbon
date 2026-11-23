@@ -1,11 +1,12 @@
 # The Ribbon position log
 
-**Version 1.3. A file format for keeping your place in a book, which any
+**Version 1.4. A file format for keeping your place in a book, which any
 player, reader or read-along app can read and write.** Version 1.1 adds
 places in text editions (section 3.6), version 1.2 bookmarks made from
-words highlighted in a text (section 3.4), and version 1.3 the time spent
-reading a text (section 3.7); everything written by an earlier version is
-still version 1.3.
+words highlighted in a text (section 3.4), version 1.3 the time spent
+reading a text (section 3.7), and version 1.4 places in a book of pages,
+a comic (section 3.8); everything written by an earlier version is still
+version 1.4.
 
 Your place in a book belongs to you, not to an app or a server. This
 format stores it as plain files beside the books. Any file sync you
@@ -277,6 +278,40 @@ NOT count reading while the same book's narration plays, which a session
 counts already, so read-along is never counted twice. A reader of 1.2
 skips a `reading` as a kind it does not understand.
 
+### 3.8 Places in a book of pages (1.4)
+
+A comic is a book of pages already drawn: an archive of pictures (a CBZ),
+read in the order of their names. A reader keeps its place in one as it
+keeps a place in a text (section 3.6): a `pos` record without `ms`, whose
+REQUIRED `loc` names a page:
+
+```json
+{"v":1,"k":"pos","dev":"urn:uuid:5f0c…","seq":1795472589698,"t":"2026-11-23T22:23:09.675Z",
+ "book":{"ids":["urn:ribbon:b3f0d166-text"]},
+ "why":"close",
+ "loc":{"href":"Saga 001/page-015.jpg","type":"image/jpeg",
+        "locations":{"position":15,"totalProgression":0.6087}}}
+```
+
+- `href` is the page's entry in the archive, by its name there.
+- `position` is the page, counted from 1 among the archive's pictures in
+  the natural order of their names ("page-2" before "page-10"), leaving
+  out what isn't the comic (`__MACOSX`, hidden files).
+- `totalProgression` is how far through the pages it is: 0 on the first
+  page and 1 on the last, so a comic on its last page is at its end.
+- With two pages on screen, the place is the first of the two.
+
+A reader finds the page by `href` first, then by `position`, so a place
+survives a reader that orders the pages differently, and one that renamed
+them.
+
+The claim is the one a text's place has, `urn:ribbon:<id>-text`: it names
+the edition that is read rather than heard, and a comic has no other. So
+a reader of 1.3 that knows nothing of comics still merges these places
+correctly, newest first, and simply has no page to show for them. Time
+spent with a comic is a `reading` record (section 3.7) under the same
+claim, with `from` and `to` as `totalProgression`.
+
 ## 4. Which book
 
 `book.ids` is a set of **claims**. Each claim is a URN that names the
@@ -356,9 +391,9 @@ working. A later version will stop.
   stop new `session` records. Deleting one's own log removes one's
   history from the folder.
 
-## 7. Not in version 1.3
+## 7. Not in version 1.4
 
-- **Mapping between editions, and between text and audio.** Version 1.3
+- **Mapping between editions, and between text and audio.** Version 1.4
   records what the writer knows, `text` anchors included when it has
   them. A future version may record how a place was mapped (a Media
   Overlay, a transcript match, chapter and progression, or proportion)

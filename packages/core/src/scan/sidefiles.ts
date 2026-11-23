@@ -62,14 +62,14 @@ function unmark(s: string): string {
     .trim();
 }
 
-interface XmlElement {
+export interface XmlElement {
   name: string;
   attrs: Record<string, string>;
   text: string;
 }
 
 /** Every element with a local name in `names` (any namespace prefix), with attributes and inner text. */
-function elements(xml: string, names: string[]): XmlElement[] {
+export function elements(xml: string, names: string[]): XmlElement[] {
   const out: XmlElement[] = [];
   const wanted = new Set(names.map((n) => n.toLowerCase()));
   const lower = xml.toLowerCase();

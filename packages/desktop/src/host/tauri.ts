@@ -148,6 +148,8 @@ export function tauriHost(): Host {
     writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
     catalogSearch: (title, author, region) => invoke<string>("catalog_search", { title, author, region }),
     openEbook: (path) => invoke<string>("ebook_open", { path }),
+    comicEntries: (path) => invoke<{ name: string }[]>("comic_entries", { path }),
+    comicCover: (path, entry, target, width) => invoke<boolean>("comic_cover", { path, entry, target, width }),
     // Hearing decodes the audio with ffmpeg, which a phone hasn't: it never hears, and reads along from a server's transcript (#152).
     ...(tools
       ? {
@@ -233,6 +235,16 @@ export function exactAudioUrl(absPath: string, ms: number): string {
  */
 export function audioUrl(absPath: string): string {
   return `${convertFileSrc("", "ribbonaudio")}?path=${encodeURIComponent(absPath)}`;
+}
+
+/**
+ * A URL for one page of a comic, read out of its archive by Ribbon
+ * (comic.rs): a picture is far too large to bring through a command.
+ * `version` names the file as it is now (its size and date), so a comic
+ * replaced by another of the same name is never drawn from the cache.
+ */
+export function comicPageUrl(absPath: string, entry: string, version: string): string {
+  return `${convertFileSrc("", "ribboncomic")}?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}&v=${encodeURIComponent(version)}`;
 }
 
 /** Milliseconds since the Rust process started. */
