@@ -319,15 +319,26 @@ before it merges, and neither holds the other's release.
 
 **Built so far** (November 2026): steps 2 and 3, in one pull request,
 since a comic on the shelf that couldn't be opened was not worth merging
-by itself; and step 4, the server, with the desktop reading a server's
-comic. A comic's bookmarks are not built. Steps 5 to 7 are to come.
+by itself; step 4, the server, with the desktop reading a server's comic;
+and step 5, the iPad and the iPhone. A comic's bookmarks are not built.
+Steps 6 and 7, the Apple TV and retiring Panels, are to come.
+
+Step 5 as built: one page at a time, as large as the screen allows. A
+swipe or a touch on either side turns it, two fingers zoom into it, a
+double tap zooms in and out, and a touch in the middle hides what is
+around the page. The few pages around yours are kept decoded, each no
+larger than the screen can show at twice its size. The page is told to the
+server once you settle on it, and time with a comic counts as reading. Two
+pages side by side, and the pages ahead kept as files, are not built on
+these devices yet. The Apple TV doesn't list comics until its reader is.
 
 Step 4 as built differs from section 7 in two small ways. A page is asked
 for as `pages/:n` counted from 1, and its place comes back the same way.
 And the server opens the archive for each page it sends, rather than
 keeping archives open: correct first, and not yet measured to need more.
-The Apple apps as they are don't list a comic (they show only books with
-audio or an EPUB), so a server may have comics before they can read them.
+An Apple app from before step 5 doesn't list a comic (it shows only books
+with audio or an EPUB), so a server may have comics before every device
+can read them.
 
 **What steps 2 and 3 measured**, on the Mac (a debug build of the app
 under its own identity and folder, WebKit; the screen was locked, so no

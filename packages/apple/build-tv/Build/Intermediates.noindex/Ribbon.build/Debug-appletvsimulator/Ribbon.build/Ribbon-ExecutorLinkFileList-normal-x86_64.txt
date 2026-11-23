@@ -1,0 +1,1 @@
+/Applications/Xcode-27.0.0-Beta.4.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a

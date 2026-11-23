@@ -1,0 +1,40 @@
+{
+  "book": {
+    "id": "0123456789abcdef",
+    "path": "",
+    "title": "Made Up Saga #1",
+    "rawTitle": "Made Up Saga #1",
+    "author": "",
+    "narrator": "",
+    "series": "Made Up Saga",
+    "seriesIndex": 1000,
+    "year": 1000,
+    "cover": "covers/0123456789abcdef",
+    "comic": "book.cbz",
+    "pages": 1000,
+    "rightToLeft": true,
+    "durationMs": 1000,
+    "sizeBytes": 1000,
+    "fileCount": 1000
+  },
+  "files": [],
+  "chapters": [],
+  "parts": [],
+  "cover": {
+    "hash": "0123456789abcdef",
+    "aspect": 0.5,
+    "colour": "#808080"
+  },
+  "pages": [
+    {
+      "name": "page-001.png",
+      "width": 1000,
+      "height": 1000
+    },
+    {
+      "name": "page-002.png",
+      "width": 1000,
+      "height": 1000
+    }
+  ]
+}

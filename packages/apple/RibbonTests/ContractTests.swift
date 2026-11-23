@@ -26,6 +26,26 @@ final class ContractTests: XCTestCase {
         XCTAssertFalse(reading.blocks.isEmpty)
     }
 
+    /// A comic (docs/COMICS.md): its pages in order, each with its size, and its place as a page.
+    func testAComic() throws {
+        let comic = try answer("comic-book", as: ServerBookDetail.self)
+        let pages = try XCTUnwrap(comic.pages)
+        XCTAssertFalse(pages.isEmpty)
+        XCTAssertFalse(pages[0].name.isEmpty)
+        XCTAssertGreaterThan(pages[0].width, 0)
+        XCTAssertEqual(comic.book.rightToLeft, true)
+        // It has no audio and no chapters, and still decodes.
+        XCTAssertTrue(comic.files.isEmpty)
+        struct Place: Decodable { let place: ComicPlace? }
+        let place = try XCTUnwrap(try answer("comic-place", as: Place.self).place)
+        XCTAssertGreaterThan(place.page, 0)
+        XCTAssertGreaterThan(place.pages, 0)
+        // A book that isn't a comic says so in the library, and has no pages.
+        struct Books: Decodable { let books: [ServerBook] }
+        XCTAssertEqual(try answer("books", as: Books.self).books.first?.isComic, false)
+        XCTAssertNil(try answer("book", as: ServerBookDetail.self).pages)
+    }
+
     /// Read-along turned off for the book by the admin (packages/core/src/edits.ts, `readAlong`): the app opens it
     /// to read only, and says it's off rather than that it's waiting to be transcribed.
     func testABookWithReadAlongTurnedOff() throws {

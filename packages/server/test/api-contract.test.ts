@@ -7,6 +7,7 @@ import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import type { ListedBook } from "../src/library/books.ts";
 import { epub, importAs, mp3, serverWithAdmin } from "./fixture.ts";
+import { comicInfoXml, makeComic } from "@ribbon/host-node/make-comic";
 
 /** What the server lists is what the apps read: this stops compiling if the two part. */
 export type ListedIsWhatTheAppsRead = ListedBook extends ServerBook ? true : never;
@@ -135,5 +136,18 @@ describe("what the server answers the Apple app", () => {
   it("a book whose read-along the admin turned off", async () => {
     await ask("PUT", `/api/books/${id}/edits`, { values: { readAlong: "off" } });
     await kept("readalong-off", await ask("GET", `/api/books/${id}/readalong`));
+  });
+
+  // Last, so the library every answer above is of has only its one book in it.
+  it("a comic: its pages, and a page as a place", async () => {
+    const comics = path.join(dir, "comics");
+    await makeComic(path.join(comics, "Made Up Saga 001 (2018).cbz"), { pages: 6, comicInfo: comicInfoXml({ Manga: "YesAndRightToLeft" }) });
+    await importAs(server, admin, comics);
+    const { books } = (await ask("GET", "/api/books")) as { books: { id: string; comic: boolean }[] };
+    const comic = books.find((b) => b.comic)!.id;
+    await kept("comic-book", await ask("GET", `/api/books/${comic}`));
+    await kept("comic-place-told", await ask("POST", `/api/books/${comic}/place`, { page: 4, why: "periodic", device: DEVICE }));
+    await kept("comic-place", await ask("GET", `/api/books/${comic}/place`));
+    await kept("comic-reading", await ask("POST", `/api/books/${comic}/reading`, { start: "2026-11-23T20:00:00.000Z", end: "2026-11-23T20:10:00.000Z", from: 1, to: 4, device: DEVICE }));
   });
 });

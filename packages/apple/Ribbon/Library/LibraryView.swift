@@ -222,7 +222,9 @@ private struct SeriesCard: View {
             return sum + (p?.finished == true ? 0 : book.durationMs - (p?.ms ?? 0))
         }
         let allDone = finished == series.books.count
-        let hours = Format.left(left).replacingOccurrences(of: #" \d+m$"#, with: "", options: .regularExpression)
+        // A series that is only read (comics, books that are only their text) has no hours to count.
+        let hours = left > 0 ? Format.left(left).replacingOccurrences(of: #" \d+m$"#, with: "", options: .regularExpression) : ""
+        let standing = allDone ? " · all finished" : finished > 0 ? " · \(finished) finished\(hours.isEmpty ? "" : " · \(hours) to go")" : hours.isEmpty ? "" : " · \(hours)"
         Button { model.open(next, in: series) } label: {
             HStack(alignment: .top, spacing: 24.scaled) {
                 ZStack(alignment: .leading) {
@@ -233,8 +235,8 @@ private struct SeriesCard: View {
                 .frame(width: 160.scaled, alignment: .leading)
                 VStack(alignment: .leading, spacing: 8.scaled) {
                     Text(series.name).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).lineLimit(1)
-                    Text("\(series.books.count) books · \(allDone ? "all finished" : finished > 0 ? "\(finished) finished · \(hours) to go" : hours)").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
-                    Text(allDone ? "Every book finished" : started ? "Listening to \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6.scaled)
+                    Text("\(series.books.count) books\(standing)").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
+                    Text(allDone ? "Every book finished" : started ? "\(next.audio ? "Listening to" : "Reading") \(next.title)" : "Up next: \(next.title)").font(.ui(22)).foregroundStyle(Color.ink3).lineLimit(1).padding(.top, 6.scaled)
                     SegmentedProgress(parts: series.books.map { library?.fraction(of: $0) ?? 0 }).padding(.top, 16.scaled)
                 }
                 .widthUnlessNarrow(450)

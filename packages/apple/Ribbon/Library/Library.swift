@@ -159,7 +159,8 @@ final class Library {
     /// What a book comes to before it's started: how long it is, or that it's an EPUB to read
     /// (packages/desktop/src/ui/progress.ts, `lengthOf`).
     func length(of book: ServerBook) -> String {
-        book.audio ? Format.left(book.durationMs) : "EPUB"
+        if book.isComic { return book.pages.map(Format.pages) ?? "Comic" }
+        return book.audio ? Format.left(book.durationMs) : "EPUB"
     }
 
     private func lastListened(_ book: ServerBook) -> String {

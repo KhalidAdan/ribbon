@@ -32,6 +32,8 @@ struct ShelfBook: Hashable {
     /// - and a novel's length when there's nothing to go by.
     var words: Double {
         if let counted = book.words, counted > 0 { return Double(counted) }
+        // A comic is as thick as its pages: the shelf's page is 500 words (ShelfLayout.swift).
+        if book.isComic, let pages = book.pages, pages > 0 { return Double(pages) * 500 }
         if book.audio, book.durationMs > 0 { return hours * Self.wordsPerHour }
         if let bytes = book.ebookBytes { return min(400_000, max(20_000, Double(bytes) / 5)) }
         return 90_000
