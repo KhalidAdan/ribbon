@@ -363,10 +363,16 @@ each, 114 MB in all, made for the purpose.
 | After 177 turns, back and forth | 1,394 MB | 215 MB |
 | Thirty seconds after closing it | 1,312 MB | 216 MB |
 
-Not measured yet: anything at 6x, anything on Windows, and anything over
-a network share. The end-to-end check (`comic`, in
-`packages/desktop/tools/e2e`) runs on Windows, at 1x and 6x, and prints a
-turn's time there. Reading a page with Culvert in the web view, beside the
+On Windows (GitHub's runner, WebView2, the end-to-end `comic` check, forty
+pages of 1000 by 1500), a turn by key to the frame its page is drawn took
+29 ms at the median at 1x and 239 ms with the CPU six times slower. Each
+turn was drawing three spreads again: the one coming in, and both of its
+neighbours. Now a spread waiting beside keeps its canvas when it moves to
+the middle, so a turn draws nothing before the frame that shows it, and
+the one new neighbour is drawn after. Measured in the browser: no draw
+before the next frame, one after.
+
+Not measured yet: anything over a network share. Reading a page with Culvert in the web view, beside the
 `ribboncomic` address, was not tried: bytes of a page's size take the slow
 path through a command on WebView2, and the address answers in 15 ms.
 

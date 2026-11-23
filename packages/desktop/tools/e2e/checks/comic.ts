@@ -9,7 +9,7 @@ async function shown(r: Ribbon, page: number, timeout = 15_000): Promise<boolean
     .waitForFunction(
       (at) => {
         const c = window.__ribbon.getState().comic;
-        return c?.status === "ready" && c.page === at && !!document.querySelector(`[role=dialog] canvas[data-page="${at + 1}"][data-drawn]`);
+        return c?.status === "ready" && c.page === at && !!document.querySelector(`[role=dialog] [data-on-screen] canvas[data-page="${at + 1}"][data-drawn]`);
       },
       page,
       { timeout },
@@ -40,7 +40,7 @@ async function turnByKey(r: Ribbon, key: string, to: number): Promise<number> {
           window.removeEventListener("keydown", onKey, true);
           const t0 = performance.now();
           const look = () => {
-            if (document.querySelector(`[role=dialog] canvas[data-page="${to + 1}"][data-drawn]`)) return done(performance.now() - t0);
+            if (document.querySelector(`[role=dialog] [data-on-screen] canvas[data-page="${to + 1}"][data-drawn]`)) return done(performance.now() - t0);
             if (performance.now() - t0 > 10_000) return done(-1);
             requestAnimationFrame(look);
           };
@@ -134,11 +134,11 @@ export const comicCheck: Check = {
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "two" }));
     await page.evaluate(() => window.__ribbon.turnComic(1, "seek"));
     await shown(r, 1);
-    const pair = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] > div:first-child canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
+    const pair = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
     t.expect(pair.join(",") === "2,3", "two pages up shows the second and third side by side", pair.join(","));
     await page.evaluate(() => window.__ribbon.turnComic(10, "seek"));
     await shown(r, 10);
-    const wide = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] > div:first-child canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
+    const wide = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
     t.expect(wide.join(",") === "11", "a page drawn across two has the screen to itself", wide.join(","));
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one" }));
 
