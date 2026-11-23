@@ -223,7 +223,12 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
     if (!file || room.width === 0) return null;
     return { page: at, box: pageBox(file, across, room, settings.fit), picture: decoded.current?.peek(at) };
   };
-  const spread = (pages: readonly number[]) => pages.map((at) => drawn(at, pages.length));
+  /** The spreads to have drawn: the one on screen, and its neighbours on the side each will come in from. */
+  const beside: { side: "left" | "middle" | "right"; pages: number[] }[] = [
+    ...(neighbour(onLeft) ? [{ side: "left" as const, pages: neighbour(onLeft)! }] : []),
+    { side: "middle", pages: shown.pages },
+    ...(neighbour(onRight) ? [{ side: "right" as const, pages: neighbour(onRight)! }] : []),
+  ];
 
   return (
     <>
@@ -237,10 +242,23 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
         onWheel={swipe.onWheel}
       >
         <div ref={track} data-comic-track className={clsx("relative w-full will-change-transform", !fitWidth && "h-full")}>
-          <Spread pages={spread(shown.pages)} rightToLeft={rightToLeft} fitWidth={fitWidth} />
-          {/* The spreads either side, already drawn where a swipe will bring them from. */}
-          <Beside side="right-full" pages={neighbour(onLeft)?.map((at, _, all) => drawn(at, all.length)) ?? null} rightToLeft={rightToLeft} fitWidth={fitWidth} />
-          <Beside side="left-full" pages={neighbour(onRight)?.map((at, _, all) => drawn(at, all.length)) ?? null} rightToLeft={rightToLeft} fitWidth={fitWidth} />
+          {/* The spread on screen and the one either side, already drawn where a swipe will bring it from. Each is
+              known by its pages, so at a turn the spread coming in is the one that was waiting beside: it moves to
+              the middle as it is, nothing drawn again, and only the new one waiting is drawn, after the turn shows. */}
+          {beside.map((b) => (
+            <div
+              key={b.pages.join("-")}
+              {...(b.side === "middle" ? { "data-on-screen": true } : { "aria-hidden": true })}
+              className={clsx(b.side === "middle" ? "relative w-full" : "absolute top-0 w-full", (b.side !== "middle" || !fitWidth) && "h-full", b.side === "left" && "right-full", b.side === "right" && "left-full")}
+            >
+              <div className={clsx("flex w-full items-center justify-center", !fitWidth && "h-full", rightToLeft && "flex-row-reverse")}>
+                {b.pages.map((at) => {
+                  const p = drawn(at, b.pages.length);
+                  return p && <PageCanvas key={p.page} {...p} waiting={b.side !== "middle"} />;
+                })}
+              </div>
+            </div>
+          ))}
         </div>
         {/* A click on either side of the page turns it; the middle is the page's own. */}
         <button type="button" aria-label={rightToLeft ? "Next page" : "Previous page"} disabled={onLeft === null} onClick={() => !swipe.justSwiped() && turn(onLeft)} className="absolute inset-y-0 left-0 w-1/3 cursor-w-resize disabled:cursor-default" />
@@ -278,32 +296,20 @@ interface Drawn {
   picture: ImageBitmap | undefined;
 }
 
-/** A spread waiting beside the one on screen, for a swipe to bring in. Never read out: it isn't there yet. */
-function Beside({ side, pages, rightToLeft, fitWidth }: { side: "right-full" | "left-full"; pages: (Drawn | null)[] | null; rightToLeft: boolean; fitWidth: boolean }) {
-  if (!pages) return null;
-  return (
-    <div aria-hidden="true" className={clsx("absolute top-0 h-full w-full", side)}>
-      <Spread pages={pages} rightToLeft={rightToLeft} fitWidth={fitWidth} />
-    </div>
-  );
-}
-
-/** One page, or two that face each other, as large as the window allows. A page whose file hasn't landed has no place yet. */
-function Spread({ pages, rightToLeft, fitWidth }: { pages: readonly (Drawn | null)[]; rightToLeft: boolean; fitWidth: boolean }) {
-  return <div className={clsx("flex w-full items-center justify-center", !fitWidth && "h-full", rightToLeft && "flex-row-reverse")}>{pages.map((p) => p && <PageCanvas key={p.page} {...p} />)}</div>;
-}
-
 /**
  * A page, drawn from its decoded picture onto a canvas the size it shows
  * at, so what is kept for it is its size on screen, not the scan's. Until
  * its picture is decoded its place is held, empty, at its size, and
  * nothing moves when it arrives.
  */
-function PageCanvas({ page, box, picture }: Drawn) {
+function PageCanvas({ page, box, picture, waiting }: Drawn & { waiting: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  useLayoutEffect(() => {
+  /** What this canvas shows now, so a page that only moved from beside to the middle is not drawn again. */
+  const shows = useRef<{ picture: ImageBitmap; width: number; height: number } | null>(null);
+  const draw = () => {
     const el = canvas.current;
     if (!el || !picture) return;
+    if (shows.current?.picture === picture && shows.current.width === box.width && shows.current.height === box.height) return;
     // As many pixels as the screen shows it with, and never more than the page has.
     const density = Math.min(window.devicePixelRatio || 1, picture.width / box.width);
     const [w, h] = [Math.min(picture.width, Math.max(1, Math.round(box.width * density))), Math.min(picture.height, Math.max(1, Math.round(box.height * density)))];
@@ -313,7 +319,18 @@ function PageCanvas({ page, box, picture }: Drawn) {
     if (!ctx) return;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(picture, 0, 0, w, h);
+    shows.current = { picture, width: box.width, height: box.height };
     el.dataset.drawn = "true";
-  }, [picture, box.width, box.height]);
+  };
+  // On screen, it is drawn before the frame that shows it. Waiting beside, it is drawn once that frame has gone:
+  // scaling a page down takes a few milliseconds, more on a slow machine, and the turn itself shouldn't wait on it.
+  useLayoutEffect(() => {
+    if (!waiting) draw();
+  });
+  useEffect(() => {
+    if (!waiting) return;
+    const later = setTimeout(draw, 0);
+    return () => clearTimeout(later);
+  });
   return <canvas ref={canvas} role="img" aria-label={`Page ${page + 1}`} data-page={page + 1} style={{ width: box.width, height: box.height }} className="block shrink-0" />;
 }
