@@ -5,9 +5,10 @@
 name: Checks
 
 on:
+  # Every pull request, even one of words alone: main requires "Checks passed"
+  # below, and a check that never reports would hold a pull request for ever.
+  # What changed decides which jobs have anything to do.
   pull_request:
-    # A change to the docs alone runs nothing here.
-    paths-ignore: ["docs/**", "**/*.md"]
   push:
     branches: [main]
 
@@ -211,3 +212,21 @@ jobs:
         run: |
           phone=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find((d)=>d.name.startsWith("iPhone")).udid))')
           xcodebuild test -project Ribbon.xcodeproj -scheme Ribbon -destination "platform=iOS Simulator,id=$phone" -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+
+  # The one check main requires of this workflow (docs/RELEASING.md). The jobs
+  # above run or not by what changed, and a required check that didn't run
+  # holds a pull request for ever, so main requires this instead: it always
+  # runs, and fails when any of them failed or was stopped.
+  passed:
+    name: Checks passed
+    needs: [changes, checks, server, server-image, same-app, apple]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed, or had nothing to check
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "The jobs ended: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac

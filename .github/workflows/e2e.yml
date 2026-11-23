@@ -11,9 +11,10 @@
 name: End-to-end
 
 on:
+  # Every pull request: main requires "End-to-end passed" below, and a check
+  # that never reports would hold a pull request for ever. What changed decides
+  # whether there is anything to drive.
   pull_request:
-    # A change to the docs alone runs nothing here, nor one to the server or the Apple app alone: these drive the desktop app.
-    paths-ignore: ["docs/**", "**/*.md", "packages/server/**", "packages/apple/**"]
   push:
     branches: [main]
   # Speed work runs the report on its own branch: gh workflow run e2e.yml --ref <branch>
@@ -25,8 +26,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A change to the docs alone drives nothing, nor one to the server or the
+  # Apple app alone: these checks drive the desktop app (tools/what-changed.mjs).
+  # main and a run by hand always drive it.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.paths.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - id: paths
+        run: node tools/what-changed.mjs >> "$GITHUB_OUTPUT"
+
   e2e:
     name: End-to-end, ${{ matrix.part }} (windows-2022)
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: windows-2022
     # Its budget: the slowest in twenty of 94 runs took fourteen minutes, and one with
     # no Rust cache to start from sixteen. Past twenty-five, something is wrong.
@@ -101,3 +119,19 @@ jobs:
           if-no-files-found: ignore
           # .e2e/ starts with a dot, and the action leaves hidden folders out unless told.
           include-hidden-files: true
+
+  # The one check main requires of this workflow (docs/RELEASING.md): it always
+  # runs, and fails when either speed failed or was stopped.
+  passed:
+    name: End-to-end passed
+    needs: [changes, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed, or had nothing to check
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "The jobs ended: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac
