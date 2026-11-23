@@ -46,7 +46,8 @@ describe("a comic in the app", () => {
     await fs.writeFile(path.join(root, "Broken.cbz"), "not an archive");
   });
   afterAll(async () => {
-    await fs.rm(root, { recursive: true, force: true });
+    // An app closed a moment ago may still be writing its last record beside the books: tried again until it has.
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   it("is worded as something read, by its pages", async () => {
