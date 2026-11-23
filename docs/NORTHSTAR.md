@@ -15,6 +15,10 @@ have, and keeps your place in every book forever, whether you were reading
 or listening. That place is yours, in your folders or on your own server;
 never someone else's service.
 
+And the comic: a book of pages already drawn. Ribbon shows them as they
+are, keeps your page, and shelves the book with the rest
+([COMICS.md](COMICS.md)).
+
 Ribbon runs two ways, and you choose by what you want from it.
 
 **The desktop app alone** is all of Ribbon on one computer. Point it at a
@@ -64,7 +68,10 @@ one else's service.
 
 **Not two apps.** A book you own as audio and as an EPUB is one book with one
 place, and reading it is as much the product as hearing it. Not a reader
-for every format: EPUBs without DRM, the way the audio is files without DRM.
+for every format: EPUBs and comics (CBZ) without DRM, the way the audio is
+files without DRM. No PDF, no CBR, no MOBI: an EPUB is text Ribbon can set
+itself and a CBZ is pictures it can show as they are, and nothing else is
+either.
 
 ## Principles
 
@@ -107,6 +114,12 @@ an exact place and a highlighted sentence are one problem. Pages follow a
 finger and turn the moment they are asked; the whole book scrolls without a
 hitch; a book opens to your page before you notice it opening; resizing the
 window never loses the text.
+
+**A drawn page is shown as it was drawn.** A comic's pages are pictures, and
+the artist already decided where everything goes. Ribbon shows each page
+whole, in order, turned the moment it is asked, with the next ones ready
+before you reach them. It never crops a page, reflows one, or guesses where
+the panels are. Your place is a page, kept like any other place.
 
 **Resume is the product.** The moment you press play after a pause is where
 audiobook apps win or lose. Rewind scaled to how long you were gone. Two
@@ -180,6 +193,10 @@ your place moving with you.
 install as they are, so trying Ribbon never means building it.
 
 **Android**, later, as a thin app of its own.
+
+**Comics.** CBZ files as a third kind of book: on the shelf with their
+series, read on the desktop, the iPad and the iPhone, with your page kept
+like every other place. The plan is in [COMICS.md](COMICS.md).
 
 **On the radar, not committed:**
 
