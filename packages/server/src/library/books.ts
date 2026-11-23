@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { ComicPage } from "./comic.ts";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
 import { applyEdits, originalOf, type EditValues, type SharedEdits } from "@ribbon/core/edits";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
@@ -26,6 +27,8 @@ export interface StoredBook extends ScannedBook {
   cover: Cover | null;
   /** The EPUB's size, when there is one: with the audio's, what a download needs room for. */
   ebookBytes?: number;
+  /** A comic's pages in reading order, each with its size, listed once when it was added (comic.ts). */
+  pages?: ComicPage[];
   /** Its loudness and silences, measured once here, so no device has to (prepare.ts). */
   analysis?: StoredAnalysis;
   /** The records carried in from its folder, by kind, in `records/<kind>.csv` (records.ts). */
@@ -90,10 +93,10 @@ export class BookIndex {
     const b = stored.book;
     this.db
       .prepare(
-        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy);
+      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null);
     for (const claim of claims) this.db.prepare("INSERT OR IGNORE INTO book_claim (claim, book_id) VALUES (?, ?)").run(claim, id);
     // Deleted once and added again: devices keep it now.
     this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
@@ -259,6 +262,8 @@ function filed(row: Record<string, SQLOutputValue>): ListedBook {
     ebook: row.has_ebook === 1,
     ebookBytes: row.ebook_bytes === null ? null : Number(row.ebook_bytes),
     words: row.words === null || row.words === undefined ? null : Number(row.words),
+    comic: row.has_comic === 1,
+    pages: row.pages === null || row.pages === undefined ? null : Number(row.pages),
     cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
     addedAt: new Date(Number(row.added_at)).toISOString(),
   };
@@ -284,6 +289,10 @@ export interface ListedBook {
   ebookBytes: number | null;
   /** How many words its EPUB has, counted from its text once the server has read it; null until then, and for a book with no EPUB. */
   words: number | null;
+  /** A comic (docs/COMICS.md): read and never heard, its size the size of its CBZ. */
+  comic: boolean;
+  /** A comic's pages; null for any other book. */
+  pages: number | null;
   cover: Cover | null;
   addedAt: string;
   /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */

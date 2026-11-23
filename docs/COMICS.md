@@ -319,7 +319,15 @@ before it merges, and neither holds the other's release.
 
 **Built so far** (November 2026): steps 2 and 3, in one pull request,
 since a comic on the shelf that couldn't be opened was not worth merging
-by itself. A comic's bookmarks are not built. Steps 4 to 7 are to come.
+by itself; and step 4, the server, with the desktop reading a server's
+comic. A comic's bookmarks are not built. Steps 5 to 7 are to come.
+
+Step 4 as built differs from section 7 in two small ways. A page is asked
+for as `pages/:n` counted from 1, and its place comes back the same way.
+And the server opens the archive for each page it sends, rather than
+keeping archives open: correct first, and not yet measured to need more.
+The Apple apps as they are don't list a comic (they show only books with
+audio or an EPUB), so a server may have comics before they can read them.
 
 **What steps 2 and 3 measured**, on the Mac (a debug build of the app
 under its own identity and folder, WebKit; the screen was locked, so no

@@ -1,4 +1,8 @@
 import fastifyStatic, { type SendOptions } from "@fastify/static";
+import { Readable } from "node:stream";
+import { openComic } from "@ribbon/host-node/comic";
+import { pageType } from "@ribbon/core/comic/pages";
+import { comicPath } from "./comic.ts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -84,8 +88,8 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
   app.get<{ Params: { id: string; "*": string }; Querystring: { ms?: string } }>("/api/books/:id/files/*", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     const file = request.params["*"];
-    // Only the book's own files: its EPUB, the audio its record lists, and the records carried in with it. Nothing else under its folder, and nothing outside it.
-    const known = stored && (file === stored.book.ebook || stored.files.some((f) => f.path === file) || servedRecords(stored).some((kind) => file === `records/${kind}.csv`));
+    // Only the book's own files: its EPUB or its comic, the audio its record lists, and the records carried in with it. Nothing else under its folder, and nothing outside it.
+    const known = stored && (file === stored.book.ebook || file === stored.book.comic || stored.files.some((f) => f.path === file) || servedRecords(stored).some((kind) => file === `records/${kind}.csv`));
     if (!known) return reply.code(404).send({ error: "No such file in this book." });
     // The corrections with the chapter names the server filled in after them, made as they're asked for.
     const corrections = file === "records/corrections.csv" ? await servedCorrections(bookDir(deps.dataDir, request.params.id), stored) : null;
@@ -100,6 +104,32 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
       return reply.header("cache-control", ASK_FIRST).header("x-ribbon-starts-at-ms", String(start.ms)).sendFile(where, fromFrame);
     }
     return reply.header("cache-control", ASK_FIRST).sendFile(where, { cacheControl: false, acceptRanges: true, etag: true, lastModified: true });
+  });
+
+  // One page of a comic, read straight out of its archive (docs/COMICS.md, section 7): for a device that keeps no
+  // copy of the book. Pages count from 1. A book's files never change, so a page is kept for good by whoever has it.
+  app.get<{ Params: { id: string; page: string } }>("/api/books/:id/pages/:page", { onRequest: mustSignIn }, async (request, reply) => {
+    const stored = await storedBook(deps, request.params.id);
+    if (!stored?.book.comic || !stored.pages) return reply.code(404).send({ error: "No such comic on this server." });
+    const page = stored.pages[Number(request.params.page) - 1];
+    if (!/^\d+$/.test(request.params.page) || !page) return reply.code(404).send({ error: `This comic has ${stored.pages.length} pages, counted from 1.` });
+    const comic = await openComic(comicPath(bookDir(deps.dataDir, request.params.id)));
+    const size = comic.entries.find((e) => e.name === page.name)?.size;
+    reply.header("cache-control", FOREVER).type(pageType(page.name));
+    if (size !== undefined) reply.header("content-length", size);
+    // Sent as it is read, a chunk at a time; the archive is let go when the last has gone, or the device has.
+    const pages = comic.source(page.name);
+    return reply.send(
+      Readable.from(
+        (async function* () {
+          try {
+            yield* pages;
+          } finally {
+            await comic.close();
+          }
+        })(),
+      ),
+    );
   });
 
   // Records come as the CSV a device keeps them in.

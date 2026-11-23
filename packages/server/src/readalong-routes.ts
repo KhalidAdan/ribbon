@@ -14,6 +14,7 @@ import { highlightOf, placeAfter, trimRange } from "@ribbon/core/reading/highlig
 import { nthSentence, sentenceAt, sentenceReadAt, sentencesIn, sentencesRange } from "@ribbon/core/reading/readalong";
 import { indexBooks, searchBooks } from "@ribbon/core/search";
 import { localIdOf } from "@ribbon/core/server-books";
+import { pageAt, pageLocator, pageProgress } from "@ribbon/core/comic/session";
 import type { Bookmark, Highlight } from "@ribbon/core/types";
 import { signedIn, type Auth } from "./auth.ts";
 import type { Events } from "./events.ts";
@@ -123,6 +124,14 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
   /** Time spent with books, listening and reading, from a person's log: what the Stats and the goal count. */
   const spentBy = (personId: string) => parseLog(deps.places.export(personId)).records.filter((r): r is SessionRecord | ReadingRecord => r.k === "session" || r.k === "reading");
 
+  /** A comic and its pages' names in order, or null when the book isn't one. */
+  const comicOf = async (id: string): Promise<{ listed: ListedBook; pages: string[] } | null> => {
+    const listed = deps.books.get(id);
+    if (!listed?.comic) return null;
+    const stored = await storedBook(deps, id);
+    return stored?.pages ? { listed, pages: stored.pages.map((p) => p.name) } : null;
+  };
+
   /** The book and its read-along, or the answer that says why there's none. */
   const readAlongOf = async (id: string, reply: FastifyReply): Promise<{ listed: ListedBook; stored: StoredBook; made: MadeReadAlong } | null> => {
     const listed = deps.books.get(id);
@@ -192,6 +201,13 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
   app.get<{ Params: { id: string } }>("/api/books/:id/place", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
+    // A comic's place is a page, counted from 1 (docs/POSITION-FORMAT.md, section 3.8).
+    const comic = await comicOf(request.params.id);
+    if (comic) {
+      reply.header("cache-control", "no-store");
+      const read = mergeTextPlaces(parseLog(deps.places.export(me.id)).records).get(localIdOf(comic.listed));
+      return { place: read ? { page: pageAt(comic.pages, read.loc) + 1, pages: comic.pages.length, from: "reading", at: read.t } : null };
+    }
     const book = await readAlongOf(request.params.id, reply);
     if (!book) return reply;
     reply.header("cache-control", "no-store");
@@ -211,11 +227,19 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     return { place };
   });
 
-  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; ms?: unknown; sentence?: unknown; why?: unknown } }>("/api/books/:id/place", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { device?: DeviceBody; ms?: unknown; sentence?: unknown; page?: unknown; why?: unknown } }>("/api/books/:id/place", async (request, reply) => {
     const me = await signedIn(deps.auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
-    const { device, ms, sentence, why } = request.body ?? {};
+    const { device, ms, sentence, page, why } = request.body ?? {};
     const who = deviceOf(device);
+    if (who && page !== undefined && WHYS.includes(why as Why)) {
+      const comic = await comicOf(request.params.id);
+      if (!comic) return reply.code(400).send({ error: "Only a comic's place is a page." });
+      if (!Number.isInteger(page) || (page as number) < 1 || (page as number) > comic.pages.length) return reply.code(400).send({ error: `Send the page, counted from 1; this comic has ${comic.pages.length}.` });
+      // A page as the desktop's comic reader writes one: under the claim of the edition that is read.
+      const added = writeAs(reply, me.id, who, textClaimsFor(localIdOf(comic.listed), []), { k: "pos", why, loc: pageLocator(comic.pages, (page as number) - 1) });
+      return added === null ? reply : { added };
+    }
     if (who && sentence !== undefined && WHYS.includes(why as Why)) {
       if (!Number.isInteger(sentence) || (sentence as number) < 0) return reply.code(400).send({ error: "Send the sentence, counted across the read-along." });
       const book = await readAlongOf(request.params.id, reply);
@@ -426,6 +450,15 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
     }
     // As the desktop keeps a stretch of reading: long enough, and only where sessions are kept.
     if (keep === false || ended - began < SESSION_MIN_MS) return { added: 0 };
+    // Time with a comic, between two of its pages, counted from 1.
+    const comic = await comicOf(request.params.id);
+    if (comic) {
+      const through = (n: number) => (n >= 1 && n <= comic.pages.length ? Math.round(pageProgress(n - 1, comic.pages.length) * 10_000) / 10_000 : null);
+      const [fromAt, toAt] = [through(from as number), through(to as number)];
+      if (fromAt === null || toAt === null) return reply.code(400).send({ error: `Those pages aren't in this comic: it has ${comic.pages.length}, counted from 1.` });
+      const added = writeAs(reply, me.id, who, textClaimsFor(localIdOf(comic.listed), []), { k: "reading", start: nowIso(began), end: nowIso(ended), read_ms: ended - began, from: fromAt, to: toAt });
+      return added === null ? reply : { added };
+    }
     const book = await readAlongOf(request.params.id, reply);
     if (!book) return reply;
     const { text } = book.made;

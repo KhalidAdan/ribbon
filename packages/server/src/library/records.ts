@@ -51,7 +51,7 @@ export interface FoundRecords {
 export function librariesOf(root: string, book: ScannedBook): FoundRecords[] {
   const bytes = book.files.length > 0 ? book.files.reduce((s, f) => s + f.sizeBytes, 0) : book.book.sizeBytes;
   const full = path.join(root, ...book.book.path.split("/"));
-  const isFile = book.book.path === book.book.ebook || (book.files.length === 1 && book.files[0]!.path === book.book.path);
+  const isFile = book.book.path === book.book.ebook || book.book.path === book.book.comic || (book.files.length === 1 && book.files[0]!.path === book.book.path);
   const libraries: FoundRecords[] = [];
   let dir = isFile ? path.dirname(full) : full;
   const top = path.resolve(root, ...Array<string>(ABOVE).fill(".."));

@@ -18,7 +18,14 @@ export function openDatabase(dataDir: string): DatabaseSync {
   db.exec(SCHEMA);
   letBooksIntoManySeries(db);
   countWordsToo(db);
+  comicsToo(db);
   return db;
+}
+
+/** A database from before comics gets the columns that say a book is one, and how many pages it has: no book in it is a comic. */
+function comicsToo(db: DatabaseSync): void {
+  const columns = db.prepare("SELECT name FROM pragma_table_info('book')").all();
+  if (!columns.some((c) => c.name === "has_comic")) db.exec("ALTER TABLE book ADD COLUMN has_comic INTEGER NOT NULL DEFAULT 0; ALTER TABLE book ADD COLUMN pages INTEGER");
 }
 
 /**

@@ -14,6 +14,8 @@ import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { endOf, readsOf } from "@ribbon/core/stats";
 import type { Host } from "@ribbon/core/host";
 import { nodeHost } from "@ribbon/host-node/node";
+import { makeComic } from "@ribbon/host-node/make-comic";
+import { serverIdOf } from "../../desktop/src/app/server/shelf.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
 import { epub, importAs, makeLibraries, mp3, serverWithAdmin } from "./fixture.ts";
@@ -108,6 +110,42 @@ describe("the desktop on a server", () => {
     expect(await new LibraryService(nodeHost(), root(app)).readLoudness(here.book.id)).not.toBeNull();
     expect(app.getState().error).toBeNull();
   }, 30_000);
+
+  it("downloads a server's comic before it opens, keeps its page on the server, and opens there on another desktop", async () => {
+    await makeComic(path.join(shelf, "Made Up Saga 001 (2018).cbz"), { pages: 9, unpadded: true });
+    await stocked();
+    const { app } = await aDesktop();
+    const listed = book(app, "Made Up Saga #1");
+    // On the server still: a comic, with its pages, to download.
+    expect(listed.remote).toBeTruthy();
+    expect(listed.book).toMatchObject({ pages: 9, fileCount: 0, series: "Made Up Saga", seriesIndex: 1 });
+    expect(listed.book.comic).toBeTruthy();
+
+    // Opened as any book is from the shelf: it comes down, then opens to read.
+    await app.playBook(listed);
+    const here = book(app, "Made Up Saga #1");
+    expect(here.remote).toBeUndefined();
+    expect(here.book.id).toBe(listed.book.id);
+    expect(readFileSync(path.join(root(app), ...here.book.comic!.split("/")))).toEqual(readFileSync(path.join(shelf, "Made Up Saga 001 (2018).cbz")));
+    expect(app.getState().comic).toMatchObject({ status: "ready", bookId: here.book.id, page: 0 });
+    expect(app.getState().error).toBeNull();
+
+    app.turnComic(5, "seek");
+    await app.closeComic();
+
+    // The page reached the server, under the id every device gives the book.
+    const progress = () => asked<{ books: Record<string, { fraction: number }> }>("/api/progress").then((p) => p.books[serverIdOf(here)!]?.fraction ?? 0);
+    await soon(progress).toBeCloseTo(5 / 8, 3);
+
+    // Another desktop: nothing of its own kept, it opens at the page the server has.
+    const { app: other } = await aDesktop();
+    await soon(() => other.getState().books.some((b) => b.book.title === "Made Up Saga #1")).toBe(true);
+    await other.openComic(book(other, "Made Up Saga #1").book.id);
+    expect(other.getState().comic).toMatchObject({ status: "ready", page: 5 });
+    await other.closeComic();
+    other.destroy();
+    app.destroy();
+  }, 60_000);
 
   it("takes a download off this device, and the book and your bookmark stay", async () => {
     await stocked();

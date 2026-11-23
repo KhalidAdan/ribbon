@@ -13,6 +13,7 @@ import { FolderPlaces } from "./folder-places.ts";
 import { analyzeStored } from "./prepare.ts";
 import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
+import { COMIC_FILE, comicPath, listPages, pageToFile } from "./comic.ts";
 import { neverWrites } from "./never-writes.ts";
 
 export type { ImportProgress };
@@ -80,10 +81,11 @@ export async function importFolder(ctx: ImportContext, folder: string, report: (
 async function importBook(ctx: ImportContext, host: Host, root: string, scanned: ScannedBook): Promise<{ added: boolean; id: string; ebook?: boolean }> {
   const abs = (rel: string) => path.join(root, ...rel.split("/"));
   const claims = claimsOf(scanned.book);
+  // What is read and never heard is known by its one file: an EPUB alone, or a comic.
   const fingerprint =
     scanned.files.length > 0
       ? await audioFingerprint(scanned.files.map((f) => ({ absPath: abs(f.path), sizeBytes: f.sizeBytes })))
-      : await fileFingerprint(abs(scanned.book.ebook!));
+      : await fileFingerprint(abs((scanned.book.comic ?? scanned.book.ebook)!));
   const existing = ctx.index.find(fingerprint, claims);
   if (existing) {
     await fillRecords(ctx, root, scanned, existing);
@@ -92,7 +94,10 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
 
   // Checked before anything is copied: a book that won't fit is left out, said why, and the import goes on to smaller ones.
   // Measured where the book goes, the books folder, not the data folder above it: they can be different disks.
-  const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0);
+  const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0) + (scanned.book.comic ? scanned.book.sizeBytes : 0);
+  // A comic's pages, listed before anything is copied: a file that isn't a comic is left out, and says why.
+  const pages = scanned.book.comic ? await listPages(abs(scanned.book.comic)) : undefined;
+  if (pages && pages.length === 0) throw new Error("it has no pages in it.");
   const books = booksDir(ctx.dataDir);
   await mkdir(books, { recursive: true });
   const free = await (ctx.freeBytes ?? freeBytes)(books);
@@ -115,19 +120,26 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     }
     const ebookBytes = book.book.ebook ? (await stat(abs(book.book.ebook))).size : undefined;
     if (book.book.ebook) await copyIn(abs(book.book.ebook), path.join(building, "book.epub"), ebookBytes);
+    if (book.book.comic) await copyIn(abs(book.book.comic), comicPath(building), book.book.sizeBytes);
 
-    // The cover: a picture beside the book (or one Ribbon pulled out on a computer), else the one inside the first audio file that has one.
-    const picture = book.book.cover ? abs(book.book.cover) : undefined;
+    // The cover: a picture beside the book (or one Ribbon pulled out on a computer), else the one inside the first audio file
+    // that has one. A comic's is its first page, written out of the copy for ffmpeg to read and removed after.
+    const firstPage = pages?.[0] ? path.join(building, `first-page${path.extname(pages[0].name) || ".jpg"}`) : undefined;
+    if (firstPage) await pageToFile(comicPath(building), pages![0]!.name, firstPage);
+    const picture = firstPage ?? (book.book.cover ? abs(book.book.cover) : undefined);
     const withPicture = book.files.find((f) => f.hasCover);
     const cover = await makeCovers(ctx.host, { ...(picture ? { image: picture } : {}), ...(withPicture ? { audio: abs(withPicture.path) } : {}) }, path.join(building, "covers"));
 
+    if (firstPage) await rm(firstPage, { force: true });
+
     const stored: StoredBook = {
-      book: { ...book.book, id, path: "", cover: cover ? `covers/${cover.hash}` : "", ...(book.book.ebook ? { ebook: "book.epub" } : {}) },
+      book: { ...book.book, id, path: "", cover: cover ? `covers/${cover.hash}` : "", ...(book.book.ebook ? { ebook: "book.epub" } : {}), ...(pages ? { comic: COMIC_FILE, pages: pages.length } : {}) },
       files,
       chapters: book.chapters,
       parts: book.parts,
       cover,
       ...(ebookBytes !== undefined ? { ebookBytes } : {}),
+      ...(pages ? { pages } : {}),
     };
     // What Ribbon already worked out about the book comes in with it, so no device works it out again.
     const found = await findRecords(root, scanned);
