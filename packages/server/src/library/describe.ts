@@ -189,7 +189,8 @@ export async function booksToDescribe(dataDir: string, index: BookIndex): Promis
   const out: string[] = [];
   for (const b of index.list()) {
     const stored = await readStored(dataDir, b.id);
-    if (!stored || stored.book.description?.trim() || stored.described?.asked === askedBy(stored.book)) continue;
+    // Audible's catalog is of audiobooks: a comic isn't asked about.
+    if (!stored || stored.book.comic || stored.book.description?.trim() || stored.described?.asked === askedBy(stored.book)) continue;
     if (stored.book.ebook && stored.filled?.from !== (await hydrateStamp(bookDir(dataDir, b.id), stored))) continue;
     out.push(b.id);
   }

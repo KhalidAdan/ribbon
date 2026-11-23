@@ -3260,6 +3260,12 @@ export class AppController {
     if (!book?.book.comic || !o) return;
     // Only the comic asked for last opens.
     const asked = this.comicOpening.ask();
+    // A server's comic is downloaded before it opens, as any of its books is.
+    if (book.remote) {
+      const here = await this.downloadToOpen(book);
+      if (here && asked.current()) await this.openComic(here.book.id);
+      return;
+    }
     if (this.state.reading) await this.closeReading();
     if (this.state.comic) await this.closeComic();
     if (!asked.current()) return;

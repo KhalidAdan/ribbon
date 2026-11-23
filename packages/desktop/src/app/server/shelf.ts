@@ -212,7 +212,9 @@ export class ServerShelf {
     const serverId = book.remote?.serverId;
     if (!serverId || !this.host.serverDownload) throw new Error("This device can't keep a server's books.");
     const detail = await this.client.book(serverId);
-    const total = detail.files.reduce((s, f) => s + f.sizeBytes, 0) + (detail.ebookBytes ?? 0);
+    // A comic is its one file, whose size is the book's.
+    const comicBytes = detail.book.comic ? (detail.book.sizeBytes ?? book.book.sizeBytes) : 0;
+    const total = detail.files.reduce((s, f) => s + f.sizeBytes, 0) + (detail.ebookBytes ?? 0) + comicBytes;
     const free = (await this.host.freeSpace?.(this.root)) ?? Number.POSITIVE_INFINITY;
     if (free < total + SPACE_MARGIN_BYTES) throw new NotEnoughSpace(total + SPACE_MARGIN_BYTES, free);
 
@@ -226,6 +228,9 @@ export class ServerShelf {
     }
     if (detail.book.ebook && detail.ebookBytes !== undefined) {
       await this.host.serverDownload(this.client.fileUrl(serverId, detail.book.ebook), this.client.token, this.host.join(folder, "book.epub"), detail.ebookBytes, (done) => onProgress(before + done, total));
+    }
+    if (detail.book.comic) {
+      await this.host.serverDownload(this.client.fileUrl(serverId, detail.book.comic), this.client.token, this.host.join(folder, "book.cbz"), comicBytes, (done) => onProgress(before + done, total));
     }
     await this.host.writeFile(this.host.join(folder, "metadata.opf"), new TextEncoder().encode(opfFor(filedDetails(detail))));
     if (detail.cover) await this.host.writeFile(this.host.join(folder, "cover.jpg"), await this.client.cover(detail.cover.hash, 800));

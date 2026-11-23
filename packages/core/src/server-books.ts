@@ -25,6 +25,10 @@ export interface ServerBook {
   /** How many words its EPUB has, counted by the server from its text; null until it's read, and for a book with no EPUB. A server from before 0.32 doesn't send it. */
   words?: number | null;
   cover: { hash: string; aspect: number; colour: string } | null;
+  /** A comic (docs/COMICS.md): its `sizeBytes` is its CBZ's. A server from before comics doesn't send it. */
+  comic?: boolean;
+  /** A comic's pages; null for any other book. */
+  pages?: number | null;
   addedAt: string;
   /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */
   edited?: SharedEdits;
@@ -47,7 +51,7 @@ export interface FoundSentence {
 
 /** A book in full, as the server sends it for a download (packages/server/src/library/books.ts, `StoredBook`). */
 export interface ServerBookDetail {
-  book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string };
+  book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string; comic?: string; sizeBytes?: number };
   files: { path: string; sizeBytes: number }[];
   cover: { hash: string; aspect: number; colour: string } | null;
   ebookBytes?: number;
@@ -153,7 +157,9 @@ export function serverCoverPath(hash: string): string {
  * to read only is named by its EPUB, `<serverId>/book.epub`, and that
  * file's bytes (scan.ts, `buildReaderOnly`).
  */
-export function localIdOf(b: Pick<ServerBook, "id" | "audio" | "sizeBytes" | "ebookBytes">): string {
+export function localIdOf(b: Pick<ServerBook, "id" | "audio" | "sizeBytes" | "ebookBytes" | "comic">): string {
+  // A comic, like an EPUB alone, is one file in its folder on a device, and its id there is that file's.
+  if (b.comic) return bookId(`${b.id}/book.cbz`, b.sizeBytes);
   return b.audio ? bookId(b.id, b.sizeBytes) : bookId(`${b.id}/book.epub`, b.ebookBytes ?? 0);
 }
 
@@ -172,6 +178,7 @@ export function remoteBook(b: ServerBook): ScannedBook {
       year: null,
       cover: b.cover ? serverCoverPath(b.cover.hash) : "",
       ...(b.ebook ? { ebook: `${b.id}/book.epub` } : {}),
+      ...(b.comic ? { comic: `${b.id}/book.cbz`, ...(typeof b.pages === "number" ? { pages: b.pages } : {}) } : {}),
       durationMs: b.durationMs,
       sizeBytes: b.sizeBytes,
       fileCount: b.audio ? 1 : 0,
