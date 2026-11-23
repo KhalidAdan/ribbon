@@ -3,6 +3,11 @@ import { closeReader, reading, silence } from "../app";
 
 const BAR = "[role=group][aria-label=Listening]";
 
+/** How long after the narration starts flowing the river comes in: `RIVER_AFTER_MS` in src/reader/river.ts. */
+const RIVER_AFTER_MS = 5_000;
+/** How late the river may be, on a machine six times slower, before the check says it never came. */
+const RIVER_LATE_BY_MS = 10_000;
+
 /**
  * Read-along on a book opened afresh: the narrator's sentence is marked and
  * the mark moves on, the page turns with the narrator, the bar counts down,
@@ -79,8 +84,15 @@ export const readAlongCheck: Check = {
     const back = await look();
     t.expect(back.following && !!back.mark, "Go to the narrator brings following and the mark back", back.buttons);
     t.expect(!back.river, "the river waits a few seconds again before it comes back");
-    await page.waitForTimeout(5000);
-    t.expect((await look()).river, "and then comes back");
+    // The river's own timer is as long as any fixed wait here would be, and on a slow machine it fires late:
+    // look until it's there, and give up well after it should have been (#242).
+    const giveUp = Date.now() + RIVER_AFTER_MS + RIVER_LATE_BY_MS;
+    let river = false;
+    while (!river && Date.now() < giveUp) {
+      await page.waitForTimeout(250);
+      river = (await look()).river;
+    }
+    t.expect(river, "and then comes back");
     await page.evaluate(() => window.__ribbon.pause());
     await page.waitForTimeout(200);
     t.expect(!(await look()).river, "pausing brings every word back");

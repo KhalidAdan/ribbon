@@ -20,6 +20,7 @@ const sharingTheFixtures = fs
 export default defineConfig({
   test: {
     globalSetup: ["test/setup/fixtures.ts"],
+    setupFiles: ["test/setup/quiet-after.ts"],
     testTimeout: 30_000,
     hookTimeout: 120_000,
     projects: [
