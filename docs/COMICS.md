@@ -1,9 +1,10 @@
 # Comics in Ribbon
 
-**The plan for comics, agreed on 2026-11-23 and not yet built.** A third
-kind of book, the comic, and what it takes on the desktop, the server and
-the Apple apps. Section 10 lists what was decided; the changes to the north
-star are in section 9 and made in [NORTHSTAR.md](NORTHSTAR.md).
+**The plan for comics, agreed on 2026-11-23.** A third kind of book, the
+comic, and what it takes on the desktop, the server and the Apple apps.
+Section 10 lists what was decided; the changes to the north star are in
+section 9 and made in [NORTHSTAR.md](NORTHSTAR.md). Section 11 says what
+is built so far.
 
 ## 1. Why
 
@@ -167,23 +168,28 @@ A comic's place is a `pos` record without `ms`, as a text's is
 
 ```json
 {"v":1,"k":"pos","dev":"urn:uuid:5f0c…","seq":1795000000000,"t":"2026-12-01T20:15:00.000Z",
- "book":{"ids":["urn:ribbon:3b1f09aa"]},
+ "book":{"ids":["urn:ribbon:3b1f09aa-text"]},
  "why":"close",
  "loc":{"href":"Saga 001/page-014.jpg","type":"image/jpeg",
-        "locations":{"position":14,"totalProgression":0.58}}}
+        "locations":{"position":14,"totalProgression":0.5652}}}
 ```
 
 - `href` is the page's entry in the archive, by name, so the place
   survives a reader that orders pages differently.
 - `position` is the page, counted from 1, which is what Readium's
   `position` already means.
+- `totalProgression` is 0 on the first page and 1 on the last, so a comic
+  is finished on its last page.
 - A spread's place is its first page.
+- The claim is the one a text's place has, `-text`: the edition that is
+  read rather than heard. A comic has no other, and every reader of the
+  log that merges text places merges these with no change.
 
-This is an addition to the format (a short section 3.8, "Places in a book
-of pages"), not a change: a reader that doesn't know comics skips nothing
-it understood before. Time spent is a `reading` record under the comic's
-claims, thirty seconds or more, as the EPUB reader keeps one. Bookmarks are
-a page with a note, the same `mark` with the same locator.
+This is an addition to the format (POSITION-FORMAT.md, section 3.8,
+version 1.4), not a change: a reader that doesn't know comics skips nothing
+it understood before. Time spent is a `reading` record under the same
+claim, thirty seconds or more, as the EPUB reader keeps one. Bookmarks, a
+page with a note, are not built yet.
 
 ## 7. The server and the thin apps
 
@@ -310,6 +316,7 @@ of anyone's comic goes into the repository.
 | A page from the server to the iPad's screen | Step 5 |
 | A spread from the server to the TV's screen | Step 6 |
 
-To check before step 2: Panels uses `@culvert/zip` 0.1.1 with
-`@culvert/stream` 0.1.1, and Ribbon is on `@culvert/stream` 0.2.0. Whether
-the two go together is the owner's to say; they are his packages.
+Culvert: Ribbon reads archives on Node with `@culvert/zip` 0.2.0, which is
+made for the `@culvert/stream` 0.2.0 it was already on. Tried before step
+2 on three made-up CBZs, stored and deflated: every page came out byte for
+byte.
