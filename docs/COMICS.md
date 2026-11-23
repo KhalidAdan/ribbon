@@ -281,8 +281,8 @@ One pull request per step, each usable on its own, each with its numbers.
 
 | Step | What it is | Checked by |
 | --- | --- | --- |
-| 1 | This plan, the north star, and section 3.8 of the position format | Read by the owner |
-| 2 | Core: the `.cbz` kind in the scan, page order, spreads, ComicInfo, the archive limits, the place. Comics on the desktop's shelf, with covers | Unit tests; fixture comics; the scan's speed over a share before and after |
+| 1 | This plan and the north star | Read by the owner |
+| 2 | Core: the `.cbz` kind in the scan, page order, spreads, ComicInfo, the archive limits, the place (with section 3.8 of the position format). Comics on the desktop's shelf, with covers | Unit tests; fixture comics; the scan's speed over a share before and after |
 | 3 | The desktop's comic reader, from folders: the page address, the window, the place, time spent | The end-to-end checks and the speed report at 1x and 6x |
 | 4 | The server: copy in, prepare, the page requests; the desktop reading a server's comic | Server tests; the desktop against a real server |
 | 5 | The iPad and the iPhone | The Apple tests and screens; the TV compared pixel for pixel, unchanged |
