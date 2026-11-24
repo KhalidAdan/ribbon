@@ -1,6 +1,9 @@
 /// <reference path="./pdf-worker.d.ts" />
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// pdf.js's build for web views that aren't this month's: its usual one is written with parts of
+// the language (Map's getOrInsertComputed) that WebView2 on a Windows not just updated, and an
+// iPhone a few years old, don't have, and there it opens nothing.
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
+import workerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
 import type { PixelSize } from "@ribbon/core/comic/size";
 
 /**

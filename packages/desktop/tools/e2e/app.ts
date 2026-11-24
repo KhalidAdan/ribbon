@@ -49,6 +49,8 @@ export interface Ribbon {
   comicId: string | null;
   /** The checks' PDF (`CHECKS_PDF`), once its pages are counted, or null. */
   pdfId: string | null;
+  /** The warnings and errors the page has written to its console since the checks reached it. */
+  said: string[];
   /** Run the CPU this many times slower (1: as it is), as a slow laptop or a phone would. */
   slow(rate: number): Promise<void>;
   close(): Promise<void>;
@@ -93,6 +95,14 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
   const browser = await connect(o.port);
   const page = await firstPage(browser);
   const cdp = await page.context().newCDPSession(page);
+  const said: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "warning" || m.type() === "error") said.push(m.text().slice(0, 400));
+  });
+  page.on("response", (answer) => {
+    if (answer.status() >= 400) said.push(`${answer.status()} for ${answer.url().slice(0, 300)}`);
+  });
+  page.on("pageerror", (e) => said.push(String(e).slice(0, 400)));
   // tsx (esbuild, keeping names) wraps named functions in a __name() helper that only exists in Node; the
   // functions this suite sends into the page carry it along, so the page gets a stand-in, now and after any
   // reload. Sent as a string, which esbuild leaves alone.
@@ -127,6 +137,7 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
     bookId,
     comicId,
     pdfId,
+    said,
     slow: async (rate) => void (await cdp.send("Emulation.setCPUThrottlingRate", { rate })),
     close: async () => {
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }).catch(() => undefined);
