@@ -43,7 +43,10 @@ export function withPdfs(host: Host, urlOf: (absPath: string) => string): Host {
     async pdfCover(path, target, width) {
       try {
         const { webPdfCover } = await pdf();
-        await host.writeFile(target, await webPdfCover(urlOf(path), (await host.stat(path)).sizeBytes, width));
+        const cover = await webPdfCover(urlOf(path), (await host.stat(path)).sizeBytes, width);
+        // The covers' folder may not be there yet: this may be the library's first cover.
+        await host.mkdir(target.replace(/[\\/][^\\/]*$/, ""));
+        await host.writeFile(target, cover);
         return true;
       } catch {
         return false;
