@@ -168,7 +168,24 @@ export const comicCheck: Check = {
         }
         return out.join("; ");
       }, CHECKS_PDF.title);
-      t.expect(false, "the library has the checks' PDF, its pages counted", `${why}; the page said: ${r.said.slice(-6).join(" | ") || "nothing"}`);
+      // Its file, fetched as pdf.js fetches it: the address is in what the app said.
+      const address = r.said.map((line) => line.match(/https?:\/\/asset\.localhost\/\S+|asset:\/\/\S+/)?.[0]).find(Boolean);
+      const fetched = address
+        ? await page.evaluate(async (url) => {
+            const lines: string[] = [];
+            for (const range of ["bytes=0-99", "bytes=0-12480", ""]) {
+              try {
+                const answer = await fetch(url, range ? { headers: { range } } : {});
+                const bytes = new Uint8Array(await answer.arrayBuffer());
+                lines.push(`${range || "whole"}: ${answer.status}, ${bytes.length} bytes, starts "${String.fromCharCode(...bytes.subarray(0, 8))}", ${answer.headers.get("content-range") ?? "no content-range"}`);
+              } catch (e) {
+                lines.push(`${range || "whole"}: threw ${String(e)}`);
+              }
+            }
+            return lines.join("; ");
+          }, address)
+        : "no address was said";
+      t.expect(false, "the library has the checks' PDF, its pages counted", `${why}; fetched: ${fetched}; the page said: ${r.said.slice(-6).join(" | ") || "nothing"}`);
       return;
     }
     const pdf = await page.evaluate(async (id) => {

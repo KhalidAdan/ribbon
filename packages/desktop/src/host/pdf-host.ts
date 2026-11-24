@@ -27,7 +27,7 @@ async function pagesOf(url: string, length: number): Promise<number | null> {
     } catch (e) {
       const reached = !(e instanceof NotReached) && !(e instanceof TypeError);
       // Said once, with the reason: a PDF that shows no pages is otherwise a mystery.
-      if (reached || tries >= 40) log.warn("a PDF's pages could not be counted:", url, e);
+      if (reached || tries >= 40) log.warn("a PDF's pages could not be counted:", url, e instanceof Error ? e : `${(e as { name?: string })?.name ?? "error"}: ${(e as { message?: string })?.message ?? String(e)}`);
       if (reached) return 0;
       if (tries >= 40) return null;
       await new Promise((r) => setTimeout(r, 500));

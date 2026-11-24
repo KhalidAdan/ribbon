@@ -99,6 +99,9 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
   page.on("console", (m) => {
     if (m.type() === "warning" || m.type() === "error") said.push(m.text().slice(0, 400));
   });
+  page.on("response", (answer) => {
+    if (answer.status() >= 400) said.push(`${answer.status()} for ${answer.url().slice(0, 300)}`);
+  });
   page.on("pageerror", (e) => said.push(String(e).slice(0, 400)));
   // tsx (esbuild, keeping names) wraps named functions in a __name() helper that only exists in Node; the
   // functions this suite sends into the page carry it along, so the page gets a stand-in, now and after any
