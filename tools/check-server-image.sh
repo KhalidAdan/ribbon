@@ -101,4 +101,9 @@ echo "It lists the book."
 docker exec "$name" sh -c 'test -x "$RIBBON_EBOOK_TOOL" && test -x "$RIBBON_FRAMES_TOOL"' || failed "its Rust tools are missing"
 echo "Its Rust tools are there."
 
+# What draws a PDF's pages for the devices that are sent them (packages/host-node/src/pdf.ts):
+# pdf.js brings it as an optional package, with a binary for each system.
+docker exec "$name" node -e 'require("@napi-rs/canvas").createCanvas(8, 8).getContext("2d").fillRect(0, 0, 8, 8)' || failed "it cannot draw a PDF's pages"
+echo "It can draw a PDF's pages."
+
 echo "The server's image works."
