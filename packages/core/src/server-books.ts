@@ -27,6 +27,8 @@ export interface ServerBook {
   cover: { hash: string; aspect: number; colour: string } | null;
   /** A comic (docs/COMICS.md): its `sizeBytes` is its CBZ's. A server from before comics doesn't send it. */
   comic?: boolean;
+  /** Its pages are a PDF's: the file a device keeps is `book.pdf`. A server from before PDFs doesn't send it. */
+  pdf?: boolean;
   /** A comic's pages; null for any other book. */
   pages?: number | null;
   addedAt: string;
@@ -149,6 +151,11 @@ export function serverCoverPath(hash: string): string {
   return `.ribbon/server-covers/${hash}-${SHELF_COVER_WIDTH}.jpg`;
 }
 
+/** The file a server's book of pages is kept as, there and on a device: a comic's archive, or a PDF. */
+export function pagesFileOf(b: Pick<ServerBook, "pdf">): "book.cbz" | "book.pdf" {
+  return b.pdf ? "book.pdf" : "book.cbz";
+}
+
 /**
  * The id a server's book has on this device. A downloaded book lives in a
  * folder named by its server id, so the scanner gives it
@@ -157,9 +164,9 @@ export function serverCoverPath(hash: string): string {
  * to read only is named by its EPUB, `<serverId>/book.epub`, and that
  * file's bytes (scan.ts, `buildReaderOnly`).
  */
-export function localIdOf(b: Pick<ServerBook, "id" | "audio" | "sizeBytes" | "ebookBytes" | "comic">): string {
-  // A comic, like an EPUB alone, is one file in its folder on a device, and its id there is that file's.
-  if (b.comic) return bookId(`${b.id}/book.cbz`, b.sizeBytes);
+export function localIdOf(b: Pick<ServerBook, "id" | "audio" | "sizeBytes" | "ebookBytes" | "comic" | "pdf">): string {
+  // A comic or a PDF, like an EPUB alone, is one file in its folder on a device, and its id there is that file's.
+  if (b.comic) return bookId(`${b.id}/${pagesFileOf(b)}`, b.sizeBytes);
   return b.audio ? bookId(b.id, b.sizeBytes) : bookId(`${b.id}/book.epub`, b.ebookBytes ?? 0);
 }
 
@@ -178,7 +185,7 @@ export function remoteBook(b: ServerBook): ScannedBook {
       year: null,
       cover: b.cover ? serverCoverPath(b.cover.hash) : "",
       ...(b.ebook ? { ebook: `${b.id}/book.epub` } : {}),
-      ...(b.comic ? { comic: `${b.id}/book.cbz`, ...(typeof b.pages === "number" ? { pages: b.pages } : {}) } : {}),
+      ...(b.comic ? { comic: `${b.id}/${pagesFileOf(b)}`, ...(typeof b.pages === "number" ? { pages: b.pages } : {}) } : {}),
       durationMs: b.durationMs,
       sizeBytes: b.sizeBytes,
       fileCount: b.audio ? 1 : 0,

@@ -13,7 +13,8 @@ import { FolderPlaces } from "./folder-places.ts";
 import { analyzeStored } from "./prepare.ts";
 import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
-import { COMIC_FILE, comicPath, listPages, pageToFile } from "./comic.ts";
+import { COMIC_FILE, PDF_FILE, comicPath, listPages, listPdfPages, pageToFile, pdfPageToFile } from "./comic.ts";
+import { isPdfFile } from "@ribbon/core/comic/pages";
 import { neverWrites } from "./never-writes.ts";
 
 export type { ImportProgress };
@@ -96,7 +97,9 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
   // Measured where the book goes, the books folder, not the data folder above it: they can be different disks.
   const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0) + (scanned.book.comic ? scanned.book.sizeBytes : 0);
   // A comic's pages, listed before anything is copied: a file that isn't a comic is left out, and says why.
-  const pages = scanned.book.comic ? await listPages(abs(scanned.book.comic)) : undefined;
+  // A PDF is a book of pages too: its pages are counted and measured, and drawn when they are read.
+  const pdf = !!scanned.book.comic && isPdfFile(scanned.book.comic);
+  const pages = scanned.book.comic ? await (pdf ? listPdfPages : listPages)(abs(scanned.book.comic)) : undefined;
   if (pages && pages.length === 0) throw new Error("it has no pages in it.");
   const books = booksDir(ctx.dataDir);
   await mkdir(books, { recursive: true });
@@ -120,12 +123,15 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     }
     const ebookBytes = book.book.ebook ? (await stat(abs(book.book.ebook))).size : undefined;
     if (book.book.ebook) await copyIn(abs(book.book.ebook), path.join(building, "book.epub"), ebookBytes);
-    if (book.book.comic) await copyIn(abs(book.book.comic), comicPath(building), book.book.sizeBytes);
+    const pagesFile = pdf ? PDF_FILE : COMIC_FILE;
+    if (book.book.comic) await copyIn(abs(book.book.comic), path.join(building, pagesFile), book.book.sizeBytes);
 
     // The cover: a picture beside the book (or one Ribbon pulled out on a computer), else the one inside the first audio file
     // that has one. A comic's is its first page, written out of the copy for ffmpeg to read and removed after.
-    const firstPage = pages?.[0] ? path.join(building, `first-page${path.extname(pages[0].name) || ".jpg"}`) : undefined;
-    if (firstPage) await pageToFile(comicPath(building), pages![0]!.name, firstPage);
+    const firstPage = pages?.[0] ? path.join(building, `first-page${pdf ? ".jpg" : path.extname(pages[0].name) || ".jpg"}`) : undefined;
+    // A PDF's first page is drawn; where the server has nothing to draw with, it has no cover, and is added all the same.
+    if (firstPage && pdf) await pdfPageToFile(path.join(building, PDF_FILE), 0, 800, firstPage).catch(() => undefined);
+    else if (firstPage) await pageToFile(comicPath(building), pages![0]!.name, firstPage);
     const picture = firstPage ?? (book.book.cover ? abs(book.book.cover) : undefined);
     const withPicture = book.files.find((f) => f.hasCover);
     const cover = await makeCovers(ctx.host, { ...(picture ? { image: picture } : {}), ...(withPicture ? { audio: abs(withPicture.path) } : {}) }, path.join(building, "covers"));
@@ -133,7 +139,7 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     if (firstPage) await rm(firstPage, { force: true });
 
     const stored: StoredBook = {
-      book: { ...book.book, id, path: "", cover: cover ? `covers/${cover.hash}` : "", ...(book.book.ebook ? { ebook: "book.epub" } : {}), ...(pages ? { comic: COMIC_FILE, pages: pages.length } : {}) },
+      book: { ...book.book, id, path: "", cover: cover ? `covers/${cover.hash}` : "", ...(book.book.ebook ? { ebook: "book.epub" } : {}), ...(pages ? { comic: pagesFile, pages: pages.length } : {}) },
       files,
       chapters: book.chapters,
       parts: book.parts,

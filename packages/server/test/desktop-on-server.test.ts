@@ -14,7 +14,7 @@ import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { endOf, readsOf } from "@ribbon/core/stats";
 import type { Host } from "@ribbon/core/host";
 import { nodeHost } from "@ribbon/host-node/node";
-import { makeComic } from "@ribbon/host-node/make-comic";
+import { makeComic, makePdf } from "@ribbon/host-node/make-comic";
 import { serverIdOf } from "../../desktop/src/app/server/shelf.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
@@ -110,6 +110,32 @@ describe("the desktop on a server", () => {
     expect(await new LibraryService(nodeHost(), root(app)).readLoudness(here.book.id)).not.toBeNull();
     expect(app.getState().error).toBeNull();
   }, 30_000);
+
+  it("downloads a server's PDF before it opens, under its own name, and keeps its page on the server", async () => {
+    await makePdf(path.join(shelf, "Old Tales", "Old Tales 014 (1954).pdf"), { pages: 9 });
+    await stocked();
+    const { app } = await aDesktop();
+    const listed = book(app, "Old Tales #14");
+    expect(listed.remote).toBeTruthy();
+    expect(listed.book).toMatchObject({ pages: 9, fileCount: 0, series: "Old Tales", seriesIndex: 14 });
+
+    await app.playBook(listed);
+    const here = book(app, "Old Tales #14");
+    expect(here.remote).toBeUndefined();
+    expect(here.book.id).toBe(listed.book.id);
+    expect(here.book.comic).toMatch(/\/book\.pdf$/);
+    expect(readFileSync(path.join(root(app), ...here.book.comic!.split("/")))).toEqual(readFileSync(path.join(shelf, "Old Tales", "Old Tales 014 (1954).pdf")));
+    expect(app.getState().comic).toMatchObject({ status: "ready", bookId: here.book.id, page: 0, document: "book.pdf" });
+    expect(app.getState().error).toBeNull();
+
+    app.turnComic(4, "seek");
+    await app.closeComic();
+    const progress = () => asked<{ books: Record<string, { fraction: number }> }>("/api/progress").then((p) => p.books[serverIdOf(here)!]?.fraction ?? 0);
+    await soon(progress).toBeCloseTo(4 / 8, 3);
+    // And a device that keeps no copy is told the same page.
+    expect((await asked<{ place: { page: number } }>(`/api/books/${serverIdOf(here)}/place`)).place.page).toBe(5);
+    app.destroy();
+  }, 60_000);
 
   it("downloads a server's comic before it opens, keeps its page on the server, and opens there on another desktop", async () => {
     await makeComic(path.join(shelf, "Made Up Saga 001 (2018).cbz"), { pages: 9, unpadded: true });

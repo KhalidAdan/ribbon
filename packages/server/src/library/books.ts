@@ -93,10 +93,10 @@ export class BookIndex {
     const b = stored.book;
     this.db
       .prepare(
-        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages, is_pdf)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null);
+      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0);
     for (const claim of claims) this.db.prepare("INSERT OR IGNORE INTO book_claim (claim, book_id) VALUES (?, ?)").run(claim, id);
     // Deleted once and added again: devices keep it now.
     this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
@@ -263,6 +263,7 @@ function filed(row: Record<string, SQLOutputValue>): ListedBook {
     ebookBytes: row.ebook_bytes === null ? null : Number(row.ebook_bytes),
     words: row.words === null || row.words === undefined ? null : Number(row.words),
     comic: row.has_comic === 1,
+    pdf: row.is_pdf === 1,
     pages: row.pages === null || row.pages === undefined ? null : Number(row.pages),
     cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
     addedAt: new Date(Number(row.added_at)).toISOString(),
@@ -291,6 +292,8 @@ export interface ListedBook {
   words: number | null;
   /** A comic (docs/COMICS.md): read and never heard, its size the size of its CBZ. */
   comic: boolean;
+  /** Its pages are a PDF's (docs/COMICS.md, section 12): the file a device keeps is `book.pdf`, and the server draws its pages. */
+  pdf: boolean;
   /** A comic's pages; null for any other book. */
   pages: number | null;
   cover: Cover | null;

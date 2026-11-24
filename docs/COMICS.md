@@ -428,11 +428,21 @@ ever.
 | Where | What draws a page | Why |
 | --- | --- | --- |
 | The desktop | [pdf.js](https://mozilla.github.io/pdf.js/) (Mozilla's, Apache 2.0), in the web view | The same code on Windows and the Mac, and on Android's and iOS's web views after them. It reads the file in ranges, so a 200 MB scan over a share is asked only for the pages being read. It draws a page at the size it is shown, into the pictures the comic reader already keeps and frees itself. |
-| The iPad, the iPhone, the Apple TV | PDFKit, Apple's own | Already on the device, and fast. The app fetches the PDF from the server, in ranges, into the cache the system may clear. |
-| The server | Nothing draws pages | It keeps the file and sends it. Its page count and its cover come from poppler's `pdfinfo` and `pdftoppm`, when they are installed, as ffmpeg is for covers today (proposed); without them a PDF is listed with no cover and no count, and still read. |
+| The server | pdf.js again, on Node | It counts and measures a PDF's pages when the PDF is added, draws its first page for a cover, and draws any page the first time a device asks for it, keeping the picture beside the book (`pages/`), so each is drawn once. It draws on `@napi-rs/canvas`, which pdf.js brings where it can; without it a PDF is still added and still downloaded, with no cover and no pages to send. |
+| The iPad, the iPhone, the Apple TV | Nothing: the server's pictures | They ask for a page as they ask for a comic's, `GET /api/books/:id/pages/:n`, and are sent a JPEG. An app that reads comics reads PDFs with no change. |
 
-So `GET /api/books/:id/pages/:n` stays a comic's (a CBZ's), and a PDF is
-fetched whole or in ranges as `files/book.pdf`.
+This is not what was first written here. The first plan had Apple's
+PDFKit draw pages on the device and the server only keep the file. Drawing
+on the server is the north star's own rule ("what a thin app needs worked
+out is worked out on the server, once"), it needs nothing new in the apps,
+and Android gets it for nothing. What it costs is the server's time the
+first time each page is read, and disk for the pictures: a page is drawn
+at 2400 pixels wide unless a device asks for 1200 (`?width=`).
+
+A device that keeps books (the desktop) downloads the PDF itself,
+`files/book.pdf`, and draws it. The library says which books of pages are
+PDFs (`pdf`), since the file a device keeps, and so its id there, is
+`book.pdf` and not `book.cbz`.
 
 **Its page count and its cover on the desktop.** Not read at the scan: a
 PDF says how many pages it has only to something that parses it. The shelf
@@ -450,8 +460,24 @@ name one (`page=14`), beside `position`.
 | --- | --- | --- |
 | P1 | This section, and the north star | Read by the owner |
 | P2 | The desktop: PDFs on the shelf, read in the comic reader, their place kept | Unit tests over PDFs made by a script; the end-to-end check at 1x and 6x; memory and turn times in a Mac build, as for comics |
-| P3 | The server: the file kept and sent, its count and cover; the desktop reading a server's PDF | Server tests |
-| P4 | The iPad and the iPhone, with PDFKit | The Apple tests; the simulator against a scratch server |
+| P3 | The server: the PDF kept, its pages counted, measured and drawn when asked for; the desktop reading a server's PDF | Server tests, one with a whole desktop |
+| P4 | The iPad and the iPhone: nothing to build, since they are sent pictures | The simulator against a scratch server |
+
+**Built so far:** P2 and P3. Measured in a Mac build, on a PDF made for it
+(sixty 1988 by 3056 JPEG scans, 111 MB) and one of JPEG 2000 pages:
+
+| What | Measured |
+| --- | --- |
+| Opening the PDF, to its pages known | 71 to 87 ms |
+| Its first page drawn | about 360 ms; 1.5 s for a JPEG 2000 page |
+| A turn at reading pace (one every 0.7 s) | 5 ms at the median |
+| Turning as fast as the keys repeat (one every 0.12 s) | 146 ms at the median: each page waits to be drawn |
+| A jump to the last page | 330 ms |
+| The web view's memory: the shelf, then reading, then after 454 turns | 225 MB, 429 MB, 626 MB, level from the hundredth turn |
+
+A PDF is dearer than a comic in memory (pdf.js keeps what it has decoded)
+and slower when pages are flipped past faster than they can be drawn.
+Neither has been worked on yet.
 
 **What is refused still:** PDFs with a password or DRM; forms, links,
 sound and video inside one; and CBR.

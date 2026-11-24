@@ -125,11 +125,12 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
   const spentBy = (personId: string) => parseLog(deps.places.export(personId)).records.filter((r): r is SessionRecord | ReadingRecord => r.k === "session" || r.k === "reading");
 
   /** A comic and its pages' names in order, or null when the book isn't one. */
-  const comicOf = async (id: string): Promise<{ listed: ListedBook; pages: string[] } | null> => {
+  const comicOf = async (id: string): Promise<{ listed: ListedBook; pages: string[]; document?: string } | null> => {
     const listed = deps.books.get(id);
     if (!listed?.comic) return null;
     const stored = await storedBook(deps, id);
-    return stored?.pages ? { listed, pages: stored.pages.map((p) => p.name) } : null;
+    // A PDF's page is named in the one file it is a page of, as a device that keeps the file names it.
+    return stored?.pages ? { listed, pages: stored.pages.map((p) => p.name), ...(listed.pdf ? { document: "book.pdf" } : {}) } : null;
   };
 
   /** The book and its read-along, or the answer that says why there's none. */
@@ -237,7 +238,7 @@ export function readAlongRoutes(app: FastifyInstance, deps: { auth: Auth; books:
       if (!comic) return reply.code(400).send({ error: "Only a comic's place is a page." });
       if (!Number.isInteger(page) || (page as number) < 1 || (page as number) > comic.pages.length) return reply.code(400).send({ error: `Send the page, counted from 1; this comic has ${comic.pages.length}.` });
       // A page as the desktop's comic reader writes one: under the claim of the edition that is read.
-      const added = writeAs(reply, me.id, who, textClaimsFor(localIdOf(comic.listed), []), { k: "pos", why, loc: pageLocator(comic.pages, (page as number) - 1) });
+      const added = writeAs(reply, me.id, who, textClaimsFor(localIdOf(comic.listed), []), { k: "pos", why, loc: pageLocator(comic.pages, (page as number) - 1, comic.document) });
       return added === null ? reply : { added };
     }
     if (who && sentence !== undefined && WHYS.includes(why as Why)) {
