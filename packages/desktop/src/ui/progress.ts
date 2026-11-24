@@ -60,7 +60,7 @@ export function progressOf(book: ScannedBook, state: ProgressState, reading?: (b
 
 /** What a book comes to before it is started: how long it is, that it is an EPUB to read, or a comic's pages. */
 export function lengthOf(book: ScannedBook): string {
-  if (book.book.comic) return pagesLabel(book.book.pages);
+  if (book.book.comic) return pagesLabel(book.book.pages, book.book.comic);
   return readerOnly(book.book) ? "EPUB" : formatLeft(book.book.durationMs);
 }
 

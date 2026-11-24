@@ -15,7 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs, existsSync } from "node:fs";
 import * as path from "node:path";
 import type { AppController } from "../../src/app/controller";
-import { makeComic } from "@ribbon/host-node/make-comic";
+import { makeComic, makePdf } from "@ribbon/host-node/make-comic";
 
 /**
  * The comic the checks read: made here, into the test library, when it
@@ -23,6 +23,9 @@ import { makeComic } from "@ribbon/host-node/make-comic";
  * drawn across two. Drawn by a script, so no page of anyone's comic is in
  * the repository or the library (docs/COMICS.md, section 11).
  */
+/** The PDF the checks read, made the same way: thirty pages, the sixth drawn across two. */
+export const CHECKS_PDF = { file: "Made As A PDF 001.pdf", title: "Made As A PDF #1", pages: 30, wide: [5], width: 500, height: 750 };
+
 export const CHECKS_COMIC = { file: "Made For The Checks 001.cbz", title: "Made For The Checks #1", pages: 40, wide: [10], width: 1000, height: 1500 };
 
 /** What the measurement build (RIBBON_PROFILE=1) puts on the page for the suite. */
@@ -44,6 +47,8 @@ export interface Ribbon {
   bookId: string;
   /** The checks' comic (`CHECKS_COMIC`), or null when the library has none. */
   comicId: string | null;
+  /** The checks' PDF (`CHECKS_PDF`), once its pages are counted, or null. */
+  pdfId: string | null;
   /** Run the CPU this many times slower (1: as it is), as a slow laptop or a phone would. */
   slow(rate: number): Promise<void>;
   close(): Promise<void>;
@@ -71,6 +76,9 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
     await fs.mkdir(o.work, { recursive: true });
     const comic = path.join(o.library, CHECKS_COMIC.file);
     if (!existsSync(comic)) await makeComic(comic, { pages: CHECKS_COMIC.pages, wide: CHECKS_COMIC.wide, width: CHECKS_COMIC.width, height: CHECKS_COMIC.height });
+    // In a folder of its own: a PDF beside the test book's audio would be taken for its booklet.
+    const pdf = path.join(o.library, "PDFs", CHECKS_PDF.file);
+    if (!existsSync(pdf)) await makePdf(pdf, { pages: CHECKS_PDF.pages, wide: CHECKS_PDF.wide, width: CHECKS_PDF.width, height: CHECKS_PDF.height });
     child = spawn(o.exe, [], {
       env: {
         ...process.env,
@@ -108,11 +116,17 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
     return (books.find((b) => b.files.length > 0 && !!b.book.ebook) ?? books[0]!).book.id;
   });
   const comicId = await page.evaluate((title) => window.__ribbon.getState().books.find((b) => !!b.book.comic && b.book.title === title)?.book.id ?? null, CHECKS_COMIC.title);
+  // A PDF's pages are counted by the web view after the scan: wait for that, a while.
+  const pdfId = await page
+    .waitForFunction((title) => window.__ribbon.getState().books.find((b) => !!b.book.comic && b.book.title === title && (b.book.pages ?? 0) > 0)?.book.id ?? null, CHECKS_PDF.title, { timeout: 60_000 })
+    .then((found) => found.jsonValue())
+    .catch(() => null);
   return {
     page,
     cdp,
     bookId,
     comicId,
+    pdfId,
     slow: async (rate) => void (await cdp.send("Emulation.setCPUThrottlingRate", { rate })),
     close: async () => {
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 }).catch(() => undefined);

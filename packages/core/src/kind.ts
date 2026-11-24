@@ -11,7 +11,12 @@ export function onlyRead(book: Pick<Book, "fileCount" | "ebook" | "comic">): boo
 }
 
 /** How long a comic is, as the shelf says it: its pages, once they have been counted. */
-export function pagesLabel(pages: number | undefined): string {
-  if (pages === undefined) return "Comic";
+export function pagesLabel(pages: number | undefined, file = ""): string {
+  if (pages === undefined) return pagesKind(file);
   return `${pages.toLocaleString("en")} ${pages === 1 ? "page" : "pages"}`;
+}
+
+/** What a book of pages is, in a word, by its file: a comic (a CBZ), or a PDF, which may be anything. */
+export function pagesKind(file: string): "Comic" | "PDF" {
+  return /\.pdf$/i.test(file) ? "PDF" : "Comic";
 }

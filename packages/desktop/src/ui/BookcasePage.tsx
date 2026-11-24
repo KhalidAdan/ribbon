@@ -16,7 +16,7 @@ import { Cover } from "./Cover";
 import { howFar, lengthOf, progressOf, useShelfProgress } from "./progress";
 import { useAppState, useController, useCovers } from "./store";
 import { isPlaying } from "@ribbon/core/playback";
-import { onlyRead } from "@ribbon/core/kind";
+import { onlyRead, pagesKind } from "@ribbon/core/kind";
 
 declare const __RIBBON_MEASURE__: boolean;
 
@@ -345,7 +345,7 @@ function Lectern({ book, canvas, flat, onTurn }: { book: ScannedBook | null; can
             </span>
           </button>
           <p className="truncate text-sm/5 text-ink-2">{book.book.author || "Unknown author"}</p>
-          <p className="mt-1 text-[0.8125rem]/5 text-ink-3 tabular-nums">{toRead ? (book.book.comic ? `Comic · ${lengthOf(book)}` : "EPUB") : `Audiobook · ${lengthOf(book)}`}</p>
+          <p className="mt-1 text-[0.8125rem]/5 text-ink-3 tabular-nums">{toRead ? (book.book.comic ? `${pagesKind(book.book.comic)} · ${lengthOf(book)}` : "EPUB") : `Audiobook · ${lengthOf(book)}`}</p>
           <p className="text-[0.8125rem]/5 text-ink-2 tabular-nums">{standing}</p>
           {p.started && !p.finished && (
             <div className="mt-1.5 h-0.5 w-60 overflow-hidden rounded-full bg-white/15">

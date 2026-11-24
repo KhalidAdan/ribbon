@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { devLibrary } from "./tools/vite-dev-library";
+import { pdfjsFiles } from "./tools/vite-pdfjs";
 
 const host = process.env.TAURI_DEV_HOST;
 // A `books` folder and `.env.<mode>.local` files stay at the repository's root, and a folder named there is from there.
@@ -14,7 +15,7 @@ const version = (JSON.parse(readFileSync(new URL("./package.json", import.meta.u
 // The development library comes from the environment, from a
 // `.env.<mode>.local` file (so a `--mode` picks a folder), or the sample.
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss(), devLibrary(fromRoot(process.env.RIBBON_DEV_LIBRARY ?? loadEnv(mode, repository, "RIBBON_").RIBBON_DEV_LIBRARY ?? (existsSync(path.join(repository, "books")) ? "books" : undefined)))],
+  plugins: [react(), tailwindcss(), pdfjsFiles(), devLibrary(fromRoot(process.env.RIBBON_DEV_LIBRARY ?? loadEnv(mode, repository, "RIBBON_").RIBBON_DEV_LIBRARY ?? (existsSync(path.join(repository, "books")) ? "books" : undefined)))],
   // RIBBON_PROFILE=1 is the measurement build (packages/desktop/tools/e2e): it also puts the controller on the page for the suite.
   define: { __APP_VERSION__: JSON.stringify(version), __RIBBON_MEASURE__: JSON.stringify(!!process.env.RIBBON_PROFILE) },
   clearScreen: false,

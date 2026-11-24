@@ -38,6 +38,13 @@ export function isEbook(name: string): boolean {
   return EBOOK_EXTENSIONS.has(extension(name));
 }
 
+/** PDFs, read as comics are: a book of pages (docs/COMICS.md, section 12). */
+export const PDF_EXTENSIONS = new Set(["pdf"]);
+
+export function isPdf(name: string): boolean {
+  return PDF_EXTENSIONS.has(extension(name));
+}
+
 export function isComic(name: string): boolean {
   return COMIC_EXTENSIONS.has(extension(name));
 }

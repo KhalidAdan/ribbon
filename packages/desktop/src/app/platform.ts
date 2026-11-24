@@ -1,4 +1,5 @@
 import type { Platform } from "./controller";
+import { withPdfs } from "../host/pdf-host";
 import type { SourceEntry } from "@ribbon/core/sources";
 import { browserComicPageUrl, browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
@@ -75,7 +76,7 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
     const updates = mayUpdate ? tauriUpdates() : undefined;
     const move = tauriHomeMove();
     return {
-      host: tauriHost(),
+      host: withPdfs(tauriHost(), fileUrl),
       phone: ios,
       async pickFolder(near) {
         if (ios) {
@@ -191,7 +192,7 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
   }
   // Development harness: the Vite plugin serves one folder from this machine.
   return {
-    host: browserHost(),
+    host: withPdfs(browserHost(), browserFileUrl),
     pickFolder: () => browserLibraryRoot(),
     allowFolder: async () => undefined,
     fileUrl: browserFileUrl,

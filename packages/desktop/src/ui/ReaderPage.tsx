@@ -17,7 +17,7 @@ import { Badge, Menu, ProgressLine, SectionHeader, Short } from "./kit";
 import { formatBytes } from "./Servers";
 import { SeriesBooks } from "./SeriesPage";
 import { pageBook } from "@ribbon/core/screen";
-import { onlyRead, pagesLabel } from "@ribbon/core/kind";
+import { onlyRead, pagesKind, pagesLabel } from "@ribbon/core/kind";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -124,7 +124,7 @@ export function ReaderPage() {
             ? `You are on page ${Math.round(me.fraction * (pages - 1)) + 1} of ${pages}.`
             : `You are ${Math.max(1, Math.floor(me.fraction * 100))}% through.`
           : book.book.comic
-            ? `Not started. A comic${book.book.pages === undefined ? "" : `, ${pagesLabel(book.book.pages)}`}.`
+            ? `Not started. A ${pagesKind(book.book.comic) === "PDF" ? "PDF" : "comic"}${book.book.pages === undefined ? "" : `, ${pagesLabel(book.book.pages)}`}.`
             : "Not started. An EPUB to read; there is no audio for it."
       : me.finished
         ? "Finished. Listen again any time; your place starts over."
@@ -151,7 +151,7 @@ export function ReaderPage() {
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
-    ...(book.book.comic ? [...(book.book.pages === undefined ? [] : [{ term: "Pages", value: String(book.book.pages) }]), { term: "Comic", value: "CBZ" }] : []),
+    ...(book.book.comic ? [...(book.book.pages === undefined ? [] : [{ term: "Pages", value: String(book.book.pages) }]), pagesKind(book.book.comic) === "PDF" ? { term: "File", value: "PDF" } : { term: "Comic", value: "CBZ" }] : []),
     ...(toRead || book.remote ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
     ...(book.remote && !toRead ? [{ term: "Download", value: formatBytes(book.book.sizeBytes) }] : []),
   ];

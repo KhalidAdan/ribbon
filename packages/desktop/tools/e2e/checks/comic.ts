@@ -150,5 +150,37 @@ export const comicCheck: Check = {
     await page.evaluate((id) => window.__ribbon.openComic(id), r.comicId);
     t.expect(await shown(r, 7), "opened again, it is at the page it was left on", `page ${(await pageNow(r)) + 1}`);
     await page.evaluate(() => window.__ribbon.closeComic());
+
+    // A PDF, read the same way: its pages drawn by pdf.js (docs/COMICS.md, section 12).
+    if (!r.pdfId) {
+      t.expect(false, "the library has the checks' PDF, its pages counted", "none was found, or it was never counted");
+      return;
+    }
+    const pdf = await page.evaluate(async (id) => {
+      const t0 = performance.now();
+      await window.__ribbon.openComic(id);
+      const c = window.__ribbon.getState().comic;
+      return { ms: Math.round(performance.now() - t0), status: c?.status ?? "closed", pages: c?.status === "ready" ? c.pages.length : 0 };
+    }, r.pdfId);
+    t.expect(pdf.status === "ready" && pdf.pages === 30, "a PDF opens, with its pages counted", `${pdf.status}, ${pdf.pages} pages`);
+    await page.evaluate(() => window.__ribbon.turnComic(0, "seek"));
+    t.expect(await shown(r, 0, 30_000), "its first page is drawn");
+    t.note(`the PDF opened in ${pdf.ms} ms`);
+    await page.waitForTimeout(2500);
+    const pdfTurns: number[] = [];
+    for (let to = 1; to <= 10; to++) {
+      const ms = await turnByKey(r, "ArrowRight", to);
+      if (ms >= 0) pdfTurns.push(ms);
+      await page.waitForTimeout(400);
+    }
+    const pdfSorted = [...pdfTurns].sort((a, b) => a - b);
+    t.expect(pdfTurns.length === 10 && (await pageNow(r)) === 10, "ten presses of the right arrow turn ten of its pages, each drawn", `${pdfTurns.length} drawn, at page ${(await pageNow(r)) + 1}`);
+    t.note(`a turn in the PDF, to the frame its page is drawn: median ${percentile(pdfSorted, 0.5).toFixed(1)} ms, p95 ${percentile(pdfSorted, 0.95).toFixed(1)} ms`);
+    await page.keyboard.press("End");
+    t.expect(await shown(r, 29, 30_000), "End goes to its last page, drawn out of the far end of the file");
+    await page.evaluate(() => window.__ribbon.closeComic());
+    await page.evaluate((id) => window.__ribbon.openComic(id), r.pdfId);
+    t.expect(await shown(r, 29, 30_000), "opened again, it is at the page it was left on");
+    await page.evaluate(() => window.__ribbon.closeComic());
   },
 };

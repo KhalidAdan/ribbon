@@ -1,4 +1,4 @@
-import { isAudio, isComic, isEbook, isImage, type FileEntry } from "./walk";
+import { isAudio, isComic, isEbook, isImage, isPdf, type FileEntry } from "./walk";
 import { isSideFileName } from "./sidefiles";
 import { parseNumbered } from "./metadata";
 
@@ -113,7 +113,10 @@ function findAnthologies(foldersWithAudio: Set<string>, byFolder: Map<string, { 
  * their own book. A numbered folder of numbered subfolders is one book
  * with parts. An EPUB with no audio to pair with is a book with no
  * audio, after the rest. A comic is always a book of its own, wherever
- * it sits, after those. Order of the returned groups follows the walk.
+ * it sits, after those. A PDF is a book of pages too, but only in a
+ * folder with no audio and no EPUB: beside those it is the booklet that
+ * came with the book, and stays off the shelf (docs/COMICS.md, section
+ * 12). Order of the returned groups follows the walk.
  */
 /** What a read-along export adds to its original's name (docs/READING.md, section 6). */
 export const READ_ALONG = " (read-along)";
@@ -121,6 +124,7 @@ export const READ_ALONG = " (read-along)";
 export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
   const byFolder = new Map<string, { audio: FileEntry[]; images: FileEntry[]; side: FileEntry[]; ebooks: FileEntry[] }>();
   const comics: FileEntry[] = [];
+  const pdfs: FileEntry[] = [];
   const folderOrder: string[] = [];
   const foldersWithAudio = new Set<string>();
 
@@ -143,6 +147,8 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
       bucket.ebooks.push(f);
     } else if (isComic(f.name)) {
       comics.push(f);
+    } else if (isPdf(f.name)) {
+      pdfs.push(f);
     }
   }
   // A read-along export stands in for the EPUB it was made from, beside it: the same book, exact.
@@ -240,7 +246,11 @@ export function groupBooks(files: readonly FileEntry[]): BookGroup[] {
     }
   }
   // Each comic is one book: never paired with audio or an EPUB, never joined with its neighbours.
-  for (const c of comics) books.push({ path: c.relPath, name: stem(c.name), audio: [], covers: [], comic: c.relPath });
+  const alone = (f: FileEntry) => {
+    const bucket = byFolder.get(parentOf(f.relPath));
+    return !bucket || (bucket.audio.length === 0 && bucket.ebooks.length === 0);
+  };
+  for (const c of [...comics, ...pdfs.filter(alone)]) books.push({ path: c.relPath, name: stem(c.name), audio: [], covers: [], comic: c.relPath });
   return books;
 }
 

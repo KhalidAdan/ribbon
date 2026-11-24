@@ -71,9 +71,13 @@ export function folio(pages: readonly number[], of: number): string {
   return first === last ? `Page ${first} of ${of}` : `Pages ${first}–${last} of ${of}`;
 }
 
-/** A page's file, fetched and not yet decoded: its bytes, and the size its picture will be. */
+/**
+ * A page known and not yet drawn: the size its picture will be, and, for a
+ * comic's page, its file's bytes. A PDF's page has no file of its own; it
+ * is drawn out of the PDF (pdf.ts).
+ */
 interface Fetched extends PixelSize {
-  file: Blob;
+  file?: Blob;
 }
 
 /** How much of a file is read to learn its picture's size: a JPEG's says after its thumbnail and colour profile. */
@@ -116,11 +120,17 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
   // Drawn again when a page's file or picture lands.
   const [, landed] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
+    // A PDF is opened once, when its reader opens, and its pages are drawn out of it; pdf.js comes with the first PDF.
+    const document = c.comicDocument();
+    const pdf = document ? import("./pdf").then((m) => m.openWebPdf(document.url, document.bytes)) : null;
+    pdf?.catch(() => undefined);
+    // A PDF's page is drawn as large as this screen could show it, and no larger.
+    const longest = Math.min(4096, Math.max(window.screen.width, window.screen.height) * (window.devicePixelRatio || 1) * 1.6);
     const files = new PageWindow<Fetched>(count, {
       load: async (at, signal) => {
-        const address = c.comicPageUrl(at);
-        if (!address) throw new Error("no address for the page");
-        const file = await fetchPage(address, signal);
+        const address = pdf ? null : c.comicPageUrl(at);
+        if (!pdf && !address) throw new Error("no address for the page");
+        const file = pdf ? await (await pdf).size(at) : await fetchPage(address!, signal);
         c.comicMeasured(comic.bookId, at, file.width, file.height);
         return file;
       },
@@ -132,7 +142,8 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
         load: async (at) => {
           const file = await files.get(at);
           if (!file) throw new Error("the page's file didn't arrive");
-          return createImageBitmap(file.file);
+          if (pdf) return (await pdf).picture(at, longest);
+          return createImageBitmap(file.file!);
         },
         release: (_, picture) => picture.close(),
         landed,
@@ -146,8 +157,8 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
     return () => {
       fetched.current = null;
       decoded.current = null;
-      void pictures.close();
-      void files.close();
+      // The PDF last: the pages still being drawn are drawn out of it.
+      void Promise.all([pictures.close(), files.close()]).then(() => pdf?.then((open) => open.close(), () => undefined));
     };
   }, [comic.bookId, count, c]);
   useEffect(() => {
