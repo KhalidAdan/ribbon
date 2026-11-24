@@ -14,6 +14,7 @@
       "ebookBytes": 1000,
       "words": 1000,
       "comic": false,
+      "pdf": false,
       "pages": null,
       "cover": {
         "hash": "0123456789abcdef",

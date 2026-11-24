@@ -2,7 +2,7 @@ import fastifyStatic, { type SendOptions } from "@fastify/static";
 import { Readable } from "node:stream";
 import { openComic } from "@ribbon/host-node/comic";
 import { pageType } from "@ribbon/core/comic/pages";
-import { comicPath } from "./comic.ts";
+import { comicPath, PDF_FILE, PDF_PAGE_WIDTHS, pdfPage } from "./comic.ts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -108,11 +108,22 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
 
   // One page of a comic, read straight out of its archive (docs/COMICS.md, section 7): for a device that keeps no
   // copy of the book. Pages count from 1. A book's files never change, so a page is kept for good by whoever has it.
-  app.get<{ Params: { id: string; page: string } }>("/api/books/:id/pages/:page", { onRequest: mustSignIn }, async (request, reply) => {
+  app.get<{ Params: { id: string; page: string }; Querystring: { width?: string } }>("/api/books/:id/pages/:page", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     if (!stored?.book.comic || !stored.pages) return reply.code(404).send({ error: "No such comic on this server." });
     const page = stored.pages[Number(request.params.page) - 1];
     if (!/^\d+$/.test(request.params.page) || !page) return reply.code(404).send({ error: `This comic has ${stored.pages.length} pages, counted from 1.` });
+    // A PDF's page is drawn, once, and kept (comic.ts): at the width asked for, of the two it is drawn at, else the larger.
+    if (stored.book.comic === PDF_FILE) {
+      const asked = Number(request.query.width);
+      const width = PDF_PAGE_WIDTHS.find((w) => w === asked) ?? PDF_PAGE_WIDTHS[PDF_PAGE_WIDTHS.length - 1]!;
+      try {
+        const picture = await pdfPage(bookDir(deps.dataDir, request.params.id), Number(request.params.page) - 1, width);
+        return reply.header("cache-control", FOREVER).type("image/jpeg").send(Buffer.from(picture));
+      } catch {
+        return reply.code(503).send({ error: "This server can't draw a PDF's pages: what pdf.js draws on in Node (@napi-rs/canvas) isn't installed (packages/server/README.md)." });
+      }
+    }
     const comic = await openComic(comicPath(bookDir(deps.dataDir, request.params.id)));
     const size = comic.entries.find((e) => e.name === page.name)?.size;
     reply.header("cache-control", FOREVER).type(pageType(page.name));

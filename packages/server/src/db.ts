@@ -26,6 +26,8 @@ export function openDatabase(dataDir: string): DatabaseSync {
 function comicsToo(db: DatabaseSync): void {
   const columns = db.prepare("SELECT name FROM pragma_table_info('book')").all();
   if (!columns.some((c) => c.name === "has_comic")) db.exec("ALTER TABLE book ADD COLUMN has_comic INTEGER NOT NULL DEFAULT 0; ALTER TABLE book ADD COLUMN pages INTEGER");
+  // And whether its pages are a PDF's, which are drawn, not handed out (docs/COMICS.md, section 12).
+  if (!columns.some((c) => c.name === "is_pdf")) db.exec("ALTER TABLE book ADD COLUMN is_pdf INTEGER NOT NULL DEFAULT 0");
 }
 
 /**
