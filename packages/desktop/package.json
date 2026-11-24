@@ -39,6 +39,7 @@
     "@tauri-apps/plugin-updater": "~2.12.0",
     "clsx": "^2.1.1",
     "hyphen": "^1.14.1",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sonner": "^2.0.8",

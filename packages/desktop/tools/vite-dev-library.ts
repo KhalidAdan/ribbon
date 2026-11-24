@@ -10,7 +10,12 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { nodeHost } from "@ribbon/host-node/node";
 import { openComic } from "@ribbon/host-node/comic";
+import { loadPdfReader } from "@ribbon/host-node/pdf";
 import { isPage, pageType } from "@ribbon/core/comic/pages";
+
+// pdf.js is loaded with this file: Vite closes the loader it read this plugin with, and a PDF met later
+// could no longer ask for it (packages/host-node/src/pdf.ts).
+await loadPdfReader();
 
 const MIME: Record<string, string> = {
   mp3: "audio/mpeg",

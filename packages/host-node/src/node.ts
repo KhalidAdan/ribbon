@@ -10,6 +10,7 @@ import type { Source } from "@culvert/stream";
 import type { DirEntry, FileStat, Host, RunResult, TextFile, Tool } from "@ribbon/core/host";
 import { scanWithFfprobe } from "./scan-with-ffprobe";
 import { comicCover, comicEntries, comicEntry } from "./comic";
+import { pdfCover, pdfPages } from "./pdf";
 
 /**
  * Node implementation of Host. Used by tests and the CLI. Node cannot
@@ -118,6 +119,8 @@ export function nodeHost(opts: Pick<Host, "readEbookPackage" | "extractCover"> =
     comicEntries,
     comicEntry,
     comicCover,
+    pdfPages,
+    pdfCover,
     async catalogSearch(title: string, author: string, region: string): Promise<string> {
       const r = await fetch(catalogUrl(title, author, region as Region), { headers: { accept: "application/json" } });
       if (!r.ok) throw new Error(`catalog answered ${r.status}`);

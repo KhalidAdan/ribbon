@@ -18,7 +18,7 @@ import { coverArgs } from "./cover";
 import { bytesToEbooks, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
 import { readerOnly } from "../ebook";
 import { bytesToComics, comicFromTags, comicsToBytes, nameComic, type ComicRecord } from "./comics";
-import { archiveProblem, pageOrder } from "../comic/pages";
+import { archiveProblem, isPdfFile, pageOrder } from "../comic/pages";
 
 export interface ScannedBook {
   book: Book;
@@ -271,7 +271,7 @@ function packagesOf(files: readonly ScannedFile[], records: Records): Map<string
 function comicsOf(files: readonly ScannedFile[], records: Records): Map<string, ComicRecord> {
   const out = new Map<string, ComicRecord>();
   for (const f of files) {
-    if (f.kind !== "comic") continue;
+    if (f.kind !== "comic" && f.kind !== "pdf") continue;
     if (f.fresh && !f.pending) {
       out.set(f.path, comicFromTags(f, f.tags));
       continue;
@@ -463,8 +463,10 @@ export const COMIC_COVER_WIDTH = 800;
  * small read per comic; an archive that isn't a comic's is left alone.
  */
 async function comicCover(host: Host, root: string, book: Book): Promise<boolean> {
-  if (!host.comicEntries || !host.comicCover) return false;
   const abs = host.join(root, ...book.comic!.split("/"));
+  // A PDF's cover is its first page drawn, by whatever on the host draws one.
+  if (isPdfFile(book.comic!)) return host.pdfCover ? host.pdfCover(abs, host.join(root, ...book.cover.split("/")), COMIC_COVER_WIDTH).catch(() => false) : false;
+  if (!host.comicEntries || !host.comicCover) return false;
   try {
     const entries = await host.comicEntries(abs);
     if (archiveProblem(entries)) return false;

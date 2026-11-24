@@ -48,9 +48,10 @@ export interface ScannedFile {
    * and hasCover says the package names a cover image. A CBZ is "comic":
    * when fresh, `pages` is how many pictures its archive lists and
    * `comicinfo` is its ComicInfo.xml as text, when it has one
-   * (core/scan/comics.ts reads both).
+   * (core/scan/comics.ts reads both). A PDF is "pdf": when fresh, `pages`
+   * is how many pages it has, counted by whatever on the host can read one.
    */
-  kind: "audio" | "image" | "text" | "ebook" | "comic";
+  kind: "audio" | "image" | "text" | "ebook" | "comic" | "pdf";
   sizeBytes: number;
   mtimeMs: number;
   /** True when tags were read on this pass; false means "unchanged, reuse". */
@@ -181,6 +182,18 @@ export interface Host {
    * Resolves false when the page can't be read as a picture. Optional.
    */
   comicCover?(path: string, entry: string, target: string, width: number): Promise<boolean>;
+  /**
+   * How many pages a PDF has (docs/COMICS.md, section 12), read from the
+   * file in ranges. Rejects for a file that isn't a PDF, or is locked.
+   * Optional: hosts with nothing that reads a PDF leave it out, and their
+   * PDFs are shelved with no page count.
+   */
+  pdfPages?(path: string): Promise<number>;
+  /**
+   * Make a PDF's cover: its first page drawn as a JPEG at `target`, no
+   * wider than `width`. Resolves false when it can't be drawn. Optional.
+   */
+  pdfCover?(path: string, target: string, width: number): Promise<boolean>;
   /**
    * Hear the first `seconds` of each clip with a whisper.cpp model on this
    * machine (#65): one answer per clip, null when a clip could not be

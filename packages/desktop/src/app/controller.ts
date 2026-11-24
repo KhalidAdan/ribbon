@@ -3291,7 +3291,7 @@ export class AppController {
     // The newest place this machine or any other kept, as a page of this comic.
     const kept = [this.keptPlaces()[bookId], shared].filter((k): k is KeptPlace => !!k && !Number.isNaN(Date.parse(k.t))).sort((a, b) => Date.parse(b.t) - Date.parse(a.t))[0];
     const page = pageAt(pages, kept?.loc);
-    this.comicKeeper = new PlaceKeeper<number>((at) => pageLocator(pages, at), page, {
+    this.comicKeeper = new PlaceKeeper<number>((at) => pageLocator(pages, at, listed.document), page, {
       keepLocal: (k) => {
         this.appSettings = { ...this.appSettings, readingPlaces: { ...this.keptPlaces(), [bookId]: k } };
         this.saveAppSettingsSoon();
@@ -3299,7 +3299,7 @@ export class AppController {
       // A page is a place in the edition that is read, as a place in a text is (docs/POSITION-FORMAT.md, section 3.8).
       share: (loc, why, at) => o.lib.writeTextPlace(bookId, [], loc, why, at),
     });
-    this.toComic({ type: "shown", bookId, pages, page });
+    this.toComic({ type: "shown", bookId, pages, page, ...(listed.document ? { document: listed.document } : {}) });
     log.info(`opened the comic ${book.book.title}: ${pages.length} pages, at page ${page + 1}, in ${Math.round(performance.now() - started)} ms`);
   }
 
@@ -3328,6 +3328,15 @@ export class AppController {
     if (!book?.book.comic || !o || !entry || !this.platform.comicPageUrl) return undefined;
     // The id is made of the file's path and size, so a comic replaced by another is another address.
     return this.platform.comicPageUrl(o.lib.absPath(book.book.comic), entry, book.book.id);
+  }
+
+  /** Where the open book of pages is fetched from when it is a PDF, and how large the file is; undefined for a comic's archive. */
+  comicDocument(): { url: string; bytes: number } | undefined {
+    const r = this.state.comic;
+    const book = r && this.state.books.find((b) => b.book.id === r.bookId);
+    const o = book && this.openedOf(book);
+    if (r?.status !== "ready" || !r.document || !book?.book.comic || !o) return undefined;
+    return { url: this.platform.fileUrl(o.lib.absPath(book.book.comic)), bytes: book.book.sizeBytes };
   }
 
   /** Whether a comic is read right to left: as a person said, else as it says of itself. */

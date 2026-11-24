@@ -1,11 +1,21 @@
 import type { Host } from "@ribbon/core/host";
-import { archiveProblem, pageOrder } from "@ribbon/core/comic/pages";
+import { archiveProblem, isPdfFile, pageOrder } from "@ribbon/core/comic/pages";
+import { pdfPageNames } from "@ribbon/core/comic/session";
 
 /**
  * A comic's pages, for the reader: its archive's list, read once, in
  * reading order (docs/COMICS.md, section 5). No page is opened here.
  */
-export async function comicPages(host: Host, absPath: string): Promise<{ ok: true; pages: string[] } | { ok: false; message: string }> {
+export async function comicPages(host: Host, absPath: string): Promise<{ ok: true; pages: string[]; document?: string } | { ok: false; message: string }> {
+  if (isPdfFile(absPath)) {
+    // A PDF's pages are pages of the one file: how many is all there is to ask.
+    if (!host.pdfPages) return { ok: false, message: "PDFs can't be opened here." };
+    try {
+      return { ok: true, pages: pdfPageNames(await host.pdfPages(absPath)), document: absPath.split(/[\\/]/).pop()! };
+    } catch {
+      return { ok: false, message: "The file couldn't be opened as a PDF: it isn't one, or it is locked with a password." };
+    }
+  }
   if (!host.comicEntries) return { ok: false, message: "Comics can't be opened here." };
   let entries;
   try {

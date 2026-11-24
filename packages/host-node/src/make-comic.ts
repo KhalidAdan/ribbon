@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { Writable } from "node:stream";
 import { deflateSync } from "node:zlib";
@@ -141,4 +141,72 @@ export async function makeComic(file: string, comic: MadeComic): Promise<void> {
     }
   });
   await toReadableStream(zip).pipeTo(Writable.toWeb(createWriteStream(file)));
+}
+
+/** A PDF made for the tests: pages like a made comic's, each a flat colour with its number drawn large. */
+export interface MadePdf {
+  pages: number;
+  /** Pages drawn across two, counted from 0. */
+  wide?: number[];
+  /** A page's size in points. */
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Write a PDF at `file`, by hand: a catalog, its pages, and for each page
+ * a few filled rectangles (its ground, and its number in the bars a made
+ * comic's pages have). No fonts and no pictures, so any reader draws it.
+ */
+export async function makePdf(file: string, pdf: MadePdf): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  const width = pdf.width ?? 200;
+  const height = pdf.height ?? 300;
+  const wide = new Set(pdf.wide ?? []);
+  const objects: string[] = [];
+  const add = (body: string) => objects.push(body);
+  const pageIds = Array.from({ length: pdf.pages }, (_, i) => 3 + i * 2);
+  add("<< /Type /Catalog /Pages 2 0 R >>");
+  add(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pdf.pages} >>`);
+  for (let i = 0; i < pdf.pages; i++) {
+    const w = wide.has(i) ? width * 2 : width;
+    const h = height;
+    const hue = ((i + 1) * 47) % 360;
+    const [r, g, b] = [0, 120, 240].map((shift) => ((150 + 60 * Math.cos(((hue + shift) * Math.PI) / 180)) / 255).toFixed(3));
+    const bars: string[] = [`${r} ${g} ${b} rg 0 0 ${w} ${h} re f`, "0.094 0.094 0.11 rg"];
+    const digits = String(i + 1);
+    const dh = Math.round(h * 0.4);
+    const dw = Math.round(dh * 0.5);
+    const bar = Math.max(2, Math.round(dh * 0.1));
+    const gap = Math.round(dw * 0.3);
+    let x = Math.round((w - (digits.length * dw + (digits.length - 1) * gap)) / 2);
+    // A PDF's y runs up the page: the digit's foot is at `y`.
+    const y = Math.round((h - dh) / 2);
+    const rect = (rx: number, ry: number, rw: number, rh: number) => bars.push(`${rx} ${ry} ${rw} ${rh} re f`);
+    for (const d of digits) {
+      const s = SEGMENTS[d]!;
+      if (s[0]) rect(x, y + dh - bar, dw, bar);
+      if (s[1]) rect(x, y + dh / 2, bar, dh / 2);
+      if (s[2]) rect(x + dw - bar, y + dh / 2, bar, dh / 2);
+      if (s[3]) rect(x, y + Math.round(dh / 2 - bar / 2), dw, bar);
+      if (s[4]) rect(x, y, bar, dh / 2);
+      if (s[5]) rect(x + dw - bar, y, bar, dh / 2);
+      if (s[6]) rect(x, y, dw, bar);
+      x += dw + gap;
+    }
+    const content = bars.join("\n");
+    add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Contents ${pageIds[i]! + 1} 0 R /Resources << >> >>`);
+    add(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  }
+  // The file: each object, then the table saying where each begins.
+  let out = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((body, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const table = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${table}\n%%EOF\n`;
+  await writeFile(file, out, "latin1");
 }

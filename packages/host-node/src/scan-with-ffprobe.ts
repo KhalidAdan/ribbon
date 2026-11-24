@@ -1,6 +1,6 @@
 import { pipe, collect, flatMap, from } from "@culvert/stream";
 import type { Host, KnownFile, ScanOutput, ScanProgress, ScannedFile } from "@ribbon/core/host";
-import { walk, isAudio, isComic, isEbook, type FileEntry } from "@ribbon/core/scan/walk";
+import { walk, isAudio, isComic, isEbook, isPdf, type FileEntry } from "@ribbon/core/scan/walk";
 import { comicInfoEntry, isPage } from "@ribbon/core/comic/pages";
 import { isSideFileName } from "@ribbon/core/scan/sidefiles";
 import { probe } from "@ribbon/core/scan/probe";
@@ -40,7 +40,7 @@ export async function scanWithFfprobe(
   const baseOf = (entry: FileEntry): ScannedFile => ({
     path: entry.relPath,
     name: entry.name,
-    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : isEbook(entry.name) ? "ebook" : isComic(entry.name) ? "comic" : "image",
+    kind: isAudio(entry.name) ? "audio" : isSideFileName(entry.name) ? "text" : isEbook(entry.name) ? "ebook" : isComic(entry.name) ? "comic" : isPdf(entry.name) ? "pdf" : "image",
     sizeBytes: entry.sizeBytes,
     mtimeMs: entry.mtimeMs,
     fresh: false,
@@ -56,12 +56,14 @@ export async function scanWithFfprobe(
   const readsEbook = (base: ScannedFile, entry: FileEntry) => base.kind === "ebook" && !!host.readEbookPackage && !isUnchanged(entry);
   // A comic's archive is listed when the host can and it changed.
   const readsComic = (base: ScannedFile, entry: FileEntry) => base.kind === "comic" && !!host.comicEntries && !isUnchanged(entry);
+  // A PDF's pages are counted when the host can and it changed.
+  const readsPdf = (base: ScannedFile, entry: FileEntry) => base.kind === "pdf" && !!host.pdfPages && !isUnchanged(entry);
   // The walk, with unread audio and EPUBs marked pending, so a caller can
   // show the shelf before a single tag is read.
   onFiles?.(
     entries.map((entry) => {
       const base = baseOf(entry);
-      base.pending = (base.kind === "audio" && !isUnchanged(entry)) || readsEbook(base, entry) || readsComic(base, entry);
+      base.pending = (base.kind === "audio" && !isUnchanged(entry)) || readsEbook(base, entry) || readsComic(base, entry) || readsPdf(base, entry);
       return base;
     }),
   );
@@ -99,6 +101,13 @@ export async function scanWithFfprobe(
               /* not a zip: a comic with no pages */
             }
             Object.assign(base, { fresh: true, tags, hasCover: tags.pages !== "0" });
+            probed++;
+            onFiles?.([base]);
+          }
+          if (readsPdf(base, entry)) {
+            // A file that isn't a PDF after all, or is locked, is one with no pages.
+            const pages = await host.pdfPages!(entry.absPath).catch(() => 0);
+            Object.assign(base, { fresh: true, tags: { pages: String(pages) }, hasCover: pages > 0 });
             probed++;
             onFiles?.([base]);
           }

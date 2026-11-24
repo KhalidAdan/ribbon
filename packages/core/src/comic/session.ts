@@ -42,12 +42,14 @@ export interface ReadyComic {
   wide: boolean[];
   /** The page it is open at, counted from 0. With two pages up, the first of the two. */
   page: number;
+  /** For a PDF, its file's name: its pages are not entries of an archive but pages of this one file (`pages` holds "page=1", "page=2", …). */
+  document?: string;
 }
 
 export type ComicEvent =
   | { type: "open"; bookId: string }
   | { type: "failed"; bookId: string; message: string }
-  | { type: "shown"; bookId: string; pages: string[]; page: number }
+  | { type: "shown"; bookId: string; pages: string[]; page: number; document?: string }
   | { type: "turned"; bookId: string; page: number }
   | { type: "measured"; bookId: string; page: number; wide: boolean }
   | { type: "closed" };
@@ -67,7 +69,7 @@ export function comicAfter(session: ComicSession | null, event: ComicEvent): Com
     case "shown":
       if (session.status !== "opening") return session;
       if (event.pages.length === 0) return { status: "failed", bookId: session.bookId, message: "This comic has no pages in it." };
-      return { status: "ready", bookId: session.bookId, pages: event.pages, wide: event.pages.map(() => false), page: clamp(event.page, event.pages.length) };
+      return { status: "ready", bookId: session.bookId, pages: event.pages, wide: event.pages.map(() => false), page: clamp(event.page, event.pages.length), ...(event.document ? { document: event.document } : {}) };
     case "turned":
       if (session.status !== "ready") return session;
       return { ...session, page: clamp(event.page, session.pages.length) };
@@ -113,9 +115,22 @@ export function pageProgress(page: number, pages: number): number {
  * 3.8): the page's entry in the archive, by name, and its number counted
  * from 1.
  */
-export function pageLocator(pages: readonly string[], page: number): Locator {
+export function pageLocator(pages: readonly string[], page: number, document?: string): Locator {
+  const locations = { position: page + 1, totalProgression: Math.round(pageProgress(page, pages.length) * 10_000) / 10_000 };
+  // A PDF's page is named as PDFs name one, `page=14`, in the one file it is a page of.
+  if (document) return { href: document, type: "application/pdf", locations: { ...locations, fragments: [pdfPageName(page)] } };
   const entry = pages[page] ?? "";
-  return { href: entry, type: pageType(entry), locations: { position: page + 1, totalProgression: Math.round(pageProgress(page, pages.length) * 10_000) / 10_000 } };
+  return { href: entry, type: pageType(entry), locations };
+}
+
+/** A PDF's page as a fragment names it, counted from 1 (RFC 8118). */
+export function pdfPageName(page: number): string {
+  return `page=${page + 1}`;
+}
+
+/** A PDF's pages, by name: as many as it has. */
+export function pdfPageNames(count: number): string[] {
+  return Array.from({ length: Math.max(0, count) }, (_, page) => pdfPageName(page));
 }
 
 /**
@@ -127,6 +142,9 @@ export function pageAt(pages: readonly string[], loc: Locator | undefined): numb
   if (!loc) return 0;
   const byName = pages.indexOf(loc.href);
   if (byName >= 0) return byName;
+  // A PDF's page, named in the fragment.
+  const named = (loc.locations?.fragments ?? []).map((f) => pages.indexOf(f)).find((at) => at >= 0);
+  if (named !== undefined) return named;
   const position = loc.locations?.position;
   return typeof position === "number" && position >= 1 && position <= pages.length ? position - 1 : 0;
 }

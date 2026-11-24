@@ -38,6 +38,11 @@ export function pageOrder(entries: readonly string[]): string[] {
   return entries.filter(isPage).sort(natcompare);
 }
 
+/** True for a book of pages that is a PDF, not an archive of pictures: by its file's name. */
+export function isPdfFile(file: string): boolean {
+  return extension(file) === "pdf";
+}
+
 /** A page's media type, from its name. */
 export function pageType(entry: string): string {
   return TYPES[extension(entry)] ?? "application/octet-stream";

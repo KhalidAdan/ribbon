@@ -38,6 +38,9 @@ const EBOOK: &[&str] = &["epub"];
 /// A comic: a zip of pictures. A scan reads only its list of files and its
 /// ComicInfo.xml (comic.rs); no page is opened until it is read.
 const COMIC: &[&str] = &["cbz"];
+/// A PDF, read as a comic is (docs/COMICS.md, section 12). The scan only finds it: its
+/// pages are counted by the web view, which is what can read one (pdf.js).
+const PDF: &[&str] = &["pdf"];
 pub(crate) const RIBBON_DIR: &str = ".ribbon";
 pub(crate) const LEGACY_DIR: &str = ".odio";
 /// Block size for the caching reader used by the lofty fallback.
@@ -262,6 +265,8 @@ pub fn walk(root: &Path) -> Vec<Entry> {
                     "ebook"
                 } else if COMIC.contains(&ext.as_str()) {
                     "comic"
+                } else if PDF.contains(&ext.as_str()) {
+                    "pdf"
                 } else if is_side_file(&name) {
                     "text"
                 } else {

@@ -1,5 +1,5 @@
 import type { Check } from "../run";
-import type { Ribbon } from "../app";
+import { CHECKS_PDF, type Ribbon } from "../app";
 
 const TRACK = "[role=dialog] [data-comic-track]";
 
@@ -149,6 +149,70 @@ export const comicCheck: Check = {
     t.expect(await page.evaluate(() => window.__ribbon.getState().comic === null), "it closes");
     await page.evaluate((id) => window.__ribbon.openComic(id), r.comicId);
     t.expect(await shown(r, 7), "opened again, it is at the page it was left on", `page ${(await pageNow(r)) + 1}`);
+    await page.evaluate(() => window.__ribbon.closeComic());
+
+    // A PDF, read the same way: its pages drawn by pdf.js (docs/COMICS.md, section 12).
+    if (!r.pdfId) {
+      // Why, as far as the page can say: the book as the app has it, pdf.js asked to open it, and what the page wrote to its console.
+      const why = await page.evaluate(async (title) => {
+        const state = window.__ribbon.getState();
+        const found = state.books.find((b) => b.book.title === title || (b.book.comic ?? "").toLowerCase().endsWith(".pdf"));
+        if (!found) return `no such book among ${state.books.length} (comics: ${state.books.filter((b) => !!b.book.comic).map((b) => b.book.comic).join(", ")})`;
+        const out = [`found as "${found.book.title}", ${found.book.pages ?? "no"} pages, ${found.book.sizeBytes} bytes`];
+        try {
+          await window.__ribbon.openComic(found.book.id);
+          const c = window.__ribbon.getState().comic;
+          out.push(`opening it: ${c?.status ?? "closed"}${c?.status === "failed" ? ` (${c.message})` : c?.status === "ready" ? `, ${c.pages.length} pages` : ""}`);
+        } catch (e) {
+          out.push(`threw: ${String(e)}`);
+        }
+        return out.join("; ");
+      }, CHECKS_PDF.title);
+      // Its file, fetched as pdf.js fetches it: the address is in what the app said.
+      const address = r.said.map((line) => line.match(/https?:\/\/asset\.localhost\/\S+|asset:\/\/\S+/)?.[0]).find(Boolean);
+      const fetched = address
+        ? await page.evaluate(async (url) => {
+            const lines: string[] = [];
+            for (const range of ["bytes=0-99", "bytes=0-12480", ""]) {
+              try {
+                const answer = await fetch(url, range ? { headers: { range } } : {});
+                const bytes = new Uint8Array(await answer.arrayBuffer());
+                lines.push(`${range || "whole"}: ${answer.status}, ${bytes.length} bytes, starts "${String.fromCharCode(...bytes.subarray(0, 8))}", ${answer.headers.get("content-range") ?? "no content-range"}`);
+              } catch (e) {
+                lines.push(`${range || "whole"}: threw ${String(e)}`);
+              }
+            }
+            return lines.join("; ");
+          }, address)
+        : "no address was said";
+      t.expect(false, "the library has the checks' PDF, its pages counted", `${why}; fetched: ${fetched}; the page said: ${r.said.slice(-6).join(" | ") || "nothing"}`);
+      return;
+    }
+    const pdf = await page.evaluate(async (id) => {
+      const t0 = performance.now();
+      await window.__ribbon.openComic(id);
+      const c = window.__ribbon.getState().comic;
+      return { ms: Math.round(performance.now() - t0), status: c?.status ?? "closed", pages: c?.status === "ready" ? c.pages.length : 0 };
+    }, r.pdfId);
+    t.expect(pdf.status === "ready" && pdf.pages === 30, "a PDF opens, with its pages counted", `${pdf.status}, ${pdf.pages} pages`);
+    await page.evaluate(() => window.__ribbon.turnComic(0, "seek"));
+    t.expect(await shown(r, 0, 30_000), "its first page is drawn");
+    t.note(`the PDF opened in ${pdf.ms} ms`);
+    await page.waitForTimeout(2500);
+    const pdfTurns: number[] = [];
+    for (let to = 1; to <= 10; to++) {
+      const ms = await turnByKey(r, "ArrowRight", to);
+      if (ms >= 0) pdfTurns.push(ms);
+      await page.waitForTimeout(400);
+    }
+    const pdfSorted = [...pdfTurns].sort((a, b) => a - b);
+    t.expect(pdfTurns.length === 10 && (await pageNow(r)) === 10, "ten presses of the right arrow turn ten of its pages, each drawn", `${pdfTurns.length} drawn, at page ${(await pageNow(r)) + 1}`);
+    t.note(`a turn in the PDF, to the frame its page is drawn: median ${percentile(pdfSorted, 0.5).toFixed(1)} ms, p95 ${percentile(pdfSorted, 0.95).toFixed(1)} ms`);
+    await page.keyboard.press("End");
+    t.expect(await shown(r, 29, 30_000), "End goes to its last page, drawn out of the far end of the file");
+    await page.evaluate(() => window.__ribbon.closeComic());
+    await page.evaluate((id) => window.__ribbon.openComic(id), r.pdfId);
+    t.expect(await shown(r, 29, 30_000), "opened again, it is at the page it was left on");
     await page.evaluate(() => window.__ribbon.closeComic());
   },
 };
