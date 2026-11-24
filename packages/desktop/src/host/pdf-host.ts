@@ -1,4 +1,5 @@
 import type { Host, KnownFile, ScannedFile } from "@ribbon/core/host";
+import { log } from "../app/log";
 
 /**
  * What a web view adds to a host for PDFs (docs/COMICS.md, section 12):
@@ -24,7 +25,10 @@ async function pagesOf(url: string, length: number): Promise<number | null> {
     try {
       return await webPdfPages(url, length);
     } catch (e) {
-      if (!(e instanceof NotReached) && !(e instanceof TypeError)) return 0;
+      const reached = !(e instanceof NotReached) && !(e instanceof TypeError);
+      // Said once, with the reason: a PDF that shows no pages is otherwise a mystery.
+      if (reached || tries >= 40) log.warn("a PDF's pages could not be counted:", url, e);
+      if (reached) return 0;
       if (tries >= 40) return null;
       await new Promise((r) => setTimeout(r, 500));
     }

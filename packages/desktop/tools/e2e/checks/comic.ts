@@ -1,5 +1,5 @@
 import type { Check } from "../run";
-import type { Ribbon } from "../app";
+import { CHECKS_PDF, type Ribbon } from "../app";
 
 const TRACK = "[role=dialog] [data-comic-track]";
 
@@ -153,7 +153,22 @@ export const comicCheck: Check = {
 
     // A PDF, read the same way: its pages drawn by pdf.js (docs/COMICS.md, section 12).
     if (!r.pdfId) {
-      t.expect(false, "the library has the checks' PDF, its pages counted", "none was found, or it was never counted");
+      // Why, as far as the page can say: the book as the app has it, pdf.js asked to open it, and what the page wrote to its console.
+      const why = await page.evaluate(async (title) => {
+        const state = window.__ribbon.getState();
+        const found = state.books.find((b) => b.book.title === title || (b.book.comic ?? "").toLowerCase().endsWith(".pdf"));
+        if (!found) return `no such book among ${state.books.length} (comics: ${state.books.filter((b) => !!b.book.comic).map((b) => b.book.comic).join(", ")})`;
+        const out = [`found as "${found.book.title}", ${found.book.pages ?? "no"} pages, ${found.book.sizeBytes} bytes`];
+        try {
+          await window.__ribbon.openComic(found.book.id);
+          const c = window.__ribbon.getState().comic;
+          out.push(`opening it: ${c?.status ?? "closed"}${c?.status === "failed" ? ` (${c.message})` : c?.status === "ready" ? `, ${c.pages.length} pages` : ""}`);
+        } catch (e) {
+          out.push(`threw: ${String(e)}`);
+        }
+        return out.join("; ");
+      }, CHECKS_PDF.title);
+      t.expect(false, "the library has the checks' PDF, its pages counted", `${why}; the page said: ${r.said.slice(-6).join(" | ") || "nothing"}`);
       return;
     }
     const pdf = await page.evaluate(async (id) => {
