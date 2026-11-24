@@ -121,7 +121,7 @@ readable, and easy to take away.
   books/<book-id>/
     audio files                     copied in, never changed
     book.epub                       copied in, if the book has one
-    book.cbz                        a comic, copied in, never changed (COMICS.md)
+    book.cbz                        a comic, copied in, never changed (COMICS.md); a CBR is written out as one
     book.pdf                        a PDF, read as a comic is; its pages drawn into pages/
     covers/                         the cover at each size the apps draw it
     records/                        chapters, corrections, pairing, frames,

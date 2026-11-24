@@ -148,7 +148,7 @@ export function tauriHost(): Host {
     writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
     catalogSearch: (title, author, region) => invoke<string>("catalog_search", { title, author, region }),
     openEbook: (path) => invoke<string>("ebook_open", { path }),
-    comicEntries: (path) => invoke<{ name: string }[]>("comic_entries", { path }),
+    comicEntries: (path) => invoke<{ name: string; size?: number; packed?: number }[]>("comic_entries", { path }),
     comicCover: (path, entry, target, width) => invoke<boolean>("comic_cover", { path, entry, target, width }),
     // Hearing decodes the audio with ffmpeg, which a phone hasn't: it never hears, and reads along from a server's transcript (#152).
     ...(tools

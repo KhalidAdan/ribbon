@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod comic;
+pub mod comic_rar;
 pub mod ebook;
 pub mod frames;
 pub mod awake;

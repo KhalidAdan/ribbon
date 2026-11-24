@@ -97,8 +97,8 @@ title=$(api GET /api/books | field books.0.title)
 [ "$title" = "Tone Book" ] || failed "it lists '$title', not Tone Book"
 echo "It lists the book."
 
-# Ribbon's own Rust commands, which read-along and MP3 seeking run.
-docker exec "$name" sh -c 'test -x "$RIBBON_EBOOK_TOOL" && test -x "$RIBBON_FRAMES_TOOL"' || failed "its Rust tools are missing"
+# Ribbon's own Rust commands, which read-along, MP3 seeking and adding a CBR run.
+docker exec "$name" sh -c 'test -x "$RIBBON_EBOOK_TOOL" && test -x "$RIBBON_FRAMES_TOOL" && test -x "$RIBBON_CBR_TOOL"' || failed "its Rust tools are missing"
 echo "Its Rust tools are there."
 
 # What draws a PDF's pages for the devices that are sent them (packages/host-node/src/pdf.ts):

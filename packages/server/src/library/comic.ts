@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { openComic } from "@ribbon/host-node/comic";
+import { cbrToCbz, isRar, openCbr } from "@ribbon/host-node/cbr";
+import { cbrRefusal } from "@ribbon/core/comic/cbr";
 import { openPdf } from "@ribbon/host-node/pdf";
 import { pdfPageName } from "@ribbon/core/comic/session";
 import { archiveProblem, pageOrder } from "@ribbon/core/comic/pages";
@@ -80,6 +82,43 @@ export const COMIC_FILE = "book.cbz";
 
 export function comicPath(bookDir: string): string {
   return path.join(bookDir, COMIC_FILE);
+}
+
+// CBRs ---------------------------------------------------------------------
+
+/**
+ * A CBR on the server (docs/COMICS.md, section 13): written out as a CBZ
+ * when it is added, and kept as that `book.cbz`. The server reads every
+ * byte of a book to copy it in anyway, so the cost is nothing more; and
+ * from there on a comic that came as a CBR is a comic like any other, to
+ * the page requests, to the desktop that downloads it and to the Apple
+ * apps, none of which needs a RAR reader.
+ */
+
+/** True when a comic's file is a RAR archive, whatever it is called. */
+export const isCbr = isRar;
+
+/**
+ * Look a CBR over before anything is written: it opens, it is what a
+ * comic is, and it has pages. Throws, in a sentence, when it isn't.
+ * Returns how many bytes it unpacks to, which is the room its CBZ needs.
+ */
+export async function checkCbr(file: string): Promise<number> {
+  const cbr = await openCbr(file).catch((e) => {
+    const refused = cbrRefusal(e);
+    throw new Error(refused ? `it can't be added. ${refused}` : `it isn't a comic Ribbon can open: ${e instanceof Error ? e.message : String(e)}`);
+  });
+  const problem = archiveProblem(cbr.entries);
+  if (problem) throw new Error(`it isn't what a comic is. ${problem}`);
+  if (pageOrder(cbr.entries.map((e) => e.name)).length === 0) throw new Error("it has no pages in it.");
+  return cbr.entries.reduce((sum, e) => sum + (e.size ?? 0), 0);
+}
+
+/** Write a CBR out as the book's CBZ, and list its pages from that. */
+export async function cbrIntoBook(file: string, bookDir: string): Promise<ComicPage[]> {
+  await mkdir(bookDir, { recursive: true });
+  await cbrToCbz(file, comicPath(bookDir));
+  return listPages(comicPath(bookDir));
 }
 
 // PDFs ---------------------------------------------------------------------

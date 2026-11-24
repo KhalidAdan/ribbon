@@ -6,12 +6,12 @@
 #
 #   docker build -f packages/server/Dockerfile -t ribbon-server .
 
-# The EPUB parser and the MP3 frame index (packages/desktop/src-tauri/ebook, packages/desktop/src-tauri/frames), built alone: nothing of Tauri is in them.
+# The EPUB parser, the MP3 frame index and the CBR reader (packages/desktop/src-tauri/ebook, frames and cbr), built alone: nothing of Tauri is in them.
 FROM rust:1-bookworm AS tools
 WORKDIR /ribbon
 COPY .cargo .cargo
 COPY packages/desktop/src-tauri packages/desktop/src-tauri
-RUN cargo build --release --locked --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
+RUN cargo build --release --locked --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames -p ribbon-cbr
 
 FROM node:24-bookworm-slim
 
@@ -37,8 +37,8 @@ COPY packages/auth packages/auth
 COPY packages/auth-accounts packages/auth-accounts
 COPY packages/auth-pocket-id packages/auth-pocket-id
 COPY packages/server packages/server
-COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /usr/local/bin/
-ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames
+COPY --from=tools /ribbon/target/release/ribbon-ebook /ribbon/target/release/ribbon-frames /ribbon/target/release/ribbon-cbr /usr/local/bin/
+ENV RIBBON_EBOOK_TOOL=/usr/local/bin/ribbon-ebook RIBBON_FRAMES_TOOL=/usr/local/bin/ribbon-frames RIBBON_CBR_TOOL=/usr/local/bin/ribbon-cbr
 
 WORKDIR /ribbon/packages/server
 # Its data folder: the database, each person's settings, and (often a bind mount of its own) the books.

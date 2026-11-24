@@ -1,0 +1,26 @@
+[package]
+name = "ribbon-cbr"
+version = "0.1.0"
+description = "A CBR read where it sits: a comic in a RAR archive, listed, read a page at a time, or written out as a CBZ (docs/COMICS.md, section 12)."
+authors = ["Khalid Adan"]
+license = "MIT"
+edition = "2021"
+# What the RAR reader asks for; the rest of Ribbon builds on less.
+rust-version = "1.89"
+publish = false
+
+[lib]
+name = "ribbon_cbr"
+
+[dependencies]
+# The RAR reader: written in Rust alone, under Apache-2.0, with nothing of RARLAB's source in it.
+# Only its reading side is built: no compressor, no passwords, no threads. Pinned to one version,
+# since it is young and what Ribbon was checked against is this one.
+rars = { version = "=0.12.3", default-features = false }
+# A CBR is written out as a CBZ for the server, which keeps every comic as one.
+zip = { version = "4.2.0", default-features = false }
+serde_json = "1.0"
+
+[dev-dependencies]
+# The tests make their own archives, compressed as real ones are, with the same crate's writer.
+rars = { version = "=0.12.3", default-features = false, features = ["write"] }

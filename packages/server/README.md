@@ -90,6 +90,12 @@ The server finds them in the repository's `target/` folder, or wherever
 `RIBBON_EBOOK_TOOL` and `RIBBON_FRAMES_TOOL` say. Without them, everything
 else works and asking for a read-along says the server can't.
 
+A CBR, a comic in a RAR archive, needs a third, `ribbon-cbr`
+(packages/desktop/src-tauri/cbr), which writes it out as the CBZ the server
+keeps (docs/COMICS.md, section 13). Add `-p ribbon-cbr` to the line above, or
+say where it is with `RIBBON_CBR_TOOL`. Without it a CBR in a folder is left
+out, and the import says why; the Docker image has all three.
+
 The narration is transcribed by the apps, on a computer with a graphics
 card, signed in as the server's admin: on a 4-core virtual machine whisper
 hears 0.8 times as fast as the book plays (base) or 0.22 times (small),
@@ -171,6 +177,7 @@ From the environment:
 | `RIBBON_ADMINS` | none | With `pocket-id`: this server's admins, separated by commas, each by their Pocket ID username or, safer, by their id there (a username belongs to whoever holds it now). Being listed gives the role at their next sign-in; taking a name off the list doesn't take the role away. |
 | `RIBBON_EBOOK_TOOL` | `target/release/ribbon-ebook`, else `target/debug/` | The EPUB parser, for read-along. |
 | `RIBBON_FRAMES_TOOL` | `target/release/ribbon-frames`, else `target/debug/` | The MP3 frame index, so a streamed MP3 starts at the exact moment. |
+| `RIBBON_CBR_TOOL` | `target/release/ribbon-cbr`, else `target/debug/` | The CBR reader, so a comic in a RAR archive can be added. |
 | `RIBBON_DESCRIPTIONS` | none | `audible`: a book that came with no description, and has no EPUB with one, gets Audible's summary, after each folder is added and when the server starts. It asks Audible's catalog, sending only the book's title and author, and takes a recording only by one of its authors and as long as it (within 3%). A description already there is never replaced, and each book is asked about once. Unset, the server asks no one. |
 | `RIBBON_AUDIBLE_STORE` | `us` | Which Audible store to ask: `us`, `uk`, `ca`, `au`, `de`, `fr`, `it`, `es`, `in` or `jp`. |
 | `RIBBON_FOLDERS` | none | Where the server has the share the apps add folders from, so a folder picked on a Windows PC or a Mac is found here: the longest stretch of its path that's under one of these. Separated by `:` (`;` on Windows). Unset, a folder is found only at the path it was picked at. |

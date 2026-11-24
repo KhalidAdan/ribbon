@@ -13,8 +13,8 @@ function reaches(file) {
   // Words alone: nothing to build or run.
   if (file.endsWith(".md") || file.startsWith("docs/")) return [];
   if (file.startsWith("packages/apple/")) return ["apple"];
-  // The server's tests run the desktop's own code, and its image builds these two crates.
-  if (/^packages\/desktop\/src-tauri\/(ebook|frames)\//.test(file)) return ["desktop", "e2e", "server", "image"];
+  // The server's tests run the desktop's own code, and its image builds these three crates.
+  if (/^packages\/desktop\/src-tauri\/(ebook|frames|cbr)\//.test(file)) return ["desktop", "e2e", "server", "image"];
   if (file.startsWith("packages/desktop/")) return ["desktop", "e2e", "server"];
   if (file.startsWith("packages/server/")) return ["server", "image"];
   // Signing in (packages/auth, auth-accounts, auth-pocket-id) is the server's alone. The end-to-end

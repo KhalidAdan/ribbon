@@ -4,7 +4,7 @@
 comic, and what it takes on the desktop, the server and the Apple apps.
 Section 10 lists what was decided; the changes to the north star are in
 section 9 and made in [NORTHSTAR.md](NORTHSTAR.md). Section 11 says what
-is built so far.
+is built so far. PDFs came after, in section 12, and CBRs in section 13.
 
 ## 1. Why
 
@@ -25,7 +25,8 @@ server, the place, the people) carrying one more kind of book.
 ## 2. What a comic is, to Ribbon
 
 **A comic is a book of pages already drawn.** One CBZ file is one book: a
-zip of pictures, read in the order of their names.
+zip of pictures, read in the order of their names. A CBR is the same book
+in a RAR archive (section 13).
 
 - **It is read, never heard.** No narration, no transcript, no read-along,
   and Ribbon never pairs a comic with an audiobook or an EPUB.
@@ -40,7 +41,7 @@ What is refused, each for a reason:
 
 | Refused | Why |
 | --- | --- |
-| CBR, CB7 | RAR and 7z each need a decoder Ribbon would have to ship on every system, and RAR's comes with a licence of its own. A CBR converts to a CBZ with existing tools, outside Ribbon. |
+| CB7 | 7z needs a decoder Ribbon would have to ship on every system, and nobody has asked for it. CBR was refused here too, for the same reason and for RAR's licence, until section 13. |
 | Comics with DRM | The same line as AAX and locked EPUBs. |
 | Guided view (panel by panel) | It means guessing where panels are. Ribbon offers only what is exact. |
 | A comics catalogue or store | No catalogue, no recommendations (NORTHSTAR.md). Looking a comic's details up is a different thing (section 8). |
@@ -279,7 +280,7 @@ Four edits, made in [NORTHSTAR.md](NORTHSTAR.md) on this branch:
    says in one sentence what Ribbon does with one.
 2. **Not two apps** keeps its refusal and moves the line: EPUBs and comics
    without DRM, and still no CBR or MOBI. (PDFs were refused here too, until
-   section 12.)
+   section 12, and CBRs until section 13.)
 3. **A new principle, "A drawn page is shown as it was drawn"**, next to
    "The page is the product too", so the two readers each have their rule.
 4. **What comes next** lists comics, pointing here.
@@ -480,4 +481,121 @@ and slower when pages are flipped past faster than they can be drawn.
 Neither has been worked on yet.
 
 **What is refused still:** PDFs with a password or DRM; forms, links,
-sound and video inside one; and CBR.
+sound and video inside one.
+
+## 13. CBRs
+
+**Asked for by the owner on 2026-11-23:** "add CBR support (or take CBRs
+and convert them to CBZ)". Section 2 refused CBR for two reasons: a decoder
+to ship on every system, and RAR's licence. Both have an answer now.
+
+**What a CBR is, to Ribbon.** A CBZ whose archive is a RAR: the same
+pages, in the same order, with the same ComicInfo.xml, place, spreads and
+shelf. Core decides all of that for both (`comic/pages.ts`); a host lists
+the archive and fetches one entry by name, as it does a zip. A file is
+what its first bytes say, not what it is called: comics named `.cbr` are
+often zips, and some named `.cbz` are RARs, and both open.
+
+**The decoder, and its licence.** [`rars`](https://crates.io/crates/rars),
+version 0.12.3, pinned: a RAR reader written in Rust alone, under
+Apache-2.0, which sits with Ribbon's MIT. It has none of RARLAB's UnRAR
+source in it, so the UnRAR licence and its condition (the source may not
+be used to build a RAR compressor) don't come into it. Ribbon builds only
+its reading side: no compressor, no passwords, no threads, no unsafe code,
+and two small crates beneath it. It reads RAR 1.5 to 4 and RAR 5 to 7.
+The other candidates: the `unrar` crate is RARLAB's C++ under that
+licence; libarchive is BSD but a C library to build for every system, the
+phones among them. `rars` is young (2026), which is why it is pinned and
+why "What is not checked" below is plain about it.
+
+**On the desktop a CBR is read where it sits**, in Rust
+(`src-tauri/cbr`, a crate of its own, and `src/comic_rar.rs`), through the
+commands and the `ribboncomic` address a CBZ is read through. Nothing is
+unpacked to disk and nothing is written beside the comic but the usual
+records. It builds wherever Rust does: checked for the Mac and for iOS;
+Windows is the checks', Android was not tried.
+
+**On the server a CBR is written out as a CBZ** when its folder is added,
+and kept as `book.cbz`. The server reads every byte of a book to copy it
+in anyway, so this costs no more; and after it, a comic that came as a CBR
+is a comic like any other to the page requests, to the desktop that
+downloads it, and to the Apple apps, which needed no change. Its pages are
+stored in the zip, not squeezed, as every CBZ's should be. The server and
+Node run the same reader as a command, `ribbon-cbr`, the way they run
+`ribbon-ebook`.
+
+**What was measured, and what it decided.** On the Mac, over a comic made
+for it: 300 pages of 1.2 MB, 360 MB, stored, as a CBZ and as a CBR in each
+RAR format (the two formats came out alike).
+
+| What | The CBZ | The CBR |
+| --- | --- | --- |
+| Listing it | 0.5 ms | 41 ms, in 301 requests for bytes: one for each file in it |
+| Listing it, with every request made to wait 20 ms, as a share does | | 8.5 s |
+| One page | 0.1 to 0.3 ms | 1.5 ms, in 3 requests |
+| One page, the pages squeezed as RAR squeezes them | | 11 ms |
+| Written out as a CBZ, by the command | | 0.4 s, with 4 MB of memory at its peak |
+| Written out as a CBZ in Node, by the same reader as WebAssembly | | 2.2 s, with 1.9 GB at its peak |
+
+Three things follow.
+
+1. **A RAR has no list of its files at one end**, as a zip has: each
+   file's header sits in front of that file. Listing one is a jump to
+   every header, and over a share each jump is a round trip. Nothing gets
+   that below one request a file, so the reader makes it exactly one
+   (`reader.rs`), and a page two or three. A CBR's list is walked at the
+   scan, once, and kept in `comics.csv` like any comic's; again for its
+   cover, once; and again when it is opened to read, after which the
+   archive is kept open and a page costs what a CBZ's does.
+2. **Converting on the desktop too was considered and not done.** A copy
+   in Ribbon's own folder would make listing instant, but making it means
+   reading every byte of the comic first: 360 MB over the share before the
+   first page, against 301 small requests; and it doubles every CBR on the
+   disk, with a cache to keep and to clear. Where the comic is on a local
+   disk, the walk is 41 ms and there is nothing to win.
+3. **The server converts with the command, not in Node.** The WebAssembly
+   build of the same reader takes the whole archive into memory, several
+   times over: 1.9 GB for this comic. A small server can't spare that for
+   an omnibus, and the command needs 4 MB. So Node has no RAR reader of
+   its own; where the command isn't built, a CBR is a comic with no pages,
+   and adding one to a server says why.
+
+**What is refused**, each in a sentence, the same on every host
+(`core/comic/cbr.ts`):
+
+| Refused | Why |
+| --- | --- |
+| A CBR locked with a password | The same line as AAX and locked EPUBs. The reader is built with no way to unlock one. |
+| One part of a CBR split across several files | Ribbon reads a book from one file. |
+| An archive of more than 20,000 files, a page of more than 128 MB, a megabyte that unpacks to more than 200, 16 GB in all | The limits a zip is held to (`archiveProblem`). A RAR's list gives every size, so they are checked before a page is read, and the unpacker is stopped at them whatever the list says. |
+| An archive that asks the unpacker to remember more than 256 MB | RAR's own default is 32 MB; one that claims gigabytes isn't a comic. |
+
+**Read, but slowly: a "solid" CBR**, whose pages were squeezed each against
+the ones before it. To read a page, every page before it is unpacked
+first: measured at 10 ms for each page of 1.2 MB, so 0.6 s for page 60
+and, by that, two seconds for page 200. They are rare among comics, since
+squeezing pictures against each other gains nothing. On the server it
+makes no difference: writing the CBZ is one pass (0.6 s for those 60).
+
+**What is not checked.**
+
+- **No CBR made by RAR or WinRAR is in the tests**, because none may be
+  in the repository. The Rust tests read archives squeezed by the same
+  crate's writer; Node's are written by hand and stored. Once, by hand,
+  the reader was run over the 162 archives that crate's own tests carry,
+  some of them made by WinRAR. It unpacked 84; the 58 of those that
+  libarchive (a different RAR reader, the Mac's `bsdtar`) could also
+  unpack came out byte for byte the same from both. It refused 69 as
+  locked or split and 6 as no RAR it reads (older than RAR 1.5, or a
+  header damaged on purpose), and 3 more, damaged on purpose, failed
+  while unpacking. That is the evidence, and it is not a shelf of real
+  comics: the first real CBRs Ribbon reads will be the owner's.
+- **Nothing over a real share.** The 8.5 s is a made delay, not a network.
+- **In the built app**, a CBR was not opened by hand or by the end-to-end
+  checks: the Rust tests go through the functions the app's commands
+  call, not through the web view.
+- **Names in old code pages.** Before RAR 5 a name could be written in
+  the code page of the PC that made it. Such a page still opens, under a
+  name with marks where its accents were.
+- **A CBR over 4 GB**, which the CBZ written from it needs the zip
+  format's large form for.
