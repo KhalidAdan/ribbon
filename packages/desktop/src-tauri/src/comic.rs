@@ -1,4 +1,6 @@
-//! Comics in the app (docs/COMICS.md): a CBZ read where it sits, never unpacked.
+//! Comics in the app (docs/COMICS.md): a CBZ read where it sits, never unpacked. A CBR,
+//! the same comic in a RAR archive, comes through the same doors and is read in
+//! comic_rar.rs; which of the two a file is, is told by its first bytes, not its name.
 //!
 //! Three things are done here, each because the web view can't do it well:
 //!
@@ -32,21 +34,21 @@ const PAGE_BLOCK: usize = 1 << 20;
 /// The pictures a web view and the Apple apps both draw (core's `PAGE_EXTENSIONS`).
 const PAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 /// The most a ComicInfo.xml may be and still be read at a scan.
-const COMIC_INFO_MAX: u64 = 1 << 20;
+pub(crate) const COMIC_INFO_MAX: u64 = 1 << 20;
 /// The most one page may unpack to (core's `ARCHIVE_LIMITS.pageBytes`): past it, the
 /// archive is broken or hostile, and the page isn't read.
-const PAGE_MAX: u64 = 128 << 20;
+pub(crate) const PAGE_MAX: u64 = 128 << 20;
 
 fn extension(name: &str) -> String {
     name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default()
 }
 
-fn base_name(name: &str) -> &str {
+pub(crate) fn base_name(name: &str) -> &str {
     name.rsplit_once('/').map(|(_, b)| b).unwrap_or(name)
 }
 
 /// What an archive carries that is not the comic: macOS's resource forks, hidden files.
-fn is_litter(name: &str) -> bool {
+pub(crate) fn is_litter(name: &str) -> bool {
     name.split('/').any(|part| part == "__MACOSX" || part.starts_with('.'))
 }
 
@@ -62,8 +64,20 @@ pub struct Listing {
     pub comic_info: Option<String>,
 }
 
-/// A comic's page count and its ComicInfo.xml, with no page opened. None when the file is not a zip.
+/// A comic's page count and its ComicInfo.xml, with no page opened. None when the file is
+/// no archive. Tried first as what its name says it is, so a comic rightly named costs a
+/// scan nothing more; a RAR called .cbz, or a zip called .cbr, is found on the second try.
 pub fn read_listing(path: &Path) -> Option<Listing> {
+    let named_cbr = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("cbr"));
+    if named_cbr {
+        crate::comic_rar::read_listing(path).or_else(|| zip_listing(path))
+    } else {
+        zip_listing(path).or_else(|| crate::comic_rar::read_listing(path))
+    }
+}
+
+/// The same of a zip: two small reads from the end of the file, and one more for ComicInfo.xml.
+fn zip_listing(path: &Path) -> Option<Listing> {
     let file = File::open(path).ok()?;
     let mut zip = ZipArchive::new(BlockReader::new(file, LIST_BLOCK).ok()?).ok()?;
     let names: Vec<String> = zip.file_names().map(str::to_string).collect();
@@ -82,23 +96,32 @@ pub fn read_listing(path: &Path) -> Option<Listing> {
     Some(Listing { pages, comic_info })
 }
 
-/// One file in a comic's archive. Its sizes aren't given: reading them costs a request
+/// One file in a comic's archive. A zip's sizes aren't given: reading them costs a request
 /// per entry over a share, and what they guard against is checked where a page is read.
+/// A RAR's are, since listing one passes every file's header anyway (comic_rar.rs).
 #[derive(Serialize)]
 pub struct Entry {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packed: Option<u64>,
 }
 
-/// Every file in a comic's archive, by name, from the archive's own list.
+/// Every file in a comic's archive, by name, from the archive's own list. A CBR that is
+/// refused (locked, split) is refused in a sentence core knows (`comic/cbr.ts`).
+pub(crate) fn entries_of(path: &Path) -> Result<Vec<Entry>, String> {
+    if crate::comic_rar::is_rar(path) {
+        return crate::comic_rar::entries(path);
+    }
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let zip = ZipArchive::new(BlockReader::new(file, LIST_BLOCK).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    Ok(zip.file_names().filter(|n| !n.ends_with('/')).map(|n| Entry { name: n.to_string(), size: None, packed: None }).collect())
+}
+
 #[tauri::command]
 pub async fn comic_entries(path: String) -> Result<Vec<Entry>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let file = File::open(&path).map_err(|e| e.to_string())?;
-        let zip = ZipArchive::new(BlockReader::new(file, LIST_BLOCK).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        Ok(zip.file_names().filter(|n| !n.ends_with('/')).map(|n| Entry { name: n.to_string() }).collect())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || entries_of(Path::new(&path))).await.map_err(|e| e.to_string())?
 }
 
 /// One entry of an archive, whole. Refused when it would unpack to more than a page could be.
@@ -119,9 +142,14 @@ fn read_entry<R: Read + std::io::Seek>(zip: &mut ZipArchive<R>, entry: &str) -> 
 /// A comic's cover from one of its pages: a JPEG at `target`, no wider than `width`.
 /// Ok(false) when the page can't be read as a picture.
 pub fn make_cover(path: &Path, entry: &str, target: &Path, width: u32) -> std::io::Result<bool> {
-    let file = File::open(path)?;
-    let Ok(mut zip) = ZipArchive::new(BufReader::with_capacity(PAGE_BLOCK, file)) else { return Ok(false) };
-    let Ok(bytes) = read_entry(&mut zip, entry) else { return Ok(false) };
+    let bytes = if crate::comic_rar::is_rar(path) {
+        crate::comic_rar::read_entry(path, entry)
+    } else {
+        let file = File::open(path)?;
+        let Ok(mut zip) = ZipArchive::new(BufReader::with_capacity(PAGE_BLOCK, file)) else { return Ok(false) };
+        read_entry(&mut zip, entry)
+    };
+    let Ok(bytes) = bytes else { return Ok(false) };
     let Ok(page) = image::load_from_memory(&bytes) else { return Ok(false) };
     let small = if page.width() > width { page.resize(width, u32::MAX, image::imageops::FilterType::Triangle) } else { page };
     let mut jpeg = Vec::new();
@@ -155,12 +183,16 @@ struct Open {
 static OPEN: Mutex<Option<Open>> = Mutex::new(None);
 
 /// A page's bytes, from the comic kept open or one opened now.
-fn page_bytes(path: &Path, entry: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn page_bytes(path: &Path, entry: &str) -> Result<Vec<u8>, String> {
     let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
     let (len, modified) = (meta.len(), meta.modified().ok());
     let mut open = OPEN.lock().unwrap_or_else(|e| e.into_inner());
     let same = open.as_ref().is_some_and(|o| o.path == path && o.len == len && o.modified == modified);
     if !same {
+        // A CBR is kept open by its own reader, and its pages come from there.
+        if let Some(page) = crate::comic_rar::page(path, len, modified, entry) {
+            return page;
+        }
         let file = File::open(path).map_err(|e| e.to_string())?;
         let zip = ZipArchive::new(BufReader::with_capacity(PAGE_BLOCK, file)).map_err(|e| e.to_string())?;
         *open = Some(Open { path: path.to_path_buf(), len, modified, zip });

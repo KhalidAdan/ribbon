@@ -35,9 +35,9 @@ const IMAGE: &[&str] = &["jpg", "jpeg", "png", "webp"];
 /// identifiers, cover), to pair it with its audiobook or make it a book
 /// of its own; the chapters are read when the book is read.
 const EBOOK: &[&str] = &["epub"];
-/// A comic: a zip of pictures. A scan reads only its list of files and its
+/// A comic: a zip of pictures, or a RAR of them. A scan reads only its list of files and its
 /// ComicInfo.xml (comic.rs); no page is opened until it is read.
-const COMIC: &[&str] = &["cbz"];
+const COMIC: &[&str] = &["cbz", "cbr"];
 /// A PDF, read as a comic is (docs/COMICS.md, section 12). The scan only finds it: its
 /// pages are counted by the web view, which is what can read one (pdf.js).
 const PDF: &[&str] = &["pdf"];

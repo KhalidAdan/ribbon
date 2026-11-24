@@ -13,7 +13,7 @@ import { FolderPlaces } from "./folder-places.ts";
 import { analyzeStored } from "./prepare.ts";
 import { carriedAnalysis, carryRecords, findRecords } from "./records.ts";
 import { audioFingerprint, fileFingerprint } from "./fingerprint.ts";
-import { COMIC_FILE, PDF_FILE, comicPath, listPages, listPdfPages, pageToFile, pdfPageToFile } from "./comic.ts";
+import { COMIC_FILE, PDF_FILE, cbrIntoBook, checkCbr, comicPath, isCbr, listPages, listPdfPages, pageToFile, pdfPageToFile } from "./comic.ts";
 import { isPdfFile } from "@ribbon/core/comic/pages";
 import { neverWrites } from "./never-writes.ts";
 
@@ -95,11 +95,14 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
 
   // Checked before anything is copied: a book that won't fit is left out, said why, and the import goes on to smaller ones.
   // Measured where the book goes, the books folder, not the data folder above it: they can be different disks.
-  const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0) + (scanned.book.comic ? scanned.book.sizeBytes : 0);
+  // A CBR is kept as the CBZ it is written out as (comic.ts): looked over first, and the room it needs is what it unpacks to.
+  const cbr = !!scanned.book.comic && !isPdfFile(scanned.book.comic) && (await isCbr(abs(scanned.book.comic)));
+  const comicBytes = cbr ? await checkCbr(abs(scanned.book.comic!)) : scanned.book.comic ? scanned.book.sizeBytes : 0;
+  const bytes = scanned.files.reduce((s, f) => s + f.sizeBytes, 0) + (scanned.book.ebook ? (await stat(abs(scanned.book.ebook))).size : 0) + comicBytes;
   // A comic's pages, listed before anything is copied: a file that isn't a comic is left out, and says why.
   // A PDF is a book of pages too: its pages are counted and measured, and drawn when they are read.
   const pdf = !!scanned.book.comic && isPdfFile(scanned.book.comic);
-  const pages = scanned.book.comic ? await (pdf ? listPdfPages : listPages)(abs(scanned.book.comic)) : undefined;
+  let pages = scanned.book.comic && !cbr ? await (pdf ? listPdfPages : listPages)(abs(scanned.book.comic)) : undefined;
   if (pages && pages.length === 0) throw new Error("it has no pages in it.");
   const books = booksDir(ctx.dataDir);
   await mkdir(books, { recursive: true });
@@ -124,7 +127,10 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     const ebookBytes = book.book.ebook ? (await stat(abs(book.book.ebook))).size : undefined;
     if (book.book.ebook) await copyIn(abs(book.book.ebook), path.join(building, "book.epub"), ebookBytes);
     const pagesFile = pdf ? PDF_FILE : COMIC_FILE;
-    if (book.book.comic) await copyIn(abs(book.book.comic), path.join(building, pagesFile), book.book.sizeBytes);
+    if (cbr) pages = await cbrIntoBook(abs(book.book.comic!), building);
+    else if (book.book.comic) await copyIn(abs(book.book.comic), path.join(building, pagesFile), book.book.sizeBytes);
+    // A device knows a comic by its file's size (core's `localIdOf`), and the file it will be sent is the CBZ.
+    const keptBytes = cbr ? { sizeBytes: (await stat(comicPath(building))).size } : {};
 
     // The cover: a picture beside the book (or one Ribbon pulled out on a computer), else the one inside the first audio file
     // that has one. A comic's is its first page, written out of the copy for ffmpeg to read and removed after.
@@ -139,7 +145,7 @@ async function importBook(ctx: ImportContext, host: Host, root: string, scanned:
     if (firstPage) await rm(firstPage, { force: true });
 
     const stored: StoredBook = {
-      book: { ...book.book, id, path: "", cover: cover ? `covers/${cover.hash}` : "", ...(book.book.ebook ? { ebook: "book.epub" } : {}), ...(pages ? { comic: pagesFile, pages: pages.length } : {}) },
+      book: { ...book.book, ...keptBytes, id, path: "", cover: cover ? `covers/${cover.hash}` : "", ...(book.book.ebook ? { ebook: "book.epub" } : {}), ...(pages ? { comic: pagesFile, pages: pages.length } : {}) },
       files,
       chapters: book.chapters,
       parts: book.parts,

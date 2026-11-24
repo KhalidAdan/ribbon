@@ -113,7 +113,7 @@ jobs:
           echo "$bin" >> "$GITHUB_PATH"
       - run: npm ci --ignore-scripts
         working-directory: .
-      # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index (packages/desktop/src-tauri/ebook, packages/desktop/src-tauri/frames), which the tests run.
+      # Read-along reads EPUBs with Ribbon's own parser and finds MP3 frames with its own index, and a CBR is read with Ribbon's own reader (packages/desktop/src-tauri/ebook, frames and cbr), which the tests run.
       - name: Rust (stable)
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@v2
@@ -121,7 +121,7 @@ jobs:
           # Compiled output remembers where its source was: a new key, so a cache from before the desktop moved is never used.
           prefix-key: v1-rust
           workspaces: packages/desktop/src-tauri -> ../../../target
-      - run: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames
+      - run: cargo build --manifest-path packages/desktop/src-tauri/Cargo.toml -p ribbon-ebook -p ribbon-frames -p ribbon-cbr
         working-directory: .
       # Signing in is three packages of its own (packages/auth, auth-accounts, auth-pocket-id), each with its tests.
       - name: Signing in

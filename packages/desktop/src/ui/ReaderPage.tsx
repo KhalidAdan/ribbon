@@ -151,7 +151,7 @@ export function ReaderPage() {
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
-    ...(book.book.comic ? [...(book.book.pages === undefined ? [] : [{ term: "Pages", value: String(book.book.pages) }]), pagesKind(book.book.comic) === "PDF" ? { term: "File", value: "PDF" } : { term: "Comic", value: "CBZ" }] : []),
+    ...(book.book.comic ? [...(book.book.pages === undefined ? [] : [{ term: "Pages", value: String(book.book.pages) }]), pagesKind(book.book.comic) === "PDF" ? { term: "File", value: "PDF" } : { term: "Comic", value: /\.cbr$/i.test(book.book.comic) ? "CBR" : "CBZ" }] : []),
     ...(toRead || book.remote ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
     ...(book.remote && !toRead ? [{ term: "Download", value: formatBytes(book.book.sizeBytes) }] : []),
   ];

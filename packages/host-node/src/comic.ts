@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { openZip, type OpenZipArchive } from "@culvert/zip";
 import { collectBytes, pipe, type Source } from "@culvert/stream";
 import type { ArchiveEntry } from "@ribbon/core/comic/pages";
+import { isRar, openCbr } from "./cbr";
 
 /**
  * A comic's archive on Node, read with Culvert (docs/COMICS.md, sections
@@ -20,8 +21,13 @@ export interface OpenComic {
   close(): Promise<void>;
 }
 
-/** Open a CBZ where it sits. Rejects when it is not a zip. */
+/**
+ * Open a comic where it sits: a CBZ here, a CBR with Ribbon's RAR reader
+ * (cbr.ts). Which it is, is told by its first bytes, not its name. Rejects
+ * when it is neither, and in a sentence for a CBR Ribbon refuses.
+ */
 export async function openComic(file: string): Promise<OpenComic> {
+  if (await isRar(file)) return openCbr(file);
   const handle = await open(file, "r");
   let archive: OpenZipArchive;
   try {

@@ -262,6 +262,42 @@ comic is in the repository.
   page on this machine and in the log, opens there again on another
   machine, and is finished on its last page.
 
+### CBRs (`src-tauri/cbr/`, `src-tauri/src/comic_rar.rs`, `host-node/src/cbr.ts`)
+
+Over CBRs made for the tests, two ways. The Rust tests make theirs with the
+RAR crate's own writer, packed as real ones are: stored, squeezed, and
+squeezed each against the last ("solid"), in RAR 5 and in the format before
+it. Node's are written by hand from the published format
+(`packages/host-node/src/make-cbr.ts`), stored only, so they are made by
+something other than the reader that reads them.
+
+- Every file is listed with its sizes and comes out as it went in, however
+  the archive was packed, asked for in any order. Folders are parted by a
+  slash whichever way the archive wrote them.
+- Listing asks the file once for each file in the archive, and a page two
+  or three times: what a share makes slow is counted, and held down
+  (`reader.rs`).
+- A file is what its first bytes say: a RAR called `.cbz` and a zip called
+  `.cbr` are both comics; a file that is neither has no pages.
+- A CBR locked with a password, and one part of one split across several
+  files, are refused in one sentence each, the same in Rust and in core. An
+  archive of more files than a comic has, and a page larger than a page
+  could be, are refused too; a RAR's list gives sizes, so core's limits
+  (`archiveProblem`) are applied to it in the app as well.
+- Written out as a CBZ: the same files under the same names, none
+  squeezed, and nothing left behind when it can't be.
+- In the app (Rust): a CBR is scanned, listed, given a cover and read
+  through the same functions a CBZ is; one that changed is opened again.
+- On the server: a CBR is kept as a CBZ, listed with its details and its
+  cover, its pages and its file sent as any comic's; a locked one, a split
+  one and one with no pages are left out, each with its sentence; never
+  added twice. The server's tests need the reader built
+  (`cargo build ... -p ribbon-cbr`).
+
+Not checked by any test: a CBR made by RAR or WinRAR itself, since none may
+be in the repository. Once, by hand, the reader was run over the 162
+archives the RAR crate's own tests carry (COMICS.md, section 13).
+
 ### PDFs (`host-node/src/pdf.ts`, `desktop/src/comic/pdf.ts`)
 
 Over PDFs written by hand for the tests (`makePdf` in

@@ -1,6 +1,7 @@
 import type { Host } from "@ribbon/core/host";
 import { archiveProblem, isPdfFile, pageOrder } from "@ribbon/core/comic/pages";
 import { pdfPageNames } from "@ribbon/core/comic/session";
+import { cbrRefusal } from "@ribbon/core/comic/cbr";
 
 /**
  * A comic's pages, for the reader: its archive's list, read once, in
@@ -20,8 +21,10 @@ export async function comicPages(host: Host, absPath: string): Promise<{ ok: tru
   let entries;
   try {
     entries = await host.comicEntries(absPath);
-  } catch {
-    return { ok: false, message: "The file isn't a comic Ribbon can open: a CBZ is a zip of pictures, and this isn't one." };
+  } catch (e) {
+    // A CBR that is locked or split says so; anything else is no archive at all.
+    const refused = cbrRefusal(e);
+    return { ok: false, message: refused ? `This comic can't be opened. ${refused}` : "The file isn't a comic Ribbon can open: a CBZ is a zip of pictures, a CBR a RAR of them, and this is neither." };
   }
   const problem = archiveProblem(entries);
   if (problem) return { ok: false, message: `This file isn't what a comic is. ${problem}` };

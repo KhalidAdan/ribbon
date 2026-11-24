@@ -15,7 +15,7 @@ order:
 - [docs/READING.md](docs/READING.md): the reader and read-along. [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md): the position log.
 - [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md): every state machine in Ribbon, written down or not yet, and how to write one. Read it before adding a flag.
 - [docs/DESIGN.md](docs/DESIGN.md): the look. [docs/PLAN.md](docs/PLAN.md): how version one was built.
-- [docs/COMICS.md](docs/COMICS.md): comics (CBZ), a third kind of book: the plan, what was decided, and in section 11 the order of the work and what is built.
+- [docs/COMICS.md](docs/COMICS.md): comics (CBZ, CBR), a third kind of book: the plan, what was decided, and in section 11 the order of the work and what is built. PDFs are section 12, CBRs section 13.
 - [docs/RELEASING.md](docs/RELEASING.md): cutting a release. [docs/MAC.md](docs/MAC.md): macOS and the phone.
 
 ## How the owner works
@@ -80,8 +80,9 @@ order:
 | `packages/desktop/src/bookcase3d/` | The lamp-lit bookcase in 3D (three.js), made to match the Apple app's: `lamplit-case.ts` is the map, and `packages/desktop/tools/shelf-proof` sets the two side by side. |
 | `packages/desktop/src/player/engine.ts` | Playback: two audio elements, gapless, loudness, MP3s from the exact frame. |
 | `packages/desktop/src/ui/` | Everything else on screen. `useAppState(selector)` so a player tick redraws only what shows the time. |
-| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), a book's audio for Apple's webview (`audio.rs`), comics (`comic.rs`: a CBZ's list at the scan, covers, pages at the `ribboncomic` address), the Ribbon folder (`home.rs`, and moving it, `home_move.rs`). |
+| `packages/desktop/src-tauri/src/` | Rust: the scanner (`scan.rs`, `tags.rs`), EPUBs (`ebook/`: the export), speech (`speech.rs`, the app's commands over `speech/`), MP3 frames (`frames.rs`), a book's audio for Apple's webview (`audio.rs`), comics (`comic.rs`: a CBZ's list at the scan, covers, pages at the `ribboncomic` address; `comic_rar.rs`: the same of a CBR), the Ribbon folder (`home.rs`, and moving it, `home_move.rs`). |
 | `packages/desktop/src-tauri/ebook/` | The EPUB parser, a crate of its own: the app uses it, and the server runs it as `ribbon-ebook`. |
+| `packages/desktop/src-tauri/cbr/` | The CBR reader, a crate of its own over the `rars` crate (docs/COMICS.md, section 13): the app reads a CBR with it where it sits, and the server and Node run it as `ribbon-cbr`, to list one and to write it out as a CBZ. |
 | `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
 | `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). |
