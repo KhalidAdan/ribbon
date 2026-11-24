@@ -32,9 +32,13 @@ fn uptime_ms() -> u64 {
 /// A library folder named on the command line or in RIBBON_LIBRARY, for
 /// opening straight into a library without the picker. Used by scripts
 /// and timing runs; the remembered root still wins when there is one.
+/// Given whole, from the drive or the root down: the web view's file
+/// address serves no file named from the folder the app was started in,
+/// which is how a PDF is read.
 #[tauri::command]
 fn env_library() -> Option<String> {
-    std::env::args().nth(1).filter(|a| !a.starts_with('-')).or_else(|| std::env::var("RIBBON_LIBRARY").ok()).filter(|s| !s.trim().is_empty())
+    let named = std::env::args().nth(1).filter(|a| !a.starts_with('-')).or_else(|| std::env::var("RIBBON_LIBRARY").ok()).filter(|s| !s.trim().is_empty())?;
+    Some(std::path::absolute(&named).map(|p| p.to_string_lossy().into_owned()).unwrap_or(named))
 }
 
 /// Widen the filesystem and asset-protocol scopes to a library folder the
