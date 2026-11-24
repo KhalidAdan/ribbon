@@ -262,6 +262,27 @@ comic is in the repository.
   page on this machine and in the log, opens there again on another
   machine, and is finished on its last page.
 
+### PDFs (`host-node/src/pdf.ts`, `desktop/src/comic/pdf.ts`)
+
+Over PDFs written by hand for the tests (`makePdf` in
+`packages/host-node/src/make-comic.ts`): pages of flat colour with their
+number drawn, no fonts and no pictures.
+
+- A PDF is a book of pages, named by its file; its pages are counted, once,
+  and not again while it is unchanged. A file that isn't a PDF after all is
+  shelved with no pages and no cover.
+- A PDF is a book only in a folder with no audio and no EPUB; beside those
+  it is the book's booklet.
+- Its cover is its first page, drawn. Each page's size is known before it
+  is drawn, so a page drawn across two is given the screen.
+- Its place is written as PDFs name a page (`page=5`, in the file's name),
+  and found again by that, then by its number.
+- In the app: it opens in the comic reader, keeps its page, and opens
+  there again on another machine.
+
+Drawing in a web view is not unit-tested: the end-to-end `comic` check
+draws a PDF on Windows, and a probe drew three in a Mac build.
+
 ### What's on screen (`core/screen.ts`)
 
 - Each page shows from any other, and every page but Settings closes the
