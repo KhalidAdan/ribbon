@@ -41,7 +41,6 @@ What is refused, each for a reason:
 | Refused | Why |
 | --- | --- |
 | CBR, CB7 | RAR and 7z each need a decoder Ribbon would have to ship on every system, and RAR's comes with a licence of its own. A CBR converts to a CBZ with existing tools, outside Ribbon. |
-| PDF | Not pictures in a zip: it needs a renderer on every system, and it brings every other kind of PDF with it. A separate decision, not this one. |
 | Comics with DRM | The same line as AAX and locked EPUBs. |
 | Guided view (panel by panel) | It means guessing where panels are. Ribbon offers only what is exact. |
 | A comics catalogue or store | No catalogue, no recommendations (NORTHSTAR.md). Looking a comic's details up is a different thing (section 8). |
@@ -279,7 +278,8 @@ Four edits, made in [NORTHSTAR.md](NORTHSTAR.md) on this branch:
 1. **What this is** names the comic beside the EPUB and the audiobook, and
    says in one sentence what Ribbon does with one.
 2. **Not two apps** keeps its refusal and moves the line: EPUBs and comics
-   without DRM, and still no PDF, CBR or MOBI.
+   without DRM, and still no CBR or MOBI. (PDFs were refused here too, until
+   section 12.)
 3. **A new principle, "A drawn page is shown as it was drawn"**, next to
    "The page is the product too", so the two readers each have their rule.
 4. **What comes next** lists comics, pointing here.
@@ -397,3 +397,61 @@ Culvert: Ribbon reads archives on Node with `@culvert/zip` 0.2.0, which is
 made for the `@culvert/stream` 0.2.0 it was already on. Tried before step
 2 on three made-up CBZs, stored and deflated: every page came out byte for
 byte.
+
+## 12. PDFs
+
+**Decided by the owner on 2026-11-24: Ribbon reads PDFs.** His older comics
+are PDFs, every one of them, and a home for his comics that can't open
+them isn't one. The plan above refused PDF as "a separate decision"; this
+is that decision, and the cost it named is real: a PDF's pages aren't
+pictures in a zip, so every device needs something that can draw one.
+
+**What a PDF is, to Ribbon.** A book of pages already drawn, exactly as a
+CBZ is: read in the same reader, with the same place (a page), the same
+spreads, the same shelf. Nothing in Ribbon treats a PDF as text: no
+search inside it, no reflow, no read-along. A PDF of a novel opens as its
+pages, and that is all.
+
+**Which PDFs are books** (proposed). A folder of audio often has a PDF in
+it: the booklet that came with the audiobook. So a PDF is a book when its
+folder holds no audio and no EPUB, and otherwise it is left off the shelf
+as it is today.
+
+**Its details** (proposed). From its file's name, by the rule comics
+have: "Tales 014 (1954).pdf" is Tales, number 14, 1954. A PDF's own title
+and author are too often its scanner's ("Scan0001", the program that made
+it) to believe; they are not read. Anything edited by hand stands, as
+ever.
+
+**What draws it, on each device.**
+
+| Where | What draws a page | Why |
+| --- | --- | --- |
+| The desktop | [pdf.js](https://mozilla.github.io/pdf.js/) (Mozilla's, Apache 2.0), in the web view | The same code on Windows and the Mac, and on Android's and iOS's web views after them. It reads the file in ranges, so a 200 MB scan over a share is asked only for the pages being read. It draws a page at the size it is shown, into the pictures the comic reader already keeps and frees itself. |
+| The iPad, the iPhone, the Apple TV | PDFKit, Apple's own | Already on the device, and fast. The app fetches the PDF from the server, in ranges, into the cache the system may clear. |
+| The server | Nothing draws pages | It keeps the file and sends it. Its page count and its cover come from poppler's `pdfinfo` and `pdftoppm`, when they are installed, as ffmpeg is for covers today (proposed); without them a PDF is listed with no cover and no count, and still read. |
+
+So `GET /api/books/:id/pages/:n` stays a comic's (a CBZ's), and a PDF is
+fetched whole or in ranges as `files/book.pdf`.
+
+**Its page count and its cover on the desktop.** Not read at the scan: a
+PDF says how many pages it has only to something that parses it. The shelf
+shows it at once, by its file's name, and the first time it is seen the
+web view counts its pages and draws its first page small for a cover, once,
+kept as a comic's are.
+
+**Its place.** A `pos` record as a comic's (POSITION-FORMAT.md, section
+3.8), with the file's name as `href` and the page in `fragments` as PDFs
+name one (`page=14`), beside `position`.
+
+**The order of the work.**
+
+| Step | What it is | Checked by |
+| --- | --- | --- |
+| P1 | This section, and the north star | Read by the owner |
+| P2 | The desktop: PDFs on the shelf, read in the comic reader, their place kept | Unit tests over PDFs made by a script; the end-to-end check at 1x and 6x; memory and turn times in a Mac build, as for comics |
+| P3 | The server: the file kept and sent, its count and cover; the desktop reading a server's PDF | Server tests |
+| P4 | The iPad and the iPhone, with PDFKit | The Apple tests; the simulator against a scratch server |
+
+**What is refused still:** PDFs with a password or DRM; forms, links,
+sound and video inside one; and CBR.

@@ -68,10 +68,11 @@ one else's service.
 
 **Not two apps.** A book you own as audio and as an EPUB is one book with one
 place, and reading it is as much the product as hearing it. Not a reader
-for every format: EPUBs and comics (CBZ) without DRM, the way the audio is
-files without DRM. No PDF, no CBR, no MOBI: an EPUB is text Ribbon can set
-itself and a CBZ is pictures it can show as they are, and nothing else is
-either.
+for every format: EPUBs and comics (CBZ or PDF) without DRM, the way the
+audio is files without DRM. No CBR, no MOBI. An EPUB is text Ribbon can
+set itself. A comic is pages it shows as they are, and a PDF is read the
+same way, as its pages and nothing more: never searched, reflowed or read
+along with.
 
 ## Principles
 
@@ -194,7 +195,7 @@ install as they are, so trying Ribbon never means building it.
 
 **Android**, later, as a thin app of its own.
 
-**Comics.** CBZ files as a third kind of book: on the shelf with their
+**Comics.** CBZ files, and PDFs, as a third kind of book: on the shelf with their
 series, read on the desktop, the iPad, the iPhone and the Apple TV, with
 your page kept like every other place. The plan is in [COMICS.md](COMICS.md).
 
