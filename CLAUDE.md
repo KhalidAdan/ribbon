@@ -15,7 +15,7 @@ order:
 - [docs/READING.md](docs/READING.md): the reader and read-along. [docs/POSITION-FORMAT.md](docs/POSITION-FORMAT.md): the position log.
 - [docs/STATE-MACHINES.md](docs/STATE-MACHINES.md): every state machine in Ribbon, written down or not yet, and how to write one. Read it before adding a flag.
 - [docs/DESIGN.md](docs/DESIGN.md): the look. [docs/PLAN.md](docs/PLAN.md): how version one was built.
-- [docs/COMICS.md](docs/COMICS.md): comics (CBZ, CBR), a third kind of book: the plan, what was decided, and in section 11 the order of the work and what is built. PDFs are section 12, CBRs section 13.
+- [docs/COMICS.md](docs/COMICS.md): comics (CBZ, CBR), a third kind of book: the plan, what was decided, and in section 11 the order of the work and what is built. PDFs are section 12, CBRs section 13, panels and the server's MCP section 14.
 - [docs/RELEASING.md](docs/RELEASING.md): cutting a release. [docs/MAC.md](docs/MAC.md): macOS and the phone.
 
 ## How the owner works
@@ -85,7 +85,7 @@ order:
 | `packages/desktop/src-tauri/cbr/` | The CBR reader, a crate of its own over the `rars` crate (docs/COMICS.md, section 13): the app reads a CBR with it where it sits, and the server and Node run it as `ribbon-cbr`, to list one and to write it out as a CBZ. |
 | `packages/desktop/src-tauri/frames/` | The MP3 frame index, a crate of its own: the app's `frames.rs` and the server (`ribbon-frames`) start an MP3 at the exact frame. |
 | `packages/desktop/src-tauri/speech/` | Speech (whisper.cpp), a crate of its own: the app's `speech.rs` hears with it on a machine with a graphics card, which transcribes whole books for itself and for a server (#152). |
-| `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). |
+| `packages/server/` | The server (packages/server/README.md, docs/SERVER.md). `src/mcp.ts` is its MCP: a comic's panels set by an assistant, through `core/src/comic/panels.ts`, the same functions any editor uses (docs/COMICS.md, section 14). |
 | `packages/auth/`, `packages/auth-accounts/`, `packages/auth-pocket-id/` | Signing in, apart from Ribbon: the `Identity` a provider answers with and the sessions devices keep; names and passwords the server keeps itself; Pocket ID. The server runs one provider (docs/SERVER.md, section 6). |
 | `packages/apple/` | The thin app, in Swift: Ribbon on the Apple TV, the iPad and the iPhone, read-along from the server (packages/apple/README.md). |
 | `packages/desktop/tools/` | The CLI, fixtures, screenshots, flows, and the end-to-end checks (`packages/desktop/tools/e2e`). |

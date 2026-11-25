@@ -614,3 +614,89 @@ makes no difference: writing the CBZ is one pass (0.6 s for those 60).
   name with marks where its accents were.
 - **A CBR over 4 GB**, which the CBZ written from it needs the zip
   format's large form for.
+
+## 14. Panels
+
+Reading a comic a panel at a time: one panel enlarged to fill the screen,
+the rest of the page out of the way, a press for the next. It is what
+Kindle and ComiXology call Guided View, and on a television it is the
+difference between reading a page and squinting at it.
+
+**What was learned from the others** (November 2026). The version people
+love was drawn by hand: ComiXology's editors marked every panel of every
+book, because where a panel ends and which is read next is a judgement.
+The automatic versions (Kindle cutting each page in four, Marvel's and
+DC's smart panels) are the ones people complain of: cropped art, the wrong
+order. So Ribbon never works panels out by itself (the north star says so).
+Someone says them.
+
+**What a panel is.** A rectangle on its page, and nothing else:
+
+| | |
+| --- | --- |
+| Shape | A rectangle. Nearly every panel is one, and a slanted one fits in the rectangle around it. Polygons are for later, if they are missed. |
+| Measured in | Fractions of the page, 0 to 1: `x`, `y` its top left corner, `w`, `h` its size. A page is drawn at many sizes, and its panels are the same on all of them. |
+| Order | The order of the list is the order of reading. A comic that reads right to left has its panels listed that way. |
+| A splash page | One panel the size of the page. |
+| A page nobody has marked | No panels: it is read whole, as before. |
+| Overlapping | Allowed. An inset is a panel inside another. |
+
+**Where the rules live.** `packages/core/src/comic/panels.ts`: what a
+panel may be (`panelsProblem`), reading them from outside (`panelsFrom`),
+and editing a page's list (`added`, `removed`, `redrawn`, `moved`, `split`,
+`merged`). No screen and no server in it, and all of it tested. Everything
+that touches panels calls these, so a person's editor and an assistant
+cannot come to disagree about what a page's panels are.
+
+**Where they are kept.** On the server, one row for each marked page
+(`comic_panels`, `library/panels.ts`), by the page's name in the archive,
+as a comic's place is. They are the library's, like a book's edits: one
+set for everyone, the admin's to change, the last change standing.
+
+| | |
+| --- | --- |
+| `GET /api/books/:id/panels` | Every marked page of a comic, by its number from 1, each with its panels in order. |
+| `PUT /api/books/:id/pages/:n/panels` | A page's panels in place of the ones it had; an empty list takes them away. The admin only. |
+
+**An assistant marks them: the server's MCP.** `POST /mcp` on the server
+speaks the Model Context Protocol (`packages/server/src/mcp.ts`), plainly:
+a JSON-RPC message in, its answer out, nothing remembered between two.
+Its tools:
+
+| Tool | What it does |
+| --- | --- |
+| `list_comics` | The comics, each with how many of its pages are marked. |
+| `comic_pages` | One comic's pages, which way it reads, and which are left to do. |
+| `look_at_page` | A page as a picture, no longer than 1200 pixels, with the panels it has drawn over it and numbered. |
+| `set_panels` | A page's panels, in order. It answers with the page and the new panels drawn over it, so whoever set them sees at once whether each box holds its panel and the numbers run in reading order. |
+
+It is on the server only (decided): the desktop alone has no MCP, so
+nothing on a computer that is only a client listens for an assistant. It
+takes a key the admin makes by hand (`npm run key -- <admin's name>`,
+`src/key.ts`), which is a session like a device's; without one it answers
+nobody, and only an admin's works. Ribbon never calls an assistant itself.
+The pages an assistant looks at go to whoever runs the assistant: that is
+the one place Ribbon's pages leave your machines, and the north star says
+it in those words.
+
+The first pass is the assistant's, asked for when wanted (decided): no
+gutter finder is built. The owner lines up the week's comics and asks for
+them in a batch, overnight.
+
+**Built so far:** the rules, the store, the two routes, the MCP and its
+key. Tried by hand on a page drawn for it, with five panels: marked
+through the MCP by eye from `look_at_page`, and the picture sent back
+showed each box on its panel, numbered in order.
+
+**Not built yet:**
+
+- **The readers.** Stepping through panels on the Apple TV, the iPad and
+  iPhone, and the desktop: a pan and zoom to each, the rest of the page
+  masked, the whole page a press away.
+- **An editor on a screen**, to correct what the assistant marked: the
+  page with its boxes, dragged and reordered. Until then a correction is
+  asked of the assistant, or sent to the `PUT` route.
+- **Panels in a folder**, for the desktop alone: a record beside the comic
+  in `.ribbon/`. Today panels are a server's.
+- **A wide panel as two stops**, as Kindle asks of publishers: today it is
+  two panels, set that way.

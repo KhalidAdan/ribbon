@@ -296,6 +296,17 @@ CREATE TABLE IF NOT EXISTS sentence_index (
   words INTEGER
 );
 
+-- A comic's panels (library/panels.ts): one row for each page that has been divided, its panels in reading order
+-- as JSON, each a rectangle in fractions of the page. The page is its name in the comic's archive.
+CREATE TABLE IF NOT EXISTS comic_panels (
+  book_id TEXT NOT NULL,
+  page TEXT NOT NULL,
+  panels TEXT NOT NULL,
+  updated_by TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (book_id, page)
+);
+
 CREATE TABLE IF NOT EXISTS job (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,

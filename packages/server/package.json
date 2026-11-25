@@ -13,7 +13,8 @@
     "dev": "tsx watch src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
-    "link": "tsx src/link.ts"
+    "link": "tsx src/link.ts",
+    "key": "tsx src/key.ts"
   },
   "dependencies": {
     "@fastify/compress": "^9.2.2",

@@ -215,6 +215,24 @@ their Pocket ID account exists and not long before they'll sign in. Devices alre
 need Ribbon 0.42 or later to sign in again: an older one asks for a password
 and is told to update.
 
+## An assistant, for a comic's panels
+
+The server has an MCP at `/mcp` (docs/COMICS.md, section 14): an assistant
+you point at it can list the comics, look at a page, and say what its
+panels are and in what order, so a comic can be read a panel at a time.
+It answers only to a key you make, and only an admin's:
+
+```bash
+npm run key -- khalid            # a key that acts as the admin "khalid", shown once
+```
+
+In Docker: `docker exec ribbon-server node --import tsx src/key.ts khalid`.
+It prints the key and the line that gives it to Claude Code. The key is a
+session like a device's, good for a year. The pages the assistant looks at
+are sent to whoever runs it, so make a key only for one you would show your
+comics to. Looking at a page needs the canvas the server draws PDFs with
+(`@napi-rs/canvas`, above).
+
 ## Reaching it from elsewhere
 
 The server speaks plain HTTP on this machine. How anyone else reaches it is

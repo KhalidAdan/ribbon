@@ -190,3 +190,23 @@ export async function pdfPage(bookDir: string, page: number, width: number): Pro
   await going;
   return readFile(kept);
 }
+
+/** How wide a PDF's page is drawn to be looked at, or to have its panels drawn over it: the smaller of the two it is kept at. */
+const PDF_LOOK_WIDTH = PDF_PAGE_WIDTHS[0];
+
+/**
+ * One page of a book of pages, whole, as a picture's bytes: a comic's out
+ * of its archive, a PDF's drawn (and kept, as any page of it asked for
+ * is). `index` counts from 0.
+ */
+export async function pageBytes(bookDir: string, file: string, pages: readonly ComicPage[], index: number): Promise<Uint8Array> {
+  if (file === PDF_FILE) return pdfPage(bookDir, index, PDF_LOOK_WIDTH);
+  const comic = await openComic(path.join(bookDir, COMIC_FILE));
+  try {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of comic.source(pages[index]!.name)) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  } finally {
+    await comic.close();
+  }
+}

@@ -60,7 +60,7 @@ function chunk(type: string, data: Uint8Array): Uint8Array {
 }
 
 // Which of a seven-segment digit's bars are lit: top, top-left, top-right, middle, bottom-left, bottom-right, bottom.
-const SEGMENTS: Record<string, number[]> = {
+export const SEGMENTS: Record<string, number[]> = {
   "0": [1, 1, 1, 0, 1, 1, 1],
   "1": [0, 0, 1, 0, 0, 1, 0],
   "2": [1, 0, 1, 1, 1, 0, 1],

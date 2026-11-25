@@ -64,7 +64,8 @@ friends. The library is your books, in your folders or on your own server.
 **Not someone else's service.** Your own computer, or your own server for
 your own people; nothing in the cloud. A server runs on a machine you choose,
 for the people you invite ([SERVER.md](SERVER.md)). No store, no tracking, no
-one else's service.
+one else's service. The one door out is the one you open yourself: an
+assistant given a key to your server's comics (below).
 
 **Not two apps.** A book you own as audio and as an EPUB is one book with one
 place, and reading it is as much the product as hearing it. Not a reader
@@ -119,8 +120,21 @@ window never loses the text.
 **A drawn page is shown as it was drawn.** A comic's pages are pictures, and
 the artist already decided where everything goes. Ribbon shows each page
 whole, in order, turned the moment it is asked, with the next ones ready
-before you reach them. It never crops a page, reflows one, or guesses where
-the panels are. Your place is a page, kept like any other place.
+before you reach them. It never crops a page or reflows one, and it never
+guesses where the panels are. A page can be read a panel at a time, but
+only by panels someone said: you, or an assistant you asked to look at the
+page for you, and either of you can change them. The whole page is always
+one press away. Your place is a page, kept like any other place.
+
+**An assistant, only when you ask one.** A server offers its comics and
+their panels to an assistant of your choosing, through the Model Context
+Protocol, so that marking a week's reading is something you can ask for
+and go to bed ([COMICS.md](COMICS.md), section 14). This is the one place
+Ribbon's pages leave your machines: the assistant sees the pages you send
+it to. So it works only with a key the server's admin made by hand, it is
+on the server and nowhere else, and Ribbon never calls an assistant
+itself. What the assistant does, it does through the same functions an
+editor on your screen would, and you can undo all of it.
 
 **Resume is the product.** The moment you press play after a pause is where
 audiobook apps win or lose. Rewind scaled to how long you were gone. Two
@@ -198,6 +212,11 @@ install as they are, so trying Ribbon never means building it.
 **Comics.** CBZ and CBR files, and PDFs, as a third kind of book: on the shelf with their
 series, read on the desktop, the iPad, the iPhone and the Apple TV, with
 your page kept like every other place. The plan is in [COMICS.md](COMICS.md).
+
+**Comics, a panel at a time.** The panels of a page, in order, said by you
+or by an assistant you ask, kept on the server; then the readers stepping
+through them, the Apple TV first, where a page is too small to read whole
+from a couch (COMICS.md, section 14).
 
 **On the radar, not committed:**
 
