@@ -13,4 +13,5 @@ shots/
 
 # The Apple app: its Xcode project is made from packages/apple/project.yml (packages/apple/README.md)
 packages/apple/Ribbon.xcodeproj/
-packages/apple/build/
+# Xcode's build output (xcodebuild -derivedDataPath build, build-tv, ...): it holds the build machine's paths
+packages/apple/build*/
