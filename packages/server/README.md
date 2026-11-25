@@ -61,7 +61,8 @@ them with ffprobe and makes covers with ffmpeg. PDFs (docs/COMICS.md,
 section 12) are read with pdf.js, which draws on `@napi-rs/canvas`: npm
 installs it with the server where a build of it exists for the machine, and
 without it a PDF is still added and downloaded, with no cover and no pages
-drawn for the apps that are sent them. The server runs Ribbon's own
+drawn for the apps that are sent them, and no comic's pages have small
+pictures for a reader's strip. The server runs Ribbon's own
 logic (`@ribbon/core`), and one install at the repository's root brings it all:
 
 ```bash

@@ -2,7 +2,7 @@ import fastifyStatic, { type SendOptions } from "@fastify/static";
 import { Readable } from "node:stream";
 import { openComic } from "@ribbon/host-node/comic";
 import { pageType } from "@ribbon/core/comic/pages";
-import { comicPath, PDF_FILE, PDF_PAGE_WIDTHS, pdfPage } from "./comic.ts";
+import { canDraw, comicPath, PDF_FILE, PDF_PAGE_WIDTHS, pdfPage, smallPage } from "./comic.ts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -108,11 +108,21 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
 
   // One page of a comic, read straight out of its archive (docs/COMICS.md, section 7): for a device that keeps no
   // copy of the book. Pages count from 1. A book's files never change, so a page is kept for good by whoever has it.
-  app.get<{ Params: { id: string; page: string }; Querystring: { width?: string } }>("/api/books/:id/pages/:page", { onRequest: mustSignIn }, async (request, reply) => {
+  // With `?small`, the page's small picture instead (section 15), made the first time it is asked for and kept.
+  app.get<{ Params: { id: string; page: string }; Querystring: { width?: string; small?: string } }>("/api/books/:id/pages/:page", { onRequest: mustSignIn }, async (request, reply) => {
     const stored = await storedBook(deps, request.params.id);
     if (!stored?.book.comic || !stored.pages) return reply.code(404).send({ error: "No such comic on this server." });
     const page = stored.pages[Number(request.params.page) - 1];
     if (!/^\d+$/.test(request.params.page) || !page) return reply.code(404).send({ error: `This comic has ${stored.pages.length} pages, counted from 1.` });
+    if (request.query.small !== undefined) {
+      try {
+        const picture = await smallPage(bookDir(deps.dataDir, request.params.id), stored.book.comic, stored.pages, Number(request.params.page) - 1);
+        return reply.header("cache-control", FOREVER).type("image/jpeg").send(Buffer.from(picture));
+      } catch {
+        if (!(await canDraw())) return reply.code(503).send({ error: "This server can't make small pictures of pages: what it draws them on (@napi-rs/canvas) isn't installed (packages/server/README.md)." });
+        return reply.code(500).send({ error: `Page ${request.params.page} isn't a picture this server can read.` });
+      }
+    }
     // A PDF's page is drawn, once, and kept (comic.ts): at the width asked for, of the two it is drawn at, else the larger.
     if (stored.book.comic === PDF_FILE) {
       const asked = Number(request.query.width);
