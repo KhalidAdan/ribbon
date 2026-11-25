@@ -980,6 +980,7 @@ owner gives it a key of their own, as Audible's descriptions are
 (`RIBBON_DESCRIPTIONS`); "Look it up" in the edit form; and a comic
 matched by its ComicVine address. Like the descriptions, it is a lookup
 the owner turns on, not someone else's service the library depends on.
+The design round is [BOOK-DETAILS.md](BOOK-DETAILS.md).
 
 ### Not brought over
 
