@@ -26,21 +26,26 @@ export function JumpToPage({ open, page, count, onGo, onClose }: { open: boolean
     return () => clearTimeout(chosen);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const to = pageTyped(typed, count);
+  // The box gives up the keys as it goes, so the reader has them back at once, not when the box has faded out.
+  const close = () => {
+    input.current?.blur();
+    onClose();
+  };
   const go = () => {
     if (to === null) return;
     onGo(to);
-    onClose();
+    close();
   };
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={close}
       labelId="comic-jump-title"
       title="Go to page"
       description={`A page from 1 to ${count}.`}
       actions={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button variant="primary" disabled={to === null} onClick={go}>

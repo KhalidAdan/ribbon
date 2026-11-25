@@ -326,11 +326,13 @@ export const comicCheck: Check = {
     await page.keyboard.type("30");
     await page.keyboard.press("Enter");
     t.expect(await shown(r, 29), "a number typed and Enter go to that page", `at page ${(await pageNow(r)) + 1}`);
+    t.expect(await noDialog(), "and the box goes");
     await page.keyboard.press("g");
     await boxHasKeys();
     await page.keyboard.type("999");
     await page.keyboard.press("Enter");
-    t.expect(await shown(r, 39), "a number past the end goes to the last page");
+    t.expect(await shown(r, 39), "a number past the end goes to the last page", `at page ${(await pageNow(r)) + 1}`);
+    await noDialog();
     await page.keyboard.press("g");
     await boxHasKeys();
     await page.keyboard.press("Escape");
