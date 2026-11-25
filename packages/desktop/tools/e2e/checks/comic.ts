@@ -1,5 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { promises as fs } from "node:fs";
+import * as path from "node:path";
 import type { Check } from "../run";
-import { CHECKS_PDF, type Ribbon } from "../app";
+import { CHECKS_COMIC, CHECKS_LONG_COMIC, CHECKS_PDF, type Ribbon } from "../app";
 
 const TRACK = "[role=dialog] [data-comic-track]";
 
@@ -58,6 +61,112 @@ async function turnByKey(r: Ribbon, key: string, to: number): Promise<number> {
 }
 
 const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] ?? 0;
+
+/** The strip of small pages: whether every slot of it in view has its picture drawn. Put on the page once, for the waits below. */
+async function watchTheStrip(r: Ribbon): Promise<void> {
+  await r.page.evaluate(() => {
+    (window as unknown as { __stripFilled: () => boolean }).__stripFilled = () => {
+      const scroller = document.querySelector("[role=dialog] [data-comic-strip] > div");
+      if (!scroller) return false;
+      const box = scroller.getBoundingClientRect();
+      const inView = [...scroller.querySelectorAll("[data-strip-page]")].filter((slot) => {
+        const b = slot.getBoundingClientRect();
+        return b.right > box.left && b.left < box.right;
+      });
+      return inView.length > 0 && inView.every((slot) => !!slot.querySelector("canvas[data-drawn]"));
+    };
+  });
+}
+
+/**
+ * Show the strip by a real key and time it in the page: from the key going down to the first frame in which
+ * every small page in view is drawn. Listening before the key is pressed, as `turnByKey` does.
+ */
+async function stripByKey(r: Ribbon, timeout = 30_000): Promise<number> {
+  await r.page.evaluate((timeout) => {
+    const w = window as unknown as { __stripShown: Promise<number>; __stripFilled: () => boolean };
+    w.__stripShown = new Promise<number>((done) => {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key !== "t") return;
+        window.removeEventListener("keydown", onKey, true);
+        const t0 = performance.now();
+        const look = () => {
+          if (w.__stripFilled()) return done(performance.now() - t0);
+          if (performance.now() - t0 > timeout) return done(-1);
+          requestAnimationFrame(look);
+        };
+        requestAnimationFrame(look);
+      };
+      window.addEventListener("keydown", onKey, true);
+      setTimeout(() => done(-1), timeout + 10_000);
+    });
+  }, timeout);
+  await r.page.keyboard.press("t");
+  return r.page.evaluate(() => (window as unknown as { __stripShown: Promise<number> }).__stripShown);
+}
+
+/** Open a comic at a page with the strip shown, and time it: from asking to the first frame with every small page in view drawn. */
+async function openToFilledStrip(r: Ribbon, id: string, page: number, timeout = 60_000): Promise<number> {
+  return r.page.evaluate(
+    async ({ id, page, timeout }) => {
+      const w = window as unknown as { __stripFilled: () => boolean };
+      const t0 = performance.now();
+      await window.__ribbon.openComic(id);
+      window.__ribbon.turnComic(page, "seek");
+      for (;;) {
+        await new Promise((r) => requestAnimationFrame(r));
+        if (w.__stripFilled()) return performance.now() - t0;
+        if (performance.now() - t0 > timeout) return -1;
+      }
+    },
+    { id, page, timeout },
+  );
+}
+
+/** How far the page being read sits from the middle of the strip, in pixels; null with no strip or no page outlined. */
+function offCentre(r: Ribbon): Promise<number | null> {
+  return r.page.evaluate(() => {
+    const scroller = document.querySelector("[role=dialog] [data-comic-strip] > div");
+    const reading = scroller?.querySelector("[aria-current=page]");
+    if (!scroller || !reading) return null;
+    const [s, p] = [scroller.getBoundingClientRect(), reading.getBoundingClientRect()];
+    return Math.round(p.left + p.width / 2 - (s.left + s.width / 2));
+  });
+}
+
+/**
+ * The web view's memory, every one of its processes together, in megabytes: what Windows says they hold for
+ * themselves. After a collection, so what is measured is what is kept. Null where it can't be asked.
+ */
+async function webviewMemory(r: Ribbon): Promise<number | null> {
+  if (process.platform !== "win32") return null;
+  await r.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined);
+  await r.page.waitForTimeout(1000);
+  try {
+    const out = execFileSync("powershell", ["-NoProfile", "-Command", "(Get-Process msedgewebview2 -ErrorAction SilentlyContinue | Measure-Object PrivateMemorySize64 -Sum).Sum"], { encoding: "utf8" });
+    const bytes = Number(out.trim());
+    return Number.isFinite(bytes) && bytes > 0 ? Math.round(bytes / 1048576) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The small pages kept for a comic in the run's Ribbon folder (comic_small.rs): how many, and their size on disk. */
+async function keptSmallPages(r: Ribbon, comicFile: string): Promise<{ files: number; bytes: number } | null> {
+  if (!r.home) return null;
+  const base = path.join(r.home, "small-pages");
+  for (const folder of await fs.readdir(base).catch(() => [] as string[])) {
+    // Each comic's folder notes the file its pictures were made from.
+    const about = await fs.readFile(path.join(base, folder, "about.txt"), "utf8").catch(() => "");
+    if (!about.split("\n")[1]?.endsWith(comicFile)) continue;
+    const pictures = (await fs.readdir(path.join(base, folder))).filter((f) => f.endsWith(".jpg"));
+    const sizes = await Promise.all(pictures.map((f) => fs.stat(path.join(base, folder, f)).then((s) => s.size)));
+    return { files: pictures.length, bytes: sizes.reduce((a, b) => a + b, 0) };
+  }
+  return { files: 0, bytes: 0 };
+}
+
+const mb = (n: number | null) => (n === null ? "not measured" : `${n} MB`);
 
 /** A comic opens to its page, turns by key, click and pen, shows two pages as printed, and comes back where it was left. */
 export const comicCheck: Check = {
@@ -129,6 +238,72 @@ export const comicCheck: Check = {
     t.expect(await shown(r, last), "End goes to the last page, drawn though it was nowhere near the window", `page ${last + 1}`);
     await page.keyboard.press("Home");
     t.expect(await shown(r, 0), "Home goes to the first");
+
+    // The strip of small pages (docs/COMICS.md, section 15): hidden to start with, as a reader first finds it.
+    await watchTheStrip(r);
+    await page.evaluate(() => window.__ribbon.setComicSettings({ strip: false }));
+    await page.evaluate(() => window.__ribbon.turnComic(12, "seek"));
+    await shown(r, 12);
+    t.expect(await page.evaluate(() => !document.querySelector("[data-comic-strip]")), "the strip is hidden until asked for");
+    const withoutStrip = await webviewMemory(r);
+    const fill = await stripByKey(r);
+    t.expect(fill >= 0, "T shows the strip, every small page in view drawn", fill < 0 ? `not within 30 s; the page said: ${r.said.slice(-4).join(" | ") || "nothing"}` : undefined);
+    t.note(`the strip's first fill, ${await page.evaluate(() => document.querySelectorAll("[data-comic-strip] [data-strip-page]").length)} slots drawn, every small page made then: ${fill.toFixed(0)} ms`);
+    const centred = await offCentre(r);
+    t.expect(centred !== null && Math.abs(centred) <= 40, "the page being read is outlined in the middle of the strip", `${centred ?? "none"} px from the middle`);
+    const withStrip = await webviewMemory(r);
+
+    const stripTurns: number[] = [];
+    for (let to = 13; to <= 22; to++) {
+      const ms = await turnByKey(r, "ArrowRight", to);
+      if (ms >= 0) stripTurns.push(ms);
+      await page.waitForTimeout(150);
+    }
+    const stripSorted = [...stripTurns].sort((a, b) => a - b);
+    t.expect(stripTurns.length === 10 && percentile(stripSorted, 0.5) < 100, "with the strip shown, a turn is still drawn within a tenth of a second", `median ${percentile(stripSorted, 0.5).toFixed(1)} ms`);
+    t.note(`a turn by key with the strip shown: median ${percentile(stripSorted, 0.5).toFixed(1)} ms, p95 ${percentile(stripSorted, 0.95).toFixed(1)} ms`);
+    t.expect(Math.abs((await offCentre(r)) ?? 999) <= 40, "turning keeps the page being read in the middle of the strip", `${await offCentre(r)} px from the middle`);
+
+    await page.click('[role=dialog] [data-comic-strip] [data-strip-page="26"]');
+    t.expect(await shown(r, 25), "a click on a small page goes to it");
+    const kept = await keptSmallPages(r, CHECKS_COMIC.file);
+    if (kept) t.note(`kept for the 40-page comic: ${kept.files} small pages, ${(kept.bytes / 1024).toFixed(0)} KB, ${(kept.bytes / 1024 / Math.max(1, kept.files)).toFixed(1)} KB each`);
+
+    if (r.longComicId) {
+      // An omnibus: the strip costs what it does for an issue, wherever in it the reader is.
+      await page.evaluate(() => window.__ribbon.closeComic());
+      const cold = await openToFilledStrip(r, r.longComicId, 299);
+      t.expect(cold >= 0, "a 600-page comic opens in its middle with the strip filled", cold < 0 ? `the page said: ${r.said.slice(-4).join(" | ") || "nothing"}` : undefined);
+      await page.evaluate(() => window.__ribbon.closeComic());
+      const warm = await openToFilledStrip(r, r.longComicId, 299);
+      t.note(`600 pages, opened at page 300 to the strip filled: ${cold.toFixed(0)} ms with its small pages made, ${warm.toFixed(0)} ms with them kept`);
+      const keptLong = await keptSmallPages(r, CHECKS_LONG_COMIC.file);
+      t.expect(!!keptLong && keptLong.files > 0 && keptLong.files < 60, "only the small pages near what the strip shows are made, not the book's 600", `${keptLong?.files ?? "?"} made`);
+      // Along a hundred pages of the strip, a frame at a time, and the pictures fill where it stops.
+      const along = await page.evaluate(async () => {
+        const w = window as unknown as { __stripFilled: () => boolean };
+        const scroller = document.querySelector("[role=dialog] [data-comic-strip] > div")!;
+        for (let i = 0; i < 100; i++) {
+          scroller.scrollLeft += 72;
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+        const t0 = performance.now();
+        while (!w.__stripFilled() && performance.now() - t0 < 30_000) await new Promise((r) => requestAnimationFrame(r));
+        return { filled: w.__stripFilled(), ms: performance.now() - t0 };
+      });
+      t.expect(along.filled, "scrolled a hundred pages along, the strip fills where it stops", `${along.ms.toFixed(0)} ms`);
+      const afterLong = await webviewMemory(r);
+      const keptAlong = await keptSmallPages(r, CHECKS_LONG_COMIC.file);
+      t.note(`the web view's memory: ${mb(withoutStrip)} reading without the strip, ${mb(withStrip)} with it, ${mb(afterLong)} after a hundred pages along an omnibus's strip; ${keptAlong?.files ?? "?"} of its small pages kept, ${((keptAlong?.bytes ?? 0) / 1024).toFixed(0)} KB`);
+      await page.evaluate(() => window.__ribbon.closeComic());
+      await page.evaluate((id) => window.__ribbon.openComic(id), r.comicId);
+      await page.evaluate(() => window.__ribbon.turnComic(25, "seek"));
+      await shown(r, 25);
+    }
+
+    await page.keyboard.press("t");
+    t.expect(await page.waitForFunction(() => !document.querySelector("[data-comic-strip]"), null, { timeout: 5000 }).then(() => true, () => false), "T hides the strip again");
+    await page.evaluate(() => window.__ribbon.setComicSettings({ strip: false }));
 
     // Two pages, as printed: the cover alone, then pairs, and the wide page (the eleventh) alone.
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "two" }));

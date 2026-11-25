@@ -127,8 +127,10 @@ export interface Platform {
   exactAudioUrl?(absPath: string, ms: number): string;
   /** Where the player streams a book's audio from, when `fileUrl` won't do for every format (Apple's webview and an .m4b, #226). */
   audioUrl?(absPath: string): string;
-  /** A URL for one page of a comic, read out of its archive; `version` names the file as it is now. Absent where comics can't be read. */
-  comicPageUrl?(absPath: string, entry: string, version: string): string;
+  /** A URL for one page of a comic, read out of its archive; `version` names the file as it is now; `small`, its small picture. Absent where comics can't be read. */
+  comicPageUrl?(absPath: string, entry: string, version: string, small?: boolean): string;
+  /** Keep a page of a PDF drawn small by the web view, which is all that can draw one, so it is drawn once (docs/COMICS.md, section 15). */
+  keepSmallPage?(absPath: string, entry: string, jpeg: Uint8Array): Promise<void>;
   /** The folders the library is populated from, wherever the platform keeps them. */
   sources: {
     load(): Promise<SourceEntry[]>;
@@ -3346,15 +3348,15 @@ export class AppController {
     this.toComic({ type: "measured", bookId, page, wide: isWide(width, height) });
   }
 
-  /** Where the picture of a page of the open comic comes from, or undefined where comics can't be read. */
-  comicPageUrl(page: number): string | undefined {
+  /** Where the picture of a page of the open comic comes from, or undefined where comics can't be read. `small`: its small picture, for the strip. */
+  comicPageUrl(page: number, small = false): string | undefined {
     const r = this.state.comic;
     const book = r && this.state.books.find((b) => b.book.id === r.bookId);
     const o = book && this.openedOf(book);
     const entry = r?.status === "ready" ? r.pages[page] : undefined;
     if (!book?.book.comic || !o || !entry || !this.platform.comicPageUrl) return undefined;
     // The id is made of the file's path and size, so a comic replaced by another is another address.
-    return this.platform.comicPageUrl(o.lib.absPath(book.book.comic), entry, book.book.id);
+    return this.platform.comicPageUrl(o.lib.absPath(book.book.comic), entry, book.book.id, small);
   }
 
   /** Where the open book of pages is fetched from when it is a PDF, and how large the file is; undefined for a comic's archive. */
@@ -3364,6 +3366,16 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (r?.status !== "ready" || !r.document || !book?.book.comic || !o) return undefined;
     return { url: this.platform.fileUrl(o.lib.absPath(book.book.comic)), bytes: book.book.sizeBytes };
+  }
+
+  /** Keep a page of the open PDF that the web view drew small, so it is drawn once; Ribbon makes a comic's own (docs/COMICS.md, section 15). */
+  async keepSmallPage(page: number, jpeg: Uint8Array): Promise<void> {
+    const r = this.state.comic;
+    const book = r && this.state.books.find((b) => b.book.id === r.bookId);
+    const o = book && this.openedOf(book);
+    const entry = r?.status === "ready" ? r.pages[page] : undefined;
+    if (!book?.book.comic || !o || !entry || !this.platform.keepSmallPage) return;
+    await this.platform.keepSmallPage(o.lib.absPath(book.book.comic), entry, jpeg);
   }
 
   // A comic's panels (docs/COMICS.md, section 14): kept by the server the comic came from, the admin's to mark. ----

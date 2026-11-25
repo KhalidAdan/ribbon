@@ -32,6 +32,8 @@ export interface WebPdf {
   picture(page: number, longest: number): Promise<ImageBitmap>;
   /** A page drawn `width` pixels wide, as a JPEG: a cover. */
   jpeg(page: number, width: number): Promise<Uint8Array>;
+  /** A page drawn `height` pixels tall, as a JPEG: its small picture, for the strip. Drawn small, not made small from a large drawing. */
+  small(page: number, height: number): Promise<Uint8Array>;
   close(): Promise<void>;
 }
 
@@ -110,6 +112,11 @@ export async function openWebPdf(url: string, length: number): Promise<WebPdf> {
       // A cover is small, and never drawn larger than asked.
       const canvas = await drawn(page, (natural) => width / natural.width);
       return new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.85 })).arrayBuffer());
+    },
+    async small(page, height) {
+      // Never drawn larger than the page itself is.
+      const canvas = await drawn(page, (natural) => Math.min(1, height / natural.height));
+      return new Uint8Array(await (await canvas.convertToBlob({ type: "image/jpeg", quality: 0.8 })).arrayBuffer());
     },
     close: () => task.destroy(),
   };

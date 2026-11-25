@@ -119,7 +119,8 @@ pub(crate) fn query(uri: &str, key: &str) -> Option<String> {
     })
 }
 
-fn percent_decode(s: &str) -> String {
+/// Text sent percent-encoded, as it was: in a query, or a request's header.
+pub(crate) fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
