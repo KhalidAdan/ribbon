@@ -103,28 +103,29 @@ export function ComicStrip({ comic, shown, rightToLeft, c, pdf }: { comic: Ready
   // The pages being read in the middle. When the strip first shows, or the window's width changes, before the
   // frame that shows it, so it never shows elsewhere first.
   const reading = shown.join(",");
-  const centre = (glide: boolean) => {
+  const centre = () => {
     const el = scroller.current;
     if (!el || width === 0) return;
     const to = scrollToCentre(shown, count, width, rightToLeft, SLOTS);
-    const near = glide && Math.abs(el.scrollLeft - to) <= (SLOTS.width + SLOTS.gap) * 3;
-    el.scrollTo({ left: to, behavior: near ? "smooth" : "instant" });
+    // Straight there, not gliding: a glide's scrolling went on into the next turn, and at six times slower a turn
+    // waited behind it (measured on GitHub's Windows runner).
+    el.scrollTo({ left: to, behavior: "instant" });
     placed.current = true;
     // Where it is going, fetched for at once: a glide there needn't fetch for every page it passes.
     follow(to, width);
     return to;
   };
   useLayoutEffect(() => {
-    const to = centre(false);
+    const to = centre();
     if (to !== undefined) setLeft(to);
   }, [count, rightToLeft, width]); // eslint-disable-line react-hooks/exhaustive-deps
-  // As the reader turns: after the turn has been drawn, since the turn shouldn't wait on the strip. A turn or two
-  // glides there; anything further, a jump, is simply there. The scroll says where it got to.
+  // As the reader turns: after the turn has been drawn, since the turn shouldn't wait on the strip. The scroll says
+  // where it got to.
   const turned = useRef(reading);
   useEffect(() => {
     if (turned.current === reading) return;
     turned.current = reading;
-    centre(true);
+    centre();
   }, [reading]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = useCallback((at: number) => c.turnComic(at, "seek"), [c]);
 
