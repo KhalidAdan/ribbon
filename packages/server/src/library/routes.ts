@@ -1,3 +1,4 @@
+import type { ComicPanels } from "./panels.ts";
 import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -47,7 +48,7 @@ export function inTranscribingOrder<T extends { done: number; total: number }>(b
  * (`GET /api/library/readalong`), so a book left by chapter is never found
  * only on the TV. The listing the apps read comes in its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; places: Places; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; dataDir: string; folders: string[] }): void {
+export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; places: Places; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; panels: ComicPanels; dataDir: string; folders: string[] }): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -111,6 +112,7 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
     // Off the list first, so nobody starts a download of it; then out of search, and its files, once whatever is writing there has
     // finished (book-folder.ts).
     deps.search.remove(id);
+    deps.panels.forget(id);
     await removeBookDir(deps.dataDir, id).catch((e: unknown) => request.log.warn({ err: e }, `could not remove the files of deleted book ${id}`));
     deps.events.toEveryone({ type: "books", data: { deleted: id } });
     return reply.code(204).send();

@@ -29,6 +29,9 @@ import { Mp3Frames } from "./library/frames.ts";
 import { Goals } from "./goals.ts";
 import { Places } from "./places.ts";
 import { placesRoutes } from "./places-routes.ts";
+import { ComicPanels } from "./library/panels.ts";
+import { panelsRoutes } from "./panels-routes.ts";
+import { mcpRoutes } from "./mcp.ts";
 import { readAlongRoutes } from "./readalong-routes.ts";
 
 export interface RibbonServer {
@@ -155,10 +158,15 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // indexed before it counted their words are counted, from the sentences it has, for the bookcase.
   if (readAlongs.available) jobs.start("search", { indexed: 0, counted: 0 }, async () => ({ counted: await search.countMissing(), indexed: await search.indexAll(books, readAlongs, config.dataDir) }), null);
   // The narration isn't transcribed here: a device with a graphics card transcribes each book whole and sends it (records.ts, `keepTranscript`).
-  libraryRoutes(app, { auth, jobs, books, places, series, events, frames, readAlongs, search, catalog, dataDir: config.dataDir, folders: config.folders ?? [] });
+  // A comic's panels: for the devices to read by, and for an assistant to set through the MCP (docs/COMICS.md, section 14).
+  const panels = new ComicPanels(db);
+  libraryRoutes(app, { auth, jobs, books, places, series, events, frames, readAlongs, search, catalog, panels, dataDir: config.dataDir, folders: config.folders ?? [] });
   await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames, readAlongs });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, goals: new Goals(db), events, readAlongs, search, frames, dataDir: config.dataDir });
+
+  panelsRoutes(app, { auth, books, panels, dataDir: config.dataDir });
+  mcpRoutes(app, { auth, books, panels, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }
