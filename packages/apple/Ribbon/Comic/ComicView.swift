@@ -10,12 +10,24 @@ import UIKit
 /// touch on either side goes to the next panel or the one before, and past a page's last panel is the next page's
 /// first. Two touches, or the button beside the title, show the whole page; the button goes back to its panels.
 /// A page nobody has marked is shown whole, as ever.
+///
+/// With the title come the comic's ways about it (docs/COMICS.md, section 15): along the foot, a strip of small pages
+/// to touch, and a slider that runs the way the comic reads; a touch on the page number opens a box to type one.
+/// The comic can be read as one long scroll instead of a page at a time, a choice kept on this device, and the
+/// ground behind the page is the one chosen in Settings.
 struct ComicView: View {
     let session: ComicSession
     let onClose: () -> Void
     @Environment(\.narrow) private var narrow
+    @AppStorage(ComicGround.key) private var ground = ComicGround.ribbon
+    @AppStorage(ComicReading.longScrollKey) private var longScroll = false
     /// The way back and the page number, shown until the page is touched in the middle.
     @State private var around = true
+    /// The page the slider's finger is on, while it is down: the number follows it, and the page comes when it lets go.
+    @State private var sliding: Int?
+    /// "Go to page", and what has been typed into it.
+    @State private var jumping = false
+    @State private var typed = ""
     /// Whether the comic is read a panel at a time, where its pages have panels.
     @State private var byPanel = false
     /// The panel being read, among the page's, counted from 0.
@@ -26,11 +38,27 @@ struct ComicView: View {
     /// The panels of the page being read; none when nobody has marked them.
     private var panels: [ComicPanel] { session.panels[session.page] ?? [] }
 
+    /// Read a panel at a time: where the comic has panels, and not in the long scroll, where they don't apply.
+    private var readingByPanel: Bool { byPanel && !longScroll }
+
+    /// The page the number and the strip show: where the slider's finger is, else the page being read.
+    private var shown: Int { sliding ?? session.page }
+
     var body: some View {
         ZStack {
-            Color.canvas.ignoresSafeArea()
-            if let picture = session.pictures[session.page] {
-                if byPanel, panels.indices.contains(panel) {
+            ground.color.ignoresSafeArea()
+            if longScroll {
+                LongScroll(
+                    pages: session.pages.map { CGSize(width: $0.width, height: $0.height) },
+                    pictures: session.pictures,
+                    page: session.page,
+                    reading: { session.turn(to: $0) },
+                    touched: { withAnimation(.easeOut(duration: 0.2)) { around.toggle() } }
+                )
+                .ignoresSafeArea()
+                .accessibilityLabel("Page \(session.page + 1) of \(session.count), in one long scroll")
+            } else if let picture = session.pictures[session.page] {
+                if readingByPanel, panels.indices.contains(panel) {
                     PanelPage(picture: picture, panel: panels[panel], page: session.page, touched: touched, swiped: swiped) {
                         withAnimation(.easeInOut(duration: 0.3)) { byPanel = false }
                     }
@@ -50,8 +78,20 @@ struct ComicView: View {
                         BackButton(title: "", action: onClose)
                         Text(session.book.title).font(.ui(24)).foregroundStyle(Color.ink2).lineLimit(1).allowsHitTesting(false)
                         Spacer()
-                        // Only in a comic someone has marked the panels of: by its panels, or its pages whole.
-                        if !session.panels.isEmpty {
+                        // A page at a time, or one long scroll: kept on this device, for every comic.
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.3)) { longScroll.toggle() }
+                        } label: {
+                            Image(systemName: longScroll ? "book.pages" : "scroll")
+                                .font(.system(size: 20, weight: .medium))
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.ink2)
+                        .accessibilityLabel(longScroll ? "Read a page at a time" : "Read as one long scroll")
+                        // Only in a comic someone has marked the panels of: by its panels, or its pages whole. Not in the long scroll.
+                        if !session.panels.isEmpty, !longScroll {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.3)) {
                                     byPanel.toggle()
@@ -70,13 +110,25 @@ struct ComicView: View {
                     }
                     .padding(.leading, -12)
                     Spacer()
+                    // Every page small, the one being read outlined: a touch goes to one. Across the whole screen.
+                    PageStrip(session: session, chosen: shown, tall: narrow ? 80 : 100) { session.turn(to: $0, why: .seek) }
+                        .padding(.horizontal, narrow ? -16 : -32)
+                        .padding(.bottom, 6)
                     HStack {
                         Spacer()
-                        Text("Page \(session.page + 1) of \(session.count)").font(.ui(24)).foregroundStyle(Color.ink2).monospacedDigit()
+                        // A touch on the number opens a box to type one.
+                        Button {
+                            typed = ""
+                            jumping = true
+                        } label: {
+                            Text("Page \(shown + 1) of \(session.count)").font(.ui(24)).foregroundStyle(Color.ink2).monospacedDigit()
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Go to a page")
                     }
-                    .padding(.bottom, 10)
-                    .allowsHitTesting(false)
-                    PageHairline(fraction: session.fraction).allowsHitTesting(false)
+                    PageSlider(page: session.page, count: session.count, rightToLeft: session.rightToLeft, sliding: $sliding) { session.turn(to: $0, why: .seek) }
                 }
                 .padding(.horizontal, narrow ? 16 : 32)
                 .padding(.top, 4)
@@ -87,7 +139,8 @@ struct ComicView: View {
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom).frame(height: 96)
                         Spacer()
-                        LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom).frame(height: 96)
+                        // Taller at the foot, under the strip and the slider too.
+                        LinearGradient(colors: [.clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom).frame(height: narrow ? 220 : 250)
                     }
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
@@ -97,6 +150,15 @@ struct ComicView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        .alert("Go to page", isPresented: $jumping) {
+            TextField("\(session.page + 1)", text: $typed).keyboardType(.numberPad)
+            Button("Go") {
+                if let to = ComicPaging.page(typed: typed, of: session.count) { session.turn(to: to, why: .seek) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A page from 1 to \(session.count).")
+        }
         .onAppear { byPanel = !session.panels.isEmpty }
         .onChange(of: session.page) { _, _ in
             // Another page: from its first panel, or its last when the reader came back into it.
@@ -121,12 +183,12 @@ struct ComicView: View {
 
     /// Onward (`1`) or back (`-1`): to the next panel or the one before where the page is read by its panels, and to another page past its last or its first.
     private func step(_ by: Int) {
-        if byPanel, !panels.isEmpty, let to = ComicPaging.step(from: panel, by: by, of: panels.count) {
+        if readingByPanel, !panels.isEmpty, let to = ComicPaging.step(from: panel, by: by, of: panels.count) {
             panel = to
         } else if by > 0 {
             session.next()
         } else if session.hasPrevious {
-            arrivesAtEnd = byPanel
+            arrivesAtEnd = readingByPanel
             session.previous()
         }
     }
@@ -170,18 +232,40 @@ private struct PanelPage: View {
     }
 }
 
-/// How far through the comic, as the reader's own hairline shows it.
-private struct PageHairline: View {
-    let fraction: Double
+/// The page slider in the bar at the foot (docs/COMICS.md, section 15): as far along as the page is through the
+/// comic, running the way the comic reads. The page number follows the finger (`sliding`), and the page itself is
+/// fetched when the finger lets go, not for every page it passes.
+private struct PageSlider: View {
+    let page: Int
+    let count: Int
+    let rightToLeft: Bool
+    @Binding var sliding: Int?
+    let go: (Int) -> Void
+    /// Whether a finger is on the slider. The slider sets its value at other times too (dimmed under a box, it sets the
+    /// one it has), and only a finger's is followed; any other that is another page, as VoiceOver's, turns to it.
+    @State private var held = false
 
     var body: some View {
-        GeometryReader { space in
-            ZStack(alignment: .leading) {
-                Rectangle().fill(Color.white.opacity(0.08))
-                Rectangle().fill(Color.place).frame(width: space.size.width * min(1, max(0, fraction)))
+        if count > 1 {
+            Slider(
+                value: Binding(get: { Double(sliding ?? page) }, set: { value in
+                    let to = Int(value.rounded())
+                    if held { sliding = to } else if to != page { go(to) }
+                }),
+                in: 0...Double(count - 1),
+                step: 1
+            ) { editing in
+                held = editing
+                guard !editing, let to = sliding else { return }
+                sliding = nil
+                if to != page { go(to) }
             }
+            .tint(Color.place)
+            // A comic read right to left starts at the right, and the slider fills from there.
+            .environment(\.layoutDirection, rightToLeft ? .rightToLeft : .leftToRight)
+            .accessibilityLabel("Page")
+            .accessibilityValue("\((sliding ?? page) + 1) of \(count)")
         }
-        .frame(height: 2)
     }
 }
 
@@ -273,6 +357,160 @@ private struct ZoomablePage: UIViewRepresentable {
         /// A swipe turns the page only while the page is whole; zoomed, a finger moves about it.
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
             (scroll?.zoomScale ?? 1) <= 1.01
+        }
+    }
+}
+
+/// One long scroll (docs/COMICS.md, section 15): the comic's pages one under another, each as wide as the screen, read
+/// by scrolling. Every page has its place from the start, from the size the server measured, so the scroll is the
+/// whole comic's length at once and jumping lands where it should; a page's picture is drawn only near the screen,
+/// and only the pages the session keeps decoded have one. The page being read is the one filling the screen's top
+/// third. Scrolled to, it tells the reader (`reading`); turned to some other way (the slider, the strip, a page
+/// typed), the scroll goes to its top.
+private struct LongScroll: UIViewRepresentable {
+    /// Each page's size, as the server measured it.
+    let pages: [CGSize]
+    /// The pictures the session has decoded, by page.
+    let pictures: [Int: UIImage]
+    /// The page being read.
+    let page: Int
+    let reading: (Int) -> Void
+    /// A touch anywhere: what is around the page shows or hides.
+    let touched: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> Column {
+        let scroll = Column()
+        scroll.delegate = context.coordinator
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.contentInsetAdjustmentBehavior = .never
+        scroll.backgroundColor = .clear
+        scroll.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped)))
+        scroll.laidOut = { [weak coordinator = context.coordinator] in coordinator?.lay() }
+        context.coordinator.scroll = scroll
+        return scroll
+    }
+
+    func updateUIView(_ scroll: Column, context: Context) {
+        let c = context.coordinator
+        c.reading = reading
+        c.touched = touched
+        c.pages = pages
+        c.pictures = pictures
+        c.ask(page)
+        scroll.setNeedsLayout()
+    }
+
+    /// A scroll view that says when it lays out, which it does on every move too.
+    final class Column: UIScrollView {
+        var laidOut: () -> Void = {}
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            laidOut()
+        }
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        weak var scroll: UIScrollView?
+        var pages: [CGSize] = []
+        var pictures: [Int: UIImage] = [:]
+        var reading: (Int) -> Void = { _ in }
+        var touched: () -> Void = {}
+        /// The page the scroll is on, as it last said or was sent to.
+        private var at: Int?
+        /// The page being read when the reader last said, and one it said that the scroll hasn't gone to yet.
+        private var asked: Int?
+        private var goTo: Int?
+        /// Sent to a page, the scroll stays on it until the reader moves it, even where the page can't reach the top.
+        private var jumped = true
+        /// The width the column was laid out for, and where each page starts down it (the column's foot last).
+        private var width: CGFloat = 0
+        private var tops: [CGFloat] = [0]
+        /// The pages drawn now, near the screen.
+        private var drawn: [Int: UIImageView] = [:]
+
+        /// The page being read, from the reader: one the scroll didn't say itself was turned to some other way, and
+        /// the scroll goes there.
+        func ask(_ page: Int) {
+            guard page != asked else { return }
+            asked = page
+            if page != at { goTo = page }
+        }
+
+        /// Lay the column out for the screen's width, go to a page asked for, and draw the pages near the screen.
+        func lay() {
+            guard let scroll, scroll.bounds.width > 0, !pages.isEmpty else { return }
+            let screen = scroll.bounds.size
+            if screen.width != width {
+                // The first time, or turned on its side: every page's height again, and the same page at the top.
+                width = screen.width
+                tops = ComicPaging.tops(of: pages.map { ComicPaging.height(of: $0.width > 0 ? $0 : CGSize(width: 2, height: 3), atWidth: width) })
+                scroll.contentSize = CGSize(width: width, height: tops.last!)
+                for view in drawn.values { view.removeFromSuperview() }
+                drawn = [:]
+                go(to: goTo ?? at ?? asked ?? 0)
+            } else if let goTo {
+                go(to: goTo)
+            }
+            draw(in: scroll.contentOffset.y, screen: screen.height)
+        }
+
+        private func go(to page: Int) {
+            guard let scroll else { return }
+            let index = ComicPaging.clamp(page, of: pages.count)
+            goTo = nil
+            at = index
+            jumped = true
+            let furthest = max(0, tops.last! - scroll.bounds.height)
+            scroll.contentOffset = CGPoint(x: 0, y: min(furthest, tops[index]))
+        }
+
+        /// Moved by the reader: the page filling the screen's top third is the one being read.
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard !jumped, tops.count == pages.count + 1 else { return }
+            let now = ComicPaging.reading(at: scrollView.contentOffset.y, screen: scrollView.bounds.height, tops: tops)
+            guard now != at else { return }
+            at = now
+            reading(now)
+        }
+
+        /// The pages within half a screen of it drawn, each with its picture where the session has decoded one; the rest let go.
+        private func draw(in offset: CGFloat, screen: CGFloat) {
+            guard let scroll else { return }
+            let near = (offset - screen / 2)...(offset + screen * 1.5)
+            let first = max(0, (tops.lastIndex { $0 <= near.lowerBound } ?? 0))
+            let last = min(pages.count - 1, (tops.firstIndex { $0 >= near.upperBound } ?? pages.count) - 1)
+            let wanted = first <= last ? Set(first...last) : []
+            for (index, view) in drawn where !wanted.contains(index) {
+                view.removeFromSuperview()
+                drawn[index] = nil
+            }
+            for index in wanted {
+                let view = drawn[index] ?? {
+                    let made = UIImageView()
+                    made.contentMode = .scaleAspectFit
+                    // Where a picture hasn't come, a faint shape of the page, so the column never looks empty.
+                    made.backgroundColor = UIColor(white: 0.5, alpha: 0.08)
+                    scroll.addSubview(made)
+                    drawn[index] = made
+                    return made
+                }()
+                view.frame = CGRect(x: 0, y: tops[index], width: width, height: tops[index + 1] - tops[index])
+                let picture = pictures[index]
+                if view.image !== picture { view.image = picture }
+                view.backgroundColor = picture == nil ? UIColor(white: 0.5, alpha: 0.08) : .clear
+            }
+        }
+
+        /// The reader moves the scroll: from here on, where it is says which page is being read.
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            jumped = false
+        }
+
+        @objc func tapped() {
+            touched()
         }
     }
 }

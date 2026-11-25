@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// The TV's settings, as the desktop keeps its own in Settings: whether this
-/// TV keeps listening sessions, and who's reading on which server, with the
-/// way back to Who's reading. Reached from the person's name at the top of
-/// the library; Menu goes back.
+/// TV keeps listening sessions, what is behind a comic's page, and who's
+/// reading on which server, with the way back to Who's reading. Reached from
+/// the person's name at the top of the library; Menu goes back.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(ComicGround.key) private var ground = ComicGround.ribbon
 
     var body: some View {
         let name = model.server?.account.name ?? ""
@@ -45,6 +46,24 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(LiftStyle.row())
                             }
+                        }
+                        Rows(label: "Comics") {
+                            Button { ground = ground.next } label: {
+                                Row(
+                                    title: "Behind the page",
+                                    description: "What a comic's page sits on, on this \(ThisDevice.kind): Ribbon's own ground, or black, grey or white."
+                                ) {
+                                    HStack(spacing: 10.scaled) {
+                                        Text(ground.name)
+                                        // Its colour, beside its name.
+                                        RoundedRectangle(cornerRadius: 4.scaled).fill(ground.color)
+                                            .overlay(RoundedRectangle(cornerRadius: 4.scaled).stroke(Color.lineStrong))
+                                            .frame(width: 26.scaled, height: 26.scaled)
+                                    }
+                                }
+                            }
+                            .buttonStyle(LiftStyle.row())
+                            .accessibilityValue(ground.name)
                         }
                         Rows(label: "Reader") {
                             Row(title: name, description: "Signed in to \(model.host).")

@@ -22,6 +22,8 @@ final class ComicSession {
     private(set) var pictures: [Int: UIImage] = [:]
     /// A page that couldn't be fetched, in the server's words.
     private(set) var problem: String?
+    /// The small pictures of its pages, for the strip of pages.
+    let small: SmallPages
 
     private let server: RibbonServer
     private let keepsSessions: Bool
@@ -47,6 +49,7 @@ final class ComicSession {
         self.panels = panels
         self.rightToLeft = rightToLeft
         self.keepsSessions = keepsSessions
+        small = SmallPages(server: server, book: book.id)
         page = ComicPaging.clamp((place?.page ?? 1) - 1, of: pages.count)
         fill()
     }
@@ -60,16 +63,17 @@ final class ComicSession {
     func next() { turn(to: page + 1) }
     func previous() { turn(to: page - 1) }
 
-    /// Turn to a page, counted from 0.
-    func turn(to wanted: Int) {
+    /// Turn to a page, counted from 0. A turn is told once the reader settles on a page, not at every one flicked
+    /// past; a jump (`.seek`: the slider, the strip, a page number typed) is told at once, as the desktop keeps one.
+    func turn(to wanted: Int, why: Why = .periodic) {
         let to = ComicPaging.clamp(wanted, of: count)
         guard to != page else { return }
         page = to
         moved = true
         timeOn()
         fill()
-        // Told once the reader settles on a page, not at every one flicked past.
         resting?.cancel()
+        if why == .seek { return tellPlace(why: .seek) }
         resting = Task { [weak self] in
             try? await Task.sleep(for: Self.rest)
             guard !Task.isCancelled else { return }
@@ -84,6 +88,7 @@ final class ComicSession {
         endStretch()
         for task in fetching.values { task.cancel() }
         fetching = [:]
+        small.close()
     }
 
     private func tellPlace(why: Why) {
@@ -252,6 +257,48 @@ enum ComicPaging {
     static func step(from at: Int, by direction: Int, of count: Int) -> Int? {
         let to = at + direction
         return to >= 0 && to < count ? to : nil
+    }
+
+    // Jumping, the strip and one long scroll -----------------------------------
+
+    /// The page a number typed into "Go to page" asks for, counted from 0 (the person counts from 1): past either end
+    /// is that end, as the desktop's has it. Nil for anything that isn't a number.
+    static func page(typed text: String, of count: Int) -> Int? {
+        guard count > 0, let number = Int(text.trimmingCharacters(in: .whitespaces)) else { return nil }
+        return clamp(number - 1, of: count)
+    }
+
+    /// A page's width over its height, from the size the server measured; a page that doesn't say is taken to be a
+    /// printed page's shape.
+    static func aspect(of page: CGSize) -> CGFloat {
+        page.width > 0 && page.height > 0 ? page.width / page.height : 2.0 / 3
+    }
+
+    /// The small pictures to let go of once more than `most` are kept: those furthest from the page last asked for,
+    /// so the strip holds what is around where the reader is looking and a 600-page book costs what an issue does.
+    static func forget(kept: [Int], near page: Int, most: Int) -> [Int] {
+        guard kept.count > most else { return [] }
+        let furthestFirst = kept.sorted { (abs($0 - page), $0) > (abs($1 - page), $1) }
+        return Array(furthestFirst.prefix(kept.count - most))
+    }
+
+    /// Where each page starts down one long scroll, its pages `heights` tall one under another, and last where the
+    /// column ends: every page has its place before any picture has come.
+    static func tops(of heights: [CGFloat]) -> [CGFloat] {
+        heights.reduce(into: [0]) { tops, height in tops.append(tops.last! + height) }
+    }
+
+    /// The page being read in one long scroll, moved `offset` down a screen `screen` tall: the one filling the
+    /// screen's top third. At the very top it is the first page and at the very foot the last, however short they
+    /// are, so a comic can be begun and finished by scrolling.
+    static func reading(at offset: CGFloat, screen: CGFloat, tops: [CGFloat]) -> Int {
+        let count = tops.count - 1
+        guard count > 0 else { return 0 }
+        let foot = tops[count]
+        if offset <= 0 { return 0 }
+        if offset >= foot - screen - 0.5 { return count - 1 }
+        let line = offset + screen / 3
+        return clamp((tops.lastIndex { $0 <= line } ?? 0), of: count)
     }
 
     /// A page's picture from its file, decoded now and no larger than `longest` pixels on its longer side.

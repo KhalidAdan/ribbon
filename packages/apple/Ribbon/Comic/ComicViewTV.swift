@@ -15,6 +15,10 @@ import SwiftUI
 /// A comic with panels opens close, since that is what marking them was for. **Menu** leaves, with the page kept.
 ///
 /// A whole page leaves the screen's sides empty, and the comic's title and the page's number sit there.
+///
+/// **Play/Pause** shows the strip of small pages along the foot (docs/COMICS.md, section 15), on the page being read.
+/// Left and right move along it, the way the comic reads; Select goes to the page it is on, and Menu, or Play/Pause
+/// again, puts it away. The ground behind the page is the one chosen in Settings.
 struct ComicView: View {
     let session: ComicSession
     let onClose: () -> Void
@@ -26,7 +30,10 @@ struct ComicView: View {
     @State private var down: CGFloat = 0
     /// A page come back to from the one after it comes in at its end, since that is where the reader left off: its last panel, or its foot.
     @State private var arrivesAtEnd = false
+    /// The page the remote is on in the strip of small pages, while the strip shows; nil when it doesn't.
+    @State private var inStrip: Int?
     @FocusState private var focused: Bool
+    @AppStorage(ComicGround.key) private var ground = ComicGround.ribbon
 
     /// The panels of the page being read; none when nobody has marked them.
     private var panels: [ComicPanel] { session.panels[session.page] ?? [] }
@@ -34,13 +41,15 @@ struct ComicView: View {
     var body: some View {
         GeometryReader { space in
             ZStack {
-                Color.canvas
+                ground.color
                 if let picture = session.pictures[session.page] {
                     page(picture, in: space.size)
                         .accessibilityLabel(close && !panels.isEmpty ? "Page \(session.page + 1) of \(session.count), panel \(panel + 1) of \(panels.count)" : "Page \(session.page + 1) of \(session.count)")
                 } else if let problem = session.problem {
                     Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).multilineTextAlignment(.center).padding(120)
                 }
+                // The strip under the title and the page number, so the number reads on its shade, below it.
+                if let inStrip { strip(on: inStrip).transition(.move(edge: .bottom).combined(with: .opacity)) }
                 if !close { around.transition(.opacity) }
             }
             // The whole screen is the one thing to press: the remote's presses come here, and nothing is drawn for the focus.
@@ -49,7 +58,10 @@ struct ComicView: View {
             .focusEffectDisabled()
             .onMoveCommand { direction in moved(direction, on: space.size) }
             .onTapGesture { select() }
-            .onExitCommand(perform: onClose)
+            .onPlayPauseCommand { showStrip(inStrip == nil) }
+            .onExitCommand {
+                if inStrip != nil { showStrip(false) } else { onClose() }
+            }
             .onChange(of: session.page) { _, _ in arrived(on: space.size) }
             .onChange(of: session.pictures[session.page]?.size) { _, _ in settle(on: space.size) }
         }
@@ -90,7 +102,8 @@ struct ComicView: View {
             Text(session.book.title).font(.ui(24)).foregroundStyle(Color.ink3).lineLimit(1)
                 .frame(maxWidth: 420, alignment: .leading)
             Spacer()
-            Text("Page \(session.page + 1) of \(session.count)").font(.ui(24)).foregroundStyle(Color.ink3).monospacedDigit()
+            // While the strip shows, the page the remote is on in it: the one Select goes to.
+            Text("Page \((inStrip ?? session.page) + 1) of \(session.count)").font(.ui(24)).foregroundStyle(Color.ink3).monospacedDigit()
                 .padding(.bottom, 10)
             // As wide as the room beside the page, and no wider: across the screen it would be drawn over the page.
             ComicHairline(fraction: session.fraction).frame(width: 420)
@@ -102,10 +115,38 @@ struct ComicView: View {
         .allowsHitTesting(false)
     }
 
+    /// The strip of small pages along the foot, on a shade so it reads over any page, with the page the remote is on
+    /// lifted. It sits above the page number and its hairline, which stay where they are.
+    private func strip(on page: Int) -> some View {
+        VStack(spacing: 0) {
+            Spacer()
+            PageStrip(session: session, chosen: page, tall: 150)
+                .padding(.bottom, 112)
+                .background {
+                    LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+                        .padding(.top, -80)
+                }
+        }
+        .allowsHitTesting(false)
+    }
+
     // What the remote does ---------------------------------------------------
+
+    /// Play/Pause: the strip, on the page being read; or away again.
+    private func showStrip(_ on: Bool) {
+        Reading.stay()
+        withAnimation(.easeOut(duration: 0.25)) { inStrip = on ? session.page : nil }
+    }
 
     private func moved(_ direction: MoveCommandDirection, on screen: CGSize) {
         Reading.stay()
+        // In the strip, left and right move along it, the way the comic reads; up and down do nothing.
+        if let at = inStrip {
+            let side = direction == .right ? 1 : direction == .left ? -1 : 0
+            guard side != 0 else { return }
+            inStrip = ComicPaging.clamp(at + ComicPaging.turn(by: side, rightToLeft: session.rightToLeft), of: session.count)
+            return
+        }
         // Which way the press goes through the comic: Down is always on, and Right is unless the comic reads right to left.
         let onward: Int
         switch direction {
@@ -139,9 +180,15 @@ struct ComicView: View {
         }
     }
 
-    /// Select: the page close, from its first panel or its head; or whole again.
+    /// Select: in the strip, the page it is on, and the strip away; else the page close, from its first panel or its
+    /// head, or whole again.
     private func select() {
         Reading.stay()
+        if let at = inStrip {
+            withAnimation(.easeOut(duration: 0.25)) { inStrip = nil }
+            session.turn(to: at, why: .seek)
+            return
+        }
         withAnimation(.easeInOut(duration: 0.3)) {
             close.toggle()
             panel = 0

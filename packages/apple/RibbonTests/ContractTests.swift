@@ -20,6 +20,12 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(try answer("series", as: Series.self).series.first?.name, "The Waygates")
     }
 
+    /// Who is signed in: whether they are the server's admin, who may delete its books.
+    func testWhoIsSignedIn() throws {
+        struct Me: Decodable { let user: ServerPerson }
+        XCTAssertTrue(try answer("me", as: Me.self).user.isAdmin)
+    }
+
     func testABook() throws {
         XCTAssertFalse(try answer("book", as: ServerBookDetail.self).files.isEmpty)
         let reading = try answer("readalong", as: ReadAlong.self)
