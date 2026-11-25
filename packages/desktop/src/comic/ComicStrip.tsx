@@ -119,13 +119,29 @@ export function ComicStrip({ comic, shown, rightToLeft, c, pdf }: { comic: Ready
     const to = centre();
     if (to !== undefined) setLeft(to);
   }, [count, rightToLeft, width]); // eslint-disable-line react-hooks/exhaustive-deps
-  // As the reader turns: after the turn has been drawn, since the turn shouldn't wait on the strip. The scroll says
-  // where it got to.
+  // As the reader turns: once the frame that shows the turn has gone, since the turn shouldn't wait on the strip. An
+  // effect alone isn't late enough: React runs the effects of a key's turn at once, before that frame, and the strip's
+  // scrolling (a second layout), its drawing and its fetching made the turn wait (measured on GitHub's runner at six
+  // times slower: 33.5 ms a turn without the strip, 51.3 ms with it). A hidden window has no frames, so a moment's
+  // wait stands in for one. The scroll says where it got to.
   const turned = useRef(reading);
   useEffect(() => {
     if (turned.current === reading) return;
     turned.current = reading;
-    centre();
+    let after = 0;
+    const done = () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(after);
+      clearTimeout(fallback);
+      centre();
+    };
+    const frame = requestAnimationFrame(() => (after = window.setTimeout(done, 0)));
+    const fallback = window.setTimeout(done, 100);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(after);
+      clearTimeout(fallback);
+    };
   }, [reading]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = useCallback((at: number) => c.turnComic(at, "seek"), [c]);
 
