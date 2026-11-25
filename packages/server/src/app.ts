@@ -166,7 +166,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   readAlongRoutes(app, { auth, books, places, goals: new Goals(db), events, readAlongs, search, frames, dataDir: config.dataDir });
 
   panelsRoutes(app, { auth, books, panels, dataDir: config.dataDir });
-  mcpRoutes(app, { auth, books, panels, dataDir: config.dataDir });
+  mcpRoutes(app, { auth, books, panels, series, events, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }

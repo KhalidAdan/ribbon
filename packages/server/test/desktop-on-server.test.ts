@@ -173,6 +173,36 @@ describe("the desktop on a server", () => {
     app.destroy();
   }, 60_000);
 
+  it("makes a page of a server's comic its cover, from the server's pages before it's downloaded and from the archive after", async () => {
+    await makeComic(path.join(shelf, "Made Up Saga 001 (2018).cbz"), { pages: 9 });
+    await stocked();
+    const { app } = await aDesktop();
+    const listed = book(app, "Made Up Saga #1");
+    const id = serverIdOf(listed)!;
+    const cover = () => asked<{ books: { id: string; cover: { hash: string }; edited?: { chosenCover?: true } }[] }>("/api/books").then((r) => r.books.find((b) => b.id === id)!);
+    const own = (await cover()).cover.hash;
+
+    // Not downloaded: the pages to choose from are the server's, and one of them goes back as the cover.
+    const pages = (await app.pagesToChoose(listed.book.id))!;
+    expect(pages).toMatchObject({ from: "server", count: 9 });
+    if (pages.from !== "server") throw new Error("the pages should be the server's");
+    const third = new Uint8Array(await (await pages.page(2)).arrayBuffer());
+    expect(Buffer.from(third).equals(Buffer.from(await (await server.app.inject({ method: "GET", url: `/api/books/${id}/pages/3`, headers: { authorization: `Bearer ${admin}` } })).rawPayload))).toBe(true);
+    await app.setCover(listed.book.id, third, "png");
+    const chosen = await cover();
+    expect(chosen.cover.hash).not.toBe(own);
+    expect(chosen.edited?.chosenCover).toBe(true);
+
+    // Downloaded: its pages are in the archive here. (An address for a page is the app's to give: this test's platform has none.)
+    await app.openComic(listed.book.id);
+    await app.closeComic();
+    expect(book(app, "Made Up Saga #1").remote).toBeUndefined();
+    expect(await app.pagesToChoose(listed.book.id)).toBeNull();
+    // Not a book of pages: nothing to choose from.
+    expect(await app.pagesToChoose(book(app, "Red Book").book.id)).toBeNull();
+    app.destroy();
+  }, 60_000);
+
   it("takes a download off this device, and the book and your bookmark stay", async () => {
     await stocked();
     const { app } = await aDesktop();

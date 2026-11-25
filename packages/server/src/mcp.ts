@@ -1,8 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { panelsFrom, type Panel } from "@ribbon/core/comic/panels";
+import { formFields, type FormField } from "@ribbon/core/edit-form";
+import { applyEdits, fieldText, sharedEdits, type EditValues } from "@ribbon/core/edits";
+import { nodeHost } from "@ribbon/host-node/node";
 import { pagePicture } from "@ribbon/host-node/page-picture";
 import { signedIn, type Auth, type Person } from "./auth.ts";
-import { bookDir, type BookIndex } from "./library/books.ts";
+import type { Events } from "./events.ts";
+import { bookDir, type BookIndex, type StoredBook } from "./library/books.ts";
+import { coverFrom } from "./library/chosen-cover.ts";
+import type { LibrarySeries } from "./library/series.ts";
 import { pageBytes } from "./library/comic.ts";
 import type { ComicPanels } from "./library/panels.ts";
 import { comicOn, dividedPages } from "./panels-routes.ts";
@@ -22,6 +28,12 @@ import { comicOn, dividedPages } from "./panels-routes.ts";
  * the store the devices' routes use (panels-routes.ts), and what a panel
  * may be is core's to say (packages/core/src/comic/panels.ts): so a
  * person's editor and an assistant keep to the same rules.
+ *
+ * A comic's details go the same way (docs/COMICS.md, section 4): an
+ * assistant asked to fill them in from somewhere a person trusts sets
+ * the fields the desktop's edit form shows for a comic
+ * (packages/core/src/edit-form.ts), kept as that form's edits are, and
+ * can make any page of a comic its cover, as "Choose a page…" does there.
  */
 
 /** The versions of the protocol this speaks, newest first. Asked for another, it answers with the newest. */
@@ -46,8 +58,31 @@ class Refused extends Error {}
 const HOW_PANELS_ARE_MEASURED =
   "A panel is a rectangle: x and y are its top left corner and w and h its size, each a fraction of the page from 0 to 1 (x 0 is the page's left edge, y 0 its top, w 1 its whole width). List panels in the order they are read. Take each panel's box to the outside of its border, and include a caption or a balloon that belongs to it even where it breaks the border. A page with one picture across it is one panel: x 0, y 0, w 1, h 1.";
 
-export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; panels: ComicPanels; dataDir: string }): void {
+/** A comic's details by the names an assistant gives them: the edit form's fields for a comic, with a book's number in its series called `number`. */
+const DETAILS: Record<string, FormField> = Object.fromEntries(formFields("comic").map((f) => [f === "seriesIndex" ? "number" : f, f]));
+
+const HOW_DETAILS_ARE_GIVEN =
+  `Details are given by name: ${Object.keys(DETAILS).join(", ")}. Each is text (number and year may be numbers). The title should say which issue or issues the comic holds ("Saga #14", "Saga Vol. 1 (#1–#6)"); author is its writers and artists, several apart by semicolons; genres are apart by commas; number is its issue or volume number in the series. An empty text empties a detail; null takes a correction back, to what the comic's file says.`;
+
+/** The longest a detail may be, as the edit form's route has it. */
+const DETAIL_LETTERS = 20_000;
+
+export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; panels: ComicPanels; series: LibrarySeries; events: Events; dataDir: string }): void {
+  const host = nodeHost();
   const text = (words: string): Content => ({ type: "text", text: words });
+
+  /** A comic's details as they stand, with which of them were corrected by hand and what its cover is. */
+  const detailsOf = (comic: { id: string; stored: StoredBook }) => {
+    const corrected = deps.books.edits(comic.id)?.values ?? {};
+    const book = applyEdits(comic.stored.book, corrected);
+    return {
+      id: comic.id,
+      ...Object.fromEntries(Object.entries(DETAILS).map(([name, field]) => [name, fieldText(book, field)])),
+      pages: comic.stored.pages?.length ?? 0,
+      corrected: Object.entries(DETAILS).flatMap(([name, field]) => (corrected[field] !== undefined ? [name] : [])),
+      cover: deps.books.chosenCover(comic.id) ? "chosen by hand" : "its first page",
+    };
+  };
 
   const comicAsked = async (args: Record<string, unknown>) => {
     const id = typeof args.book === "string" ? args.book : "";
@@ -149,6 +184,71 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
         return args.show === false ? [said] : [...(await picture(comic, panels)), said];
       },
     },
+    {
+      name: "comic_details",
+      description: "One comic's details as every device shows them: its title, subtitle, author (its writers and artists), series and number, year, language, genres, publisher, ISBN and description, which of them were corrected by hand, and whether its cover is its first page or one chosen by hand.",
+      inputSchema: { type: "object", properties: { book: { type: "string", description: "The comic's id, from list_comics." } }, required: ["book"] },
+      async run(args) {
+        return [text(JSON.stringify(detailsOf(await comicAsked(args)), null, 1))];
+      },
+    },
+    {
+      name: "set_details",
+      description: `Correct a comic's details, for every device. Only the details given change; the rest stay as they are. ${HOW_DETAILS_ARE_GIVEN} The comic's file is never touched. Comics that name the same series are put in it together, in the order of their numbers, once three of them do. The answer is the comic's details as they then stand.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          book: { type: "string" },
+          details: {
+            type: "object",
+            description: "The details to change, by name.",
+            properties: Object.fromEntries(Object.keys(DETAILS).map((name) => [name, { type: name === "number" || name === "year" ? ["string", "number", "null"] : ["string", "null"] }])),
+          },
+        },
+        required: ["book", "details"],
+      },
+      async run(args, me) {
+        const comic = await comicAsked(args);
+        const given = args.details && typeof args.details === "object" && !Array.isArray(args.details) ? Object.entries(args.details as Record<string, unknown>) : null;
+        if (!given || given.length === 0) throw new Refused(`Give the details to change. ${HOW_DETAILS_ARE_GIVEN}`);
+        // Laid over the corrections it has, as the edit form's are: the last one stands.
+        const values: EditValues = { ...(deps.books.edits(comic.id)?.values ?? {}) };
+        for (const [name, value] of given) {
+          const field = DETAILS[name];
+          if (!field) throw new Refused(`A comic has no detail called "${name}". ${HOW_DETAILS_ARE_GIVEN}`);
+          if (value === null) delete values[field];
+          else if (typeof value === "string" && value.length <= DETAIL_LETTERS) values[field] = value.trim();
+          else if (typeof value === "number" && Number.isFinite(value) && (field === "seriesIndex" || field === "year")) values[field] = String(value);
+          else throw new Refused(`Give ${name} as text. ${HOW_DETAILS_ARE_GIVEN}`);
+        }
+        deps.books.saveEdits(comic.id, { values: sharedEdits(values), updatedAt: new Date().toISOString() }, me.id);
+        deps.events.toEveryone({ type: "books", data: { edited: comic.id } });
+        // A series it names now is one it belongs to, as a book that arrives naming one does.
+        if (deps.series.find(deps.books.list(), Date.now()) > 0) deps.events.toEveryone({ type: "series", data: {} });
+        return [text(JSON.stringify(detailsOf(comic), null, 1))];
+      },
+    },
+    {
+      name: "set_cover",
+      description: "Make one page of a comic its cover, on every device: a collection's files give it its first page, and a better one is often inside. Look at the page first (look_at_page). Give page 0 to go back to the cover its file gives it. The answer is the page that is now the cover.",
+      inputSchema: { type: "object", properties: { book: { type: "string" }, page: { type: "integer", description: "The page's number, from 1; 0 for the cover the comic's file gives it." } }, required: ["book", "page"] },
+      async run(args, me) {
+        const at = new Date().toISOString();
+        if (args.page === 0) {
+          const comic = await comicAsked(args);
+          deps.books.chooseCover(comic.id, null, me.id, at);
+          deps.events.toEveryone({ type: "books", data: { edited: comic.id } });
+          return [text("Its cover is the one its file gives it again.")];
+        }
+        const comic = await pageAsked(args);
+        const cover = await coverFrom(host, deps.dataDir, comic.id, await pageBytes(bookDir(deps.dataDir, comic.id), comic.file, comic.pages, comic.number - 1));
+        if (cover === "gone") throw new Refused("That comic was deleted just now.");
+        if (!cover) throw new Refused(`Page ${comic.number} couldn't be made into a cover: it isn't a picture this server can read.`);
+        deps.books.chooseCover(comic.id, cover, me.id, at);
+        deps.events.toEveryone({ type: "books", data: { edited: comic.id } });
+        return [...(await picture(comic, [])), text(`Page ${comic.number} is its cover now.`)];
+      },
+    },
   ];
 
   /** One message answered: its result, or the error to send back; undefined for a note that wants no answer. */
@@ -166,7 +266,8 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
           protocolVersion: PROTOCOLS.includes(asked) ? asked : PROTOCOLS[0],
           capabilities: { tools: {} },
           serverInfo: { name: "ribbon", version: "1" },
-          instructions: "A Ribbon server's comics and their panels. To set a comic's panels: list_comics to find it, comic_pages to see what is left, then for each page look_at_page and set_panels, checking the picture set_panels sends back.",
+          instructions:
+            "A Ribbon server's comics: their panels, their details and their covers. To set a comic's panels: list_comics to find it, comic_pages to see what is left, then for each page look_at_page and set_panels, checking the picture set_panels sends back. To fill in a comic's details: comic_details to see what it has, then set_details with what should change; set_cover makes a page its cover.",
         });
       }
       case "ping":
