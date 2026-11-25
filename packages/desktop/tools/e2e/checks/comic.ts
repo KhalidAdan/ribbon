@@ -168,6 +168,61 @@ async function keptSmallPages(r: Ribbon, comicFile: string): Promise<{ files: nu
 
 const mb = (n: number | null) => (n === null ? "not measured" : `${n} MB`);
 
+/**
+ * Scroll the long scroll with the wheel, as a person does, a notch at a time, and time the frames meanwhile: the
+ * gaps between them, and how many took longer than 50 ms. The page drawn with each notch is the scroll's to keep up with.
+ */
+async function wheelThrough(r: Ribbon, notches: number, by = 120): Promise<{ p50: number; p95: number; max: number; long: number; frames: number }> {
+  await r.page.evaluate(() => {
+    const w = window as unknown as { __frames: number[]; __recording: boolean };
+    w.__frames = [];
+    w.__recording = true;
+    let last = performance.now();
+    const tick = () => {
+      const now = performance.now();
+      w.__frames.push(now - last);
+      last = now;
+      if (w.__recording) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  const view = await r.page.evaluate(() => {
+    const b = document.querySelector("[data-comic-scroll]")!.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  });
+  await r.page.mouse.move(view.x, view.y);
+  for (let i = 0; i < notches; i++) {
+    await r.page.mouse.wheel(0, by);
+    await r.page.waitForTimeout(16);
+  }
+  await r.page.waitForTimeout(300);
+  const frames = await r.page.evaluate(() => {
+    const w = window as unknown as { __frames: number[]; __recording: boolean };
+    w.__recording = false;
+    return w.__frames.slice(1);
+  });
+  const sorted = [...frames].sort((a, b) => a - b);
+  return { p50: percentile(sorted, 0.5), p95: percentile(sorted, 0.95), max: sorted[sorted.length - 1] ?? 0, long: frames.filter((f) => f > 50).length, frames: frames.length };
+}
+
+const frameNote = (f: { p50: number; p95: number; max: number; long: number; frames: number }) => `frames ${f.p50.toFixed(1)} ms at the median, ${f.p95.toFixed(1)} p95, ${f.max.toFixed(0)} slowest, ${f.long} of ${f.frames} over 50 ms`;
+
+/** The long scroll's state: the page being read, where its place is in the view, and how many pages are drawn. */
+function scrollState(r: Ribbon): Promise<{ page: number; top: number | null; width: number; canvases: number; slider: number }> {
+  return r.page.evaluate(() => {
+    const view = document.querySelector("[data-comic-scroll]");
+    const reading = view?.querySelector("[data-reading]") as HTMLElement | null;
+    const c = window.__ribbon.getState().comic;
+    return {
+      page: c?.status === "ready" ? c.page : -1,
+      top: view && reading ? Math.round(reading.getBoundingClientRect().top - view.getBoundingClientRect().top) : null,
+      width: reading ? parseFloat(reading.style.width) : 0,
+      canvases: view?.querySelectorAll("canvas").length ?? 0,
+      slider: Number((document.querySelector("[role=dialog] footer input[type=range]") as HTMLInputElement | null)?.value ?? 0),
+    };
+  });
+}
+
 /** A comic opens to its page, turns by key, click and pen, shows two pages as printed, and comes back where it was left. */
 export const comicCheck: Check = {
   name: "comic",
@@ -399,16 +454,78 @@ export const comicCheck: Check = {
     t.expect(await page.waitForFunction(() => window.__ribbon.getState().comicSettings.up === "two", null, { timeout: 5000 }).then(() => true, () => false), "D puts two pages side by side");
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one", fit: "page", ground: "ribbon" }));
 
-    // Two pages, as printed: the cover alone, then pairs, and the wide page (the eleventh) alone.
+    // One long scroll (docs/COMICS.md, section 15): the pages one under another, read by the wheel.
+    await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one", fit: "page", scroll: false, column: 1, strip: false }));
+    await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
+    await shown(r, 5);
+    await page.keyboard.press("s");
+    const scrolling = await page.waitForFunction(() => !!document.querySelector("[data-comic-scroll] [data-reading] canvas[data-drawn]"), null, { timeout: 15_000 }).then(() => true, () => false);
+    let at = await scrollState(r);
+    t.expect(scrolling && at.page === 5 && at.top !== null && Math.abs(at.top) <= 2, "S puts the pages in one long scroll, at the page being read", JSON.stringify(at));
+    const issueFrames = await wheelThrough(r, 60);
+    at = await scrollState(r);
+    t.expect(at.page > 5 && at.slider === at.page + 1, "the wheel scrolls, and the place and the slider follow the page filling the top third", JSON.stringify(at));
+    t.expect(at.canvases <= 6, "only the pages near the window are drawn", `${at.canvases} drawn`);
+    t.note(`the long scroll of 40 pages, sixty notches of the wheel: ${frameNote(issueFrames)}`);
+    await page.keyboard.press("g");
+    await boxHasKeys();
+    await page.keyboard.type("20");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.__ribbon.getState().comic?.status === "ready" && (window.__ribbon.getState().comic as { page: number }).page === 19, null, { timeout: 5000 }).catch(() => undefined);
+    await noDialog();
+    await page.waitForTimeout(300);
+    at = await scrollState(r);
+    t.expect(at.page === 19 && at.top !== null && Math.abs(at.top) <= 2, "Go to page scrolls to the page, its top at the window's", JSON.stringify(at));
+    const fullWidth = at.width;
+    await page.keyboard.press("-");
+    await page.waitForTimeout(300);
+    at = await scrollState(r);
+    t.expect(at.width < fullWidth && at.page === 19, "- makes the column narrower, keeping the page being read", `${fullWidth} to ${at.width} px wide, at page ${at.page + 1}`);
+    await page.keyboard.press("0");
+    await page.keyboard.press("End");
+    await page.waitForTimeout(500);
+    t.expect((await scrollState(r)).page === 39, "End scrolls to the last page");
+    await page.keyboard.press("Home");
+    await page.waitForTimeout(500);
+    t.expect((await scrollState(r)).page === 0, "Home to the first");
+
+    if (r.longComicId) {
+      await page.evaluate(() => window.__ribbon.closeComic());
+      await page.evaluate((id) => window.__ribbon.openComic(id), r.longComicId);
+      await page.evaluate(() => window.__ribbon.turnComic(299, "seek"));
+      const opened = await page.waitForFunction(() => !!document.querySelector('[data-comic-scroll] [data-scroll-page="300"] canvas[data-drawn]'), null, { timeout: 15_000 }).then(() => true, () => false);
+      t.expect(opened, "a 600-page comic opens in the scroll at its page");
+      const before = await webviewMemory(r);
+      const bookFrames = await wheelThrough(r, 120);
+      at = await scrollState(r);
+      const scrolled = await webviewMemory(r);
+      t.expect(at.page > 299 && at.canvases <= 6, "scrolled through an omnibus, only the pages near the window are drawn", JSON.stringify(at));
+      t.note(`the long scroll of 600 pages, a hundred and twenty notches: ${frameNote(bookFrames)}; to page ${at.page + 1}`);
+      t.note(`the web view's memory in the long scroll of 600 pages: ${mb(before)} opened, ${mb(scrolled)} after scrolling`);
+      await page.evaluate(() => window.__ribbon.closeComic());
+      await page.evaluate((id) => window.__ribbon.openComic(id), r.comicId);
+    }
+    await page.keyboard.press("s");
+    await page.evaluate(() => window.__ribbon.setComicSettings({ scroll: false, column: 1 }));
+    await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
+    t.expect(await shown(r, 5), "S goes back to turning the pages");
+
+    // Two pages, as printed: the cover alone, then pairs, and the wide page (the eleventh) alone. Each spread is
+    // waited for whole: a page is placed once its file has come, and the reader may have just been made afresh
+    // (leaving the long scroll does that), its pages still on their way.
+    const spread = async (expected: string): Promise<string> => {
+      await page.waitForFunction((expected) => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page][data-drawn]")].map((c) => (c as HTMLElement).dataset.page).join(",") === expected, expected, { timeout: 10_000 }).catch(() => undefined);
+      return page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page).join(","));
+    };
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "two" }));
     await page.evaluate(() => window.__ribbon.turnComic(1, "seek"));
     await shown(r, 1);
-    const pair = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
-    t.expect(pair.join(",") === "2,3", "two pages up shows the second and third side by side", pair.join(","));
+    const pair = await spread("2,3");
+    t.expect(pair === "2,3", "two pages up shows the second and third side by side", pair);
     await page.evaluate(() => window.__ribbon.turnComic(10, "seek"));
     await shown(r, 10);
-    const wide = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
-    t.expect(wide.join(",") === "11", "a page drawn across two has the screen to itself", wide.join(","));
+    const wide = await spread("11");
+    t.expect(wide === "11", "a page drawn across two has the screen to itself", wide);
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one" }));
 
     // Left at a page and closed, it opens there again.

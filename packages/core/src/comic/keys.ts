@@ -5,7 +5,7 @@
  * and are the reader's own; these are the view's. None clash with the
  * player's keys, which are off while a comic is open.
  */
-export type ComicKey = "jump" | "strip" | "two-up" | "direction" | "panels" | "fit-page" | "fit-width" | "fit-height" | "ground" | "zoom-in" | "zoom-out" | "zoom-whole" | "keys";
+export type ComicKey = "jump" | "strip" | "two-up" | "direction" | "scroll" | "panels" | "fit-page" | "fit-width" | "fit-height" | "ground" | "zoom-in" | "zoom-out" | "zoom-whole" | "keys";
 
 /** What a key does, by the `key` a keyboard event names; null for a key that isn't the view's. */
 export function comicKey(key: string): ComicKey | null {
@@ -18,6 +18,8 @@ export function comicKey(key: string): ComicKey | null {
       return "two-up";
     case "r":
       return "direction";
+    case "s":
+      return "scroll";
     case "p":
       return "panels";
     case "1":
@@ -61,10 +63,11 @@ export function keyList(rightToLeft: boolean): KeyLine[] {
     { keys: ["T"], does: "Show or hide the small pages" },
     { keys: ["D"], does: "One page, or two side by side" },
     { keys: ["R"], does: "Read left to right, or right to left" },
+    { keys: ["S"], does: "One long scroll, or pages" },
     { keys: ["P"], does: "Panels, or whole pages, where a comic's panels are marked" },
     { keys: ["1", "2", "3"], does: "Fit the page, the width, the height" },
     { keys: ["B"], does: "The next ground behind the page" },
-    { keys: ["+", "-", "0"], does: "Zoom in, out, and back to the whole page" },
+    { keys: ["+", "-", "0"], does: "Zoom in, out, and back to the whole page; in one long scroll, a wider column, a narrower, and as wide as the window" },
     { keys: ["?"], does: "This list" },
     { keys: ["Esc"], does: "Close the comic" },
   ];
