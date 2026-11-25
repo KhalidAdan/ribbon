@@ -536,7 +536,9 @@ final class AppModel {
                 return
             }
             comic?.close()
-            comic = ComicSession(book: book, server: server, pages: pages, rightToLeft: whole.book.rightToLeft == true, place: place, keepsSessions: keepsSessions)
+            // Its panels, where someone has marked them. A server from before panels has none to give, and the comic opens all the same.
+            let panels = (try? await server.panels(in: book.id)) ?? [:]
+            comic = ComicSession(book: book, server: server, pages: pages, panels: panels, rightToLeft: whole.book.rightToLeft == true, place: place, keepsSessions: keepsSessions)
             path.append(.comic)
         } catch {
             problem = error.localizedDescription

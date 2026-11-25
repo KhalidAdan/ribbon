@@ -688,6 +688,19 @@ key. Tried by hand on a page drawn for it, with five panels: marked
 through the MCP by eye from `look_at_page`, and the picture sent back
 showed each box on its panel, numbered in order.
 
+**The Apple TV reads by them** (`packages/apple/Ribbon/Comic/ComicViewTV.swift`).
+A comic with panels opens on its first: the panel fills the screen, with a
+little room about it, and nothing else of the page shows. Right and Down
+go on to the next panel, Left and Up back to the one before (Left goes on
+in a comic that reads right to left), and the page glides from one to the
+next. Past a page's last panel is the next page's first; back past its
+first is the page before, at its last. Select shows the page whole, and
+Select again goes back to its panels. A page nobody has marked is brought
+to the screen's width instead, as before, so a comic half marked is still
+read with one thumb. A small panel is not enlarged past four times the
+whole page's size. Tried in the Apple TV simulator on the drawn page
+above, by the remote's keys.
+
 **A person marks them: the desktop's editor**
 (`packages/desktop/src/comic/PanelEditor.tsx`). In a server's comic, for
 its admin, the reader's Pages menu has "Mark its panels…". It shows one
@@ -704,10 +717,9 @@ about. Tried in the browser against a scratch server.
 
 **Not built yet:**
 
-- **The readers.** Stepping through panels on the Apple TV, the iPad and
-  iPhone, and the desktop: a pan and zoom to each, the rest of the page
-  masked, the whole page a press away.
-- **The editor on the iPad**, by touch. The desktop's is below.
+- **The other readers.** Stepping through panels on the iPad and iPhone,
+  and the desktop.
+- **The editor on the iPad**, by touch. The desktop's is above.
 - **Panels in a folder**, for the desktop alone: a record beside the comic
   in `.ribbon/`. Today panels are a server's.
 - **A wide panel as two stops**, as Kindle asks of publishers: today it is

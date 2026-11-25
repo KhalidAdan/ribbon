@@ -74,6 +74,9 @@ for listening without a network.
   opens in a screen for the remote (`Ribbon/Comic/ComicViewTV.swift`): left
   and right turn the page, Select brings it to the screen's width and back,
   up and down move along a page that wide and on to the next, Menu leaves.
+  A comic whose panels are marked (docs/COMICS.md, section 14) is read a
+  panel at a time there: each press glides to the next panel, and Select
+  shows the whole page.
 - **Stats**, at the top of the library, as the desktop's Stats has them:
   this week as a sentence, a day lately, the streak and the books finished
   this year; a square for each day of the last year; the books and authors
