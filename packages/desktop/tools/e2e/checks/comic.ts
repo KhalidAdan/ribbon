@@ -510,16 +510,22 @@ export const comicCheck: Check = {
     await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
     t.expect(await shown(r, 5), "S goes back to turning the pages");
 
-    // Two pages, as printed: the cover alone, then pairs, and the wide page (the eleventh) alone.
+    // Two pages, as printed: the cover alone, then pairs, and the wide page (the eleventh) alone. Each spread is
+    // waited for whole: a page is placed once its file has come, and the reader may have just been made afresh
+    // (leaving the long scroll does that), its pages still on their way.
+    const spread = async (expected: string): Promise<string> => {
+      await page.waitForFunction((expected) => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page][data-drawn]")].map((c) => (c as HTMLElement).dataset.page).join(",") === expected, expected, { timeout: 10_000 }).catch(() => undefined);
+      return page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page).join(","));
+    };
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "two" }));
     await page.evaluate(() => window.__ribbon.turnComic(1, "seek"));
     await shown(r, 1);
-    const pair = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
-    t.expect(pair.join(",") === "2,3", "two pages up shows the second and third side by side", pair.join(","));
+    const pair = await spread("2,3");
+    t.expect(pair === "2,3", "two pages up shows the second and third side by side", pair);
     await page.evaluate(() => window.__ribbon.turnComic(10, "seek"));
     await shown(r, 10);
-    const wide = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] [data-comic-track] [data-on-screen] canvas[data-page]")].map((c) => (c as HTMLElement).dataset.page));
-    t.expect(wide.join(",") === "11", "a page drawn across two has the screen to itself", wide.join(","));
+    const wide = await spread("11");
+    t.expect(wide === "11", "a page drawn across two has the screen to itself", wide);
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one" }));
 
     // Left at a page and closed, it opens there again.
