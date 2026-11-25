@@ -12,6 +12,8 @@ import UIKit
 final class ComicSession {
     let book: ServerBook
     let pages: [ServerBookDetail.Page]
+    /// The panels of the pages that have them marked, by the page counted from 0, each page's in reading order.
+    let panels: [Int: [ComicPanel]]
     /// Read right to left, as the comic says of itself: a turn forward goes to the left.
     let rightToLeft: Bool
     /// The page being read, counted from 0.
@@ -38,10 +40,11 @@ final class ComicSession {
     private static let shortest: TimeInterval = 30
     private static let lingerFor: TimeInterval = 60
 
-    init(book: ServerBook, server: RibbonServer, pages: [ServerBookDetail.Page], rightToLeft: Bool, place: ComicPlace?, keepsSessions: Bool) {
+    init(book: ServerBook, server: RibbonServer, pages: [ServerBookDetail.Page], panels: [Int: [ComicPanel]] = [:], rightToLeft: Bool, place: ComicPlace?, keepsSessions: Bool) {
         self.book = book
         self.server = server
         self.pages = pages
+        self.panels = panels
         self.rightToLeft = rightToLeft
         self.keepsSessions = keepsSessions
         page = ComicPaging.clamp((place?.page ?? 1) - 1, of: pages.count)
@@ -184,9 +187,6 @@ enum ComicPaging {
 
     // On a screen with no touch (the Apple TV) ------------------------------
 
-    /// How a page is put on a screen far wider than it: whole, as tall as the screen; or as wide as the screen, to be moved along.
-    enum Fit { case whole, wide }
-
     /// Pages to turn for a press to the right (`1`) or the left (`-1`): forward to the right, unless the comic reads right to left.
     static func turn(by side: Int, rightToLeft: Bool) -> Int {
         rightToLeft ? -side : side
@@ -209,6 +209,49 @@ enum ComicPaging {
         let end = foot(page: page, screen: screen)
         let to = max(0, min(end, offset + CGFloat(direction) * (screen * 0.6).rounded()))
         return abs(to - offset) < 1 ? nil : to
+    }
+
+    // A panel at a time ----------------------------------------------------
+
+    /// Where a page's picture is put on a screen: how many times its own size it is drawn, how far its middle is
+    /// from the screen's, and how much of the screen, about its middle, is left showing the page.
+    struct Placing: Equatable {
+        var scale: CGFloat
+        var offset: CGSize
+        var window: CGSize
+    }
+
+    /// The page whole, in the middle of the screen, as large as fits.
+    static func whole(page: CGSize, screen: CGSize) -> Placing {
+        guard page.width > 0, page.height > 0 else { return Placing(scale: 1, offset: .zero, window: screen) }
+        let scale = min(screen.width / page.width, screen.height / page.height)
+        return Placing(scale: scale, offset: .zero, window: CGSize(width: page.width * scale, height: page.height * scale))
+    }
+
+    /// The page as wide as the screen, hung from the screen's top and moved up by `down`.
+    static func wide(page: CGSize, screen: CGSize, down: CGFloat) -> Placing {
+        guard page.width > 0 else { return Placing(scale: 1, offset: .zero, window: screen) }
+        let scale = screen.width / page.width
+        return Placing(scale: scale, offset: CGSize(width: 0, height: (page.height * scale - screen.height) / 2 - down), window: screen)
+    }
+
+    /// One panel of the page in the middle of the screen, as large as fits with a little room about it, and nothing
+    /// else of the page showing. A small panel is not blown up past four times the page's size when whole: past that
+    /// a scan is blur.
+    static func close(on panel: ComicPanel, page: CGSize, screen: CGSize, room: CGFloat = 0.03) -> Placing {
+        let (w, h) = (CGFloat(panel.w) * page.width, CGFloat(panel.h) * page.height)
+        guard w > 0, h > 0 else { return whole(page: page, screen: screen) }
+        let fits = min(screen.width * (1 - 2 * room) / w, screen.height * (1 - 2 * room) / h)
+        let scale = min(fits, whole(page: page, screen: screen).scale * 4)
+        // The page is moved so the panel's middle is the screen's.
+        let offset = CGSize(width: page.width * scale * (0.5 - CGFloat(panel.x + panel.w / 2)), height: page.height * scale * (0.5 - CGFloat(panel.y + panel.h / 2)))
+        return Placing(scale: scale, offset: offset, window: CGSize(width: w * scale, height: h * scale))
+    }
+
+    /// The panel after a press forward (`1`) or back (`-1`) from panel `at` of `count`; nil when the press goes on to another page.
+    static func step(from at: Int, by direction: Int, of count: Int) -> Int? {
+        let to = at + direction
+        return to >= 0 && to < count ? to : nil
     }
 
     /// A page's picture from its file, decoded now and no larger than `longest` pixels on its longer side.

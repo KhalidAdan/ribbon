@@ -1,27 +1,35 @@
 #if os(tvOS)
 import SwiftUI
 
-/// The comic reader on the Apple TV (docs/COMICS.md, section 7), where the remote does all of it:
+/// The comic reader on the Apple TV (docs/COMICS.md, sections 7 and 14), where the remote does all of it.
 ///
-/// - **Left and right turn the page**; in a comic that reads right to left, they swap.
-/// - **A page is shown whole** to start with, as tall as the screen. **Select** brings it to the screen's width,
-///   which is when its words can be read from across a room, and then **up and down** move along it; down past
-///   its foot goes on to the next page, and up past its head goes back to the one before. Select again shows it
-///   whole.
-/// - **Menu** leaves the comic, with the page kept.
+/// A page is shown **whole**, as tall as the screen, or **close**, which is how it is read from across a room.
+/// **Select** goes from one to the other. What close is depends on the page:
 ///
-/// A whole page leaves the screen's sides empty, and the comic's title and the page's number sit there. Brought
-/// to the screen's width a page has the screen to itself.
+/// - **A page whose panels are marked** is read a panel at a time: one panel fills the screen and the rest of the
+///   page is out of sight. Right and Down go on to the next panel, Left and Up back to the one before (in a comic
+///   that reads right to left, Left goes on and Right goes back). Past a page's last panel is the next page's first.
+/// - **A page with no panels** is brought to the screen's width, and Up and Down move along it; Down past its foot
+///   goes on to the next page, and Up past its head back to the one before. Left and Right turn the page.
+///
+/// A comic with panels opens close, since that is what marking them was for. **Menu** leaves, with the page kept.
+///
+/// A whole page leaves the screen's sides empty, and the comic's title and the page's number sit there.
 struct ComicView: View {
     let session: ComicSession
     let onClose: () -> Void
-    /// Whether the page is shown whole, or as wide as the screen.
-    @State private var fit = ComicPaging.Fit.whole
+    /// Whether the page is shown close: a panel at a time, or as wide as the screen where it has no panels.
+    @State private var close = false
+    /// The panel being read, among the page's, counted from 0.
+    @State private var panel = 0
     /// How far down a page as wide as the screen has been moved, in points.
     @State private var down: CGFloat = 0
-    /// Where a page comes in after a turn back by Up: at its foot, since that is where the reader left off.
-    @State private var arrivesAtFoot = false
+    /// A page come back to from the one after it comes in at its end, since that is where the reader left off: its last panel, or its foot.
+    @State private var arrivesAtEnd = false
     @FocusState private var focused: Bool
+
+    /// The panels of the page being read; none when nobody has marked them.
+    private var panels: [ComicPanel] { session.panels[session.page] ?? [] }
 
     var body: some View {
         GeometryReader { space in
@@ -29,11 +37,11 @@ struct ComicView: View {
                 Color.canvas
                 if let picture = session.pictures[session.page] {
                     page(picture, in: space.size)
-                        .accessibilityLabel("Page \(session.page + 1) of \(session.count)")
+                        .accessibilityLabel(close && !panels.isEmpty ? "Page \(session.page + 1) of \(session.count), panel \(panel + 1) of \(panels.count)" : "Page \(session.page + 1) of \(session.count)")
                 } else if let problem = session.problem {
                     Text(problem).font(.ui(24)).foregroundStyle(Color.ink2).multilineTextAlignment(.center).padding(120)
                 }
-                if fit == .whole { around.transition(.opacity) }
+                if !close { around.transition(.opacity) }
             }
             // The whole screen is the one thing to press: the remote's presses come here, and nothing is drawn for the focus.
             .focusable()
@@ -48,27 +56,31 @@ struct ComicView: View {
         .ignoresSafeArea()
         .onAppear {
             focused = true
+            close = !session.panels.isEmpty
             Reading.stay()
         }
         .onDisappear { Reading.leave() }
     }
 
-    /// The page: whole, in the middle of the screen; or as wide as the screen, moved up by how far down it has been read.
-    @ViewBuilder
+    /// Where the page's picture goes now: whole, on one of its panels, or as wide as the screen.
+    private func placing(of page: CGSize, on screen: CGSize) -> ComicPaging.Placing {
+        guard close else { return ComicPaging.whole(page: page, screen: screen) }
+        if panels.indices.contains(panel) { return ComicPaging.close(on: panels[panel], page: page, screen: screen) }
+        return ComicPaging.wide(page: page, screen: screen, down: down)
+    }
+
+    /// The page, drawn once and moved: from whole to a panel, and panel to panel, it glides. Only the part of it in
+    /// the window shows, which is all of it but when a panel is being read.
     private func page(_ picture: UIImage, in screen: CGSize) -> some View {
-        switch fit {
-        case .whole:
-            Image(uiImage: picture).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                .frame(width: screen.width, height: screen.height)
-        case .wide:
-            let height = ComicPaging.height(of: picture.size, atWidth: screen.width)
-            Image(uiImage: picture).resizable().interpolation(.high)
-                .frame(width: screen.width, height: height)
-                // Hung from the screen's top, so `down` is how much of the page is above it.
-                .frame(width: screen.width, height: screen.height, alignment: .top)
-                .offset(y: -down)
-                .animation(.easeOut(duration: 0.22), value: down)
-        }
+        let at = placing(of: picture.size, on: screen)
+        return Image(uiImage: picture).resizable().interpolation(.high)
+            .frame(width: picture.size.width * at.scale, height: picture.size.height * at.scale)
+            .offset(at.offset)
+            .frame(width: screen.width, height: screen.height)
+            .mask { Rectangle().frame(width: at.window.width, height: at.window.height) }
+            .animation(.easeInOut(duration: 0.3), value: at)
+            // Another page is another picture: it is simply there, not flown in from where the last one was.
+            .id(session.page)
     }
 
     /// The comic's title at the top and the page's number at the foot, over a hairline of how far through it is:
@@ -94,54 +106,73 @@ struct ComicView: View {
 
     private func moved(_ direction: MoveCommandDirection, on screen: CGSize) {
         Reading.stay()
+        // Which way the press goes through the comic: Down is always on, and Right is unless the comic reads right to left.
+        let onward: Int
         switch direction {
-        case .left: turn(ComicPaging.turn(by: -1, rightToLeft: session.rightToLeft))
-        case .right: turn(ComicPaging.turn(by: 1, rightToLeft: session.rightToLeft))
-        case .up, .down:
-            // A whole page has nowhere to move to: up and down are for a page as wide as the screen.
-            guard fit == .wide, let picture = session.pictures[session.page] else { return }
-            let height = ComicPaging.height(of: picture.size, atWidth: screen.width)
-            if let to = ComicPaging.move(from: down, by: direction == .down ? 1 : -1, page: height, screen: screen.height) {
-                down = to
-            } else if direction == .down {
-                turn(1)
-            } else if session.hasPrevious {
-                arrivesAtFoot = true
-                turn(-1)
-            }
-        @unknown default: break
+        case .down: onward = 1
+        case .up: onward = -1
+        case .right: onward = ComicPaging.turn(by: 1, rightToLeft: session.rightToLeft)
+        case .left: onward = ComicPaging.turn(by: -1, rightToLeft: session.rightToLeft)
+        @unknown default: return
+        }
+        let sideways = direction == .left || direction == .right
+
+        // A panel at a time: every press is the next panel or the one before, and past the page's last is another page.
+        if close, !panels.isEmpty {
+            if let to = ComicPaging.step(from: panel, by: onward, of: panels.count) { panel = to } else { turn(onward) }
+            return
+        }
+        // A whole page has nowhere to move to, and a page as wide as the screen moves up and down: sideways turns it.
+        if sideways { return turn(onward, toItsEnd: false) }
+        guard close, let picture = session.pictures[session.page] else { return }
+        let height = ComicPaging.height(of: picture.size, atWidth: screen.width)
+        if let to = ComicPaging.move(from: down, by: onward, page: height, screen: screen.height) { down = to } else { turn(onward) }
+    }
+
+    /// Forward a page or back one. Going back, the page comes in at its end, unless it was turned to, not read back into.
+    private func turn(_ by: Int, toItsEnd: Bool = true) {
+        if by > 0, session.hasNext {
+            session.next()
+        } else if by < 0, session.hasPrevious {
+            arrivesAtEnd = toItsEnd
+            session.previous()
         }
     }
 
-    /// Forward a page or back one, as the comic counts them.
-    private func turn(_ by: Int) {
-        if by > 0 { session.next() } else if by < 0 { session.previous() }
-    }
-
-    /// Select: the page as wide as the screen, from its head; or whole again.
+    /// Select: the page close, from its first panel or its head; or whole again.
     private func select() {
         Reading.stay()
-        withAnimation(.easeOut(duration: 0.2)) {
-            fit = fit == .whole ? .wide : .whole
+        withAnimation(.easeInOut(duration: 0.3)) {
+            close.toggle()
+            panel = 0
             down = 0
         }
     }
 
-    /// Another page: read from its head, or from its foot when Up brought the reader back to it.
+    /// Another page: read from its first panel or its head, or from its last panel or its foot when the reader came back into it.
     private func arrived(on screen: CGSize) {
-        var move = Transaction()
-        move.disablesAnimations = true
-        withTransaction(move) { down = 0 }
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) {
+            down = 0
+            panel = arrivesAtEnd ? max(0, panels.count - 1) : 0
+        }
         settle(on: screen)
     }
 
-    /// Once the page's picture is here, and so its height is known: at its foot, if that is where it comes in.
+    /// Once the page's picture is here, and so its height is known: at its foot, if that is where it comes in. A page
+    /// read by its panels needs no picture to know its last one.
     private func settle(on screen: CGSize) {
-        guard arrivesAtFoot, fit == .wide, let picture = session.pictures[session.page] else { return }
-        arrivesAtFoot = false
-        var move = Transaction()
-        move.disablesAnimations = true
-        withTransaction(move) { down = ComicPaging.foot(page: ComicPaging.height(of: picture.size, atWidth: screen.width), screen: screen.height) }
+        guard arrivesAtEnd else { return }
+        if !panels.isEmpty || !close {
+            arrivesAtEnd = false
+            return
+        }
+        guard let picture = session.pictures[session.page] else { return }
+        arrivesAtEnd = false
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { down = ComicPaging.foot(page: ComicPaging.height(of: picture.size, atWidth: screen.width), screen: screen.height) }
     }
 
     /// The screen kept on while a comic is being read, and for a while after the last press: a page can take
