@@ -5,6 +5,8 @@ comic, and what it takes on the desktop, the server and the Apple apps.
 Section 10 lists what was decided; the changes to the north star are in
 section 9 and made in [NORTHSTAR.md](NORTHSTAR.md). Section 11 says what
 is built so far. PDFs came after, in section 12, and CBRs in section 13.
+Section 15 is what Panels did that Ribbon doesn't yet, and how it comes
+over.
 
 ## 1. Why
 
@@ -61,7 +63,7 @@ a server, accounts and a design.
 | Right-to-left for manga, fit to width or height, keys | The comic reader on the desktop (section 5). |
 | Limits against a hostile zip (size, entry count, a zip bomb) | Kept, in core, checked wherever an archive is opened. |
 | Windowed prefetch (2 pages behind, 8 ahead) | The page window (section 5), made a thing of its own and measured. |
-| ComicVine lookup | Later, and only if asked for (section 8). |
+| ComicVine lookup | After a comic's details are its own (section 15). |
 | Its server, Prisma, React Router, shadcn, uploads | Not brought over. Ribbon has its own of each, and books come in from folders. |
 | One page number per person per comic | A `pos` record in the position log (section 6). |
 
@@ -285,21 +287,16 @@ compared pixel for pixel.
 
 ## 8. Later, and only if wanted
 
-- **A strip of small pages** to find your way through a long book. It needs
-  small pictures made for every page, which is real work on a 600-page
-  book: measured before it is promised.
-- **One long scroll**, for comics drawn as a single column.
-- **ComicVine**, for comics whose files say nothing about themselves. It
-  would be off unless the server's owner turns it on with a key of their
-  own, as Audible's descriptions are (`RIBBON_DESCRIPTIONS`).
 - **Comics on the bookcase.** An issue's spine is thinner than its title.
   Collected editions would stand well; single issues want another answer.
 
-**Panels retires** (decided) once Ribbon reads comics on a server and on
-the iPad. Its comics are files, so they come over as any folder does: added
-to Ribbon's server. Its places are one page per person per comic in its
-database, brought over once, by a small tool, as `pos` records for the
-people who have accounts on both. Then Panels is switched off.
+The strip of small pages, one long scroll and ComicVine were here too. They
+are wanted now, and section 15 plans them.
+
+**Panels is retired** (decided on 2026-11-25). Nothing of it was running,
+and its reading places are not brought over: the owner doesn't want them.
+Its comics are files, so they come over as any folder does. What it did
+that Ribbon doesn't yet is section 15.
 
 ## 9. The north star
 
@@ -341,7 +338,7 @@ One pull request per step, each usable on its own, each with its numbers.
 | 4 | The server: copy in, prepare, the page requests; the desktop reading a server's comic | Server tests; the desktop against a real server |
 | 5 | The iPad and the iPhone | The Apple tests and screens; the TV compared pixel for pixel, unchanged |
 | 6 | The Apple TV, after its design round | The TV's tests by remote; its other screens compared pixel for pixel, unchanged |
-| 7 | Panels' places brought over, and Panels switched off | Each person's page in Ribbon against their page in Panels |
+| 7 | Panels retired | Its places are not brought over (section 8) |
 
 Comics and "easy to install" go on side by side. They touch different
 files except where a release is cut, so each step here is rebased on `main`
@@ -351,8 +348,9 @@ before it merges, and neither holds the other's release.
 since a comic on the shelf that couldn't be opened was not worth merging
 by itself; step 4, the server, with the desktop reading a server's comic;
 and step 5, the iPad and the iPhone. A comic's bookmarks are not built.
-Step 6, the Apple TV, is built in its first shape (below); step 7,
-retiring Panels, is to come.
+Step 6, the Apple TV, is built in its first shape (below). Step 7 is
+done: Panels is retired, and what it did that Ribbon doesn't yet is
+section 15.
 
 Step 5 as built: one page at a time, as large as the screen allows. A
 swipe or a touch on either side turns it, two fingers zoom into it, a
@@ -768,3 +766,241 @@ reach is read by whole pages.
   in `.ribbon/`. Today panels are a server's.
 - **A wide panel as two stops**, as Kindle asks of publishers: today it is
   two panels, set that way.
+
+## 15. Everything Panels did
+
+**Asked for by the owner on 2026-11-25**, after Panels (his earlier comic
+server, not section 14's panels) and Ribbon were compared side by side: "I
+very much enjoy a lot of the stuff that is in Panels." What Panels does
+and Ribbon doesn't yet comes over, and Panels is retired (section 8).
+
+Each piece below says what he decided, then the defaults it is built
+with. **Proposed** marks a default written here that he hasn't said
+himself: it is his to change when he reads this, and it is written down
+before the work starts, as he asked for zoom.
+
+### What each device gets
+
+| | Desktop | iPad and iPhone | Apple TV |
+| --- | --- | --- | --- |
+| Small pictures of every page | New | From the server | From the server |
+| A strip of small pages | New, `T` | New | New, Play/Pause |
+| Jump to a page | New, `G` | New, from the page number | By the strip |
+| A page slider | Has it | New | No |
+| Zoom | New, keys and a click | Has it: two fingers, a double tap | Has it: Select |
+| One long scroll | New | New, after the desktop's | Has it, nearly (below) |
+| The ground behind the page | New, `B` | New | New |
+| Keys for the view, and their list | New | No | No |
+| Two pages side by side | Has it; gets `D` | Not planned | Not planned |
+| Reading direction as the comic's own detail | New: the edit form, `R` | Follows it | Follows it |
+| Delete a book from the server | Has it, for the admin | New, for the admin | No |
+
+### Small pictures of every page
+
+**Decided: built, then measured, then fixed if they need it.** They come
+first: the strip is made of them, and jumping and choosing a cover
+(`ui/CoverPages.tsx`, which fetches whole pages today) want them too.
+
+- **Their size** (proposed): 300 pixels tall, a JPEG. A strip shows them
+  at about 100 points tall, so they stay sharp on a Retina screen.
+- **Made once**, the first time each is asked for, and kept: on a server
+  beside the book's files; on the desktop in Ribbon's own folder, never
+  beside the comic, since the library is never written to. A PDF's are
+  drawn small by pdf.js, not shrunk from a large drawing.
+- **On a server** (proposed): `GET /api/books/:id/pages/:n?small`, kept
+  for good like a page, so the iPad, the iPhone and the TV only ask for
+  them.
+- **Measured after**, in the built app at 1x and 6x: the strip's first
+  fill on a 24-page issue and on a 600-page omnibus, the disk they take
+  for each, and how long the server takes to make one.
+
+### A strip of small pages
+
+**Decided: built, then measured, then fixed.**
+
+- **On the desktop**, `T` shows or hides a row of small pages along the
+  foot, above the slider. The page being read is outlined and kept in the
+  middle; a click goes to a page. The row runs right to left for a comic
+  that reads that way. Whether it shows is remembered on that machine
+  (proposed: hidden until asked for).
+- **On the iPad and the iPhone**, it shows with the title and page number
+  (a touch in the middle of the page), above the slider; a touch goes.
+- **On the Apple TV** (proposed), Play/Pause shows it along the foot.
+  Left and right move along it, Select goes to the page, Menu puts it away.
+- Only the small pictures near what is on screen are fetched and drawn,
+  so a 600-page book costs what an issue does.
+
+### Jump to a page
+
+**Decided.**
+
+- **On the desktop**, `G`, or "Go to page…" in the Pages menu, opens a
+  small box with the page number chosen. Type a number and press Enter; a
+  number past either end goes to that end. Escape closes it.
+- **On the iPad and the iPhone**, a touch on "Page 3 of 24" opens the same
+  box, with the number pad.
+- **On the Apple TV** the strip is the way to jump: typing with a remote
+  isn't.
+- A jump is kept in the position log as a seek, as the slider's turns are.
+
+### A page slider on the iPad and the iPhone
+
+**Decided.** In the bar at the foot, shown with the title (a touch in the
+middle), running the way the comic reads. The page number follows the
+finger, and the page itself is fetched when the finger lets go, not for
+every page it passes (proposed).
+
+### Zoom
+
+**Decided: wanted, with defaults written down first.** Panels' zoom is
+better than Ribbon's on the desktop; the iPad, the iPhone and the TV
+already zoom in their own way and are left as they are.
+
+- **On the desktop** (proposed), `+` and `-` step through four sizes:
+  the whole page (as today), then one and a half, two and three times
+  that. `0` goes back to the whole page. A click in the middle third goes
+  between the whole page and twice its size; today a click there does
+  nothing.
+- **Zoomed**, the wheel, the trackpad and a drag move about the page, and
+  a click on either side still turns it.
+- **Turning keeps the zoom** (proposed): each new page comes in at the
+  top corner the comic starts from, top left, or top right for a comic
+  that reads right to left. A comic opens whole.
+- With two pages up the zoom is the spread's. Read by panels, the zoom
+  keys do nothing: a panel already fills the screen.
+- **Fit to height** (proposed) joins "Fit the page" and "Fit the width",
+  so the view keys `1`, `2` and `3` are Panels' three: the page as tall as
+  the window, a wide page running past the sides and moved sideways.
+
+### One long scroll
+
+**Decided: a must on the desktop, and wanted everywhere.** The pages one
+under another, for comics drawn as a single column and for reading a
+chapter without turning.
+
+- **On the desktop**, "One long scroll" in the Pages menu, or `S`
+  (proposed). The pages are as wide as the window, never wider than they
+  were drawn; `+` and `-` make the column wider or narrower.
+- **The place** is the page that fills the window's top third: the page
+  being read.
+- **Only the pages near the window are decoded and drawn**, by the same
+  windows as turning (section 5). The rest are spaces of their known size
+  (`comic/size.ts`), so the scroll bar is right from the start and a
+  600-page book costs what an issue does.
+- Two pages up and reading by panels don't apply in the scroll. The
+  slider, the strip, jumping and the keys all move it.
+- **Kept per device** (proposed), as one page or two is, for every comic.
+  If a person reads both long-scroll comics and printed ones, per comic is
+  the next step.
+- **On the iPad and the iPhone**, the same, after the desktop's.
+- **On the Apple TV**, Select's close view already reads a page at the
+  screen's width and runs on to the next page with Down, which is a long
+  scroll read by the remote. Nothing new is planned there.
+
+### The ground behind the page
+
+**Decided.** Black, grey, white, or Ribbon's own ground (the light or dark
+of the app, as today). Ribbon's own stays the default (proposed), so no
+screen changes until someone chooses, and the TV's screens still compare
+pixel for pixel. Kept per device, for every comic.
+
+- **On the desktop**, `B` goes through them, and they are in the Pages
+  menu.
+- **On the iPad, the iPhone and the TV**, in Settings (proposed).
+
+### Keys for the view, and their list
+
+**Decided**, on the desktop. The keys a comic already has stay as they
+are: the arrows, Space and Shift+Space, Page Up and Page Down, Home, End
+and Escape.
+
+| Key | What it does |
+| --- | --- |
+| `G` | Jump to a page |
+| `T` | Show or hide the strip |
+| `D` | One page, or two side by side |
+| `R` | Read left to right, or right to left |
+| `S` | One long scroll, or pages (proposed) |
+| `P` | Panels, or whole pages, where a comic's panels are marked (proposed) |
+| `1`, `2`, `3` | Fit the page, the width, the height |
+| `B` | The next ground behind the page |
+| `+`, `-`, `0` | Zoom in, out, and back to the whole page |
+| `?` | This list |
+
+`?` and "Keys…" in the Pages menu show the list, with the arrows the way
+the open comic reads. None of these clash with the player's keys, which
+are off while a comic is open (`ui/useKeys.tsx`).
+
+### Two pages side by side
+
+**Decided: on the desktop**, where it is already built ("Two pages, as
+printed" in the Pages menu). It gets the `D` key. The iPad held sideways
+and the TV aren't planned here: they need the desktop's spreads (which
+pages are drawn across two) on the Apple side first (section 11).
+
+### Reading direction as the comic's own detail
+
+**Decided: a setting, and a person's choice stands over ComicInfo.xml.**
+
+- **A switch in the edit form**, for a comic: "Reads right to left". It is
+  kept with the book's edits as any field is (`.ribbon/` beside the books
+  on the desktop, `book_edit` on a server), so every device reads the
+  comic the same way, and it stands over what ComicInfo's `Manga` says.
+  Taken back like any edit, the comic reads as its file says again.
+- **`R` in the desktop's reader** sets the same thing, where the person
+  may edit the book: their own folders, or a server's comic for its
+  admin. Anyone else's `R` is for their machine only, as the Pages menu's
+  choice is today (proposed).
+- **The MCP's `set_details`** can set it too (proposed), since an
+  assistant fills in a comic's details.
+
+### Deleting a book from the server
+
+**Decided: any book, comics too.** The desktop does this already, for the
+server's admin: "Delete from the server…" in the More menu of a book's
+page. The book goes from the server and from every device that downloaded
+it; everyone's places in it are kept, and the folder it was added from is
+never touched. **New** (proposed): the same on the iPad and the iPhone,
+for the admin, since they are only ever a server's.
+
+### A comic's details as its own, then ComicVine
+
+**Decided: the details are rethought first.** Every book keeps the same
+fields today (title and subtitle, author and narrator, series and number,
+year, publisher, language, genres, ISBN, ASIN, description), and the edit
+form shows a comic only those that fit it (section 4). What is wanted is
+details that are each kind of book's own: a comic's issue number and its
+volume apart, its writers apart from its artists (pencils, inks, colours,
+letters, the cover), its cover date. That changes what every host and the
+server keep, and the edits' format, so it starts as a design round of its
+own, read by the owner before anything is built.
+
+**ComicVine comes after it**, filling those fields: off unless a server's
+owner gives it a key of their own, as Audible's descriptions are
+(`RIBBON_DESCRIPTIONS`); "Look it up" in the edit form; and a comic
+matched by its ComicVine address. Like the descriptions, it is a lookup
+the owner turns on, not someone else's service the library depends on.
+
+### Not brought over
+
+| From Panels | Why |
+| --- | --- |
+| Full screen | The desktop's window goes full screen by itself (decided). |
+| Uploading a CBZ in the browser | Books come from folders (section 3). |
+| Its sign-in, database and reading places | Ribbon has its own, and the places aren't wanted (section 8). |
+
+### The order of this work
+
+One pull request each, as ever. They can go out in one release when they
+are ready together.
+
+| Step | What it is | Checked by |
+| --- | --- | --- |
+| 1 | This section | Read by the owner |
+| 2 | Small pictures of every page, on the server and the desktop, and the strip on the desktop | Server and unit tests; the end-to-end checks; then the strip measured at 1x and 6x, on 24 pages and on 600 |
+| 3 | The desktop's reader: the keys and their list, jump to a page, the ground, zoom, fit to height | The end-to-end checks at 1x and 6x |
+| 4 | Reading direction as the comic's own detail: core, the edit form and `R`, the server and the MCP, the Apple apps following it | Unit and server tests; the Apple tests |
+| 5 | One long scroll on the desktop | The end-to-end checks; memory and scroll frame times at 1x and 6x, on 24 pages and on 600 |
+| 6 | The iPad and the iPhone: the slider, jump to a page, the strip, the ground, one long scroll, deleting from the server. The TV: the strip and the ground | The Apple tests and screens; the TV's other screens compared pixel for pixel, unchanged |
+| 7 | A comic's details as its own: the design round | Read by the owner |
+| 8 | The details built, then ComicVine | After step 7 |
