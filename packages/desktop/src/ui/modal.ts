@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { shallowEqual } from "./store";
 
 /**
@@ -23,9 +23,19 @@ export function showModal(el: HTMLDialogElement): void {
  * simply comes back. `show` opens it (`showModal` unless the dialog needs
  * more, as a drawer inside another dialog does); `onClosed` hears when
  * it's gone.
+ *
+ * `closedOnItsOwn(onClose)` is the dialog's close event handler: it tells
+ * `onClose` when the browser closed the dialog, never when this hook did.
+ * The browser sends the close event a task after the dialog closes, so
+ * the event for a close this hook made could land after the dialog was
+ * asked to open again (Go to page's `G`, pressed as its last box went),
+ * and close the new one. The hook counts the closes it makes, and their
+ * events, one each, are passed over.
  */
 export function useModal(open: boolean, { show = showModal, onClosed }: { show?: (el: HTMLDialogElement) => void; onClosed?: (() => void) | undefined } = {}) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Closes this hook made whose close events haven't arrived yet.
+  const ownCloses = useRef(0);
   // Shown from opening until it has closed for real. Closing is worked out
   // from it as it renders, not set afterwards, so the render that takes
   // `open` away already keeps what the dialog holds, for its way out.
@@ -48,7 +58,11 @@ export function useModal(open: boolean, { show = showModal, onClosed }: { show?:
     const close = () => {
       if (gone) return;
       gone = true;
-      el.close();
+      // Closing a dialog that's already closed sends no event, so only an open one is counted.
+      if (el.open) {
+        ownCloses.current++;
+        el.close();
+      }
       setShown(false);
       onClosedRef.current?.();
     };
@@ -64,7 +78,19 @@ export function useModal(open: boolean, { show = showModal, onClosed }: { show?:
     };
   }, [open]);
 
-  return { ref, closing: shown && !open };
+  const closedOnItsOwn =
+    (onClose: () => void) =>
+    (e: SyntheticEvent<HTMLDialogElement>): void => {
+      // React passes a nested dialog's close up the tree; only our own is ours to hear.
+      if (e.target !== e.currentTarget) return;
+      if (ownCloses.current > 0) {
+        ownCloses.current--;
+        return;
+      }
+      onClose();
+    };
+
+  return { ref, closing: shown && !open, closedOnItsOwn };
 }
 
 /**

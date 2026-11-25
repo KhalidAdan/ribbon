@@ -89,7 +89,7 @@ describe("the strip of small pages", () => {
 describe("how comics are shown, as kept", () => {
   it("has the strip hidden until asked for, and keeps it shown once it is", () => {
     expect(parseComicSettings(undefined).strip).toBe(false);
-    expect(parseComicSettings({ up: "two" })).toEqual({ up: "two", fit: "page", strip: false });
+    expect(parseComicSettings({ up: "two" })).toMatchObject({ up: "two", fit: "page", strip: false });
     expect(parseComicSettings({ strip: true }).strip).toBe(true);
     expect(parseComicSettings({ strip: "yes" }).strip).toBe(false);
   });

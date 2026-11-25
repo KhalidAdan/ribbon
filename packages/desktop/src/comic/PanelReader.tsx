@@ -4,6 +4,7 @@ import type { ReadyComic } from "@ribbon/core/comic/session";
 import type { PixelSize } from "@ribbon/core/comic/size";
 import type { AppController } from "../app/controller";
 import { usePagePicture } from "./PanelEditor";
+import { readerKey } from "./reader-keys";
 
 /**
  * A comic read a panel at a time (docs/COMICS.md, section 14), where its
@@ -18,7 +19,7 @@ import { usePagePicture } from "./PanelEditor";
  * the same. The page is drawn once and moved, as the Apple apps move it,
  * by core's arithmetic (`closeOn`, core/comic/panels.ts).
  */
-export function PanelReader({ comic, panels, rightToLeft, c }: { comic: ReadyComic; panels: Map<number, Panel[]>; rightToLeft: boolean; c: AppController }) {
+export function PanelReader({ comic, panels, rightToLeft, c, ground }: { comic: ReadyComic; panels: Map<number, Panel[]>; rightToLeft: boolean; c: AppController; ground?: string | undefined }) {
   const count = comic.pages.length;
   const here = panels.get(comic.page) ?? [];
   const [at, setAt] = useState(0);
@@ -47,7 +48,7 @@ export function PanelReader({ comic, panels, rightToLeft, c }: { comic: ReadyCom
   keys.current = { step, rightToLeft };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!readerKey(e)) return;
       const k = keys.current;
       const go = (by: 1 | -1) => {
         e.preventDefault();
@@ -101,7 +102,7 @@ export function PanelReader({ comic, panels, rightToLeft, c }: { comic: ReadyCom
   const [onLeft, onRight] = rightToLeft ? ([1, -1] as const) : ([-1, 1] as const);
 
   return (
-    <div ref={stage} data-panel-reader data-panel={panel ? at + 1 : 0} className="relative min-h-0 flex-1 overflow-hidden select-none">
+    <div ref={stage} data-panel-reader data-panel={panel ? at + 1 : 0} className="relative min-h-0 flex-1 overflow-hidden select-none" style={{ backgroundColor: ground }}>
       {placed && picture && (
         <div className={`absolute top-1/2 left-1/2 -translate-1/2 overflow-hidden ${moving}`} style={{ width: placed.width, height: placed.height }}>
           <canvas

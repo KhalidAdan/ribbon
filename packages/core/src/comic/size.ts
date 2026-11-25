@@ -78,18 +78,20 @@ export function imageSize(start: Uint8Array): PixelSize | null {
   return size && size.width > 0 && size.height > 0 ? size : null;
 }
 
-/** How pages are fitted: the whole page in the window, or as wide as the window, scrolled down. */
-export type Fit = "page" | "width";
+/** How pages are fitted: the whole page in the window; as wide as the window, scrolled down; or as tall as it, a wide page moved sideways. */
+export type Fit = "page" | "width" | "height";
 
 /**
  * How large a page is drawn, in the window's own pixels: one of `across`
  * pages side by side (1, or 2 that face each other) in a space `room`
  * wide and tall. Fitted to the page, all of it shows; fitted to the
  * width, it fills its share of the width and its height is whatever that
- * makes it. Never rounded up past the room it has.
+ * makes it; fitted to the height, it is as tall as the room and as wide as
+ * that makes it, past the sides for a page drawn across two. Never rounded
+ * up past the room it has.
  */
 export function pageBox(page: PixelSize, across: number, room: PixelSize, fit: Fit): PixelSize {
   const share = room.width / Math.max(1, across);
-  const scale = fit === "width" ? share / page.width : Math.min(share / page.width, room.height / page.height);
+  const scale = fit === "width" ? share / page.width : fit === "height" ? room.height / page.height : Math.min(share / page.width, room.height / page.height);
   return { width: Math.max(1, Math.floor(page.width * scale)), height: Math.max(1, Math.floor(page.height * scale)) };
 }

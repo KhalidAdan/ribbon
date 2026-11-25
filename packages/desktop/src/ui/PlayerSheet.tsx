@@ -15,15 +15,12 @@ interface Props {
  * (modal.ts).
  */
 export function PlayerSheet({ open, onClose, children }: Props) {
-  const { ref, closing } = useModal(open);
+  const { ref, closing, closedOnItsOwn } = useModal(open);
   return (
     <dialog
       ref={ref}
       data-closing={closing || undefined}
-      onClose={(e) => {
-        // React passes a nested dialog's close up the tree; only our own closes us.
-        if (e.target === e.currentTarget) onClose();
-      }}
+      onClose={closedOnItsOwn(onClose)}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();

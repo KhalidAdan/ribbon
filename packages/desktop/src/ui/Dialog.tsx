@@ -9,15 +9,12 @@ import { useModal } from "./modal";
  * smaller, and leaves the same way (modal.ts); onClosed hears when it's gone.
  */
 export function Dialog({ open, onClose, onClosed, title, description, children, hint, actions, labelId, wide = false }: { open: boolean; onClose: () => void; onClosed?: (() => void) | undefined; title: ReactNode; description?: ReactNode; children: ReactNode; hint?: ReactNode; actions: ReactNode; labelId: string; wide?: boolean }) {
-  const { ref, closing } = useModal(open, { onClosed });
+  const { ref, closing, closedOnItsOwn } = useModal(open, { onClosed });
   return (
     <dialog
       ref={ref}
       data-closing={closing || undefined}
-      onClose={(e) => {
-        // React passes a nested dialog's close up the tree; only our own closes us.
-        if (e.target === e.currentTarget) onClose();
-      }}
+      onClose={closedOnItsOwn(onClose)}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.preventDefault();
