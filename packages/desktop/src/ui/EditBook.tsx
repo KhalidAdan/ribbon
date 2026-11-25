@@ -1,67 +1,30 @@
-import { ArrowUturnLeftIcon, PhotoIcon } from "@heroicons/react/16/solid";
+import { ArrowUturnLeftIcon, PhotoIcon, RectangleStackIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
+import { editForm, editFormAbout, formFields, type FieldSpec } from "@ribbon/core/edit-form";
 import { EDIT_FIELDS, fieldText, readAlongOff, READ_ALONG_OFF, type EditField } from "@ribbon/core/edits";
+import { bookKind } from "@ribbon/core/kind";
 import { useController } from "./store";
 import { Button } from "./Button";
 import { Cover } from "./Cover";
+import { CoverPages, coverFromPage, type PagePictures } from "./CoverPages";
 import { Dialog } from "./Dialog";
 import { Toggle } from "./kit";
 
 type Form = Record<Exclude<EditField, "cover">, string>;
 
-interface FieldSpec {
-  field: Exclude<EditField, "cover">;
-  label: string;
-  hint?: string;
-  multiline?: boolean;
-  inputMode?: "numeric" | "decimal";
-  wide?: boolean;
-}
-
-const GROUPS: { label: string; fields: FieldSpec[] }[] = [
-  {
-    label: "The book",
-    fields: [
-      { field: "title", label: "Title", wide: true },
-      { field: "subtitle", label: "Subtitle", wide: true },
-    ],
-  },
-  {
-    label: "People",
-    fields: [
-      { field: "author", label: "Author", hint: "Separate several with a semicolon." },
-      { field: "narrator", label: "Narrator", hint: "Separate several with a semicolon." },
-    ],
-  },
-  {
-    label: "Series",
-    fields: [
-      { field: "series", label: "Series" },
-      { field: "seriesIndex", label: "Number in the series", inputMode: "decimal", hint: "Decimals are fine: 2.5 sits between 2 and 3." },
-    ],
-  },
-  {
-    label: "More",
-    fields: [
-      { field: "year", label: "Year", inputMode: "numeric" },
-      { field: "language", label: "Language" },
-      { field: "genres", label: "Genres", hint: "Separate with commas.", wide: true },
-      { field: "publisher", label: "Publisher" },
-      { field: "isbn", label: "ISBN" },
-      { field: "asin", label: "ASIN" },
-      { field: "description", label: "Description", multiline: true, wide: true },
-    ],
-  },
-];
-
 const IMAGE_TYPES = "image/jpeg,image/png,image/webp";
 
 /**
- * Fix what the files got wrong: every field of a book's details and its
- * cover. Each field shows what the files say when it differs, with a
- * way back to it. Saved beside the book; the audio is never touched.
+ * Fix what the files got wrong: a book's details and its cover. Each
+ * field shows what the files say when it differs, with a way back to it.
+ * Saved beside the book; its files are never touched.
+ *
+ * The form is the one its kind of book wants (core/edit-form.ts): a comic
+ * is asked for its writers and artists and its issue, never a narrator,
+ * and its cover can be any of its own pages (CoverPages.tsx), chosen from
+ * the form's second face.
  *
  * And, for a book with both its text and its narration, whether it reads
  * along: a switch to turn off for a book where it never will (a different
@@ -76,18 +39,29 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
   const [saving, setSaving] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const kind = bookKind(book.book);
+  const groups = editForm(kind);
+  // A comic's cover chosen from its pages: the form's second face, and the page picked there.
+  const [choosingPage, setChoosingPage] = useState(false);
+  const [page, setPage] = useState<number | null>(null);
+  const [settingCover, setSettingCover] = useState(false);
+  const pictures = useRef<PagePictures | null>(null);
 
   useEffect(() => {
     if (open) {
       setForm(initial());
       setCoverError(null);
+      setChoosingPage(false);
+      setPage(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, book.book.id]);
 
   const set = (f: keyof Form, v: string) => setForm((prev) => ({ ...prev, [f]: v }));
   const changed = (f: keyof Form) => normalise(form[f]) !== normalise(fieldText(original, f));
-  const changes = (Object.keys(form) as (keyof Form)[]).filter(changed).length;
+  // Only what this kind of book's form shows is counted: a field it leaves out is never changed by it.
+  const shown: (keyof Form)[] = [...formFields(kind), "readAlong"];
+  const changes = shown.filter(changed).length;
   const coverEdited = book.edits?.cover !== undefined;
   // Only a book with text and narration has a read-along to turn off.
   const canReadAlong = !!book.book.ebook && book.book.durationMs > 0;
@@ -106,6 +80,49 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
     await c.setCover(book.book.id, new Uint8Array(await file.arrayBuffer()), ext);
   };
 
+  const setPageAsCover = async () => {
+    if (page === null || !pictures.current) return;
+    setSettingCover(true);
+    setCoverError(null);
+    try {
+      await c.setCover(book.book.id, await coverFromPage(pictures.current, page), "jpg");
+      setChoosingPage(false);
+    } catch {
+      setCoverError(`Page ${page + 1} couldn’t be made into a cover.`);
+    } finally {
+      setSettingCover(false);
+    }
+  };
+
+  if (choosingPage) {
+    return (
+      <Dialog
+        open={open}
+        onClose={onClose}
+        onClosed={onClosed}
+        labelId="edit-book-title"
+        wide
+        title={`A cover for ${book.book.title}`}
+        description="Choose the page to show as its cover, on the shelf and on every device. The comic’s file is never touched."
+        hint={coverError ?? (page === null ? "No page chosen" : `Page ${page + 1} chosen`)}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setChoosingPage(false)}>
+              Back
+            </Button>
+            <Button variant="primary" disabled={page === null || settingCover} onClick={() => void setPageAsCover()}>
+              {settingCover ? "Setting…" : page === null ? "Use this page" : `Use page ${page + 1}`}
+            </Button>
+          </>
+        }
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto quiet-scroll px-5 pt-4 pb-5">
+          <CoverPages bookId={book.book.id} chosen={page} onChoose={setPage} onPictures={(p) => (pictures.current = p)} />
+        </div>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog
       open={open}
@@ -114,7 +131,7 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
       labelId="edit-book-title"
       wide
       title={`Edit ${book.book.title}`}
-      description="Correct what the files got wrong. Your changes are kept beside the book; the audio files are never touched."
+      description={editFormAbout(kind)}
       hint={changes === 0 ? "Everything as the files say" : `${changes} ${changes === 1 ? "field differs" : "fields differ"} from the files`}
       actions={
         <>
@@ -164,19 +181,24 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
                 e.target.value = "";
               }}
             />
+            {kind === "comic" && (
+              <Button size="sm" leading={RectangleStackIcon} onClick={() => setChoosingPage(true)} className="self-start">
+                Choose a page…
+              </Button>
+            )}
             <Button size="sm" leading={PhotoIcon} onClick={() => fileRef.current?.click()} className="self-start">
               Choose an image…
             </Button>
             {coverEdited && (
               <Button size="sm" variant="ghost" leading={ArrowUturnLeftIcon} onClick={() => void c.resetEdits(book.book.id, "cover")} className="self-start">
-                Use the files’ cover
+                {kind === "comic" ? "Use the first page" : "Use the files’ cover"}
               </Button>
             )}
             {coverError && <p className="text-sm/5 text-red-600 dark:text-red-400 sm:text-[0.8125rem]/5">{coverError}</p>}
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col gap-6">
-            {GROUPS.map((g) => (
+            {groups.map((g) => (
               <fieldset key={g.label} className="min-w-0">
                 <legend className="mb-2 px-1 text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">{g.label}</legend>
                 <div className="grid grid-cols-1 gap-x-3 gap-y-4 rounded-[10px] bg-surface p-3 ring-1 ring-line sm:grid-cols-2">

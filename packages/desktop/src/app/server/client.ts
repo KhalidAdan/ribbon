@@ -166,6 +166,11 @@ export class ServerClient {
     return new Uint8Array(await (await this.get(this.fileUrl(serverId, path).slice(this.url.length))).arrayBuffer());
   }
 
+  /** One page of a comic as its picture, for a device that keeps no copy of the book. `page` counts from 0. */
+  async page(serverId: string, page: number): Promise<Blob> {
+    return (await this.get(`/api/books/${encodeURIComponent(serverId)}/pages/${page + 1}`)).blob();
+  }
+
   /** A cover's bytes at one of the widths the server makes (200, 400 or 800). */
   async cover(hash: string, width: number): Promise<Uint8Array> {
     return new Uint8Array(await (await this.get(`/covers/${hash}-${width}.jpg`)).arrayBuffer());

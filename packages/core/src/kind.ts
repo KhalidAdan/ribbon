@@ -20,3 +20,16 @@ export function pagesLabel(pages: number | undefined, file = ""): string {
 export function pagesKind(file: string): "Comic" | "PDF" {
   return /\.pdf$/i.test(file) ? "PDF" : "Comic";
 }
+
+/**
+ * The three kinds of book Ribbon keeps, as the edit form tells them
+ * apart (edit-form.ts): one that is heard (with or without its text), a
+ * text that is only read, and a comic, a book of pages already drawn
+ * (a PDF is one too).
+ */
+export type BookKind = "audiobook" | "text" | "comic";
+
+export function bookKind(book: Pick<Book, "fileCount" | "ebook" | "comic">): BookKind {
+  if (book.comic) return "comic";
+  return book.fileCount === 0 && book.ebook ? "text" : "audiobook";
+}

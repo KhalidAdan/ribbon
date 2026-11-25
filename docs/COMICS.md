@@ -103,6 +103,24 @@ server `PUT /api/books/:id/edits`):
 Only two things are a comic's own: its page count, and whether it reads
 right to left.
 
+**The edit form knows what kind of book it has** (`packages/core/src/edit-form.ts`,
+asked for on 2026-11-25). The details are kept the same way for every
+book; what the form asks is what the kind of book can answer. A comic is
+asked for its writers and artists (the book's author field, several
+names apart by semicolons), its issue or volume number, and a title that
+says which issues it holds; never for a narrator or an ASIN. A text that
+is only read is asked for no narrator either. A field the form leaves
+out is never changed by it.
+
+**A comic's cover can be any of its pages.** Its files give it the first
+one; a collection has each issue's cover inside. "Choose a page…" in the
+edit form shows the comic's pages small (`ui/CoverPages.tsx`), each
+fetched and drawn only when it comes on screen and let go at once, and
+the page chosen is made into a JPEG and kept as a cover chosen by hand
+is: beside the books, or on the server for every device. A server's
+comic that isn't downloaded shows the server's pages
+(`GET /api/books/:id/pages/:n`); a PDF's are drawn by pdf.js.
+
 **Series are how comics are found.** An issue alone is twenty pages; the
 series is the thing a person follows. Ribbon's series already hold books in
 order with a number each, and a book can be in many, so a run and a

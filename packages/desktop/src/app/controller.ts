@@ -112,6 +112,9 @@ const GOAL_CHECK_MS = 15_000;
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
 const ALIGNED_WRITE_MS = 30_000;
 
+/** A comic's pages, as pictures to choose its cover from: how many, and where each is had. Pages count from 0. */
+export type PagesToChoose = { count: number } & ({ from: "server"; page(at: number): Promise<Blob> } | { from: "archive"; url(at: number): string } | { from: "pdf"; url: string; bytes: number });
+
 export interface Platform {
   host: Host;
   /** Ask the user for a folder of books, opening near `near`. Null when cancelled. */
@@ -1212,6 +1215,29 @@ export class AppController {
     if (o.server) return this.sendServerEdits(o, b, sharedEdits(b.edits ?? {}), bytes);
     const path = await o.lib.writeEditedCover(bookId, bytes, ext);
     await this.saveEdits(bookId, { cover: path });
+  }
+
+  /**
+   * Where a comic's pages are to be had, to choose its cover from among
+   * them (ui/CoverPages.tsx): the server's, for a comic of its that isn't
+   * downloaded; else the archive here, a page at an address, or the PDF
+   * itself. Null for a book that isn't one of pages, or can't be opened.
+   */
+  async pagesToChoose(bookId: string): Promise<PagesToChoose | null> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b?.book.comic || !o) return null;
+    if (b.remote) {
+      const client = o.server?.client;
+      const count = b.book.pages ?? 0;
+      return client && count > 0 ? { from: "server", count, page: (at) => client.page(serverIdOf(b), at) } : null;
+    }
+    const abs = o.lib.absPath(b.book.comic);
+    const listed = await comicPages(o.lib.host, abs);
+    if (!listed.ok) return null;
+    if (listed.document) return { from: "pdf", count: listed.pages.length, url: this.platform.fileUrl(abs), bytes: b.book.sizeBytes };
+    const address = this.platform.comicPageUrl;
+    return address ? { from: "archive", count: listed.pages.length, url: (at) => address(abs, listed.pages[at]!, bookId) } : null;
   }
 
   /** Take back hand edits: one field, or all of them. */
