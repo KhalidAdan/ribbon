@@ -314,6 +314,71 @@ export const comicCheck: Check = {
     t.expect(await page.waitForFunction(() => !document.querySelector("[data-comic-strip]"), null, { timeout: 5000 }).then(() => true, () => false), "T hides the strip again");
     await page.evaluate(() => window.__ribbon.setComicSettings({ strip: false }));
 
+    // The view's keys, going to a page, the ground and the zoom (docs/COMICS.md, section 15), from settings of the check's own.
+    await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one", fit: "page", ground: "ribbon", strip: false }));
+    await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
+    await shown(r, 5);
+    const boxHasKeys = () => page.waitForFunction(() => document.activeElement?.id === "comic-jump-page", null, { timeout: 5000 }).then(() => true, () => false);
+    const noDialog = () => page.waitForFunction(() => !document.querySelector("dialog[open]"), null, { timeout: 5000 }).then(() => true, () => false);
+    await page.keyboard.press("g");
+    t.expect(await boxHasKeys(), "G opens Go to page, its box taking the keys");
+    t.expect((await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)) === "6", "the box holds the page being read");
+    await page.keyboard.type("30");
+    await page.keyboard.press("Enter");
+    t.expect(await shown(r, 29), "a number typed and Enter go to that page", `at page ${(await pageNow(r)) + 1}`);
+    await page.keyboard.press("g");
+    await boxHasKeys();
+    await page.keyboard.type("999");
+    await page.keyboard.press("Enter");
+    t.expect(await shown(r, 39), "a number past the end goes to the last page");
+    await page.keyboard.press("g");
+    await boxHasKeys();
+    await page.keyboard.press("Escape");
+    t.expect((await noDialog()) && (await page.evaluate(() => window.__ribbon.getState().comic?.status)) === "ready", "Escape closes the box, and not the comic");
+    await page.keyboard.press("?");
+    const listed = await page.waitForFunction(() => document.querySelector("dialog[open]")?.textContent?.includes("Go to a page") ?? false, null, { timeout: 5000 }).then(() => true, () => false);
+    t.expect(listed, "? shows the keys");
+    await page.keyboard.press("Escape");
+    t.expect(await noDialog(), "and Escape puts the list away");
+
+    await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
+    await shown(r, 5);
+    const canvasWidth = (at: number) => page.evaluate((at) => parseFloat((document.querySelector(`[role=dialog] [data-on-screen] canvas[data-page="${at}"]`) as HTMLElement | null)?.style.width ?? "0"), at);
+    const whole = await canvasWidth(6);
+    await page.keyboard.press("+");
+    await page.waitForFunction(() => document.querySelector("[data-comic-view]")?.getAttribute("data-zoom") === "1", null, { timeout: 5000 }).catch(() => undefined);
+    const larger = await canvasWidth(6);
+    t.expect(Math.abs(larger / Math.max(1, whole) - 1.5) < 0.02, "+ draws the page half as large again", `${whole} to ${larger} px wide`);
+    const zoomedTurn = await turnByKey(r, "ArrowRight", 6);
+    const after = await page.evaluate(() => {
+      const view = document.querySelector("[data-comic-view]") as HTMLElement;
+      return { zoom: view.dataset.zoom, top: view.scrollTop };
+    });
+    t.expect(zoomedTurn >= 0 && after.zoom === "1" && after.top === 0, "turned, the next page keeps the zoom and comes in at its top", JSON.stringify(after));
+    t.note(`a turn by key, zoomed one and a half times: ${zoomedTurn.toFixed(1)} ms to its page drawn`);
+    await page.keyboard.press("0");
+    await page.waitForFunction(() => document.querySelector("[data-comic-view]")?.getAttribute("data-zoom") === "0", null, { timeout: 5000 }).catch(() => undefined);
+    t.expect(Math.abs((await canvasWidth(7)) - whole) <= 1, "0 goes back to the whole page");
+    await page.mouse.click(box.w / 2, box.h / 2);
+    const doubled = await page.waitForFunction(() => document.querySelector("[data-comic-view]")?.getAttribute("data-zoom") === "2", null, { timeout: 5000 }).then(() => true, () => false);
+    t.expect(doubled && Math.abs((await canvasWidth(7)) / Math.max(1, whole) - 2) < 0.02, "a click in the middle draws the page twice as large");
+    await page.mouse.click(box.w / 2, box.h / 2);
+    t.expect(await page.waitForFunction(() => document.querySelector("[data-comic-view]")?.getAttribute("data-zoom") === "0", null, { timeout: 5000 }).then(() => true, () => false), "and another goes back to the whole page");
+
+    await page.keyboard.press("b");
+    const ground = await page.waitForFunction(() => (document.querySelector("[data-comic-view]") as HTMLElement | null)?.style.backgroundColor === "rgb(0, 0, 0)", null, { timeout: 5000 }).then(() => true, () => false);
+    t.expect(ground, "B puts a black ground behind the page");
+    await page.keyboard.press("3");
+    const tall = await page.waitForFunction(() => {
+      const view = document.querySelector("[data-comic-view]") as HTMLElement | null;
+      const canvas = document.querySelector('[role=dialog] [data-on-screen] canvas[data-page="7"]') as HTMLElement | null;
+      return !!view && !!canvas && Math.abs(parseFloat(canvas.style.height) - view.clientHeight) <= 1;
+    }, null, { timeout: 5000 }).then(() => true, () => false);
+    t.expect(tall, "3 fits the page to the height");
+    await page.keyboard.press("d");
+    t.expect(await page.waitForFunction(() => window.__ribbon.getState().comicSettings.up === "two", null, { timeout: 5000 }).then(() => true, () => false), "D puts two pages side by side");
+    await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one", fit: "page", ground: "ribbon" }));
+
     // Two pages, as printed: the cover alone, then pairs, and the wide page (the eleventh) alone.
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "two" }));
     await page.evaluate(() => window.__ribbon.turnComic(1, "seek"));
