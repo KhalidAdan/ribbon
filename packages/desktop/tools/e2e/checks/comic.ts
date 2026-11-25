@@ -245,6 +245,21 @@ export const comicCheck: Check = {
     await page.evaluate(() => window.__ribbon.turnComic(12, "seek"));
     await shown(r, 12);
     t.expect(await page.evaluate(() => !document.querySelector("[data-comic-strip]")), "the strip is hidden until asked for");
+    // What the strip costs a turn: the same ten turns from page 13, without it and then with it, each after the
+    // window of pages around page 13 has had the same while to fill.
+    const tenTurns = async (): Promise<number[]> => {
+      await page.waitForTimeout(1500);
+      const times: number[] = [];
+      for (let to = 13; to <= 22; to++) {
+        const ms = await turnByKey(r, "ArrowRight", to);
+        if (ms >= 0) times.push(ms);
+        await page.waitForTimeout(150);
+      }
+      return times.sort((a, b) => a - b);
+    };
+    const plainSorted = await tenTurns();
+    await page.evaluate(() => window.__ribbon.turnComic(12, "seek"));
+    await shown(r, 12);
     const withoutStrip = await webviewMemory(r);
     const fill = await stripByKey(r);
     t.expect(fill >= 0, "T shows the strip, every small page in view drawn", fill < 0 ? `not within 30 s; the page said: ${r.said.slice(-4).join(" | ") || "nothing"}` : undefined);
@@ -253,15 +268,9 @@ export const comicCheck: Check = {
     t.expect(centred !== null && Math.abs(centred) <= 40, "the page being read is outlined in the middle of the strip", `${centred ?? "none"} px from the middle`);
     const withStrip = await webviewMemory(r);
 
-    const stripTurns: number[] = [];
-    for (let to = 13; to <= 22; to++) {
-      const ms = await turnByKey(r, "ArrowRight", to);
-      if (ms >= 0) stripTurns.push(ms);
-      await page.waitForTimeout(150);
-    }
-    const stripSorted = [...stripTurns].sort((a, b) => a - b);
-    t.expect(stripTurns.length === 10 && percentile(stripSorted, 0.5) < 100, "with the strip shown, a turn is still drawn within a tenth of a second", `median ${percentile(stripSorted, 0.5).toFixed(1)} ms`);
-    t.note(`a turn by key with the strip shown: median ${percentile(stripSorted, 0.5).toFixed(1)} ms, p95 ${percentile(stripSorted, 0.95).toFixed(1)} ms`);
+    const stripSorted = await tenTurns();
+    t.expect(stripSorted.length === 10 && percentile(stripSorted, 0.5) < 100, "with the strip shown, a turn is still drawn within a tenth of a second", `median ${percentile(stripSorted, 0.5).toFixed(1)} ms`);
+    t.note(`ten turns by key from page 13, to the frame each page is drawn: median ${percentile(plainSorted, 0.5).toFixed(1)} ms without the strip, ${percentile(stripSorted, 0.5).toFixed(1)} ms with it; p95 ${percentile(plainSorted, 0.95).toFixed(1)} and ${percentile(stripSorted, 0.95).toFixed(1)} ms`);
     t.expect(Math.abs((await offCentre(r)) ?? 999) <= 40, "turning keeps the page being read in the middle of the strip", `${await offCentre(r)} px from the middle`);
 
     await page.click('[role=dialog] [data-comic-strip] [data-strip-page="26"]');
