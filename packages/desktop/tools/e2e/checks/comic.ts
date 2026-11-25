@@ -319,7 +319,20 @@ export const comicCheck: Check = {
     await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
     await shown(r, 5);
     const boxHasKeys = () => page.waitForFunction(() => document.activeElement?.id === "comic-jump-page", null, { timeout: 5000 }).then(() => true, () => false);
-    const noDialog = () => page.waitForFunction(() => !document.querySelector("dialog[open]"), null, { timeout: 5000 }).then(() => true, () => false);
+    // Gone, and a moment after, as a person sees it: the box's own close event can land a task after it has gone, and a
+    // key pressed in between (no hand is that quick) can open the next box only for that event to close it.
+    const noDialog = () =>
+      page
+        .waitForFunction(() => !document.querySelector("dialog[open]"), null, { timeout: 5000 })
+        .then(() => page.waitForTimeout(150))
+        .then(() => true, () => false);
+    /** What the box was doing, for a failure: whether it is open, what it holds, and what has the keys. */
+    const theBox = () =>
+      page.evaluate(() => {
+        const field = document.querySelector("#comic-jump-page") as HTMLInputElement | null;
+        const keys = document.activeElement;
+        return `box ${document.querySelector("dialog[open]") ? "open" : "closed"}, holding "${field?.value ?? ""}", the keys with ${keys?.tagName.toLowerCase() ?? "nothing"}${keys?.id ? `#${keys.id}` : ""}`;
+      });
     await page.keyboard.press("g");
     t.expect(await boxHasKeys(), "G opens Go to page, its box taking the keys");
     t.expect((await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)) === "6", "the box holds the page being read");
@@ -328,10 +341,11 @@ export const comicCheck: Check = {
     t.expect(await shown(r, 29), "a number typed and Enter go to that page", `at page ${(await pageNow(r)) + 1}`);
     t.expect(await noDialog(), "and the box goes");
     await page.keyboard.press("g");
-    await boxHasKeys();
+    const reopened = await boxHasKeys();
     await page.keyboard.type("999");
+    const typed = await theBox();
     await page.keyboard.press("Enter");
-    t.expect(await shown(r, 39), "a number past the end goes to the last page", `at page ${(await pageNow(r)) + 1}`);
+    t.expect(await shown(r, 39), "a number past the end goes to the last page", `at page ${(await pageNow(r)) + 1}; G ${reopened ? "opened" : "did not open"} the box; when Enter was pressed, ${typed}; the page said: ${r.said.slice(-3).join(" | ") || "nothing"}`);
     await noDialog();
     await page.keyboard.press("g");
     await boxHasKeys();
