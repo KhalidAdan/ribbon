@@ -1,11 +1,11 @@
 # A book's details, by kind
 
-**A design, for the owner to read before anything is built** (2026-11-25).
-It is step 7 of [COMICS.md](COMICS.md), section 15: each kind of book with
-details of its own, a comic's above all, and then ComicVine filling a
-comic's in. Nothing here is built. **Proposed** marks a default written
-here that the owner hasn't decided; section 10 asks what only he can
-answer, each question with a recommendation.
+**A design, read and accepted by the owner** (2026-11-25: "pretty low
+stakes. We can always fix later"). It is step 7 of [COMICS.md](COMICS.md),
+section 15: each kind of book with details of its own, a comic's above
+all, and then ComicVine filling a comic's in. Nothing here is built yet.
+Section 10's questions are decided as recommended, and the defaults
+marked **proposed** stand as written until he changes one.
 
 Reading it, in order: section 1 says why; section 2 is what each kind
 keeps, from what its files carry; section 3 how a comic is named on the
@@ -284,9 +284,9 @@ Each is an edit like any field (`EDIT_FIELDS`), one row each: `issue`,
 which comes from the file or from a match (section 7). The name, the
 byline, the place and the label of section 3 are worked out from them
 by one module in core, `comic-name.ts` (proposed), with tests, which the
-desktop and the server both call. `rightToLeft` is being made an edit in step 4 of
-section 15 as this is written: a switch kept as `yes` or `no`, which
-stands over ComicInfo's `Manga`. It is one of a comic's own details here,
+desktop and the server both call. `rightToLeft` became an edit in step 4 of
+section 15 (#289, in 0.50.0): a switch kept as `yes` or `no`
+(`right_to_left` beside the books), which stands over ComicInfo's `Manga`. It is one of a comic's own details here,
 and nothing about it changes.
 
 ### On the desktop alone
@@ -638,10 +638,10 @@ match is kept in `.ribbon/matched/`.
 
 It is the same door as Audible's descriptions. But the north star says
 today: "The one door out is the one you open yourself: an assistant
-given a key to your server's comics". Proposed (question 9), in "Not
-someone else's service": *Looking a book's details up, Audible's descriptions or ComicVine's
-comics, is another you open yourself: off until you turn it on, it sends
-only what names the book.*
+given a key to your server's comics". Added (question 9, decided), in
+"Not someone else's service": *Looking a book's details up, Audible's
+descriptions or ComicVine's comics, is another you open yourself: off
+until you turn it on, it sends only what names the book.*
 
 ## 9. The order of the work
 
@@ -663,6 +663,9 @@ every device together.
 | 9 | ComicVine on the desktop alone, if he wants it | Unit tests; the end-to-end checks, with the stand-in |
 
 ## 10. Questions for the owner
+
+**Decided on 2026-11-25: every recommendation below, as written.** The
+north star's line (question 9) is made in [NORTHSTAR.md](NORTHSTAR.md).
 
 1. **Should the shelf name a comic from its details** ("Transformers
    #7", "Transformers Vol. 1: Robots in Disguise"), with the title only

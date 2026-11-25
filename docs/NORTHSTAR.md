@@ -65,7 +65,10 @@ friends. The library is your books, in your folders or on your own server.
 your own people; nothing in the cloud. A server runs on a machine you choose,
 for the people you invite ([SERVER.md](SERVER.md)). No store, no tracking, no
 one else's service. The one door out is the one you open yourself: an
-assistant given a key to your server's comics (below).
+assistant given a key to your server's comics (below). Looking a book's
+details up, Audible's descriptions or ComicVine's comics, is another you
+open yourself: off until you turn it on, it sends only what names the book
+([BOOK-DETAILS.md](BOOK-DETAILS.md)).
 
 **Not two apps.** A book you own as audio and as an EPUB is one book with one
 place, and reading it is as much the product as hearing it. Not a reader
