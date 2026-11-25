@@ -715,10 +715,25 @@ does to a panel is worked out with no screen (`panel-drag.ts`, tested).
 What an assistant marked shows here to be corrected, and the other way
 about. Tried in the browser against a scratch server.
 
+**The iPad, the iPhone and the desktop read by them too.** On the iPad
+and the iPhone (`ComicView.swift`) a comic with panels opens on its first:
+a touch on either side or a swipe goes to the next panel or the one
+before, two touches show the whole page, and a button beside the title
+goes between panels and whole pages. On the desktop (`PanelReader.tsx`)
+the arrows, Space and a click on either side do the same, and the Pages
+menu has "Whole pages" and "Read by panels". All three place a panel by
+one piece of arithmetic, written twice and held together by tests with the
+same numbers (`closeOn` in core, `ComicPaging.close` in the Apple app): it
+fills the screen with a little room about it, and is never enlarged past
+four times the whole page. Tried in an iPhone simulator and in the
+desktop's browser harness, on the drawn page above.
+
+The desktop reads a comic's panels from the server it came from each time
+the comic opens, so a comic downloaded and read with the server out of
+reach is read by whole pages.
+
 **Not built yet:**
 
-- **The other readers.** Stepping through panels on the iPad and iPhone,
-  and the desktop.
 - **The editor on the iPad**, by touch. The desktop's is above.
 - **Panels in a folder**, for the desktop alone: a record beside the comic
   in `.ribbon/`. Today panels are a server's.

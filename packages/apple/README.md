@@ -75,8 +75,10 @@ for listening without a network.
   and right turn the page, Select brings it to the screen's width and back,
   up and down move along a page that wide and on to the next, Menu leaves.
   A comic whose panels are marked (docs/COMICS.md, section 14) is read a
-  panel at a time there: each press glides to the next panel, and Select
-  shows the whole page.
+  panel at a time on all three: on the TV each press glides to the next
+  panel and Select shows the whole page; on the iPad and the iPhone a touch
+  on either side or a swipe steps, and two touches, or the button beside
+  the title, show the whole page.
 - **Stats**, at the top of the library, as the desktop's Stats has them:
   this week as a sentence, a day lately, the streak and the books finished
   this year; a square for each day of the last year; the books and authors
