@@ -140,6 +140,15 @@ struct ComicPlace: Decodable {
     let pages: Int
 }
 
+/// One panel of a comic's page (packages/core/src/comic/panels.ts): a rectangle in fractions of the page, `x` and `y`
+/// its top left corner, `w` and `h` its size. A page's panels come in the order they are read.
+struct ComicPanel: Decodable, Equatable {
+    let x: Double
+    let y: Double
+    let w: Double
+    let h: Double
+}
+
 /// How one listen-through of a book went (packages/core/src/stats.ts, `ListenThrough`): the end of the book tells it.
 struct ListenThrough: Decodable, Equatable {
     let started: String
@@ -590,6 +599,20 @@ struct RibbonServer {
     func comicPlace(in id: String) async throws -> ComicPlace? {
         struct Answer: Decodable { let place: ComicPlace? }
         return try await get(Answer.self, "api/books/\(id)/place").place
+    }
+
+    /// A comic's panels, for the pages that have them, by the page counted from 0 (the server counts from 1). Someone
+    /// marked them, a person or an assistant they asked (docs/COMICS.md, section 14); most comics have none.
+    func panels(in id: String) async throws -> [Int: [ComicPanel]] {
+        struct Answer: Decodable {
+            struct Page: Decodable {
+                let page: Int
+                let panels: [ComicPanel]
+            }
+            let pages: [Page]
+        }
+        let marked = try await get(Answer.self, "api/books/\(id)/panels").pages
+        return Dictionary(marked.filter { !$0.panels.isEmpty }.map { ($0.page - 1, $0.panels) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Say which page of a comic this device is on, counted from 1: the server keeps it for every other device.

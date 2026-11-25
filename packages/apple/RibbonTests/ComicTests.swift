@@ -65,6 +65,59 @@ final class ComicTests: XCTestCase {
         XCTAssertEqual(ComicPaging.height(of: .zero, atWidth: 1920), 0)
     }
 
+    func testAPanelFillsTheScreenFromItsMiddleWithNothingElseShowing() {
+        // A scanned page, 2000 by 3000, on a TV 1920 by 1080. Whole, it is as tall as the screen.
+        let (page, screen) = (CGSize(width: 2000, height: 3000), CGSize(width: 1920, height: 1080))
+        let whole = ComicPaging.whole(page: page, screen: screen)
+        XCTAssertEqual(whole.scale, 0.36, accuracy: 0.0001)
+        XCTAssertEqual(whole.offset, .zero)
+        XCTAssertEqual(whole.window.width, 720, accuracy: 0.001)
+
+        // A wide panel across the top of the page: the screen's width holds it, less a little room either side.
+        let top = ComicPanel(x: 0.05, y: 0.05, w: 0.9, h: 0.25)
+        let close = ComicPaging.close(on: top, page: page, screen: screen)
+        XCTAssertEqual(close.scale, 1920 * 0.94 / 1800, accuracy: 0.0001)
+        XCTAssertEqual(close.window.width, 1920 * 0.94, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(close.window.height, 1080)
+        // Its middle is the page's across, and well above the page's middle: the page is moved down to bring it to the screen's.
+        XCTAssertEqual(close.offset.width, 0, accuracy: 0.001)
+        XCTAssertEqual(close.offset.height, 3000 * close.scale * (0.5 - 0.175), accuracy: 0.001)
+
+        // A small inset is not blown up past four times the whole page's size.
+        let inset = ComicPanel(x: 0.6, y: 0.1, w: 0.05, h: 0.05)
+        XCTAssertEqual(ComicPaging.close(on: inset, page: page, screen: screen).scale, whole.scale * 4, accuracy: 0.0001)
+    }
+
+    func testAPageWithNoPanelsIsHungFromTheScreensTop() {
+        let (page, screen) = (CGSize(width: 2000, height: 3000), CGSize(width: 1920, height: 1080))
+        let head = ComicPaging.wide(page: page, screen: screen, down: 0)
+        XCTAssertEqual(head.scale, 0.96, accuracy: 0.0001)
+        // Its middle is 900 below the screen's when its top is at the screen's top, and less by as far as it is moved down.
+        XCTAssertEqual(head.offset.height, 900, accuracy: 0.001)
+        XCTAssertEqual(ComicPaging.wide(page: page, screen: screen, down: 648).offset.height, 252, accuracy: 0.001)
+        XCTAssertEqual(head.window, screen)
+    }
+
+    func testAPressPastAPagesLastPanelIsForTheNextPage() {
+        XCTAssertEqual(ComicPaging.step(from: 0, by: 1, of: 5), 1)
+        XCTAssertEqual(ComicPaging.step(from: 3, by: -1, of: 5), 2)
+        XCTAssertNil(ComicPaging.step(from: 4, by: 1, of: 5))
+        XCTAssertNil(ComicPaging.step(from: 0, by: -1, of: 5))
+    }
+
+    func testAComicsPanelsAreReadFromTheServersAnswer() throws {
+        struct Answer: Decodable {
+            struct Page: Decodable {
+                let page: Int
+                let panels: [ComicPanel]
+            }
+            let pages: [Page]
+        }
+        let answer = try JSONDecoder().decode(Answer.self, from: Data(#"{"pages":[{"page":2,"panels":[{"x":0.05,"y":0.05,"w":0.9,"h":0.25},{"x":0.05,"y":0.35,"w":0.42,"h":0.6}]}]}"#.utf8))
+        XCTAssertEqual(answer.pages[0].page, 2)
+        XCTAssertEqual(answer.pages[0].panels, [ComicPanel(x: 0.05, y: 0.05, w: 0.9, h: 0.25), ComicPanel(x: 0.05, y: 0.35, w: 0.42, h: 0.6)])
+    }
+
     func testAPageIsDecodedNoLargerThanAsked() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
