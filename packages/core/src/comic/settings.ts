@@ -1,4 +1,5 @@
 import type { PagesUp } from "./session";
+import { COLUMNS } from "./scroll";
 import type { Fit } from "./size";
 
 /**
@@ -25,9 +26,13 @@ export interface ComicSettings {
   strip: boolean;
   /** What is behind the page: Ribbon's own until someone chooses, so no screen changes until then. */
   ground: Ground;
+  /** One long scroll (comic/scroll.ts), rather than pages turned: for every comic, until a person says otherwise. */
+  scroll: boolean;
+  /** How wide the long scroll's column is, as a part of the window (one of `COLUMNS`). */
+  column: number;
 }
 
-export const COMIC_DEFAULTS: ComicSettings = { up: "one", fit: "page", strip: false, ground: "ribbon" };
+export const COMIC_DEFAULTS: ComicSettings = { up: "one", fit: "page", strip: false, ground: "ribbon", scroll: false, column: 1 };
 
 /** The settings as kept, with anything missing or unknown at its default. */
 export function parseComicSettings(v: unknown): ComicSettings {
@@ -37,6 +42,8 @@ export function parseComicSettings(v: unknown): ComicSettings {
     fit: kept.fit === "width" || kept.fit === "height" ? kept.fit : COMIC_DEFAULTS.fit,
     strip: typeof kept.strip === "boolean" ? kept.strip : COMIC_DEFAULTS.strip,
     ground: GROUNDS.includes(kept.ground as Ground) ? (kept.ground as Ground) : COMIC_DEFAULTS.ground,
+    scroll: typeof kept.scroll === "boolean" ? kept.scroll : COMIC_DEFAULTS.scroll,
+    column: COLUMNS.includes(kept.column as number) ? (kept.column as number) : COMIC_DEFAULTS.column,
   };
 }
 
