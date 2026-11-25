@@ -89,6 +89,12 @@ describe("what the server answers the Apple app", () => {
     await kept("series", await ask("GET", "/api/series"));
   });
 
+  it("who is signed in: the admin, who may delete books from the iPad and the iPhone", async () => {
+    const { user } = (await ask("GET", "/api/me")) as { user: Record<string, unknown> };
+    // A person's id is made at random when they join: the same in every run here, so the file is.
+    await kept("me", { user: { ...user, id: "a-person" } });
+  });
+
   it("a book", async () => {
     await kept("book", await ask("GET", `/api/books/${id}`));
     await kept("readalong", await ask("GET", `/api/books/${id}/readalong`));

@@ -211,6 +211,8 @@ final class AppModel {
     private(set) var keepsSessions = true
     /// Their daily goal, and today against it.
     private(set) var goal: DailyGoal?
+    /// Whether they are the server's admin, who may delete its books from the iPad and the iPhone.
+    private(set) var isAdmin = false
 
     /// Paused this long in the player or the reader with nothing pressed, the passages drift by.
     private static let stillFor = Waits.of(5 * 60, quick: 15)
@@ -270,6 +272,14 @@ final class AppModel {
         let goal = DailyGoal(server: server)
         self.goal = goal
         Task { await goal.load() }
+        isAdmin = false
+        #if os(iOS)
+        Task { [weak self] in
+            let me = try? await server.me()
+            guard let self, self.server?.account.id == server.account.id else { return }
+            self.isAdmin = me?.isAdmin == true
+        }
+        #endif
     }
 
     /// Keep this person's stretches of listening as sessions, or stop: the end of a book can then say how long it took.
@@ -292,6 +302,7 @@ final class AppModel {
         server = nil
         library = nil
         goal = nil
+        isAdmin = false
         problem = nil
     }
 
@@ -374,6 +385,31 @@ final class AppModel {
             if case .book(let open, let series) = screen, open.id == book.id { return series }
         }
         return nil
+    }
+
+    /// Delete a book from the server, as its admin, as the desktop's "Delete from the server…" does: it goes from the
+    /// server and from every device that downloaded it, everyone's places in it are kept, and the folder it was added
+    /// from isn't touched. Here it goes from the shelf, and its page closes.
+    func deleteFromServer(_ book: ServerBook) async {
+        guard let server, isAdmin else { return }
+        problem = nil
+        do {
+            try await server.deleteBook(book.id)
+        } catch {
+            problem = error.localizedDescription
+            return
+        }
+        // Its narration can't play on with its files gone.
+        if listening?.book.id == book.id {
+            listening?.stop()
+            listening = nil
+            path.removeAll { $0 == .player }
+        }
+        path.removeAll { screen in
+            if case .book(let open, _) = screen { return open.id == book.id }
+            return false
+        }
+        await loadLibrary()
     }
 
     // Listening ------------------------------------------------------------

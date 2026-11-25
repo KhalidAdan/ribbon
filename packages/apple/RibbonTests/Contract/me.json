@@ -1,0 +1,9 @@
+{
+  "user": {
+    "id": "a-person",
+    "name": "admin",
+    "displayName": "admin",
+    "picture": null,
+    "role": "admin"
+  }
+}

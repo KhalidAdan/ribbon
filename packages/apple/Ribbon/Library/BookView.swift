@@ -20,6 +20,8 @@ struct BookView: View {
     /// Whether the details came after the page was drawn, rather than with it.
     @State private var arrivedLate = false
     @State private var moreAbout = false
+    /// Asking the admin whether to delete the book from the server.
+    @State private var confirmingDelete = false
     @FocusState private var focused: Focus?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.upright) private var upright
@@ -115,6 +117,14 @@ struct BookView: View {
             }
         }
         .defaultFocus($focused, .listen)
+        #if os(iOS)
+        .alert("Delete \(book.title) from the server?", isPresented: $confirmingDelete) {
+            Button("Delete", role: .destructive) { Task { await model.deleteFromServer(book) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("It goes from the server and from every device that downloaded it. Everyone’s places in it are kept, and the folder it came from isn’t touched.")
+        }
+        #endif
         .task(id: book.id) { await loadListens() }
         .task(id: book.id) {
             if let kept = model.library?.details[book.id] {
@@ -242,6 +252,13 @@ struct BookView: View {
             if book.audio && isUnderway(progress) {
                 Button("Start again from the beginning") { Task { await model.startAgain(book) } }
             }
+            #if os(iOS)
+            // For the server's admin, as on the desktop's book page. The TV has no way to delete a book.
+            if model.isAdmin {
+                Divider()
+                Button("Delete from the server…", role: .destructive) { confirmingDelete = true }
+            }
+            #endif
         } label: {
             if fit == .glyph {
                 Label("More", systemImage: "ellipsis").labelStyle(.iconOnly)
