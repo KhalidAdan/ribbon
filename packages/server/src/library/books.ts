@@ -93,13 +93,26 @@ export class BookIndex {
     const b = stored.book;
     this.db
       .prepare(
-        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages, is_pdf)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages, is_pdf, right_to_left)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0);
+      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0, b.comic ? (b.rightToLeft ? 1 : 0) : null);
     for (const claim of claims) this.db.prepare("INSERT OR IGNORE INTO book_claim (claim, book_id) VALUES (?, ?)").run(claim, id);
     // Deleted once and added again: devices keep it now.
     this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
+  }
+
+  /** The comics added before the library listed which way they read: their records say (book-folder.ts, `listDirections`). */
+  directionsToList(): string[] {
+    return this.db
+      .prepare("SELECT id FROM book WHERE has_comic = 1 AND right_to_left IS NULL")
+      .all()
+      .map((row) => String(row.id));
+  }
+
+  /** List a comic as reading right to left, or not, as its file says. */
+  listDirection(id: string, rightToLeft: boolean): void {
+    this.db.prepare("UPDATE book SET right_to_left = ? WHERE id = ?").run(rightToLeft ? 1 : 0, id);
   }
 
   /** List a book as having an EPUB of these bytes now: an audiobook given the EPUB beside it in its folder after it was added (importer.ts). */
@@ -204,7 +217,7 @@ export interface KeptEdits {
 }
 
 /** The fields of a book the library answer lists, and so the ones whose files' values it gives with the edits. */
-const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex"] as const;
+const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex", "rightToLeft"] as const;
 
 /** The book table with each book's edits and the cover chosen for it, if it has them, and its words, once its text is indexed (search.ts). */
 const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at, sentence_index.words
@@ -219,13 +232,16 @@ function listed(row: Record<string, SQLOutputValue>): ListedBook {
   const files = remoteBook(book).book;
   const edited = applyEdits(files, values);
   const shown = Object.fromEntries(LISTED_FIELDS.filter((f) => values[f] !== undefined).map((f) => [f, values[f]!]));
+  const { rightToLeft: _filed, ...rest } = book;
   return {
-    ...book,
+    ...rest,
     title: edited.title,
     author: edited.author,
     narrator: edited.narrator,
     series: edited.series,
     seriesIndex: edited.seriesIndex,
+    // Only a comic reads one way or the other, whatever edit a request sent for another book.
+    ...(book.comic && edited.rightToLeft ? { rightToLeft: true as const } : {}),
     ...(chosen ? { cover: chosen } : {}),
     edited: { values, original: originalOf(files, shown), updatedAt: String(row.edited_at ?? row.chosen_at), ...(chosen ? { chosenCover: true as const } : {}) },
   };
@@ -265,6 +281,7 @@ function filed(row: Record<string, SQLOutputValue>): ListedBook {
     comic: row.has_comic === 1,
     pdf: row.is_pdf === 1,
     pages: row.pages === null || row.pages === undefined ? null : Number(row.pages),
+    ...(row.right_to_left === 1 ? { rightToLeft: true as const } : {}),
     cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
     addedAt: new Date(Number(row.added_at)).toISOString(),
   };
@@ -296,6 +313,8 @@ export interface ListedBook {
   pdf: boolean;
   /** A comic's pages; null for any other book. */
   pages: number | null;
+  /** A comic read right to left, as its file says or a person's edit does (docs/COMICS.md, section 15); absent for any other. */
+  rightToLeft?: true;
   cover: Cover | null;
   addedAt: string;
   /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */

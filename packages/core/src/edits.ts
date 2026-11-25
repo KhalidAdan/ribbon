@@ -15,9 +15,15 @@ import { splitList } from "./scan/sidefiles";
  * here because it's kept the same way, beside the book or on the server,
  * and a switch rather than a deletion: the book's transcript stays, so
  * turning it back on costs nothing.
+ *
+ * And one is a comic's own: `rightToLeft`, which way its pages turn
+ * (docs/COMICS.md, section 15). A comic's ComicInfo.xml may say it reads
+ * right to left; the edit says it does, or that it doesn't, over whatever
+ * the file says, and taken back the comic reads as its file says again.
+ * It is a switch in the edit form, kept as "yes" or "no" (`SWITCH_ON`).
  */
 
-export const EDIT_FIELDS = ["title", "subtitle", "author", "narrator", "series", "seriesIndex", "year", "genres", "publisher", "language", "isbn", "asin", "description", "cover", "readAlong"] as const;
+export const EDIT_FIELDS = ["title", "subtitle", "author", "narrator", "series", "seriesIndex", "year", "genres", "publisher", "language", "isbn", "asin", "description", "cover", "readAlong", "rightToLeft"] as const;
 
 export type EditField = (typeof EDIT_FIELDS)[number];
 
@@ -54,13 +60,30 @@ export function readAlongOff(of: { readAlong?: string } | null | undefined): boo
 }
 
 /**
+ * A switch's edit, as the edit form keeps it (edit-form.ts, `switch`): on
+ * or off, whatever the files say. `rightToLeft` is one; read-along, which
+ * came first, keeps its own words.
+ */
+export const SWITCH_ON = "yes";
+export const SWITCH_OFF = "no";
+
+/** A switch's edit for on, or for off. */
+export function switchText(on: boolean): string {
+  return on ? SWITCH_ON : SWITCH_OFF;
+}
+
+/**
  * The fields of a book a server keeps as text: all but the cover, which
  * goes to it as a picture. Read-along turned back on is no edit at all, so
- * it isn't kept as an empty one.
+ * it isn't kept as an empty one; nor is a direction that says neither way.
  */
 export function sharedEdits(values: EditValues): EditValues {
-  const { cover: _here, readAlong: _switch, ...shared } = values;
-  return readAlongOff(values) ? { ...shared, readAlong: READ_ALONG_OFF } : shared;
+  const { cover: _here, readAlong: _switch, rightToLeft: direction, ...shared } = values;
+  return {
+    ...shared,
+    ...(readAlongOff(values) ? { readAlong: READ_ALONG_OFF } : {}),
+    ...(direction === SWITCH_ON || direction === SWITCH_OFF ? { rightToLeft: direction } : {}),
+  };
 }
 
 
@@ -87,6 +110,7 @@ const COLUMN: Record<EditField, string> = {
   description: "description",
   cover: "cover",
   readAlong: "read_along",
+  rightToLeft: "right_to_left",
 };
 const FIELD_OF = new Map(Object.entries(COLUMN).map(([f, c]) => [c, f as EditField]));
 
@@ -119,6 +143,8 @@ export function fieldText(book: Book, f: EditField): string {
       return book.year === null ? "" : String(book.year);
     case "genres":
       return (book.genres ?? []).join(", ");
+    case "rightToLeft":
+      return switchText(book.rightToLeft === true);
     default:
       return (book[f] as string | undefined) ?? "";
   }
@@ -163,6 +189,11 @@ export function applyEdits<B extends Partial<Book>>(book: B, values: EditValues)
         // Off or nothing: anything else, an empty edit included, leaves the book reading along.
         if (t === READ_ALONG_OFF) out.readAlong = READ_ALONG_OFF;
         else delete out.readAlong;
+        break;
+      case "rightToLeft":
+        // Either way stands over what the file says; an edit that says neither leaves the comic as its file has it.
+        if (t === SWITCH_ON) out.rightToLeft = true;
+        else if (t === SWITCH_OFF) delete out.rightToLeft;
         break;
       default:
         (out as unknown as Record<string, string>)[f] = t;

@@ -14,7 +14,7 @@ import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { endOf, readsOf } from "@ribbon/core/stats";
 import type { Host } from "@ribbon/core/host";
 import { nodeHost } from "@ribbon/host-node/node";
-import { makeComic, makePdf } from "@ribbon/host-node/make-comic";
+import { comicInfoXml, makeComic, makePdf } from "@ribbon/host-node/make-comic";
 import { serverIdOf } from "../../desktop/src/app/server/shelf.ts";
 import type { RibbonServer } from "../src/app.ts";
 import { builtTool } from "../src/config.ts";
@@ -349,6 +349,49 @@ describe("the desktop on a server", () => {
     await soon(titles).toContain("The Red Book, Revised");
     await soon(() => two.getState().books.find((b) => b.book.id === id)?.book.title).toBe("The Red Book, Revised");
   }, 30_000);
+
+  it("keeps which way a comic reads as the admin's edit, for every device, and anyone else's choice on their own machine", async () => {
+    await makeComic(path.join(shelf, "Paper Lanterns.cbz"), { pages: 4, comicInfo: comicInfoXml({ Manga: "YesAndRightToLeft" }) });
+    await stocked();
+    await invited("brother");
+    const { app: mine } = await aDesktop();
+    const { app: theirs } = await aDesktop("brother");
+    const id = book(mine, "Paper Lanterns").book.id;
+    const served = () => asked<{ book: { rightToLeft?: boolean } }>(`/api/books/${serverIdOf(book(mine, "Paper Lanterns"))}`).then((r) => r.book.rightToLeft ?? false);
+    // On the server still, it reads as the server lists it: right to left, as its file says.
+    expect(book(mine, "Paper Lanterns").remote).toBeTruthy();
+    expect(mine.comicRightToLeft(id)).toBe(true);
+    await soon(() => mine.mayEdit(id)).toBe(true);
+    expect(theirs.mayEdit(id)).toBe(false);
+
+    // Downloaded and read, the admin turns it: the server keeps it as the comic's edit, and the admin's machine reads by that.
+    await mine.openComic(id);
+    expect(mine.getState().comic).toMatchObject({ status: "ready", bookId: id });
+    mine.setComicRightToLeft(id, false);
+    expect(mine.comicRightToLeft(id)).toBe(false);
+    await soon(served).toBe(false);
+    await soon(() => mine.getState().comicDirections).toEqual({});
+    expect(book(mine, "Paper Lanterns").edits).toEqual({ rightToLeft: "no" });
+    expect(mine.comicRightToLeft(id)).toBe(false);
+    await mine.closeComic();
+    // Every other device reads it so.
+    await soon(() => theirs.comicRightToLeft(id)).toBe(false);
+
+    // Anyone else's choice is for their machine: the server's comic is as the admin left it.
+    theirs.setComicRightToLeft(id, true);
+    expect(theirs.comicRightToLeft(id)).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(theirs.getState().comicDirections).toEqual({ [id]: true });
+    expect(await served()).toBe(false);
+    expect(theirs.getState().error).toBeNull();
+
+    // The admin takes the edit back: every device reads it as its file says, but for the one whose own choice it is.
+    await mine.resetEdits(id, "rightToLeft");
+    await soon(served).toBe(true);
+    expect(mine.comicRightToLeft(id)).toBe(true);
+    mine.destroy();
+    theirs.destroy();
+  }, 60_000);
 
   it("leaves deleting a book to the admin", async () => {
     await stocked();

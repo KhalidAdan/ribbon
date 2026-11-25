@@ -3,7 +3,7 @@ import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { editForm, editFormAbout, formFields, type FieldSpec } from "@ribbon/core/edit-form";
-import { EDIT_FIELDS, fieldText, readAlongOff, READ_ALONG_OFF, type EditField } from "@ribbon/core/edits";
+import { EDIT_FIELDS, fieldText, readAlongOff, READ_ALONG_OFF, SWITCH_ON, switchText, type EditField } from "@ribbon/core/edits";
 import { bookKind } from "@ribbon/core/kind";
 import { useController } from "./store";
 import { Button } from "./Button";
@@ -24,7 +24,8 @@ const IMAGE_TYPES = "image/jpeg,image/png,image/webp";
  * The form is the one its kind of book wants (core/edit-form.ts): a comic
  * is asked for its writers and artists and its issue, never a narrator,
  * and its cover can be any of its own pages (CoverPages.tsx), chosen from
- * the form's second face.
+ * the form's second face. And whether it reads right to left, a switch,
+ * which every device then reads it by, whatever its file says.
  *
  * And, for a book with both its text and its narration, whether it reads
  * along: a switch to turn off for a book where it never will (a different
@@ -202,9 +203,13 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
               <fieldset key={g.label} className="min-w-0">
                 <legend className="mb-2 px-1 text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">{g.label}</legend>
                 <div className="grid grid-cols-1 gap-x-3 gap-y-4 rounded-[10px] bg-surface p-3 ring-1 ring-line sm:grid-cols-2">
-                  {g.fields.map((spec) => (
-                    <Field key={spec.field} spec={spec} value={form[spec.field]} files={fieldText(original, spec.field)} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
-                  ))}
+                  {g.fields.map((spec) =>
+                    spec.switch ? (
+                      <Switch key={spec.field} spec={spec} about={spec.switch} value={form[spec.field]} files={fieldText(original, spec.field)} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
+                    ) : (
+                      <Field key={spec.field} spec={spec} value={form[spec.field]} files={fieldText(original, spec.field)} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
+                    ),
+                  )}
                 </div>
               </fieldset>
             ))}
@@ -258,6 +263,26 @@ function Field({ spec, value, files, changed, onChange }: { spec: FieldSpec; val
           {changed ? (files ? `The files say “${files.length > 80 ? `${files.slice(0, 80)}…` : files}”.` : "The files say nothing here.") : spec.hint}
         </p>
       )}
+    </div>
+  );
+}
+
+/** A detail that is on or off (core/edit-form.ts, `switch`): what it means as it is set, and what the file says when that differs. */
+function Switch({ spec, about, value, files, changed, onChange }: { spec: FieldSpec; about: { on: string; off: string }; value: string; files: string; changed: boolean; onChange: (v: string) => void }) {
+  const id = `edit-${spec.field}`;
+  const on = value === SWITCH_ON;
+  return (
+    <div className={clsx("flex min-w-0 items-start justify-between gap-4", spec.wide && "sm:col-span-2")}>
+      <div className="min-w-0">
+        <label htmlFor={id} className="text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">
+          {spec.label}
+        </label>
+        <p className="mt-1 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5">
+          {on ? about.on : about.off}
+          {changed && (files === SWITCH_ON ? " Its file says it does." : " Its file says it doesn’t.")}
+        </p>
+      </div>
+      <Toggle id={id} label={spec.label} checked={on} onChange={(checked) => onChange(switchText(checked))} />
     </div>
   );
 }

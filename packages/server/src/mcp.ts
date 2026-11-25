@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { panelsFrom, type Panel } from "@ribbon/core/comic/panels";
 import { formFields, type FormField } from "@ribbon/core/edit-form";
-import { applyEdits, fieldText, sharedEdits, type EditValues } from "@ribbon/core/edits";
+import { applyEdits, fieldText, sharedEdits, switchText, type EditValues } from "@ribbon/core/edits";
+import type { Book } from "@ribbon/core/types";
 import { nodeHost } from "@ribbon/host-node/node";
 import { pagePicture } from "@ribbon/host-node/page-picture";
 import { signedIn, type Auth, type Person } from "./auth.ts";
@@ -34,6 +35,8 @@ import { comicOn, dividedPages } from "./panels-routes.ts";
  * the fields the desktop's edit form shows for a comic
  * (packages/core/src/edit-form.ts), kept as that form's edits are, and
  * can make any page of a comic its cover, as "Choose a page…" does there.
+ * Which way a comic reads is one of them, the form's switch, said here in
+ * words: "right to left" or "left to right".
  */
 
 /** The versions of the protocol this speaks, newest first. Asked for another, it answers with the newest. */
@@ -58,11 +61,23 @@ class Refused extends Error {}
 const HOW_PANELS_ARE_MEASURED =
   "A panel is a rectangle: x and y are its top left corner and w and h its size, each a fraction of the page from 0 to 1 (x 0 is the page's left edge, y 0 its top, w 1 its whole width). List panels in the order they are read. Take each panel's box to the outside of its border, and include a caption or a balloon that belongs to it even where it breaks the border. A page with one picture across it is one panel: x 0, y 0, w 1, h 1.";
 
-/** A comic's details by the names an assistant gives them: the edit form's fields for a comic, with a book's number in its series called `number`. */
-const DETAILS: Record<string, FormField> = Object.fromEntries(formFields("comic").map((f) => [f === "seriesIndex" ? "number" : f, f]));
+/** What a detail is called for an assistant, where the edit form's name for it isn't plain: a book's number in its series, and the switch for which way a comic reads. */
+const NAMED: Partial<Record<FormField, string>> = { seriesIndex: "number", rightToLeft: "reads" };
+
+/** A comic's details by the names an assistant gives them: the edit form's fields for a comic. */
+const DETAILS: Record<string, FormField> = Object.fromEntries(formFields("comic").map((f) => [NAMED[f] ?? f, f]));
+
+/** Which way a comic reads, in the words an assistant reads and gives. */
+const READS = { rightToLeft: "right to left", leftToRight: "left to right" } as const;
 
 const HOW_DETAILS_ARE_GIVEN =
-  `Details are given by name: ${Object.keys(DETAILS).join(", ")}. Each is text (number and year may be numbers). The title should say which issue or issues the comic holds ("Saga #14", "Saga Vol. 1 (#1–#6)"); author is its writers and artists, several apart by semicolons; genres are apart by commas; number is its issue or volume number in the series. An empty text empties a detail; null takes a correction back, to what the comic's file says.`;
+  `Details are given by name: ${Object.keys(DETAILS).join(", ")}. Each is text (number and year may be numbers). The title should say which issue or issues the comic holds ("Saga #14", "Saga Vol. 1 (#1–#6)"); author is its writers and artists, several apart by semicolons; genres are apart by commas; number is its issue or volume number in the series; reads is which way its pages turn, "${READS.rightToLeft}" (as manga reads) or "${READS.leftToRight}". An empty text empties a detail; null takes a correction back, to what the comic's file says.`;
+
+/** A comic's detail as an assistant reads it: the edit form's text, and which way it reads in words. */
+function detailText(book: Book, field: FormField): string {
+  if (field === "rightToLeft") return book.rightToLeft ? READS.rightToLeft : READS.leftToRight;
+  return fieldText(book, field);
+}
 
 /** The longest a detail may be, as the edit form's route has it. */
 const DETAIL_LETTERS = 20_000;
@@ -71,13 +86,19 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
   const host = nodeHost();
   const text = (words: string): Content => ({ type: "text", text: words });
 
+  /** A comic as it stands: its file's details with the corrections laid over them, which way it reads among them. */
+  const asCorrected = (comic: { id: string; stored: StoredBook }) => applyEdits(comic.stored.book, deps.books.edits(comic.id)?.values ?? {});
+
+  /** Which way a comic reads, as every device reads it. */
+  const readsOf = (comic: { id: string; stored: StoredBook }) => detailText(asCorrected(comic), "rightToLeft");
+
   /** A comic's details as they stand, with which of them were corrected by hand and what its cover is. */
   const detailsOf = (comic: { id: string; stored: StoredBook }) => {
     const corrected = deps.books.edits(comic.id)?.values ?? {};
-    const book = applyEdits(comic.stored.book, corrected);
+    const book = asCorrected(comic);
     return {
       id: comic.id,
-      ...Object.fromEntries(Object.entries(DETAILS).map(([name, field]) => [name, fieldText(book, field)])),
+      ...Object.fromEntries(Object.entries(DETAILS).map(([name, field]) => [name, detailText(book, field)])),
       pages: comic.stored.pages?.length ?? 0,
       corrected: Object.entries(DETAILS).flatMap(([name, field]) => (corrected[field] !== undefined ? [name] : [])),
       cover: deps.books.chosenCover(comic.id) ? "chosen by hand" : "its first page",
@@ -137,7 +158,7 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
             JSON.stringify(
               {
                 title: comic.stored.book.title,
-                reads: comic.stored.book.rightToLeft ? "right to left" : "left to right",
+                reads: readsOf(comic),
                 pages: comic.pages.map((page, at) => ({ page: at + 1, width: page.width, height: page.height, panels: divided.find((d) => d.page === at + 1)?.panels.length ?? 0 })),
               },
               null,
@@ -154,7 +175,7 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
       async run(args) {
         const comic = await pageAsked(args);
         const panels = deps.panels.ofPage(comic.id, comic.page.name);
-        return [...(await picture(comic, panels)), text(JSON.stringify({ page: comic.number, of: comic.pages.length, reads: comic.stored.book.rightToLeft ? "right to left" : "left to right", panels }))];
+        return [...(await picture(comic, panels)), text(JSON.stringify({ page: comic.number, of: comic.pages.length, reads: readsOf(comic), panels }))];
       },
     },
     {
@@ -186,7 +207,7 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
     },
     {
       name: "comic_details",
-      description: "One comic's details as every device shows them: its title, subtitle, author (its writers and artists), series and number, year, language, genres, publisher, ISBN and description, which of them were corrected by hand, and whether its cover is its first page or one chosen by hand.",
+      description: "One comic's details as every device shows them: its title, subtitle, author (its writers and artists), series and number, which way it reads, year, language, genres, publisher, ISBN and description, which of them were corrected by hand, and whether its cover is its first page or one chosen by hand.",
       inputSchema: { type: "object", properties: { book: { type: "string", description: "The comic's id, from list_comics." } }, required: ["book"] },
       async run(args) {
         return [text(JSON.stringify(detailsOf(await comicAsked(args)), null, 1))];
@@ -202,7 +223,12 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
           details: {
             type: "object",
             description: "The details to change, by name.",
-            properties: Object.fromEntries(Object.keys(DETAILS).map((name) => [name, { type: name === "number" || name === "year" ? ["string", "number", "null"] : ["string", "null"] }])),
+            properties: Object.fromEntries(
+              Object.entries(DETAILS).map(([name, field]) => [
+                name,
+                field === "rightToLeft" ? { type: ["string", "null"], enum: [READS.rightToLeft, READS.leftToRight, null] } : { type: field === "seriesIndex" || field === "year" ? ["string", "number", "null"] : ["string", "null"] },
+              ]),
+            ),
           },
         },
         required: ["book", "details"],
@@ -217,7 +243,12 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
           const field = DETAILS[name];
           if (!field) throw new Refused(`A comic has no detail called "${name}". ${HOW_DETAILS_ARE_GIVEN}`);
           if (value === null) delete values[field];
-          else if (typeof value === "string" && value.length <= DETAIL_LETTERS) values[field] = value.trim();
+          else if (field === "rightToLeft") {
+            // Which way it reads is one way or the other: kept as the edit form's switch keeps it.
+            const said = typeof value === "string" ? value.trim().toLowerCase() : "";
+            if (said !== READS.rightToLeft && said !== READS.leftToRight) throw new Refused(`Give reads as "${READS.rightToLeft}" or "${READS.leftToRight}", or null for what the comic's file says.`);
+            values[field] = switchText(said === READS.rightToLeft);
+          } else if (typeof value === "string" && value.length <= DETAIL_LETTERS) values[field] = value.trim();
           else if (typeof value === "number" && Number.isFinite(value) && (field === "seriesIndex" || field === "year")) values[field] = String(value);
           else throw new Refused(`Give ${name} as text. ${HOW_DETAILS_ARE_GIVEN}`);
         }
