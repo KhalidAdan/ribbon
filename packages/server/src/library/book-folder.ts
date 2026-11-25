@@ -129,6 +129,23 @@ export async function relistRecords(dataDir: string, index: BookIndex): Promise<
   return relisted;
 }
 
+/**
+ * Which way each comic added before the library listed it reads, as its
+ * record says (docs/COMICS.md, section 15), so the library answer gives
+ * it as it gives a comic added since. Once, at start: a comic listed is
+ * never read again. How many were listed.
+ */
+export async function listDirections(dataDir: string, index: BookIndex): Promise<number> {
+  let listed = 0;
+  for (const id of index.directionsToList()) {
+    const stored = await readStored(dataDir, id);
+    if (!stored) continue;
+    index.listDirection(id, stored.book.rightToLeft === true);
+    listed++;
+  }
+  return listed;
+}
+
 async function readRecord(dir: string): Promise<StoredBook | null> {
   return readFile(path.join(dir, "book.json"), "utf8")
     .then((t) => JSON.parse(t) as StoredBook)

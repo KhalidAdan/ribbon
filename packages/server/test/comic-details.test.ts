@@ -77,6 +77,23 @@ describe("a comic's details, set through the MCP", () => {
     expect((await listed()).find((b) => b.id === comics[0]!.id)!.title).toBe("Robots #7");
   });
 
+  it("says which way a comic reads, and sets it as the edit form's switch does, for every device", async () => {
+    const comic = comics[1]!;
+    expect(JSON.parse(words(await call("comic_details", { book: comic.id })))).toMatchObject({ reads: "left to right", corrected: [] });
+    const set = JSON.parse(words(await call("set_details", { book: comic.id, details: { reads: "Right to left" } })));
+    expect(set).toMatchObject({ reads: "right to left", corrected: ["reads"] });
+    // Kept as the form keeps its switch, and listed, served and looked at so.
+    expect(server.books.edits(comic.id)?.values).toEqual({ rightToLeft: "yes" });
+    expect((await listed()).find((b) => b.id === comic.id)!.rightToLeft).toBe(true);
+    expect(((await get(`/api/books/${comic.id}`)).json() as StoredBook).book.rightToLeft).toBe(true);
+    expect(JSON.parse(words(await call("comic_pages", { book: comic.id }))).reads).toBe("right to left");
+    expect((await call("set_details", { book: comic.id, details: { reads: "upwards" } })).isError).toBe(true);
+    // Taken back, it reads as its file says.
+    expect(JSON.parse(words(await call("set_details", { book: comic.id, details: { reads: null } })))).toMatchObject({ reads: "left to right", corrected: [] });
+    expect((await listed()).find((b) => b.id === comic.id)!.rightToLeft).toBeUndefined();
+    expect(((await get(`/api/books/${comic.id}`)).json() as StoredBook).book.rightToLeft).toBeUndefined();
+  });
+
   it("puts comics that name the same series in it together, in the order of their numbers", async () => {
     // Set out of order: the series is in the order of the numbers.
     await call("set_details", { book: comics[2]!.id, details: { series: "Robots (2023)", number: 9 } });
