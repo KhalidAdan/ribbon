@@ -389,5 +389,19 @@ export const comicCheck: Check = {
     await page.evaluate((id) => window.__ribbon.openComic(id), r.pdfId);
     t.expect(await shown(r, 29, 30_000), "opened again, it is at the page it was left on");
     await page.evaluate(() => window.__ribbon.closeComic());
+
+    // A PDF's small pages are drawn by pdf.js and handed to Ribbon to keep (comic_small_keep): the first time drawn,
+    // the next time fetched as a comic's are.
+    await page.evaluate(() => window.__ribbon.setComicSettings({ strip: true }));
+    const drawnSmall = await openToFilledStrip(r, r.pdfId, 14);
+    t.expect(drawnSmall >= 0, "a PDF's strip fills, its small pages drawn by pdf.js", drawnSmall < 0 ? `the page said: ${r.said.slice(-4).join(" | ") || "nothing"}` : undefined);
+    await page.waitForTimeout(500);
+    const keptPdf = await keptSmallPages(r, CHECKS_PDF.file);
+    t.expect(keptPdf === null || keptPdf.files > 0, "and kept by Ribbon", `${keptPdf?.files ?? "?"} kept`);
+    await page.evaluate(() => window.__ribbon.closeComic());
+    const keptSmall = await openToFilledStrip(r, r.pdfId, 14);
+    t.note(`a PDF's strip, opened at page 15 to filled: ${drawnSmall.toFixed(0)} ms drawing its small pages, ${keptSmall.toFixed(0)} ms with them kept; ${keptPdf?.files ?? "?"} kept, ${((keptPdf?.bytes ?? 0) / 1024).toFixed(0)} KB`);
+    await page.evaluate(() => window.__ribbon.closeComic());
+    await page.evaluate(() => window.__ribbon.setComicSettings({ strip: false }));
   },
 };
