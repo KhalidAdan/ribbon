@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import type { ReadyComic } from "@ribbon/core/comic/session";
 import { pagesInView, scrollToCentre, slotLeft, slotsDrawn, SMALL_PAGE_HEIGHT, stripWidth, stripWindow, type StripSlots } from "@ribbon/core/comic/strip";
 import { PageWindow } from "@ribbon/core/comic/window";
@@ -100,20 +100,33 @@ export function ComicStrip({ comic, shown, rightToLeft, c, pdf }: { comic: Ready
     return () => watching.disconnect();
   }, []);
 
-  // The pages being read in the middle: before the frame that shows the strip, and as the reader turns. A turn
-  // or two glides there; anything further, a jump, is simply there.
+  // The pages being read in the middle. When the strip first shows, or the window's width changes, before the
+  // frame that shows it, so it never shows elsewhere first.
   const reading = shown.join(",");
-  useLayoutEffect(() => {
+  const centre = (glide: boolean) => {
     const el = scroller.current;
     if (!el || width === 0) return;
     const to = scrollToCentre(shown, count, width, rightToLeft, SLOTS);
-    const near = placed.current && Math.abs(el.scrollLeft - to) <= (SLOTS.width + SLOTS.gap) * 3;
+    const near = glide && Math.abs(el.scrollLeft - to) <= (SLOTS.width + SLOTS.gap) * 3;
     el.scrollTo({ left: to, behavior: near ? "smooth" : "instant" });
     placed.current = true;
-    setLeft(to);
     // Where it is going, fetched for at once: a glide there needn't fetch for every page it passes.
     follow(to, width);
-  }, [reading, count, rightToLeft, width]); // eslint-disable-line react-hooks/exhaustive-deps
+    return to;
+  };
+  useLayoutEffect(() => {
+    const to = centre(false);
+    if (to !== undefined) setLeft(to);
+  }, [count, rightToLeft, width]); // eslint-disable-line react-hooks/exhaustive-deps
+  // As the reader turns: after the turn has been drawn, since the turn shouldn't wait on the strip. A turn or two
+  // glides there; anything further, a jump, is simply there. The scroll says where it got to.
+  const turned = useRef(reading);
+  useEffect(() => {
+    if (turned.current === reading) return;
+    turned.current = reading;
+    centre(true);
+  }, [reading]); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = useCallback((at: number) => c.turnComic(at, "seek"), [c]);
 
   const drawn = slotsDrawn(inView, count, MARGIN);
   const slots: number[] = [];
@@ -135,7 +148,7 @@ export function ComicStrip({ comic, shown, rightToLeft, c, pdf }: { comic: Ready
       >
         <div className="relative" style={{ width: stripWidth(count, SLOTS), height: PICTURE_HEIGHT + 18 }}>
           {slots.map((at) => (
-            <SmallPage key={at} page={at} left={slotLeft(at, count, rightToLeft, SLOTS)} picture={pictures.current?.peek(at)} current={shown.includes(at)} onGo={() => c.turnComic(at, "seek")} />
+            <SmallPage key={at} page={at} left={slotLeft(at, count, rightToLeft, SLOTS)} picture={pictures.current?.peek(at)} current={shown.includes(at)} onGo={go} />
           ))}
         </div>
       </div>
@@ -147,8 +160,10 @@ export function ComicStrip({ comic, shown, rightToLeft, c, pdf }: { comic: Ready
  * One page of the strip: its small picture drawn onto a canvas the size it
  * shows at, whole, as it was drawn; a page drawn across two is as tall and
  * wider, within its slot. Its place is held, empty, until its picture comes.
+ * Drawn again only when something of its own changes, so a turn redraws the
+ * two pages whose outline moved, not the strip.
  */
-function SmallPage({ page, left, picture, current, onGo }: { page: number; left: number; picture: ImageBitmap | undefined; current: boolean; onGo: () => void }) {
+const SmallPage = memo(function SmallPage({ page, left, picture, current, onGo }: { page: number; left: number; picture: ImageBitmap | undefined; current: boolean; onGo: (page: number) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const scale = picture ? Math.min(SLOTS.width / picture.width, PICTURE_HEIGHT / picture.height) : 0;
   const box = picture ? { width: Math.max(1, Math.round(picture.width * scale)), height: Math.max(1, Math.round(picture.height * scale)) } : { width: Math.round(PICTURE_HEIGHT * 0.66), height: PICTURE_HEIGHT };
@@ -170,7 +185,7 @@ function SmallPage({ page, left, picture, current, onGo }: { page: number; left:
       // The keys and the slider move through the pages already; the strip is a pointer's, and takes no focus from the page.
       tabIndex={-1}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onGo}
+      onClick={() => onGo(page)}
       aria-label={`Page ${page + 1}`}
       aria-current={current ? "page" : undefined}
       data-strip-page={page + 1}
@@ -187,4 +202,4 @@ function SmallPage({ page, left, picture, current, onGo }: { page: number; left:
       <span className={clsx("text-[0.6875rem]/3 tabular-nums", current ? "font-medium text-ink" : "text-ink-3 group-hover:text-ink-2")}>{page + 1}</span>
     </button>
   );
-}
+});
