@@ -688,14 +688,26 @@ key. Tried by hand on a page drawn for it, with five panels: marked
 through the MCP by eye from `look_at_page`, and the picture sent back
 showed each box on its panel, numbered in order.
 
+**A person marks them: the desktop's editor**
+(`packages/desktop/src/comic/PanelEditor.tsx`). In a server's comic, for
+its admin, the reader's Pages menu has "Mark its panels…". It shows one
+page with its panels drawn over it, numbered, and listed beside it in
+reading order. A drag on the page draws a panel; a panel is moved by its
+middle and made larger or smaller by an edge or a corner; the list puts
+one earlier or later, or takes it away; one button makes the whole page a
+panel. Every change is kept on the server as it is made, in place of what
+the page had, so there is nothing to save. It edits a list with core's
+functions, the ones an assistant's marks go through, and what a pointer
+does to a panel is worked out with no screen (`panel-drag.ts`, tested).
+What an assistant marked shows here to be corrected, and the other way
+about. Tried in the browser against a scratch server.
+
 **Not built yet:**
 
 - **The readers.** Stepping through panels on the Apple TV, the iPad and
   iPhone, and the desktop: a pan and zoom to each, the rest of the page
   masked, the whole page a press away.
-- **An editor on a screen**, to correct what the assistant marked: the
-  page with its boxes, dragged and reordered. Until then a correction is
-  asked of the assistant, or sent to the `PUT` route.
+- **The editor on the iPad**, by touch. The desktop's is below.
 - **Panels in a folder**, for the desktop alone: a record beside the comic
   in `.ribbon/`. Today panels are a server's.
 - **A wide panel as two stops**, as Kindle asks of publishers: today it is
