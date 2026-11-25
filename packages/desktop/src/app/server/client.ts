@@ -1,3 +1,4 @@
+import { panelsFrom, type Panel } from "@ribbon/core/comic/panels";
 import type { DailyGoal } from "@ribbon/core/goal";
 import type { DeviceInfo, LogRecord } from "@ribbon/core/poslog";
 import type { EditValues } from "@ribbon/core/edits";
@@ -120,6 +121,20 @@ export class ServerClient {
   async saveEdits(serverId: string, values: EditValues, cover?: Uint8Array | null): Promise<void> {
     const sent = { values, ...(cover === undefined ? {} : { cover: cover && { image: toBase64(cover) } }) };
     await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(sent) });
+  }
+
+  /** A comic's panels, for the pages that have them marked, by the page counted from 0 (docs/COMICS.md, section 14). */
+  async panels(serverId: string): Promise<Map<number, Panel[]>> {
+    const answer = (await (await this.get(`/api/books/${encodeURIComponent(serverId)}/panels`)).json()) as { pages?: { page: number; panels: unknown }[] };
+    return new Map((answer.pages ?? []).flatMap(({ page, panels }) => {
+      const read = panelsFrom(panels);
+      return read && read.length > 0 ? [[page - 1, read] as [number, Panel[]]] : [];
+    }));
+  }
+
+  /** As the admin: one page's panels, in reading order, for everyone, in place of the ones it had. An empty list takes them away. `page` counts from 0. */
+  async savePanels(serverId: string, page: number, panels: readonly Panel[]): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/pages/${page + 1}/panels`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ panels }) });
   }
 
   /** As the admin: delete a series, for everyone. Its books stay. */

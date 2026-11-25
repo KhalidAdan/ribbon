@@ -10,6 +10,7 @@ import { Button } from "../ui/Button";
 import { Menu, type MenuItem } from "../ui/kit";
 import { useAppState, useController } from "../ui/store";
 import { usePageSwipe } from "../reader/swipe";
+import { PanelEditor } from "./PanelEditor";
 
 /**
  * The comic reader (docs/COMICS.md, section 5): a comic's pages, shown
@@ -29,6 +30,8 @@ export function ComicView() {
     rightToLeft: s.comic ? (s.comicDirections[s.comic.bookId] ?? s.books.find((b) => b.book.id === s.comic!.bookId)?.book.rightToLeft ?? false) : false,
   }));
   const c = useController();
+  // Marking the comic's panels takes the reader's place until it is done (PanelEditor.tsx).
+  const [marking, setMarking] = useState(false);
   if (!r) return null;
   const ready = r.status === "ready" ? r : null;
   const shown = ready ? onScreen(ready, settings.up) : null;
@@ -37,6 +40,8 @@ export function ComicView() {
     settings.up === "one" ? { label: "Two pages, as printed", onSelect: () => c.setComicSettings({ up: "two" }) } : { label: "One page at a time", onSelect: () => c.setComicSettings({ up: "one" }) },
     settings.fit === "page" ? { label: "Fit the width", onSelect: () => c.setComicSettings({ fit: "width" }) } : { label: "Fit the page", onSelect: () => c.setComicSettings({ fit: "page" }) },
     rightToLeft ? { label: "Read left to right", onSelect: () => c.setComicRightToLeft(r.bookId, false) } : { label: "Read right to left", onSelect: () => c.setComicRightToLeft(r.bookId, true) },
+    // A server's comic, for its admin: the panels it is read by on a television are marked here (docs/COMICS.md, section 14).
+    ...(ready && c.canMarkPanels(r.bookId) ? [{ label: "Mark its panels…", onSelect: () => setMarking(true) }] : []),
   ];
 
   return (
@@ -47,9 +52,10 @@ export function ComicView() {
         </Button>
         <div className="min-w-0 flex-1 text-center">
           <p className="truncate text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">{title}</p>
-          {ready && shown && <p className="truncate text-xs/4 text-ink-3 tabular-nums">{folio(shown.pages, ready.pages.length)}</p>}
+          {/* While its panels are marked, the page being marked is the editor's to name, and need not be the one being read. */}
+          {ready && shown && !marking && <p className="truncate text-xs/4 text-ink-3 tabular-nums">{folio(shown.pages, ready.pages.length)}</p>}
         </div>
-        <Menu label="How the pages are shown" title="Pages" items={view} />
+        {!marking && <Menu label="How the pages are shown" title="Pages" items={view} />}
       </header>
 
       {r.status === "opening" && <div className="flex-1" aria-busy="true" />}
@@ -59,7 +65,8 @@ export function ComicView() {
           <p className="mt-1 max-w-md">{r.message}</p>
         </div>
       )}
-      {ready && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} />}
+      {ready && !marking && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} />}
+      {ready && marking && <PanelEditor key={ready.bookId} comic={ready} title={title} c={c} onDone={() => setMarking(false)} />}
     </div>
   );
 }

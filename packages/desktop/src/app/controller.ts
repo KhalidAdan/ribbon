@@ -1,3 +1,4 @@
+import type { Panel } from "@ribbon/core/comic/panels";
 import type { Host, ScanProgress } from "@ribbon/core/host";
 import { extractMissingCovers, type ScannedBook } from "@ribbon/core/scan/scan";
 import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "@ribbon/core/types";
@@ -3337,6 +3338,31 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (r?.status !== "ready" || !r.document || !book?.book.comic || !o) return undefined;
     return { url: this.platform.fileUrl(o.lib.absPath(book.book.comic)), bytes: book.book.sizeBytes };
+  }
+
+  // A comic's panels (docs/COMICS.md, section 14): kept by the server the comic came from, the admin's to mark. ----
+
+  /** Whether this person can mark a comic's panels: it is a server's comic, and they are that server's admin. */
+  canMarkPanels(bookId: string): boolean {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    return !!book?.book.comic && !!o?.server && o.serverAdmin;
+  }
+
+  /** A comic's marked pages, each with its panels in reading order, by the page counted from 0. Rejects when the server can't be asked. */
+  async comicPanels(bookId: string): Promise<Map<number, Panel[]>> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o?.server) return new Map();
+    return o.server.client.panels(serverIdOf(book));
+  }
+
+  /** Keep one page's panels on the server, for every device, in place of the ones it had. Rejects, in the server's words, when it won't. */
+  async saveComicPanels(bookId: string, page: number, panels: readonly Panel[]): Promise<void> {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    if (!book || !o?.server) throw new Error("This comic isn't on a server, and panels are kept on one.");
+    await o.server.client.savePanels(serverIdOf(book), page, panels);
   }
 
   /** Whether a comic is read right to left: as a person said, else as it says of itself. */
