@@ -13,7 +13,7 @@ import { isSecure, sendsPassword, signInRoutes } from "./sign-in-routes.ts";
 import { Events } from "./events.ts";
 import { Jobs } from "./jobs.ts";
 import { nodeHost } from "@ribbon/host-node/node";
-import { relistRecords } from "./library/book-folder.ts";
+import { listDirections, relistRecords } from "./library/book-folder.ts";
 import { BookIndex } from "./library/books.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { audibleCatalog, booksToDescribe, describeBooks, type DescribeProgress } from "./library/describe.ts";
@@ -63,6 +63,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const imported = await places.importFiles(config.dataDir);
   // Records a book holds that a job writing back an older copy of its record left off its list (book-folder.ts), listed again.
   const relisted = await relistRecords(config.dataDir, books);
+  // Comics added before the library listed which way they read, listed as their records say.
+  const directed = await listDirections(config.dataDir, books);
   // Books added before the server measured them are measured once, in the background.
   const unprepared = await booksToPrepare(config.dataDir, books);
   if (unprepared.length > 0) jobs.start<PrepareProgress>("prepare", { books: unprepared.length, done: 0, current: null }, (report) => prepareBooks(nodeHost(), config.dataDir, unprepared, report), null);
@@ -72,6 +74,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
   if (imported > 0) app.log.info(`took ${imported} place records kept in files into the database`);
   if (relisted > 0) app.log.info(`listed again the records of ${relisted} books whose record had lost them`);
+  if (directed > 0) app.log.info(`listed which way ${directed} comics read, from their records`);
   // JSON shrinks a lot; audio, pictures and EPUBs are compressed already and go as they are.
   await app.register(fastifyCompress, { encodings: ["br", "gzip"] });
   // The apps call the API from their own origin. They sign in with a token in a header, never a cookie, so any

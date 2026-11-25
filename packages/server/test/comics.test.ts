@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { comicEntry } from "@ribbon/host-node/comic";
 import { comicInfoXml, makeComic } from "@ribbon/host-node/make-comic";
-import { localIdOf, remoteBook } from "@ribbon/core/server-books";
+import { filedBook, localIdOf, remoteBook } from "@ribbon/core/server-books";
 import { parseLog } from "@ribbon/core/poslog";
-import type { RibbonServer } from "../src/app.ts";
+import { buildServer, type RibbonServer } from "../src/app.ts";
 import type { ListedBook, StoredBook } from "../src/library/books.ts";
 import { importAs, mp3, serverWithAdmin } from "./fixture.ts";
 
@@ -25,6 +25,9 @@ describe("comics on the server", () => {
   const DEVICE = { id: "urn:uuid:0b1f5c1e-3a52-4c11-9d36-6a1c0e7f5a10", name: "An iPad" };
   const get = (url: string) => server.app.inject({ method: "GET", url, headers: { authorization: `Bearer ${token}` } });
   const post = (url: string, body: unknown) => server.app.inject({ method: "POST", url, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, payload: JSON.stringify(body) });
+  const put = (url: string, body: unknown) => server.app.inject({ method: "PUT", url, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, payload: JSON.stringify(body) });
+  const listed = async (title: string) => ((await get("/api/books")).json() as { books: ListedBook[] }).books.find((b) => b.id === titled(title).id)!;
+  const served = async (title: string) => (await get(`/api/books/${titled(title).id}`)).json() as StoredBook;
   const titled = (title: string) => books.find((b) => b.title === title)!;
 
   beforeAll(async () => {
@@ -54,6 +57,10 @@ describe("comics on the server", () => {
     expect(titled("Made Up Saga #1")).toMatchObject({ comic: true, pages: 12, audio: false, ebook: false, series: "Made Up Saga", seriesIndex: 1, durationMs: 0 });
     expect(titled("The Long Way")).toMatchObject({ comic: true, pages: 3, author: "Ada Quill", seriesIndex: 2 });
     expect(titled("Red Book")).toMatchObject({ comic: false, pages: null, audio: true });
+    // Which way it reads, where its file says it reads right to left; nothing for any other.
+    expect(titled("The Long Way").rightToLeft).toBe(true);
+    expect("rightToLeft" in titled("Made Up Saga #1")).toBe(false);
+    expect("rightToLeft" in titled("Red Book")).toBe(false);
     // Its cover is its first page, made at the sizes the apps draw.
     expect(titled("Made Up Saga #1").cover).not.toBeNull();
   });
@@ -141,6 +148,46 @@ describe("comics on the server", () => {
     const log = parseLog((await get("/api/places/export")).body).records;
     expect(log.at(-1)).toMatchObject({ k: "reading", read_ms: 600_000, from: 0, to: 1, book: { ids: [`urn:ribbon:${localIdOf(comic)}-text`] } });
     expect((await post(`/api/books/${comic.id}/reading`, { ...stretch, to: 13 })).statusCode).toBe(400);
+  });
+
+  it("reads as the admin's edit says, over what its file says, on every device, until it's taken back", async () => {
+    expect((await put(`/api/books/${titled("The Long Way").id}/edits`, { values: { rightToLeft: "no" } })).statusCode).toBe(200);
+    expect((await put(`/api/books/${titled("Made Up Saga #1").id}/edits`, { values: { rightToLeft: "yes" } })).statusCode).toBe(200);
+    // Listed so, and served so: what the iPad, the iPhone and the TV read a comic's direction from.
+    expect("rightToLeft" in (await listed("The Long Way"))).toBe(false);
+    expect((await listed("Made Up Saga #1")).rightToLeft).toBe(true);
+    expect((await served("The Long Way")).book.rightToLeft).toBeUndefined();
+    expect((await served("Made Up Saga #1")).book.rightToLeft).toBe(true);
+    // With what its file says, so the desktop can show it and take the edit back.
+    const edited = await listed("The Long Way");
+    expect(edited.edited?.original.rightToLeft).toBe("yes");
+    expect(filedBook(edited).book.rightToLeft).toBe(true);
+    expect(remoteBook(await listed("Made Up Saga #1")).book.rightToLeft).toBe(true);
+    // An edit that says neither way isn't kept.
+    await put(`/api/books/${titled("The Long Way").id}/edits`, { values: { rightToLeft: "sideways" } });
+    expect(server.books.edits(titled("The Long Way").id)).toBeNull();
+    expect((await listed("The Long Way")).rightToLeft).toBe(true);
+    // Taken back, it reads as its file says.
+    await put(`/api/books/${titled("Made Up Saga #1").id}/edits`, { values: {} });
+    expect("rightToLeft" in (await listed("Made Up Saga #1"))).toBe(false);
+    expect((await served("Made Up Saga #1")).book.rightToLeft).toBeUndefined();
+  });
+
+  it("lists which way a comic added before it was listed reads, from its record, once, at start", async () => {
+    server.db.exec("UPDATE book SET right_to_left = NULL WHERE has_comic = 1");
+    expect(server.books.directionsToList()).toHaveLength(2);
+    const again = await buildServer({ dataDir: path.join(dir, "data"), host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!" });
+    try {
+      expect(again.books.directionsToList()).toEqual([]);
+      const comics = again.books.list().filter((b) => b.comic);
+      expect(comics.map((b) => [b.title, b.rightToLeft ?? false]).sort()).toEqual([
+        ["Made Up Saga #1", false],
+        ["The Long Way", true],
+      ]);
+    } finally {
+      await again.app.close();
+      again.db.close();
+    }
   });
 
   it("is, to a desktop, a comic to download: one file in its folder, with the id it will have there", () => {

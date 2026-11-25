@@ -31,6 +31,8 @@ export interface ServerBook {
   pdf?: boolean;
   /** A comic's pages; null for any other book. */
   pages?: number | null;
+  /** A comic read right to left, as its file says or a person's edit does; absent for any other. A server from before comics' directions were listed doesn't send it. */
+  rightToLeft?: boolean;
   addedAt: string;
   /** The edits a person made to it, already laid over the fields above; absent when nobody edited it. */
   edited?: SharedEdits;
@@ -185,7 +187,7 @@ export function remoteBook(b: ServerBook): ScannedBook {
       year: null,
       cover: b.cover ? serverCoverPath(b.cover.hash) : "",
       ...(b.ebook ? { ebook: `${b.id}/book.epub` } : {}),
-      ...(b.comic ? { comic: `${b.id}/${pagesFileOf(b)}`, ...(typeof b.pages === "number" ? { pages: b.pages } : {}) } : {}),
+      ...(b.comic ? { comic: `${b.id}/${pagesFileOf(b)}`, ...(typeof b.pages === "number" ? { pages: b.pages } : {}), ...(b.rightToLeft ? { rightToLeft: true } : {}) } : {}),
       durationMs: b.durationMs,
       sizeBytes: b.sizeBytes,
       fileCount: b.audio ? 1 : 0,
