@@ -121,6 +121,17 @@ is: beside the books, or on the server for every device. A server's
 comic that isn't downloaded shows the server's pages
 (`GET /api/books/:id/pages/:n`); a PDF's are drawn by pdf.js.
 
+**An assistant can fill the details in** through the server's MCP
+(section 14), for comics whose files say nothing about themselves:
+`comic_details` says what a comic has, `set_details` corrects the fields
+the edit form shows for a comic, and `set_cover` makes a page its cover.
+They are kept exactly as the form's edits are, so a person sees them in
+the form and can take any of them back. Comics that then name the same
+series are put in it together, by their numbers, as books that arrive
+naming one are. Where the details come from is the person's to say
+(ComicVine, the publisher's page): Ribbon itself still looks nothing up
+(section 8).
+
 **Series are how comics are found.** An issue alone is twenty pages; the
 series is the thing a person follows. Ribbon's series already hold books in
 order with a number each, and a book can be in many, so a run and a

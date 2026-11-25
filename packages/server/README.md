@@ -215,11 +215,15 @@ their Pocket ID account exists and not long before they'll sign in. Devices alre
 need Ribbon 0.42 or later to sign in again: an older one asks for a password
 and is told to update.
 
-## An assistant, for a comic's panels
+## An assistant, for a comic's panels and details
 
 The server has an MCP at `/mcp` (docs/COMICS.md, section 14): an assistant
 you point at it can list the comics, look at a page, and say what its
 panels are and in what order, so a comic can be read a panel at a time.
+It can also fill in a comic's details (title, writers and artists, series
+and number, year, publisher, description) from wherever you tell it to
+look, and make any page of a comic its cover; what it sets is kept as the
+desktop's edit form keeps it, and can be taken back there.
 It answers only to a key you make, and only an admin's:
 
 ```bash

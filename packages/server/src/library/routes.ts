@@ -1,7 +1,5 @@
 import type { ComicPanels } from "./panels.ts";
 import type { FastifyInstance } from "fastify";
-import { randomBytes } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nodeHost } from "@ribbon/host-node/node";
 import { signedIn, type Auth } from "../auth.ts";
@@ -10,8 +8,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Places } from "../places.ts";
 import { inTurn, readStored, removeBookDir } from "./book-folder.ts";
 import { bookDir, type BookIndex, type KeptEdits } from "./books.ts";
-import { makeCovers, type Cover } from "./covers.ts";
-import type { Host } from "@ribbon/core/host";
+import { coverFrom } from "./chosen-cover.ts";
 import { EDIT_FIELDS, readAlongOff, sharedEdits, type EditValues } from "@ribbon/core/edits";
 import { recordRows } from "./chapters.ts";
 import { transcriptFromRows } from "@ribbon/core/reading/narration";
@@ -252,25 +249,6 @@ const PICTURE_BYTES = 20 * 1024 ** 2;
 
 /** An edit with a picture in it: the picture as base64 is a third bigger. */
 const EDIT_BYTES = 32 * 1024 ** 2;
-
-/**
- * A book's cover made from a person's picture, its sizes beside its own covers, in the book's turn (book-folder.ts);
- * null when the picture can't be read, and "gone" when the book was deleted meanwhile.
- */
-async function coverFrom(host: Host, dataDir: string, id: string, picture: Uint8Array): Promise<Cover | null | "gone"> {
-  return inTurn(dataDir, id, async (book) => {
-    if (!(await book.stored())) return "gone";
-    const dir = path.join(book.dir, "covers");
-    await mkdir(dir, { recursive: true });
-    const file = path.join(dir, `chosen-${randomBytes(4).toString("hex")}`);
-    await writeFile(file, picture);
-    try {
-      return await makeCovers(host, { image: file }, dir);
-    } finally {
-      await rm(file, { force: true });
-    }
-  });
-}
 
 /** A series as a request gives it: a name, and its books in order, each with its number, title and whether it's on the shelf where given. Null when it isn't one. */
 function seriesAsked(body: unknown): { name: string; books: SeriesBookChange[] } | null {

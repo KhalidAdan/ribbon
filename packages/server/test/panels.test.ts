@@ -68,7 +68,7 @@ describe("a comic's panels on the server", () => {
     expect((await mcp("initialize", { protocolVersion: "1999-01-01" })).json().result.protocolVersion).toBe("2025-06-18");
     expect((await mcp("notifications/initialized", {}, admin, true)).statusCode).toBe(202);
     const tools = (await mcp("tools/list")).json().result.tools as { name: string; inputSchema: { type: string } }[];
-    expect(tools.map((t) => t.name)).toEqual(["list_comics", "comic_pages", "look_at_page", "set_panels"]);
+    expect(tools.map((t) => t.name)).toEqual(["list_comics", "comic_pages", "look_at_page", "set_panels", "comic_details", "set_details", "set_cover"]);
     expect(tools.every((t) => t.inputSchema.type === "object")).toBe(true);
     expect((await mcp("resources/list")).json().error.code).toBe(-32601);
     expect((await server.app.inject({ method: "GET", url: "/mcp", headers: as(admin) })).statusCode).toBe(405);
