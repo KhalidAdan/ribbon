@@ -1004,3 +1004,87 @@ are ready together.
 | 6 | The iPad and the iPhone: the slider, jump to a page, the strip, the ground, one long scroll, deleting from the server. The TV: the strip and the ground | The Apple tests and screens; the TV's other screens compared pixel for pixel, unchanged |
 | 7 | A comic's details as its own: the design round | Read by the owner |
 | 8 | The details built, then ComicVine | After step 7 |
+
+**Built so far** (2026-11-25, in 0.50.0): steps 2 to 6, each built in a
+session of its own at the same time and merged together. Step 7's design
+is [BOOK-DETAILS.md](BOOK-DETAILS.md) (#288), waiting on the owner's
+answers to its questions; step 8 waits on those.
+
+**Step 2, small pictures and the strip** (#287 the server, #290 the
+desktop). The desktop makes them in Rust, behind the `ribboncomic`
+address (`src-tauri/src/comic_small.rs`), four at a time at most, and
+keeps them in Ribbon's folder under `small-pages/`, one folder for each
+comic file with a note of its size and date, so a comic that changes has
+them made again. A PDF's are drawn small by pdf.js and handed to Rust to
+keep. Rust was chosen by measuring: 52.9 ms for a page the size of a
+scan, against 72.3 ms in the web view, which would also have fetched and
+decoded the whole page first. The server makes them on
+`@napi-rs/canvas` and keeps them in the book's `pages/` folder:
+
+| Measured | |
+| --- | --- |
+| One small picture on the server, a CBZ's page / a PDF's | 61 ms / 298 ms (M2), about 22 KB |
+| One on the desktop | about 4.8 KB |
+| The strip's first fill by `T`, every small page made then (Windows runner) | 218 ms at 1x, 390 ms at 6x |
+| 600 pages opened at page 300, to the strip filled | 220 ms at 1x, 474 ms at 6x; 19 small pictures made |
+| The web view's memory, reading, then with the strip shown | 208 MB, then 216 MB |
+
+The strip (`comic/ComicStrip.tsx`, the arithmetic in `core/comic/strip.ts`)
+draws the slots in view and six either side, as `ImageBitmap`s closed when
+they leave. Building it found a fault in `PageWindow`: a page that
+couldn't be brought in was asked for again at once, without end (14,000
+requests a minute); it is now asked for once. The strip follows a turn
+after the frame that shows it (#295), which brought its cost to a turn
+from 1.2 ms to 0.5 ms at 1x, and from 17.8 ms to 10.4 ms at 6x.
+
+**Step 3, the desktop's controls** (#291): the keys and their list
+(`core/comic/keys.ts`), Go to page, the ground behind the page, zoom
+(`core/comic/zoom.ts`) and fit to the height, as written above. A click on
+the page is now placed by which third of the view it lands in, rather than
+by buttons over it, since the view now scrolls both ways. A turn by key
+zoomed one and a half times takes 4.0 ms at 1x and 27.2 ms at 6x, against
+3.6 ms and 24.1 ms whole.
+
+Its end-to-end check found a race in every dialog. The browser sends a
+dialog's close event a task after the dialog closes, so Go to page's box,
+closed and opened again by `G` in between, was shut by the first box's
+late event. The modal hook (`ui/modal.ts`) now counts the closes it makes,
+and `closedOnItsOwn` passes their events over; `Dialog`, `PlayerSheet`
+and `Drawer` use it. The check presses `G` in the very task the box
+closes, every run. In the browser, the race run eight times: the new box
+stayed open once before, eight times after.
+
+**Step 4, reading direction** (#289). Kept as `right_to_left` (yes or
+no) beside the books, and in a server's edits. The server's listing now
+carries the direction too, in a new column that is filled once at start
+for comics added before it, from their records. A server from before
+0.50.0 refuses the new edit, so the desktop and the server go together.
+The Apple apps follow with no change of their own.
+
+**Step 5, one long scroll** (#292, `comic/ScrollPages.tsx`, the arithmetic
+in `core/comic/scroll.ts`). The two page windows are now a hook both
+readers share (`comic/page-windows.ts`). Measured with a real mouse wheel
+on the Windows runner:
+
+| | 1x | 6x |
+| --- | --- | --- |
+| 40 pages: frames at the median, p95 | 15.6 ms, 17.0 ms | 15.0 ms, 33.1 ms |
+| 600 pages: frames at the median, p95 | 15.6 ms, 17.6 ms | 14.5 ms, 31.7 ms |
+| Frames over 50 ms | none | 1 of 149, on the 40 pages |
+| Pages drawn at any time | 6 at most | 6 at most |
+| The web view's memory, 600 pages in the scroll | 217 MB | 217 MB |
+
+**Step 6, the iPad, the iPhone and the TV** (#293): everything in the
+table at the top of this section. The TV's screens came out unchanged
+against `main`, pixel for pixel, but for the new "Comics" row in
+Settings. A jump across a 600-page comic asks the server for the 7 small
+pictures in view.
+
+**Not checked yet:** the desktop's new reader in the Mac's WebKit in a
+built app (all of it was looked at in Chrome and measured on Windows);
+over a network share; a real comic drawn as one column; the iPad turned
+sideways, its number pad, and the Apple apps on real devices; the long
+scroll's memory on an iPad with a 600-page comic. Small pictures of
+comics that are gone are not cleared from the desktop's folder (a few
+kilobytes a page). The iPad and iPhone's long scroll has no two-finger
+zoom.
