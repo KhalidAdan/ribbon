@@ -185,7 +185,8 @@ describe("the desktop on a server", () => {
     // Not downloaded: the pages to choose from are the server's, and one of them goes back as the cover.
     const pages = (await app.pagesToChoose(listed.book.id))!;
     expect(pages).toMatchObject({ from: "server", count: 9 });
-    const third = new Uint8Array(await (pages as { page(at: number): Promise<Blob> }).page(2).then((b) => b.arrayBuffer()));
+    if (pages.from !== "server") throw new Error("the pages should be the server's");
+    const third = new Uint8Array(await (await pages.page(2)).arrayBuffer());
     expect(Buffer.from(third).equals(Buffer.from(await (await server.app.inject({ method: "GET", url: `/api/books/${id}/pages/3`, headers: { authorization: `Bearer ${admin}` } })).rawPayload))).toBe(true);
     await app.setCover(listed.book.id, third, "png");
     const chosen = await cover();
