@@ -182,6 +182,35 @@ enum ComicPaging {
         return 0
     }
 
+    // On a screen with no touch (the Apple TV) ------------------------------
+
+    /// How a page is put on a screen far wider than it: whole, as tall as the screen; or as wide as the screen, to be moved along.
+    enum Fit { case whole, wide }
+
+    /// Pages to turn for a press to the right (`1`) or the left (`-1`): forward to the right, unless the comic reads right to left.
+    static func turn(by side: Int, rightToLeft: Bool) -> Int {
+        rightToLeft ? -side : side
+    }
+
+    /// How tall a page is when it is drawn `width` wide.
+    static func height(of page: CGSize, atWidth width: CGFloat) -> CGFloat {
+        page.width > 0 ? (width * page.height / page.width).rounded() : 0
+    }
+
+    /// The furthest down a page `page` tall can be moved on a screen `screen` tall: its foot at the screen's foot.
+    static func foot(page: CGFloat, screen: CGFloat) -> CGFloat {
+        max(0, page - screen)
+    }
+
+    /// Where a page is after a press down (`1`) or up (`-1`), from `offset` down it: most of a screen further, so
+    /// the last lines seen stay in sight, and never past its head or its foot. Nil when it is already at that end,
+    /// which is when the press goes on to another page.
+    static func move(from offset: CGFloat, by direction: Int, page: CGFloat, screen: CGFloat) -> CGFloat? {
+        let end = foot(page: page, screen: screen)
+        let to = max(0, min(end, offset + CGFloat(direction) * (screen * 0.6).rounded()))
+        return abs(to - offset) < 1 ? nil : to
+    }
+
     /// A page's picture from its file, decoded now and no larger than `longest` pixels on its longer side.
     nonisolated static func picture(from data: Data, longest: CGFloat) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }

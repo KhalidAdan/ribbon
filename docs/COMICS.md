@@ -322,7 +322,8 @@ before it merges, and neither holds the other's release.
 since a comic on the shelf that couldn't be opened was not worth merging
 by itself; step 4, the server, with the desktop reading a server's comic;
 and step 5, the iPad and the iPhone. A comic's bookmarks are not built.
-Steps 6 and 7, the Apple TV and retiring Panels, are to come.
+Step 6, the Apple TV, is built in its first shape (below); step 7,
+retiring Panels, is to come.
 
 Step 5 as built: one page at a time, as large as the screen allows. A
 swipe or a touch on either side turns it, two fingers zoom into it, a
@@ -331,7 +332,21 @@ around the page. The few pages around yours are kept decoded, each no
 larger than the screen can show at twice its size. The page is told to the
 server once you settle on it, and time with a comic counts as reading. Two
 pages side by side, and the pages ahead kept as files, are not built on
-these devices yet. The Apple TV doesn't list comics until its reader is.
+these devices yet.
+
+Step 6 as built (`packages/apple/Ribbon/Comic/ComicViewTV.swift`): the same
+session as the iPad's, with a screen of its own for the remote. One page at
+a time, whole, as tall as the screen; left and right turn it, swapped in a
+comic that reads right to left. Select brings the page to the screen's
+width, and then up and down move along it, most of a screen at a press;
+down past its foot goes on to the next page, from its head, and up past
+its head goes back to the one before, at its foot, so a comic can be read
+with one thumb. Select again shows the page whole. Menu leaves, with the
+page kept. The title and the page's number sit beside a whole page, never
+over it. The screen stays on for twenty minutes after the last press. Two
+pages side by side, which is what section 7 wants of the TV, is not built:
+it needs the spreads the desktop works out (which pages are drawn across
+two) on the Apple side first.
 
 Step 4 as built differs from section 7 in two small ways. A page is asked
 for as `pages/:n` counted from 1, and its place comes back the same way.

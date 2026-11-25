@@ -33,6 +33,38 @@ final class ComicTests: XCTestCase {
         XCTAssertEqual(ComicPaging.turn(at: 0.9, rightToLeft: true), -1)
     }
 
+    func testOnTheTVRightGoesForwardUnlessTheComicReadsTheOtherWay() {
+        XCTAssertEqual(ComicPaging.turn(by: 1, rightToLeft: false), 1)
+        XCTAssertEqual(ComicPaging.turn(by: -1, rightToLeft: false), -1)
+        XCTAssertEqual(ComicPaging.turn(by: 1, rightToLeft: true), -1)
+        XCTAssertEqual(ComicPaging.turn(by: -1, rightToLeft: true), 1)
+    }
+
+    func testAPageAsWideAsTheScreenIsMovedAlongAndNeverPastItsEnds() {
+        // A scanned page, 2000 by 3000, on a TV 1920 by 1080: 2880 tall, so 1800 of it is below the screen.
+        let page = ComicPaging.height(of: CGSize(width: 2000, height: 3000), atWidth: 1920)
+        XCTAssertEqual(page, 2880)
+        XCTAssertEqual(ComicPaging.foot(page: page, screen: 1080), 1800)
+        // Down moves most of a screen, keeping the last lines seen in sight.
+        XCTAssertEqual(ComicPaging.move(from: 0, by: 1, page: page, screen: 1080), 648)
+        XCTAssertEqual(ComicPaging.move(from: 648, by: 1, page: page, screen: 1080), 1296)
+        // The last move stops at the page's foot, and the press after it is for the next page.
+        XCTAssertEqual(ComicPaging.move(from: 1296, by: 1, page: page, screen: 1080), 1800)
+        XCTAssertNil(ComicPaging.move(from: 1800, by: 1, page: page, screen: 1080))
+        // Up the same, to its head, and then for the page before.
+        XCTAssertEqual(ComicPaging.move(from: 400, by: -1, page: page, screen: 1080), 0)
+        XCTAssertNil(ComicPaging.move(from: 0, by: -1, page: page, screen: 1080))
+    }
+
+    func testAPageShorterThanTheScreenHasNowhereToMove() {
+        // Drawn across two, 4000 by 1500: 720 tall at the screen's width.
+        let page = ComicPaging.height(of: CGSize(width: 4000, height: 1500), atWidth: 1920)
+        XCTAssertEqual(page, 720)
+        XCTAssertEqual(ComicPaging.foot(page: page, screen: 1080), 0)
+        XCTAssertNil(ComicPaging.move(from: 0, by: 1, page: page, screen: 1080))
+        XCTAssertEqual(ComicPaging.height(of: .zero, atWidth: 1920), 0)
+    }
+
     func testAPageIsDecodedNoLargerThanAsked() throws {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

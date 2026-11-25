@@ -73,14 +73,10 @@ private struct Screens: View {
                                 ReaderView(session: reading.session, layout: reading.layout) { model.closeReader() }
                             }
                         case .comic:
-                            // Only where comics are read: the Apple TV doesn't list them yet.
-                            #if os(iOS)
+                            // By touch on the iPad and the iPhone (ComicView.swift), by the remote on the TV (ComicViewTV.swift).
                             if let comic = model.comic {
                                 ComicView(session: comic) { model.closeComic() }
                             }
-                            #else
-                            EmptyView()
-                            #endif
                         }
                     }
                     .toolbar(.hidden, for: .navigationBar)

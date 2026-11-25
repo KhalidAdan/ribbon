@@ -430,11 +430,11 @@ struct RibbonServer {
         return session.account(at: url)
     }
 
-    /// Every book: the ones with a narration, to listen to, and to read along with when they have their text too; and
-    /// the ones that are only their text, to read.
+    /// Every book: the ones with a narration, to listen to, and to read along with when they have their text too;
+    /// the ones that are only their text, to read; and the comics.
     func books() async throws -> [ServerBook] {
         struct Answer: Decodable { let books: [ServerBook] }
-        return try await get(Answer.self, "api/books").books.filter { $0.audio || $0.ebook || ($0.isComic && Self.readsComics) }
+        return try await get(Answer.self, "api/books").books.filter { $0.audio || $0.ebook || $0.isComic }
     }
 
     /// The library's series, each with its books in order.
@@ -576,16 +576,6 @@ struct RibbonServer {
     func deleteBookmark(_ mark: String, in id: String) async throws {
         struct Answer: Decodable { let deleted: String }
         _ = try await send("DELETE", "api/books/\(id)/bookmarks/\(mark)", [:], answer: Answer.self)
-    }
-
-    /// Whether this device reads comics: the iPad and the iPhone do, by touch. The Apple TV's reader for them isn't
-    /// built yet (docs/COMICS.md, section 7), so it doesn't list them.
-    static var readsComics: Bool {
-        #if os(tvOS)
-        false
-        #else
-        true
-        #endif
     }
 
     /// One page of a comic, counted from 1, as its file: the server reads it out of the archive.
