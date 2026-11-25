@@ -319,13 +319,7 @@ export const comicCheck: Check = {
     await page.evaluate(() => window.__ribbon.turnComic(5, "seek"));
     await shown(r, 5);
     const boxHasKeys = () => page.waitForFunction(() => document.activeElement?.id === "comic-jump-page", null, { timeout: 5000 }).then(() => true, () => false);
-    // Gone, and a moment after, as a person sees it: the box's own close event can land a task after it has gone, and a
-    // key pressed in between (no hand is that quick) can open the next box only for that event to close it.
-    const noDialog = () =>
-      page
-        .waitForFunction(() => !document.querySelector("dialog[open]"), null, { timeout: 5000 })
-        .then(() => page.waitForTimeout(150))
-        .then(() => true, () => false);
+    const noDialog = () => page.waitForFunction(() => !document.querySelector("dialog[open]"), null, { timeout: 5000 }).then(() => true, () => false);
     /** What the box was doing, for a failure: whether it is open, what it holds, and what has the keys. */
     const theBox = () =>
       page.evaluate(() => {
@@ -336,12 +330,22 @@ export const comicCheck: Check = {
     await page.keyboard.press("g");
     t.expect(await boxHasKeys(), "G opens Go to page, its box taking the keys");
     t.expect((await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.value)) === "6", "the box holds the page being read");
+    // G again in the very task the box closes in, before the browser's close event for it arrives (a task later): the
+    // box opened again must not be closed by that late event (ui/modal.ts, `closedOnItsOwn`). Done by hand, this is a race
+    // a check can lose by luck either way; here it is the same every run.
+    await page.evaluate(() => {
+      const close = HTMLDialogElement.prototype.close;
+      HTMLDialogElement.prototype.close = function (this: HTMLDialogElement, ...args: Parameters<typeof close>) {
+        HTMLDialogElement.prototype.close = close;
+        close.apply(this, args);
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "g", bubbles: true }));
+      };
+    });
     await page.keyboard.type("30");
     await page.keyboard.press("Enter");
     t.expect(await shown(r, 29), "a number typed and Enter go to that page", `at page ${(await pageNow(r)) + 1}`);
-    t.expect(await noDialog(), "and the box goes");
-    await page.keyboard.press("g");
     const reopened = await boxHasKeys();
+    t.expect(reopened, "G pressed as the box goes opens it again, and its old close doesn't shut the new one");
     await page.keyboard.type("999");
     const typed = await theBox();
     await page.keyboard.press("Enter");
