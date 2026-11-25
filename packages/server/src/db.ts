@@ -28,6 +28,9 @@ function comicsToo(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === "has_comic")) db.exec("ALTER TABLE book ADD COLUMN has_comic INTEGER NOT NULL DEFAULT 0; ALTER TABLE book ADD COLUMN pages INTEGER");
   // And whether its pages are a PDF's, which are drawn, not handed out (docs/COMICS.md, section 12).
   if (!columns.some((c) => c.name === "is_pdf")) db.exec("ALTER TABLE book ADD COLUMN is_pdf INTEGER NOT NULL DEFAULT 0");
+  // And whether a comic reads right to left, as its file says (docs/COMICS.md, section 15): null for a comic added before the
+  // library listed it, until its record is read, once, at start (book-folder.ts, `listDirections`).
+  if (!columns.some((c) => c.name === "right_to_left")) db.exec("ALTER TABLE book ADD COLUMN right_to_left INTEGER");
 }
 
 /**

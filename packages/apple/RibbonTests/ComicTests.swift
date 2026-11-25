@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import Ribbon
 
@@ -133,6 +134,60 @@ final class ComicTests: XCTestCase {
         XCTAssertEqual(small.cgImage?.height, 600)
         XCTAssertEqual(small.cgImage?.width, 400)
         XCTAssertNil(ComicPaging.picture(from: Data("not a picture".utf8), longest: 600))
+    }
+
+    // Jumping, the strip and one long scroll (docs/COMICS.md, section 15) ------------------------
+
+    func testAPageTypedIsCountedFromOneAndPastEitherEndIsThatEnd() {
+        XCTAssertEqual(ComicPaging.page(typed: "3", of: 24), 2)
+        XCTAssertEqual(ComicPaging.page(typed: " 12 ", of: 24), 11)
+        XCTAssertEqual(ComicPaging.page(typed: "99", of: 24), 23)
+        XCTAssertEqual(ComicPaging.page(typed: "0", of: 24), 0)
+        XCTAssertNil(ComicPaging.page(typed: "", of: 24))
+        XCTAssertNil(ComicPaging.page(typed: "three", of: 24))
+        XCTAssertNil(ComicPaging.page(typed: "3", of: 0))
+    }
+
+    func testAPageThatDoesntSayItsSizeIsAPrintedPagesShape() {
+        XCTAssertEqual(ComicPaging.aspect(of: CGSize(width: 2000, height: 3000)), 2.0 / 3)
+        XCTAssertEqual(ComicPaging.aspect(of: CGSize(width: 4000, height: 3000)), 4.0 / 3)
+        XCTAssertEqual(ComicPaging.aspect(of: .zero), 2.0 / 3)
+    }
+
+    func testTheStripKeepsTheSmallPicturesNearestWhereItIsLooking() {
+        // Under the most, nothing goes.
+        XCTAssertEqual(ComicPaging.forget(kept: [1, 2, 3], near: 2, most: 4), [])
+        // Over it, the furthest from the page last asked for go first, on either side.
+        XCTAssertEqual(Set(ComicPaging.forget(kept: [0, 1, 2, 3, 4, 5, 6, 30], near: 4, most: 5)), [30, 0, 1])
+        XCTAssertEqual(ComicPaging.forget(kept: Array(0..<600), near: 300, most: 48).count, 552)
+        XCTAssertFalse(ComicPaging.forget(kept: Array(0..<600), near: 300, most: 48).contains(300))
+    }
+
+    func testEveryPageHasItsPlaceDownTheLongScrollBeforeAnyPictureComes() {
+        XCTAssertEqual(ComicPaging.tops(of: [1500, 1500, 750]), [0, 1500, 3000, 3750])
+        XCTAssertEqual(ComicPaging.tops(of: []), [0])
+    }
+
+    func testThePageBeingReadInTheLongScrollFillsTheScreensTopThird() {
+        // Three pages 1500 tall and a wide one 750 tall, on a screen 1200 tall: the line is 400 down it.
+        let tops = ComicPaging.tops(of: [1500, 1500, 1500, 750])
+        XCTAssertEqual(ComicPaging.reading(at: 0, screen: 1200, tops: tops), 0)
+        XCTAssertEqual(ComicPaging.reading(at: 1000, screen: 1200, tops: tops), 0)
+        XCTAssertEqual(ComicPaging.reading(at: 1100, screen: 1200, tops: tops), 1)
+        XCTAssertEqual(ComicPaging.reading(at: 2700, screen: 1200, tops: tops), 2)
+        // At the very foot it is the last page, though the line is still in the one before: the comic can be finished.
+        XCTAssertEqual(ComicPaging.reading(at: 5250 - 1200, screen: 1200, tops: tops), 3)
+        // A comic shorter than the screen is on its first page.
+        XCTAssertEqual(ComicPaging.reading(at: 0, screen: 1200, tops: ComicPaging.tops(of: [300, 300])), 0)
+    }
+
+    func testTheGroundBehindThePageIsRibbonsOwnUntilChosenAndGoesRound() {
+        XCTAssertEqual(ComicGround(rawValue: UserDefaults(suiteName: "ComicTests")!.string(forKey: ComicGround.key) ?? "ribbon"), .ribbon)
+        XCTAssertEqual(ComicGround.ribbon.next, .black)
+        XCTAssertEqual(ComicGround.black.next, .grey)
+        XCTAssertEqual(ComicGround.grey.next, .white)
+        XCTAssertEqual(ComicGround.white.next, .ribbon)
+        XCTAssertEqual(ComicGround.ribbon.color, Color.canvas)
     }
 
     func testAComicIsWordedByItsPages() {

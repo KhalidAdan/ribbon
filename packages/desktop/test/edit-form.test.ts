@@ -13,9 +13,28 @@ describe("the edit form, by the kind of book", () => {
     expect(bookKind({ fileCount: 0, comic: "White Dwarf 503.pdf" })).toBe("comic");
   });
 
-  it("asks an audiobook for everything a book keeps", () => {
-    const every = EDIT_FIELDS.filter((f) => f !== "cover" && f !== "readAlong");
+  it("asks an audiobook for everything a book keeps, but which way a comic reads", () => {
+    const every = EDIT_FIELDS.filter((f) => f !== "cover" && f !== "readAlong" && f !== "rightToLeft");
     expect([...formFields("audiobook")].sort()).toEqual([...every].sort());
+    expect(formFields("text")).not.toContain("rightToLeft");
+  });
+
+  it("asks a comic, and so a PDF, whether it reads right to left, with a switch", () => {
+    expect(formFields("comic")).toContain("rightToLeft");
+    const spec = editForm("comic")
+      .flatMap((g) => g.fields)
+      .find((f) => f.field === "rightToLeft")!;
+    expect(spec.label).toBe("Reads right to left");
+    expect(spec.switch?.on).toMatch(/right to left/);
+    // Only the switch is one.
+    for (const kind of ["audiobook", "text", "comic"] as const) {
+      expect(
+        editForm(kind)
+          .flatMap((g) => g.fields)
+          .filter((f) => f.switch)
+          .map((f) => f.field),
+      ).toEqual(kind === "comic" ? ["rightToLeft"] : []);
+    }
   });
 
   it("asks a comic for its writers and artists and its issue, and never for a narrator or an ASIN", () => {

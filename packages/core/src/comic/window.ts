@@ -72,6 +72,8 @@ export class PageWindow<T> {
   private readonly held = new Map<number, T>();
   private readonly loading = new Map<number, { abort: AbortController; done: Promise<T | undefined> }>();
   private readonly waiting = new Map<number, ((loaded: T | undefined) => void)[]>();
+  /** Pages that couldn't be brought in: not asked for again until the window has moved off them and back. */
+  private readonly failed = new Set<number>();
   private wanted: number[] = [];
   private wake: (() => void) | null = null;
   private closed = false;
@@ -92,7 +94,7 @@ export class PageWindow<T> {
     const self = this;
     return (async function* () {
       while (!self.closed) {
-        const next = self.wanted.find((p) => !self.held.has(p) && !self.loading.has(p));
+        const next = self.wanted.find((p) => !self.held.has(p) && !self.loading.has(p) && !self.failed.has(p));
         if (next !== undefined && self.loading.size < self.atOnce) {
           yield next;
           continue;
@@ -124,6 +126,8 @@ export class PageWindow<T> {
           },
           () => {
             this.loading.delete(page);
+            // Asked for again at once, a page that can't be read would be asked for without end.
+            if (!abort.signal.aborted) this.failed.add(page);
             return undefined;
           },
         );
@@ -152,6 +156,7 @@ export class PageWindow<T> {
       this.loader.release?.(p, loaded);
     }
     for (const [p, l] of this.loading) if (!this.wanted.includes(p)) l.abort.abort();
+    for (const p of this.failed) if (!this.wanted.includes(p)) this.failed.delete(p);
     for (const p of [...this.waiting.keys()]) if (!this.wanted.includes(p)) this.answer(p, undefined);
     this.wake?.();
   }
@@ -169,7 +174,7 @@ export class PageWindow<T> {
   /** A page, as soon as it is ready: at once when held. Undefined when it couldn't be brought in, or the window moved off it first. */
   get(page: number): Promise<T | undefined> {
     const have = this.held.get(page);
-    if (have !== undefined || this.closed || page < 0 || page >= this.pages) return Promise.resolve(have);
+    if (have !== undefined || this.closed || page < 0 || page >= this.pages || this.failed.has(page)) return Promise.resolve(have);
     if (!this.wanted.includes(page)) this.moveTo(page);
     return new Promise((resolve) => {
       const asked = this.waiting.get(page) ?? [];

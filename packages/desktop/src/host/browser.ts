@@ -72,8 +72,14 @@ export function browserFileUrl(absPath: string, base = "/__ribbon"): string {
 }
 
 /** One page of a comic, read out of its archive by the dev server (packages/host-node/src/comic.ts). */
-export function browserComicPageUrl(absPath: string, entry: string, version: string, base = "/__ribbon"): string {
-  return `${base}/comicPage?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}&v=${encodeURIComponent(version)}`;
+export function browserComicPageUrl(absPath: string, entry: string, version: string, small = false, base = "/__ribbon"): string {
+  return `${base}/comicPage?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}&v=${encodeURIComponent(version)}${small ? "&small=1" : ""}`;
+}
+
+/** Keep a PDF's page drawn small, as the app keeps one in its own folder. */
+export async function browserKeepSmallPage(absPath: string, entry: string, jpeg: Uint8Array, base = "/__ribbon"): Promise<void> {
+  const r = await fetch(`${base}/comicSmall?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}`, { method: "PUT", body: jpeg as BodyInit });
+  if (!r.ok) throw new Error(`the small page wasn't kept: ${r.status}`);
 }
 
 /** The harness's stand-in for Ribbon's own folder, inside the library's records. */

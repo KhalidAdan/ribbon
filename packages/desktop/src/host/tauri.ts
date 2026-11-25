@@ -242,9 +242,20 @@ export function audioUrl(absPath: string): string {
  * (comic.rs): a picture is far too large to bring through a command.
  * `version` names the file as it is now (its size and date), so a comic
  * replaced by another of the same name is never drawn from the cache.
+ * `small` asks for the page's small picture, made once and kept in
+ * Ribbon's own folder (comic_small.rs).
  */
-export function comicPageUrl(absPath: string, entry: string, version: string): string {
-  return `${convertFileSrc("", "ribboncomic")}?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}&v=${encodeURIComponent(version)}`;
+export function comicPageUrl(absPath: string, entry: string, version: string, small = false): string {
+  return `${convertFileSrc("", "ribboncomic")}?path=${encodeURIComponent(absPath)}&entry=${encodeURIComponent(entry)}&v=${encodeURIComponent(version)}${small ? "&small=1" : ""}`;
+}
+
+/**
+ * Keep a PDF's page drawn small, which only the web view can draw
+ * (comic_small.rs). The picture goes as the request's bytes, not as JSON
+ * numbers, and the file and the page as its headers.
+ */
+export function keepSmallPage(absPath: string, entry: string, jpeg: Uint8Array): Promise<void> {
+  return invoke("comic_small_keep", jpeg, { headers: { path: encodeURIComponent(absPath), entry: encodeURIComponent(entry) } });
 }
 
 /** Milliseconds since the Rust process started. */

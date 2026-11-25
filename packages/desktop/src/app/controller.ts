@@ -18,7 +18,7 @@ import { isPlaying, wantsToPlay } from "@ribbon/core/playback";
 import { LibraryService } from "./library";
 import { PositionKeeper } from "./positions";
 import { isReadOnly } from "./read-only";
-import { applyEdits, changedFields, diffEdits, readAlongOff, sharedEdits, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
+import { applyEdits, changedFields, diffEdits, readAlongOff, sharedEdits, switchText, type BookEdits, type EditField, type EditValues } from "@ribbon/core/edits";
 import { DEFAULT_VIEW, parseView, type LibraryView } from "@ribbon/core/view";
 import { claimsFor, mergeById, textClaimsFor, type LogRecord, type ReadingRecord, type ReadRecord, type SessionRecord } from "@ribbon/core/poslog";
 import { finishedByRead, openRead } from "@ribbon/core/stats";
@@ -127,8 +127,10 @@ export interface Platform {
   exactAudioUrl?(absPath: string, ms: number): string;
   /** Where the player streams a book's audio from, when `fileUrl` won't do for every format (Apple's webview and an .m4b, #226). */
   audioUrl?(absPath: string): string;
-  /** A URL for one page of a comic, read out of its archive; `version` names the file as it is now. Absent where comics can't be read. */
-  comicPageUrl?(absPath: string, entry: string, version: string): string;
+  /** A URL for one page of a comic, read out of its archive; `version` names the file as it is now; `small`, its small picture. Absent where comics can't be read. */
+  comicPageUrl?(absPath: string, entry: string, version: string, small?: boolean): string;
+  /** Keep a page of a PDF drawn small by the web view, which is all that can draw one, so it is drawn once (docs/COMICS.md, section 15). */
+  keepSmallPage?(absPath: string, entry: string, jpeg: Uint8Array): Promise<void>;
   /** The folders the library is populated from, wherever the platform keeps them. */
   sources: {
     load(): Promise<SourceEntry[]>;
@@ -350,7 +352,12 @@ export interface AppState {
   comic: ComicSession | null;
   /** How comics are shown on this machine. */
   comicSettings: ComicSettings;
-  /** Comics a person said are read right to left, or aren't, by book id: over what the comic says of itself. */
+  /**
+   * Comics a person said are read right to left, or aren't, on this machine,
+   * by book id: over the comic's edits and what it says of itself. Kept for
+   * a comic they may not edit; where they may, the direction is an edit, and
+   * this goes once the edit is kept (setComicRightToLeft).
+   */
   comicDirections: Record<string, boolean>;
   /** The whisper.cpp model this machine hears narrators with (#65), and a download while it runs. */
   speech: { model: string | null; downloading: { done: number; total: number } | null };
@@ -1176,12 +1183,22 @@ export class AppController {
    * (saveServerEdits). A book in a folder: only fields that differ from the
    * files are kept beside it; a field set back to the files' value stops
    * being an edit. Nothing in the audio files changes.
+   *
+   * A comic's direction, once kept, is what it reads by here too: this
+   * machine's own choice for it (setComicRightToLeft) goes, so it reads as
+   * the form's switch says.
    */
   async saveEdits(bookId: string, form: Partial<Record<EditField, string>>): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    if (o.server) return this.saveServerEdits(o, b, form);
+    const kept = o.server ? await this.saveServerEdits(o, b, form) : await this.saveFolderEdits(o, b, form);
+    if (kept && b.book.comic && form.rightToLeft !== undefined) this.forgetComicDirection(bookId);
+  }
+
+  /** A folder's book edited: what differs from its files, kept beside it. */
+  private async saveFolderEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<boolean> {
+    const bookId = b.book.id;
     const previous = o.edits.get(bookId)?.values ?? {};
     const values = diffEdits(b.original ?? b.book, form, previous);
     const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
@@ -1189,6 +1206,7 @@ export class AppController {
     this.keepEdits(o, edits);
     if (values.cover !== previous.cover) void this.mirrorCoversFor(o);
     log.info("edited", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
+    return true;
   }
 
   /** Filter and sort the shelf, and remember it for next time. */
@@ -1212,7 +1230,10 @@ export class AppController {
     const o = b && this.openedOf(b);
     if (!b || !o) return;
     // A server's book: the picture goes to the server with its edits, and becomes its cover on every device.
-    if (o.server) return this.sendServerEdits(o, b, sharedEdits(b.edits ?? {}), bytes);
+    if (o.server) {
+      await this.sendServerEdits(o, b, sharedEdits(b.edits ?? {}), bytes);
+      return;
+    }
     const path = await o.lib.writeEditedCover(bookId, bytes, ext);
     await this.saveEdits(bookId, { cover: path });
   }
@@ -1240,25 +1261,27 @@ export class AppController {
     return address ? { from: "archive", count: listed.pages.length, url: (at) => address(abs, listed.pages[at]!, bookId) } : null;
   }
 
-  /** Take back hand edits: one field, or all of them. */
+  /** Take back hand edits: one field, or all of them. A comic taken back reads as its file says, here too (saveEdits). */
   async resetEdits(bookId: string, field?: EditField): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
     const previous = o.edits.get(bookId)?.values ?? {};
+    let kept = true;
     if (o.server) {
-      const kept = sharedEdits(previous);
-      if (field) delete kept[field];
+      const shared = sharedEdits(previous);
+      if (field) delete shared[field];
       // The files' cover again only when that's asked: taking back a field leaves the cover as it is.
-      await this.sendServerEdits(o, b, field ? kept : {}, !field || field === "cover" ? null : undefined);
-      return;
+      kept = await this.sendServerEdits(o, b, field ? shared : {}, !field || field === "cover" ? null : undefined);
+    } else {
+      const values = { ...previous };
+      if (field) delete values[field];
+      const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
+      await o.lib.writeEdits(edits);
+      this.keepEdits(o, edits);
+      if (!field || field === "cover") void this.mirrorCoversFor(o);
     }
-    const values = { ...previous };
-    if (field) delete values[field];
-    const edits: BookEdits = { bookId, values: field ? values : {}, updatedAt: new Date().toISOString() };
-    await o.lib.writeEdits(edits);
-    this.keepEdits(o, edits);
-    if (!field || field === "cover") void this.mirrorCoversFor(o);
+    if (kept && b.book.comic && (!field || field === "rightToLeft")) this.forgetComicDirection(bookId);
   }
 
   /**
@@ -1266,29 +1289,31 @@ export class AppController {
    * server, with the edits it already has, and it keeps them for every
    * device. Nothing is compared with what this device's files say: what
    * the server lists is the book, here as everywhere. A cover goes on its
-   * own, as a picture (setCover).
+   * own, as a picture (setCover). Whether the server has the book as the
+   * form says, which it does when nothing changed.
    */
-  private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<void> {
+  private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<boolean> {
     const changed = changedFields(b.book, form);
-    if (Object.keys(changed).length > 0) await this.sendServerEdits(o, b, { ...sharedEdits(b.edits ?? {}), ...changed });
+    return Object.keys(changed).length === 0 || (await this.sendServerEdits(o, b, { ...sharedEdits(b.edits ?? {}), ...changed }));
   }
 
   /**
    * A server's book's edits, sent in place of the ones it has, with a
    * picture for its cover or null for its files' (left out, the cover
    * stays), and the shelf as the server then lists it. Refused or out of
-   * reach, it says so, and nothing changes.
+   * reach, it says so, nothing changes, and it answers false.
    */
-  private async sendServerEdits(o: Opened, b: ScannedBook, values: EditValues, cover?: Uint8Array | null): Promise<void> {
+  private async sendServerEdits(o: Opened, b: ScannedBook, values: EditValues, cover?: Uint8Array | null): Promise<boolean> {
     try {
       await o.server!.client.saveEdits(serverIdOf(b), values, cover);
     } catch (e) {
       this.set({ error: `Couldn't change ${b.book.title} on the server: ${e instanceof ServerError ? e.message : describe(e)}` });
       log.warn("could not send a book's edits to the server:", o.source.name, describe(e));
-      return;
+      return false;
     }
     log.info("edited on the server:", b.book.title, Object.keys(values).join(", ") || "(back to the files)");
     await this.refreshServer(o);
+    return true;
   }
 
   /** A book's edits laid over it on the shelf. */
@@ -1961,6 +1986,17 @@ export class AppController {
     await o.server.remove(serverIdOf(book), book.book.id);
     this.serverRecordsTaken.delete(book.book.id);
     await this.rescanSource(o, true);
+  }
+
+  /**
+   * Whether this person's edits to a book are kept: anyone's, for a book in
+   * their own folders; for a server's book, only its admin's, which every
+   * device then shows.
+   */
+  mayEdit(bookId: string): boolean {
+    const book = this.state.books.find((b) => b.book.id === bookId);
+    const o = book && this.openedOf(book);
+    return !!o && (!o.server || o.serverAdmin);
   }
 
   /** Whether this person is the admin of the server a book is on: only they can delete it from there. */
@@ -3346,15 +3382,15 @@ export class AppController {
     this.toComic({ type: "measured", bookId, page, wide: isWide(width, height) });
   }
 
-  /** Where the picture of a page of the open comic comes from, or undefined where comics can't be read. */
-  comicPageUrl(page: number): string | undefined {
+  /** Where the picture of a page of the open comic comes from, or undefined where comics can't be read. `small`: its small picture, for the strip. */
+  comicPageUrl(page: number, small = false): string | undefined {
     const r = this.state.comic;
     const book = r && this.state.books.find((b) => b.book.id === r.bookId);
     const o = book && this.openedOf(book);
     const entry = r?.status === "ready" ? r.pages[page] : undefined;
     if (!book?.book.comic || !o || !entry || !this.platform.comicPageUrl) return undefined;
     // The id is made of the file's path and size, so a comic replaced by another is another address.
-    return this.platform.comicPageUrl(o.lib.absPath(book.book.comic), entry, book.book.id);
+    return this.platform.comicPageUrl(o.lib.absPath(book.book.comic), entry, book.book.id, small);
   }
 
   /** Where the open book of pages is fetched from when it is a PDF, and how large the file is; undefined for a comic's archive. */
@@ -3364,6 +3400,16 @@ export class AppController {
     const o = book && this.openedOf(book);
     if (r?.status !== "ready" || !r.document || !book?.book.comic || !o) return undefined;
     return { url: this.platform.fileUrl(o.lib.absPath(book.book.comic)), bytes: book.book.sizeBytes };
+  }
+
+  /** Keep a page of the open PDF that the web view drew small, so it is drawn once; Ribbon makes a comic's own (docs/COMICS.md, section 15). */
+  async keepSmallPage(page: number, jpeg: Uint8Array): Promise<void> {
+    const r = this.state.comic;
+    const book = r && this.state.books.find((b) => b.book.id === r.bookId);
+    const o = book && this.openedOf(book);
+    const entry = r?.status === "ready" ? r.pages[page] : undefined;
+    if (!book?.book.comic || !o || !entry || !this.platform.keepSmallPage) return;
+    await this.platform.keepSmallPage(o.lib.absPath(book.book.comic), entry, jpeg);
   }
 
   // A comic's panels (docs/COMICS.md, section 14): kept by the server the comic came from, the admin's to mark. ----
@@ -3391,7 +3437,11 @@ export class AppController {
     await o.server.client.savePanels(serverIdOf(book), page, panels);
   }
 
-  /** Whether a comic is read right to left: as a person said, else as it says of itself. */
+  /**
+   * Whether a comic is read right to left: as this machine's own choice
+   * says, else as its edits say (core/edits.ts, `rightToLeft`, laid over
+   * the book on the shelf), else as it says of itself.
+   */
   comicRightToLeft(bookId: string): boolean {
     return this.state.comicDirections[bookId] ?? this.state.books.find((b) => b.book.id === bookId)?.book.rightToLeft ?? false;
   }
@@ -3403,11 +3453,35 @@ export class AppController {
     this.saveAppSettingsSoon();
   }
 
-  /** Read this comic right to left, or left to right, whatever it says of itself. */
+  /**
+   * Read this comic right to left, or left to right, whatever it says of
+   * itself (docs/COMICS.md, section 15). It turns on this machine at once.
+   * Where this person may edit the comic, it is the comic's own detail
+   * too, kept as the edit form keeps it, and every device reads it so;
+   * once it's kept, this machine's choice goes and the edit is what it
+   * reads by (saveEdits). Not kept (the server out of reach), the choice
+   * stays this machine's, and the error says why. Anyone else's choice is
+   * for this machine only.
+   */
   setComicRightToLeft(bookId: string, rightToLeft: boolean): void {
-    const next = { ...this.state.comicDirections, [bookId]: rightToLeft };
-    this.appSettings = { ...this.appSettings, comicDirections: next };
-    this.set({ comicDirections: next });
+    this.keepComicDirections({ ...this.state.comicDirections, [bookId]: rightToLeft });
+    if (!this.mayEdit(bookId)) return;
+    this.saveEdits(bookId, { rightToLeft: switchText(rightToLeft) }).catch((e: unknown) => {
+      this.set({ error: `Couldn't keep which way the comic reads: ${describe(e)}` });
+      log.warn("could not keep a comic's direction as an edit:", describe(e));
+    });
+  }
+
+  /** This machine's own direction for a comic taken back: it reads as its edits or its file say. */
+  private forgetComicDirection(bookId: string): void {
+    if (!(bookId in this.state.comicDirections)) return;
+    const { [bookId]: _gone, ...rest } = this.state.comicDirections;
+    this.keepComicDirections(rest);
+  }
+
+  private keepComicDirections(directions: Record<string, boolean>): void {
+    this.appSettings = { ...this.appSettings, comicDirections: directions };
+    this.set({ comicDirections: directions });
     this.saveAppSettingsSoon();
   }
 

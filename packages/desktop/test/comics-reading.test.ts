@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -128,16 +128,61 @@ describe("a comic in the app", () => {
     c.destroy();
   });
 
-  it("reads right to left as it says of itself, unless a person says otherwise", async () => {
-    const c = await open();
-    const manga = comicOf(c, "Paper Lanterns");
-    const other = comicOf(c, "Made Up Saga #1");
-    expect(c.comicRightToLeft(manga.book.id)).toBe(true);
-    expect(c.comicRightToLeft(other.book.id)).toBe(false);
-    c.setComicRightToLeft(manga.book.id, false);
-    c.setComicRightToLeft(other.book.id, true);
-    expect(c.comicRightToLeft(manga.book.id)).toBe(false);
-    expect(c.comicRightToLeft(other.book.id)).toBe(true);
+  it("reads right to left as it says of itself, unless a person says otherwise: in their own folders, as an edit beside the comic", async () => {
+    const settings = memorySettings();
+    const c = await open(settings);
+    const manga = comicOf(c, "Paper Lanterns").book.id;
+    const other = comicOf(c, "Made Up Saga #1").book.id;
+    expect(c.comicRightToLeft(manga)).toBe(true);
+    expect(c.comicRightToLeft(other)).toBe(false);
+    expect(c.mayEdit(manga)).toBe(true);
+    c.setComicRightToLeft(manga, false);
+    c.setComicRightToLeft(other, true);
+    // It turns at once.
+    expect(c.comicRightToLeft(manga)).toBe(false);
+    expect(c.comicRightToLeft(other)).toBe(true);
+    // And is kept as each comic's edit, as the edit form keeps it, which the reader then goes by: this machine's own choice goes.
+    await vi.waitFor(() => expect(c.getState().comicDirections).toEqual({}));
+    expect(comicOf(c, "Paper Lanterns").edits).toEqual({ rightToLeft: "no" });
+    expect(comicOf(c, "Made Up Saga #1").edits).toEqual({ rightToLeft: "yes" });
+    expect(c.comicRightToLeft(manga)).toBe(false);
+    expect(c.comicRightToLeft(other)).toBe(true);
+    await vi.waitFor(async () => expect(await settings.read()).toMatchObject({ comicDirections: {} }));
+    // Another app on these folders reads them the same way.
+    const elsewhere = await open();
+    expect(elsewhere.comicRightToLeft(manga)).toBe(false);
+    expect(elsewhere.comicRightToLeft(other)).toBe(true);
+    elsewhere.destroy();
+    // Taken back, each reads as its file says again.
+    await c.resetEdits(manga, "rightToLeft");
+    await c.resetEdits(other);
+    expect(comicOf(c, "Paper Lanterns").edits).toBeUndefined();
+    expect(c.comicRightToLeft(manga)).toBe(true);
+    expect(c.comicRightToLeft(other)).toBe(false);
+    // Turned back to what its file says, it is no edit at all.
+    c.setComicRightToLeft(manga, false);
+    await vi.waitFor(() => expect(comicOf(c, "Paper Lanterns").edits).toEqual({ rightToLeft: "no" }));
+    c.setComicRightToLeft(manga, true);
+    await vi.waitFor(() => expect(comicOf(c, "Paper Lanterns").edits).toBeUndefined());
+    await vi.waitFor(() => expect(c.getState().comicDirections).toEqual({}));
+    expect(c.comicRightToLeft(manga)).toBe(true);
+    c.destroy();
+  });
+
+  it("reads as the edit form's switch says, here too: saving the form takes back this machine's own choice", async () => {
+    const first = await open();
+    const id = comicOf(first, "Made Up Saga #1").book.id;
+    first.destroy();
+    // Read right to left on this machine, as anyone's choice was before the direction was the comic's own detail.
+    const settings = memorySettings();
+    await settings.write({ comicDirections: { [id]: true } });
+    const c = await open(settings);
+    expect(c.comicRightToLeft(id)).toBe(true);
+    // The form shows it reading left to right, as its file says, and is saved so: that is how it reads, here as everywhere.
+    await c.saveEdits(id, { title: "Made Up Saga #1", rightToLeft: "no" });
+    expect(c.getState().comicDirections).toEqual({});
+    expect(c.comicRightToLeft(id)).toBe(false);
+    expect(comicOf(c, "Made Up Saga #1").edits).toBeUndefined();
     c.destroy();
   });
 

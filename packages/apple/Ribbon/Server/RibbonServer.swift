@@ -287,6 +287,15 @@ struct SearchResult: Decodable, Hashable {
 }
 
 /// Why the TV says where it is, as the position log names it.
+/// Someone signed in, as the server knows them (`GET /api/me`): only what the app needs of them.
+struct ServerPerson: Decodable, Equatable {
+    let name: String
+    /// "admin" for the server's admin, who may delete its books; "user" for everyone else.
+    let role: String
+
+    var isAdmin: Bool { role == "admin" }
+}
+
 enum Why: String {
     case pause, seek, periodic, end, close
 }
@@ -593,6 +602,29 @@ struct RibbonServer {
         if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
         guard response.statusCode == 200 else { throw ServerError(message: Self.said(data) ?? "The server couldn't send page \(number) (\(response.statusCode)).", status: response.statusCode) }
         return data
+    }
+
+    /// A page's small picture, counted from 1: a JPEG 300 pixels tall, which the server makes once and keeps, for the
+    /// strip of pages (docs/COMICS.md, section 15).
+    func smallPage(_ number: Int, of id: String) async throws -> Data {
+        let (data, response) = try await Self.reach(authorized("api/books/\(id)/pages/\(number)", query: [URLQueryItem(name: "small", value: nil)]))
+        guard response.statusCode == 200 else { throw ServerError(message: Self.said(data) ?? "The server couldn't send page \(number) small (\(response.statusCode)).", status: response.statusCode) }
+        return data
+    }
+
+    /// Who is signed in, as the server knows them: whether they are its admin, who may delete its books.
+    func me() async throws -> ServerPerson {
+        struct Answer: Decodable { let user: ServerPerson }
+        return try await get(Answer.self, "api/me").user
+    }
+
+    /// Delete a book from the server, as its admin: it goes from every device, and everyone's places in it are kept.
+    func deleteBook(_ id: String) async throws {
+        var request = authorized("api/books/\(id)")
+        request.httpMethod = "DELETE"
+        let (data, response) = try await Self.reach(request)
+        if response.statusCode == 401 { throw ServerError(message: "This \(ThisDevice.kind)'s sign-in has run out. Sign in again.", status: 401) }
+        guard (200..<300).contains(response.statusCode) else { throw ServerError(message: Self.said(data) ?? "The server couldn't delete it (\(response.statusCode)).", status: response.statusCode) }
     }
 
     /// Where the person is in a comic, newest of every device; nil when they haven't opened it.

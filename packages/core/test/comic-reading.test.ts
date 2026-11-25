@@ -202,6 +202,25 @@ describe("the window of pages", () => {
     expect(await w.get(1)).toBe("ok");
     await w.close();
   });
+
+  it("asks once for a page that can't be brought in, and again only once the window has been away from it", async () => {
+    const asked: number[] = [];
+    const w = new PageWindow<string>(50, { load: (page) => (asked.push(page), page === 2 ? Promise.reject(new Error("unreadable")) : Promise.resolve("ok")) }, { behind: 1, ahead: 1 });
+    w.moveTo(2);
+    await settle();
+    expect(asked.filter((p) => p === 2)).toEqual([2]);
+    // Still in the window as it moves: not asked for again, and asking for it says at once that it isn't there.
+    w.moveTo(3);
+    await settle();
+    expect(asked.filter((p) => p === 2)).toEqual([2]);
+    expect(await w.get(2)).toBeUndefined();
+    // Away and back: one more try.
+    w.moveTo(20);
+    w.moveTo(2);
+    await settle();
+    expect(asked.filter((p) => p === 2)).toEqual([2, 2]);
+    await w.close();
+  });
 });
 
 describe("the window, resized", () => {

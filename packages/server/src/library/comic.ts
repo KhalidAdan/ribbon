@@ -160,8 +160,35 @@ export async function pdfPageToFile(file: string, page: number, width: number, t
   }
 }
 
-/** Pages being drawn now, by where their picture will be kept: two devices asking for one page draw it once. */
-const drawing = new Map<string, Promise<void>>();
+/** Pictures being made now, by where they will be kept: two devices asking for one page make it once. */
+const making = new Map<string, Promise<void>>();
+
+/**
+ * A picture kept in a book's folder: read from there if it has been made,
+ * else made by `make`, kept, and read. A book's pages never change, so a
+ * picture made from one never needs making again.
+ */
+async function keptPicture(kept: string, make: (target: string) => Promise<void>): Promise<Uint8Array> {
+  const have = await readFile(kept).catch(() => null);
+  if (have) return have;
+  let going = making.get(kept);
+  if (!going) {
+    going = (async () => {
+      await mkdir(path.dirname(kept), { recursive: true });
+      // Made beside its place and moved in whole, so a picture is never read half made.
+      const target = `${kept}.${process.pid}.tmp`;
+      try {
+        await make(target);
+        await rename(target, kept);
+      } finally {
+        await rm(target, { force: true });
+      }
+    })().finally(() => making.delete(kept));
+    making.set(kept, going);
+  }
+  await going;
+  return readFile(kept);
+}
 
 /**
  * One page of a book's PDF as a JPEG `width` pixels wide: drawn the first
@@ -169,26 +196,7 @@ const drawing = new Map<string, Promise<void>>();
  * there every time after.
  */
 export async function pdfPage(bookDir: string, page: number, width: number): Promise<Uint8Array> {
-  const kept = path.join(bookDir, "pages", `${page + 1}-${width}.jpg`);
-  const have = await readFile(kept).catch(() => null);
-  if (have) return have;
-  let going = drawing.get(kept);
-  if (!going) {
-    going = (async () => {
-      await mkdir(path.dirname(kept), { recursive: true });
-      // Drawn beside its place and moved in whole, so a picture is never read half made.
-      const making = `${kept}.${process.pid}.tmp`;
-      try {
-        await pdfPageToFile(path.join(bookDir, PDF_FILE), page, width, making);
-        await rename(making, kept);
-      } finally {
-        await rm(making, { force: true });
-      }
-    })().finally(() => drawing.delete(kept));
-    drawing.set(kept, going);
-  }
-  await going;
-  return readFile(kept);
+  return keptPicture(path.join(bookDir, "pages", `${page + 1}-${width}.jpg`), (target) => pdfPageToFile(path.join(bookDir, PDF_FILE), page, width, target));
 }
 
 /** How wide a PDF's page is drawn to be looked at, or to have its panels drawn over it: the smaller of the two it is kept at. */
@@ -209,4 +217,60 @@ export async function pageBytes(bookDir: string, file: string, pages: readonly C
   } finally {
     await comic.close();
   }
+}
+
+// Small pictures of every page ---------------------------------------------
+
+/**
+ * Every page of a book of pages has a small picture (docs/COMICS.md,
+ * section 15): the strip of pages along a reader's foot is made of them.
+ * 300 pixels tall, whatever the page's shape, as a JPEG: a strip shows one
+ * about 100 points tall, so it stays sharp on a Retina screen.
+ */
+export const SMALL_PAGE_HEIGHT = 300;
+
+/**
+ * A page's small picture, `index` counted from 0: made the first time it is
+ * asked for and kept beside the book (`pages/`), as a PDF's drawn pages
+ * are. A comic's page is shrunk from the picture in its archive; a PDF's is
+ * drawn small by pdf.js, not shrunk from a large drawing. Rejects when this
+ * machine has no canvas to make one on (`@napi-rs/canvas`), or the page
+ * isn't a picture.
+ */
+export async function smallPage(bookDir: string, file: string, pages: readonly ComicPage[], index: number): Promise<Uint8Array> {
+  return keptPicture(path.join(bookDir, "pages", `${index + 1}-small.jpg`), async (target) => {
+    if (file === PDF_FILE) {
+      const { width, height } = pages[index]!;
+      // As wide as a page of its shape is when it is drawn that tall; a page that doesn't say is taken to be a printed page's shape.
+      const wide = height > 0 ? Math.max(1, Math.round((SMALL_PAGE_HEIGHT * width) / height)) : Math.round(SMALL_PAGE_HEIGHT / 1.5);
+      return pdfPageToFile(path.join(bookDir, PDF_FILE), index, wide, target);
+    }
+    await writeFile(target, await shrink(await pageBytes(bookDir, file, pages, index), SMALL_PAGE_HEIGHT));
+  });
+}
+
+/** Whether this machine has the canvas pictures are made on: a server without it still sends pages, but makes no small ones. */
+export async function canDraw(): Promise<boolean> {
+  return import("@napi-rs/canvas").then(
+    () => true,
+    () => false,
+  );
+}
+
+/** A picture (a JPEG, PNG, WebP or GIF) as a JPEG no taller than `tall`, and never larger than it was. */
+async function shrink(bytes: Uint8Array, tall: number): Promise<Uint8Array> {
+  const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+  const page = await loadImage(Buffer.from(bytes));
+  const scale = Math.min(1, tall / page.height);
+  const width = Math.max(1, Math.round(page.width * scale));
+  const height = Math.max(1, Math.round(page.height * scale));
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  // A page with see-through parts sits on paper, not on the black a JPEG would make of them.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  // Shrinking a scan ten times over: the careful filter keeps its lines from breaking into steps.
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(page, 0, 0, width, height);
+  return canvas.toBuffer("image/jpeg", 80);
 }

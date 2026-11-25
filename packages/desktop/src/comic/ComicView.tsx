@@ -1,16 +1,25 @@
 import { ArrowLeftIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { comicKey } from "@ribbon/core/comic/keys";
 import { onScreen, type ReadyComic } from "@ribbon/core/comic/session";
-import type { ComicSettings } from "@ribbon/core/comic/settings";
-import { imageSize, pageBox, type PixelSize } from "@ribbon/core/comic/size";
-import { DECODED, DECODED_FACING, PageWindow } from "@ribbon/core/comic/window";
+import { nextGround, type ComicSettings, type Ground } from "@ribbon/core/comic/settings";
+import { pageBox, type Fit, type PixelSize } from "@ribbon/core/comic/size";
+import { DECODED, DECODED_FACING } from "@ribbon/core/comic/window";
+import { keptInPlace, startingCorner, zoomed, zoomIn, zoomOut, zoomToggled } from "@ribbon/core/comic/zoom";
 import type { AppController } from "../app/controller";
 import { Button } from "../ui/Button";
 import { Menu, type MenuItem } from "../ui/kit";
 import { useAppState, useController } from "../ui/store";
 import { usePageSwipe } from "../reader/swipe";
 import type { Panel } from "@ribbon/core/comic/panels";
+import { ComicKeyList, JumpToPage } from "./ComicDialogs";
+import { ComicStrip } from "./ComicStrip";
+import { SharedPdf } from "./document";
+import { usePageWindows } from "./page-windows";
+import { readerKey } from "./reader-keys";
+import { ScrollPages } from "./ScrollPages";
+import { PageCanvas, type Drawn } from "./PageCanvas";
 import { PanelEditor } from "./PanelEditor";
 import { PanelReader } from "./PanelReader";
 
@@ -52,17 +61,86 @@ export function ComicView() {
     };
   }, [c, openId, marking]);
   const hasPanels = !!panels && panels.size > 0;
-  if (!r) return null;
-  const ready = r.status === "ready" ? r : null;
-  const shown = ready ? onScreen(ready, settings.up) : null;
+  // A PDF is opened once for the comic, and its pages and the strip's small ones are drawn out of it. Nothing is
+  // opened here: the first to draw from it does that.
+  const pdf = useMemo(() => {
+    const document = openId ? c.comicDocument() : undefined;
+    return document ? new SharedPdf(document) : null;
+  }, [c, openId]);
+  // The box asked for over the pages: "Go to page", or the list of keys.
+  const [asking, setAsking] = useState<"jump" | "keys" | null>(null);
+  const ready = r?.status === "ready" ? r : null;
+  /** How the comic is being read: page by page, by its panels, in one long scroll, or not at all while its panels are marked. */
+  const reading = !ready || marking ? null : settings.scroll ? "scroll" : hasPanels && byPanel ? "panels" : "pages";
+  // Read by panels or in the scroll, a page is the place alone.
+  const up = reading === "pages" ? settings.up : "one";
+  const count = ready?.pages.length ?? 0;
 
+  // The view's keys (docs/COMICS.md, section 15): the same whether the comic is read by pages or by panels. The
+  // pages' own keys, which turn them and zoom, are each reader's.
+  const keys = useRef({ ready, reading, settings, rightToLeft, hasPanels, byPanel, count });
+  keys.current = { ready, reading, settings, rightToLeft, hasPanels, byPanel, count };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = keys.current;
+      if (!k.ready || !k.reading || !readerKey(e)) return;
+      const act = (then: () => void) => {
+        e.preventDefault();
+        then();
+      };
+      const action = comicKey(e.key);
+      // Two pages up, panels and the fits don't apply to the scroll: there the keys leave them as they are.
+      if (k.reading === "scroll" && (action === "two-up" || action === "panels" || action === "fit-page" || action === "fit-width" || action === "fit-height")) return;
+      switch (action) {
+        case "jump":
+          return act(() => k.count > 1 && setAsking("jump"));
+        case "keys":
+          return act(() => setAsking("keys"));
+        case "strip":
+          return act(() => k.count > 1 && c.setComicSettings({ strip: !k.settings.strip }));
+        case "two-up":
+          return act(() => c.setComicSettings({ up: k.settings.up === "one" ? "two" : "one" }));
+        case "direction":
+          return act(() => c.setComicRightToLeft(k.ready!.bookId, !k.rightToLeft));
+        case "scroll":
+          return act(() => c.setComicSettings({ scroll: !k.settings.scroll }));
+        case "panels":
+          return act(() => k.hasPanels && setByPanel(!k.byPanel));
+        case "fit-page":
+          return act(() => c.setComicSettings({ fit: "page" }));
+        case "fit-width":
+          return act(() => c.setComicSettings({ fit: "width" }));
+        case "fit-height":
+          return act(() => c.setComicSettings({ fit: "height" }));
+        case "ground":
+          return act(() => c.setComicSettings({ ground: nextGround(k.settings.ground) }));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [c]);
+
+  if (!r) return null;
+  const shown = ready ? onScreen(ready, up) : null;
+
+  const fits: { fit: Fit; label: string }[] = [
+    { fit: "page", label: "Fit the page" },
+    { fit: "width", label: "Fit the width" },
+    { fit: "height", label: "Fit the height" },
+  ];
   const view: MenuItem[] = [
-    settings.up === "one" ? { label: "Two pages, as printed", onSelect: () => c.setComicSettings({ up: "two" }) } : { label: "One page at a time", onSelect: () => c.setComicSettings({ up: "one" }) },
-    settings.fit === "page" ? { label: "Fit the width", onSelect: () => c.setComicSettings({ fit: "width" }) } : { label: "Fit the page", onSelect: () => c.setComicSettings({ fit: "page" }) },
+    ...(count > 1 ? [{ label: "Go to page…", onSelect: () => setAsking("jump") }] : []),
+    settings.scroll ? { label: "Turn the pages", onSelect: () => c.setComicSettings({ scroll: false }) } : { label: "One long scroll", onSelect: () => c.setComicSettings({ scroll: true }) },
+    // Two pages up and the fits are for turning the pages; the scroll is a column of its own width.
+    ...(settings.scroll ? [] : [settings.up === "one" ? { label: "Two pages, as printed", onSelect: () => c.setComicSettings({ up: "two" }) } : { label: "One page at a time", onSelect: () => c.setComicSettings({ up: "one" }) }]),
+    ...(settings.scroll ? [] : fits.filter((f) => f.fit !== settings.fit).map((f) => ({ label: f.label, onSelect: () => c.setComicSettings({ fit: f.fit }) }))),
+    ...(count > 1 && reading ? [settings.strip ? { label: "Hide small pages", onSelect: () => c.setComicSettings({ strip: false }) } : { label: "Show small pages", onSelect: () => c.setComicSettings({ strip: true }) }] : []),
     rightToLeft ? { label: "Read left to right", onSelect: () => c.setComicRightToLeft(r.bookId, false) } : { label: "Read right to left", onSelect: () => c.setComicRightToLeft(r.bookId, true) },
-    ...(hasPanels ? [byPanel ? { label: "Whole pages", onSelect: () => setByPanel(false) } : { label: "Read by panels", onSelect: () => setByPanel(true) }] : []),
+    ...(hasPanels && !settings.scroll ? [byPanel ? { label: "Whole pages", onSelect: () => setByPanel(false) } : { label: "Read by panels", onSelect: () => setByPanel(true) }] : []),
+    ...GROUND_NAMES.filter((g) => g.ground !== settings.ground).map((g) => ({ label: g.label, onSelect: () => c.setComicSettings({ ground: g.ground }) })),
     // A server's comic, for its admin: the panels it is read by on a television are marked here (docs/COMICS.md, section 14).
     ...(ready && c.canMarkPanels(r.bookId) ? [{ label: "Mark its panels…", onSelect: () => setMarking(true) }] : []),
+    { label: "Keys…", onSelect: () => setAsking("keys") },
   ];
 
   return (
@@ -86,11 +164,50 @@ export function ComicView() {
           <p className="mt-1 max-w-md">{r.message}</p>
         </div>
       )}
-      {ready && !marking && !(hasPanels && byPanel) && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} />}
-      {ready && !marking && hasPanels && byPanel && <PanelReader key={ready.bookId} comic={ready} panels={panels} rightToLeft={rightToLeft} c={c} />}
+      {ready && reading === "pages" && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} pdf={pdf} />}
+      {ready && reading === "scroll" && <ScrollPages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} pdf={pdf} ground={groundColour(settings.ground)} />}
+      {ready && reading === "panels" && <PanelReader key={ready.bookId} comic={ready} panels={panels!} rightToLeft={rightToLeft} c={c} ground={groundColour(settings.ground)} />}
       {ready && marking && <PanelEditor key={ready.bookId} comic={ready} title={title} c={c} onDone={() => setMarking(false)} />}
+
+      {/* Under either reader: the strip of small pages, and the slider, each running the way the comic reads. */}
+      {ready && shown && reading && count > 1 && settings.strip && <ComicStrip comic={ready} shown={shown.pages} rightToLeft={rightToLeft} c={c} pdf={pdf} />}
+      {ready && shown && reading && count > 1 && (
+        <footer className="flex h-10 shrink-0 items-center gap-3 border-t border-line px-4">
+          <input
+            type="range"
+            aria-label="Page"
+            aria-valuetext={folio(shown.pages, count)}
+            min={1}
+            max={count}
+            step={1}
+            value={ready.page + 1}
+            dir={rightToLeft ? "rtl" : "ltr"}
+            onChange={(e) => c.turnComic(Number(e.target.value) - 1, "seek")}
+            className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-line-strong accent-ink"
+          />
+          <p className="w-20 shrink-0 text-right text-[0.8125rem]/5 text-ink-2 tabular-nums">
+            {ready.page + 1} of {count}
+          </p>
+        </footer>
+      )}
+
+      {ready && <JumpToPage open={asking === "jump"} page={ready.page} count={count} onGo={(to) => c.turnComic(to, "seek")} onClose={() => setAsking(null)} />}
+      <ComicKeyList open={asking === "keys"} rightToLeft={rightToLeft} onClose={() => setAsking(null)} />
     </div>
   );
+}
+
+/** The grounds behind the page, as the Pages menu names them. */
+const GROUND_NAMES: { ground: Ground; label: string }[] = [
+  { ground: "ribbon", label: "Ribbon's own ground" },
+  { ground: "black", label: "A black ground" },
+  { ground: "grey", label: "A grey ground" },
+  { ground: "white", label: "A white ground" },
+];
+
+/** The colour behind the page; none for Ribbon's own, which is the app's light or dark as it is. */
+export function groundColour(ground: Ground): string | undefined {
+  return ground === "black" ? "#000000" : ground === "grey" ? "#525252" : ground === "white" ? "#ffffff" : undefined;
 }
 
 /** Where the reader is, as the header says it: "Page 3 of 24", or "Pages 2–3 of 24" with two up. */
@@ -101,103 +218,21 @@ export function folio(pages: readonly number[], of: number): string {
 }
 
 /**
- * A page known and not yet drawn: the size its picture will be, and, for a
- * comic's page, its file's bytes. A PDF's page has no file of its own; it
- * is drawn out of the PDF (pdf.ts).
+ * A comic read page by page, or two as printed: the spread on screen and
+ * the one either side kept drawn, for a swipe to bring in; the slider and
+ * the strip are the reader's (ComicView). It can be zoomed (`+`, `-`, `0`,
+ * or a click in the middle), and then the wheel, the trackpad and a drag
+ * move about the page, and a click on either side still turns it
+ * (core/comic/zoom.ts). The zoom stays as the pages turn, each coming in
+ * at the top corner the comic starts from; a comic opens whole.
  */
-interface Fetched extends PixelSize {
-  file?: Blob;
-}
-
-/** How much of a file is read to learn its picture's size: a JPEG's says after its thumbnail and colour profile. */
-const HEADER_BYTES = 256 * 1024;
-
-/**
- * Fetch a page's file and read its size from its first bytes. Nothing is
- * decoded: that is the dear part, done only for the nearest pages.
- */
-async function fetchPage(address: string, signal: AbortSignal): Promise<Fetched> {
-  const answer = await fetch(address, { signal });
-  if (!answer.ok) throw new Error("the page could not be read");
-  const file = await answer.blob();
-  const start = new Uint8Array(await file.slice(0, HEADER_BYTES).arrayBuffer());
-  let size = imageSize(start) ?? (file.size > HEADER_BYTES ? imageSize(new Uint8Array(await file.arrayBuffer())) : null);
-  if (!size) {
-    // A file whose header doesn't say: decode it once to ask.
-    const picture = await createImageBitmap(file);
-    size = { width: picture.width, height: picture.height };
-    picture.close();
-  }
-  return { file, ...size };
-}
-
-function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; settings: ComicSettings; rightToLeft: boolean; c: AppController }) {
+function Pages({ comic, settings, rightToLeft, c, pdf }: { comic: ReadyComic; settings: ComicSettings; rightToLeft: boolean; c: AppController; pdf: SharedPdf | null }) {
   const shown = onScreen(comic, settings.up);
   const count = comic.pages.length;
 
-  // Two windows around this page (core/comic/window.ts). The wide one keeps pages fetched: their files, a megabyte
-  // or two each, which is the wait over a network share. The narrow one keeps the nearest decoded, which is the
-  // wait at the turn itself, and what memory makes dear: 24 MB for a scanned page. Ribbon holds the decoded
-  // pictures itself and frees each the moment it leaves the window; left to the web view as <img>s, they stayed
-  // in its cache, 1.3 GB of them after a few dozen turns, closed comic and all (measured in the Mac build).
-  // Made in an effect: they start fetching at once, and are let go when the comic closes.
-  const fetched = useRef<PageWindow<Fetched> | null>(null);
-  const decoded = useRef<PageWindow<ImageBitmap> | null>(null);
-  const page = useRef(comic.page);
-  const up = useRef(settings.up);
-  up.current = settings.up;
-  // Drawn again when a page's file or picture lands.
-  const [, landed] = useReducer((n: number) => n + 1, 0);
-  useEffect(() => {
-    // A PDF is opened once, when its reader opens, and its pages are drawn out of it; pdf.js comes with the first PDF.
-    const document = c.comicDocument();
-    const pdf = document ? import("./pdf").then((m) => m.openWebPdf(document.url, document.bytes)) : null;
-    pdf?.catch(() => undefined);
-    // A PDF's page is drawn as large as this screen could show it, and no larger.
-    const longest = Math.min(4096, Math.max(window.screen.width, window.screen.height) * (window.devicePixelRatio || 1) * 1.6);
-    const files = new PageWindow<Fetched>(count, {
-      load: async (at, signal) => {
-        const address = pdf ? null : c.comicPageUrl(at);
-        if (!pdf && !address) throw new Error("no address for the page");
-        const file = pdf ? await (await pdf).size(at) : await fetchPage(address!, signal);
-        c.comicMeasured(comic.bookId, at, file.width, file.height);
-        return file;
-      },
-      landed,
-    });
-    const pictures = new PageWindow<ImageBitmap>(
-      count,
-      {
-        load: async (at) => {
-          const file = await files.get(at);
-          if (!file) throw new Error("the page's file didn't arrive");
-          if (pdf) return (await pdf).picture(at, longest);
-          return createImageBitmap(file.file!);
-        },
-        release: (_, picture) => picture.close(),
-        landed,
-      },
-      up.current === "two" ? DECODED_FACING : DECODED,
-    );
-    fetched.current = files;
-    decoded.current = pictures;
-    files.moveTo(page.current);
-    pictures.moveTo(page.current);
-    return () => {
-      fetched.current = null;
-      decoded.current = null;
-      // The PDF last: the pages still being drawn are drawn out of it.
-      void Promise.all([pictures.close(), files.close()]).then(() => pdf?.then((open) => open.close(), () => undefined));
-    };
-  }, [comic.bookId, count, c]);
-  useEffect(() => {
-    const forward = comic.page >= page.current;
-    fetched.current?.moveTo(comic.page, forward);
-    // Two pages up, the spreads either side are four pages, not two.
-    decoded.current?.resize(settings.up === "two" ? DECODED_FACING : DECODED);
-    decoded.current?.moveTo(comic.page, forward);
-    page.current = comic.page;
-  }, [comic.page, settings.up]);
+  // The pages kept fetched and decoded around this one (page-windows.ts). Two pages up, the spreads either side
+  // are four pages, not two.
+  const { fetched, decoded } = usePageWindows(comic, c, pdf, settings.up === "two" ? DECODED_FACING : DECODED);
 
   const turn = (to: number | null) => {
     if (to !== null) c.turnComic(to);
@@ -205,27 +240,31 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
   // On screen, a comic read right to left goes on to the left.
   const [onLeft, onRight] = rightToLeft ? [shown.next, shown.previous] : [shown.previous, shown.next];
 
-  // The keys a reader's hands are already on.
-  const keys = useRef({ shown, onLeft, onRight, count });
-  keys.current = { shown, onLeft, onRight, count };
+  // How much larger than the whole page the spread is drawn: a step of core's zoom, the whole page at first.
+  const [zoom, setZoom] = useState(0);
+
+  // The keys a reader's hands are already on, and the zoom's. The view's own keys are the reader's (ComicView).
+  const keys = useRef({ shown, onLeft, onRight, count, zoom });
+  keys.current = { shown, onLeft, onRight, count, zoom };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      // The page slider has the arrow keys while it has the focus.
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (!readerKey(e)) return;
       const k = keys.current;
       const go = (to: number | null, jump = false) => {
         e.preventDefault();
         if (to !== null) c.turnComic(to, jump ? "seek" : "periodic");
       };
+      const action = comicKey(e.key);
       if (e.key === "ArrowRight") go(k.onRight);
       else if (e.key === "ArrowLeft") go(k.onLeft);
       else if (e.key === "PageDown" || (e.key === " " && !e.shiftKey)) go(k.shown.next);
       else if (e.key === "PageUp" || (e.key === " " && e.shiftKey)) go(k.shown.previous);
       else if (e.key === "Home") go(0, true);
       else if (e.key === "End") go(k.count - 1, true);
-      else if (e.key === "Escape") {
+      else if (action === "zoom-in" || action === "zoom-out" || action === "zoom-whole") {
+        e.preventDefault();
+        zoomTo.current(action === "zoom-in" ? zoomIn(k.zoom) : action === "zoom-out" ? zoomOut(k.zoom) : 0);
+      } else if (e.key === "Escape") {
         e.preventDefault();
         void c.closeComic();
       }
@@ -256,12 +295,11 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
   useLayoutEffect(() => swipe.settled(), [comic.page, settings.up]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const neighbour = (to: number | null) => (to === null ? null : onScreen({ ...comic, page: to }, settings.up).pages);
-  const fitWidth = settings.fit === "width";
   /** One page of a spread, as it is drawn now: its place on screen, and its picture once that has been decoded. */
   const drawn = (at: number, across: number): Drawn | null => {
     const file = fetched.current?.peek(at);
     if (!file || room.width === 0) return null;
-    return { page: at, box: pageBox(file, across, room, settings.fit), picture: decoded.current?.peek(at) };
+    return { page: at, box: zoomed(pageBox(file, across, room, settings.fit), zoom), picture: decoded.current?.peek(at) };
   };
   /** The spreads to have drawn: the one on screen, and its neighbours on the side each will come in from. */
   const beside: { side: "left" | "middle" | "right"; pages: number[] }[] = [
@@ -269,108 +307,135 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
     { side: "middle", pages: shown.pages },
     ...(neighbour(onRight) ? [{ side: "right" as const, pages: neighbour(onRight)! }] : []),
   ];
+  // How large the spread on screen is drawn, once its pages' sizes are known.
+  const middle = shown.pages.map((at) => drawn(at, shown.pages.length));
+  const content = { width: middle.reduce((w, p) => w + (p?.box.width ?? 0), 0), height: Math.max(0, ...middle.map((p) => p?.box.height ?? 0)) };
+  // Larger than the window across, zoomed or fitted to the height, the view moves about the spread rather than
+  // swiping to the next; the spreads either side wait drawn and out of sight. Fitted to the width, it scrolls down.
+  const roams = zoom > 0 || content.width > room.width + 1;
+  const fitWidth = !roams && settings.fit === "width";
+
+  // Zoomed, the point under the pointer (or the middle of the view, by a key) stays over the same part of the page.
+  const anchor = useRef<{ at: { x: number; y: number }; scrolled: { left: number; top: number }; before: PixelSize } | null>(null);
+  const zoomTo = useRef((_step: number, _at?: { x: number; y: number }) => undefined as void);
+  zoomTo.current = (step, at) => {
+    const el = viewport.current;
+    if (step === zoom || !el) return;
+    anchor.current = { at: at ?? { x: el.clientWidth / 2, y: el.clientHeight / 2 }, scrolled: { left: el.scrollLeft, top: el.scrollTop }, before: content };
+    setZoom(step);
+  };
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    const a = anchor.current;
+    if (!el || !a) return;
+    anchor.current = null;
+    el.scrollTo(keptInPlace(a.at, a.scrolled, a.before, content, room));
+  }, [zoom]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Each page comes in at its top, at the corner the comic starts from: once its size is known, before it shows.
+  const placed = useRef(-1);
+  useLayoutEffect(() => {
+    const el = viewport.current;
+    if (!el || placed.current === comic.page || content.width === 0) return;
+    placed.current = comic.page;
+    el.scrollTo(startingCorner(rightToLeft, content, room));
+  });
+
+  // A mouse drags the view about a page larger than the window; a finger or a pen moves it as any scrolled view.
+  const pan = useRef<{ id: number; x: number; y: number; left: number; top: number; moved: boolean } | null>(null);
+  const panned = useRef(0);
+  const pointer = roams
+    ? {
+        onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+          if (e.pointerType !== "mouse" || e.button !== 0) return;
+          pan.current = { id: e.pointerId, x: e.clientX, y: e.clientY, left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop, moved: false };
+        },
+        onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
+          const p = pan.current;
+          if (!p || p.id !== e.pointerId) return;
+          const [dx, dy] = [e.clientX - p.x, e.clientY - p.y];
+          if (!p.moved) {
+            // Further than a click wanders.
+            if (Math.hypot(dx, dy) < 5) return;
+            p.moved = true;
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }
+          e.currentTarget.scrollTo({ left: p.left - dx, top: p.top - dy });
+        },
+        onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
+          if (pan.current?.id !== e.pointerId) return;
+          if (pan.current.moved) panned.current = performance.now();
+          pan.current = null;
+        },
+        onPointerCancel: () => void (pan.current = null),
+      }
+    : { onPointerDown: swipe.onPointerDown, onPointerMove: swipe.onPointerMove, onPointerUp: swipe.onPointerUp, onPointerCancel: swipe.onPointerCancel, onWheel: swipe.onWheel };
+
+  /** Which third of the view a pointer is over: the sides turn the page, the middle zooms. */
+  const third = (e: { clientX: number; currentTarget: HTMLElement }): "left" | "middle" | "right" => {
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - box.left) / Math.max(1, box.width);
+    return x < 1 / 3 ? "left" : x > 2 / 3 ? "right" : "middle";
+  };
+  const onClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    // A drag that turned or moved the page leaves a click behind it: it isn't one.
+    if (swipe.justSwiped() || performance.now() - panned.current < 300) return;
+    const where = third(e);
+    if (where === "left") turn(onLeft);
+    else if (where === "right") turn(onRight);
+    else {
+      const box = e.currentTarget.getBoundingClientRect();
+      zoomTo.current(zoomToggled(zoom), { x: e.clientX - box.left, y: e.clientY - box.top });
+    }
+  };
+  // The pointer says what a click will do where it is.
+  const onHover = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const where = third(e);
+    const cursor = where === "left" ? (onLeft === null ? "default" : "w-resize") : where === "right" ? (onRight === null ? "default" : "e-resize") : zoom > 0 ? "zoom-out" : "zoom-in";
+    if (e.currentTarget.style.cursor !== cursor) e.currentTarget.style.cursor = cursor;
+  };
 
   return (
-    <>
-      <div
-        ref={viewport}
-        className={clsx("relative min-h-0 flex-1 touch-pan-y select-none", fitWidth ? "overflow-x-hidden overflow-y-auto" : "overflow-hidden")}
-        onPointerDown={swipe.onPointerDown}
-        onPointerMove={swipe.onPointerMove}
-        onPointerUp={swipe.onPointerUp}
-        onPointerCancel={swipe.onPointerCancel}
-        onWheel={swipe.onWheel}
-      >
-        <div ref={track} data-comic-track className={clsx("relative w-full will-change-transform", !fitWidth && "h-full")}>
-          {/* The spread on screen and the one either side, already drawn where a swipe will bring it from. Each is
-              known by its pages, so at a turn the spread coming in is the one that was waiting beside: it moves to
-              the middle as it is, nothing drawn again, and only the new one waiting is drawn, after the turn shows. */}
-          {beside.map((b) => (
-            <div
-              key={b.pages.join("-")}
-              {...(b.side === "middle" ? { "data-on-screen": true } : { "aria-hidden": true })}
-              className={clsx(b.side === "middle" ? "relative w-full" : "absolute top-0 w-full", (b.side !== "middle" || !fitWidth) && "h-full", b.side === "left" && "right-full", b.side === "right" && "left-full")}
-            >
-              <div className={clsx("flex w-full items-center justify-center", !fitWidth && "h-full", rightToLeft && "flex-row-reverse")}>
-                {b.pages.map((at) => {
-                  const p = drawn(at, b.pages.length);
-                  return p && <PageCanvas key={p.page} {...p} waiting={b.side !== "middle"} />;
-                })}
-              </div>
+    <div
+      ref={viewport}
+      data-comic-view
+      data-zoom={zoom}
+      role="presentation"
+      className={clsx("relative min-h-0 flex-1 select-none", roams ? "overflow-auto" : fitWidth ? "touch-pan-y overflow-x-hidden overflow-y-auto" : "touch-pan-y overflow-hidden")}
+      style={{ backgroundColor: groundColour(settings.ground) }}
+      {...pointer}
+      onPointerMove={(e) => {
+        onHover(e);
+        pointer.onPointerMove(e);
+      }}
+      onClick={onClick}
+    >
+      <div ref={track} data-comic-track className={clsx("relative will-change-transform", roams ? "flex min-h-full w-max min-w-full" : clsx("w-full", !fitWidth && "h-full"))}>
+        {/* The spread on screen and the one either side, already drawn where a swipe will bring it from. Each is
+            known by its pages, so at a turn the spread coming in is the one that was waiting beside: it moves to
+            the middle as it is, nothing drawn again, and only the new one waiting is drawn, after the turn shows.
+            Zoomed, those either side wait out of sight, so they don't make the view any larger. */}
+        {beside.map((b) => (
+          <div
+            key={b.pages.join("-")}
+            {...(b.side === "middle" ? { "data-on-screen": true } : { "aria-hidden": true })}
+            className={clsx(
+              roams
+                ? b.side === "middle"
+                  ? "relative m-auto"
+                  : "invisible absolute top-0 left-0 size-0 overflow-hidden"
+                : clsx(b.side === "middle" ? "relative w-full" : "absolute top-0 w-full", (b.side !== "middle" || !fitWidth) && "h-full", b.side === "left" && "right-full", b.side === "right" && "left-full"),
+            )}
+          >
+            <div className={clsx("flex items-center", !roams && "w-full justify-center", !roams && !fitWidth && "h-full", rightToLeft && "flex-row-reverse")}>
+              {b.pages.map((at) => {
+                const p = drawn(at, b.pages.length);
+                return p && <PageCanvas key={p.page} {...p} waiting={b.side !== "middle"} />;
+              })}
             </div>
-          ))}
-        </div>
-        {/* A click on either side of the page turns it; the middle is the page's own. */}
-        <button type="button" aria-label={rightToLeft ? "Next page" : "Previous page"} disabled={onLeft === null} onClick={() => !swipe.justSwiped() && turn(onLeft)} className="absolute inset-y-0 left-0 w-1/3 cursor-w-resize disabled:cursor-default" />
-        <button type="button" aria-label={rightToLeft ? "Previous page" : "Next page"} disabled={onRight === null} onClick={() => !swipe.justSwiped() && turn(onRight)} className="absolute inset-y-0 right-0 w-1/3 cursor-e-resize disabled:cursor-default" />
+          </div>
+        ))}
       </div>
-
-      {count > 1 && (
-        <footer className="flex h-10 shrink-0 items-center gap-3 border-t border-line px-4">
-          <input
-            type="range"
-            aria-label="Page"
-            aria-valuetext={folio(shown.pages, count)}
-            min={1}
-            max={count}
-            step={1}
-            value={comic.page + 1}
-            // The slider runs the way the comic reads.
-            dir={rightToLeft ? "rtl" : "ltr"}
-            onChange={(e) => c.turnComic(Number(e.target.value) - 1, "seek")}
-            className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-line-strong accent-ink"
-          />
-          <p className="w-20 shrink-0 text-right text-[0.8125rem]/5 text-ink-2 tabular-nums">
-            {comic.page + 1} of {count}
-          </p>
-        </footer>
-      )}
-    </>
+    </div>
   );
-}
-
-/** A page as it is drawn: which, how large on screen, and its picture when that is decoded. */
-interface Drawn {
-  page: number;
-  box: PixelSize;
-  picture: ImageBitmap | undefined;
-}
-
-/**
- * A page, drawn from its decoded picture onto a canvas the size it shows
- * at, so what is kept for it is its size on screen, not the scan's. Until
- * its picture is decoded its place is held, empty, at its size, and
- * nothing moves when it arrives.
- */
-function PageCanvas({ page, box, picture, waiting }: Drawn & { waiting: boolean }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  /** What this canvas shows now, so a page that only moved from beside to the middle is not drawn again. */
-  const shows = useRef<{ picture: ImageBitmap; width: number; height: number } | null>(null);
-  const draw = () => {
-    const el = canvas.current;
-    if (!el || !picture) return;
-    if (shows.current?.picture === picture && shows.current.width === box.width && shows.current.height === box.height) return;
-    // As many pixels as the screen shows it with, and never more than the page has.
-    const density = Math.min(window.devicePixelRatio || 1, picture.width / box.width);
-    const [w, h] = [Math.min(picture.width, Math.max(1, Math.round(box.width * density))), Math.min(picture.height, Math.max(1, Math.round(box.height * density)))];
-    if (el.width !== w) el.width = w;
-    if (el.height !== h) el.height = h;
-    const ctx = el.getContext("2d");
-    if (!ctx) return;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(picture, 0, 0, w, h);
-    shows.current = { picture, width: box.width, height: box.height };
-    el.dataset.drawn = "true";
-  };
-  // On screen, it is drawn before the frame that shows it. Waiting beside, it is drawn once that frame has gone:
-  // scaling a page down takes a few milliseconds, more on a slow machine, and the turn itself shouldn't wait on it.
-  useLayoutEffect(() => {
-    if (!waiting) draw();
-  });
-  useEffect(() => {
-    if (!waiting) return;
-    const later = setTimeout(draw, 0);
-    return () => clearTimeout(later);
-  });
-  return <canvas ref={canvas} role="img" aria-label={`Page ${page + 1}`} data-page={page + 1} style={{ width: box.width, height: box.height }} className="block shrink-0" />;
 }

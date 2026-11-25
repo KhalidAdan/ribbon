@@ -91,6 +91,31 @@ describe("edits", () => {
     expect(sharedEdits({ title: "Dune", readAlong: "off" })).toEqual({ title: "Dune", readAlong: "off" });
   });
 
+  it("say which way a comic reads, over what its file says, and taken back it reads as its file says", async () => {
+    const comic: Book = { ...files, id: "c1", path: "c.cbz", comic: "c.cbz", fileCount: 0, durationMs: 0 };
+    const manga: Book = { ...comic, rightToLeft: true };
+    expect(applyEdits(comic, { rightToLeft: "yes" }).rightToLeft).toBe(true);
+    expect("rightToLeft" in applyEdits(manga, { rightToLeft: "no" })).toBe(false);
+    // An edit that says neither way leaves the comic as its file has it.
+    expect(applyEdits(manga, { rightToLeft: "" }).rightToLeft).toBe(true);
+    expect("rightToLeft" in applyEdits(comic, { rightToLeft: "sideways" })).toBe(false);
+    // The form's switch, as text.
+    expect(fieldText(manga, "rightToLeft")).toBe("yes");
+    expect(fieldText(comic, "rightToLeft")).toBe("no");
+    // A folder's comic: only a direction other than its file's is an edit; a form that doesn't mention it keeps the one it had.
+    expect(diffEdits(comic, { rightToLeft: "yes" })).toEqual({ rightToLeft: "yes" });
+    expect(diffEdits(manga, { rightToLeft: "yes" }, { rightToLeft: "no" })).toEqual({});
+    expect(diffEdits(manga, { title: "Lanterns" }, { rightToLeft: "no" })).toEqual({ title: "Lanterns", rightToLeft: "no" });
+    const e = { bookId: "c1", values: { rightToLeft: "no" }, updatedAt: "2026-11-25T12:00:00.000Z" };
+    expect(new TextDecoder().decode(await editsToBytes(e))).toContain("right_to_left,no");
+    expect(await bytesToEdits("c1", await editsToBytes(e))).toEqual(e);
+    // A server's comic: the switch moved is sent, and the server keeps either way, and nothing else.
+    expect(changedFields(manga, { rightToLeft: "no" })).toEqual({ rightToLeft: "no" });
+    expect(changedFields(manga, { rightToLeft: "yes" })).toEqual({});
+    expect(sharedEdits({ title: "Lanterns", rightToLeft: "no" })).toEqual({ title: "Lanterns", rightToLeft: "no" });
+    expect(sharedEdits({ title: "Lanterns", rightToLeft: "" })).toEqual({ title: "Lanterns" });
+  });
+
   it("show as form text", () => {
     expect(fieldText({ ...files, seriesIndex: 2.5, year: 1965 }, "seriesIndex")).toBe("2.5");
     expect(fieldText(files, "genres")).toBe("Sci-Fi");

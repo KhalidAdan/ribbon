@@ -12,9 +12,13 @@ import type { BookKind } from "./kind";
  *
  * A field the form leaves out is never changed by it: what a comic's
  * files say for a field it doesn't show stays as it is.
+ *
+ * A comic is asked one thing more, as a switch: whether it reads right to
+ * left (docs/COMICS.md, section 15). A PDF is read in the same reader as a
+ * comic, and is asked it too.
  */
 
-/** A field of the form: every edit but the cover, which is a picture, and read-along, which is a switch. */
+/** A field of the form: every edit but the cover, which is a picture, and read-along, a switch shown by what the book has (EditBook.tsx). */
 export type FormField = Exclude<EditField, "cover" | "readAlong">;
 
 export interface FieldSpec {
@@ -25,6 +29,8 @@ export interface FieldSpec {
   inputMode?: "numeric" | "decimal";
   /** Across both columns of the form. */
   wide?: boolean;
+  /** A switch, on or off, rather than text, with what it means each way: its edit is "yes" or "no" (edits.ts, `SWITCH_ON`). */
+  switch?: { on: string; off: string };
 }
 
 export interface FieldGroup {
@@ -90,6 +96,20 @@ const FORMS: Record<BookKind, FieldGroup[]> = {
       fields: [
         { field: "series", label: "Series" },
         { field: "seriesIndex", label: "Issue or volume number", inputMode: "decimal", hint: "Where it comes in the series. Decimals are fine: 2.5 sits between 2 and 3." },
+      ],
+    },
+    {
+      label: "Reading",
+      fields: [
+        {
+          field: "rightToLeft",
+          label: "Reads right to left",
+          wide: true,
+          switch: {
+            on: "Its pages turn from right to left on every device, as manga’s do.",
+            off: "Its pages turn from left to right. Turn this on for a comic read from the right, as manga is.",
+          },
+        },
       ],
     },
     { label: "More", fields: [...MORE, DESCRIPTION] },

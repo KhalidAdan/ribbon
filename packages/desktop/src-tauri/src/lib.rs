@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod comic;
 pub mod comic_rar;
+pub mod comic_small;
 pub mod ebook;
 pub mod frames;
 pub mod awake;
@@ -130,6 +131,7 @@ pub fn run() {
             online::catalog_search,
             comic::comic_entries,
             comic::comic_cover,
+            comic_small::comic_small_keep,
             ebook::ebook_open,
             ebook::export::ebook_export,
             awake::stay_awake,
