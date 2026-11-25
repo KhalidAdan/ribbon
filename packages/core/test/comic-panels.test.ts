@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PANEL_LIMITS, WHOLE_PAGE, added, fromPixels, inPixels, merged, moved, panelsFrom, panelsProblem, redrawn, removed, split, stops, tidied, type Panel } from "../src/comic/panels";
+import { PANEL_LIMITS, WHOLE_PAGE, added, closeOn, fromPixels, inPixels, merged, moved, panelsFrom, panelsProblem, redrawn, removed, split, stepped, stops, tidied, wholeOn, type Panel } from "../src/comic/panels";
 
 /** A page of three rows: one wide panel, then two side by side, then one wide. */
 const top: Panel = { x: 0.05, y: 0.05, w: 0.9, h: 0.25 };
@@ -79,6 +79,28 @@ describe("reading by panels", () => {
     expect(stops(page)).toEqual(page);
     expect(stops([])).toEqual([WHOLE_PAGE]);
     expect(stops(undefined)).toEqual([WHOLE_PAGE]);
+  });
+
+  it("fills the screen with one panel, from its middle, as the Apple apps do", () => {
+    // A scanned page, 2000 by 3000, on a screen 1920 by 1080: the numbers the Apple app's test holds (ComicTests.swift).
+    const [sheet, screen] = [{ width: 2000, height: 3000 }, { width: 1920, height: 1080 }];
+    const whole = wholeOn(sheet, screen);
+    expect(whole.scale).toBeCloseTo(0.36, 4);
+    expect(whole.width).toBeCloseTo(720, 3);
+    const close = closeOn(top, sheet, screen);
+    expect(close.scale).toBeCloseTo((1920 * 0.94) / 1800, 4);
+    expect(close.width).toBeCloseTo(1920 * 0.94, 3);
+    expect(close.x).toBeCloseTo(0, 3);
+    expect(close.y).toBeCloseTo(3000 * close.scale * (0.5 - 0.175), 3);
+    // A small inset is not blown up past four times the whole page's size.
+    expect(closeOn({ x: 0.6, y: 0.1, w: 0.05, h: 0.05 }, sheet, screen).scale).toBeCloseTo(whole.scale * 4, 4);
+  });
+
+  it("steps from panel to panel, and past a page's last to another page", () => {
+    expect(stepped(0, 1, 5)).toBe(1);
+    expect(stepped(3, -1, 5)).toBe(2);
+    expect(stepped(4, 1, 5)).toBeNull();
+    expect(stepped(0, -1, 5)).toBeNull();
   });
 
   it("is the same panel on a page drawn at any size", () => {

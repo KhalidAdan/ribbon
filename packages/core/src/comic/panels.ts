@@ -150,6 +150,46 @@ export function stops(panels: readonly Panel[] | undefined): Panel[] {
   return panels && panels.length > 0 ? [...panels] : [WHOLE_PAGE];
 }
 
+/** Where a page's picture is put on a screen: how many times its own size it is drawn, how far its middle is from the screen's, and how much of the screen, about its middle, is left showing the page. */
+export interface Placing {
+  scale: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** How much a small panel may be enlarged, in times the page's size when it is shown whole: past that a scan is blur. */
+const MOST_ENLARGED = 4;
+
+/** The page whole, in the middle of the screen, as large as fits. */
+export function wholeOn(page: PixelSize, screen: PixelSize): Placing {
+  if (page.width <= 0 || page.height <= 0) return { scale: 1, x: 0, y: 0, width: screen.width, height: screen.height };
+  const scale = Math.min(screen.width / page.width, screen.height / page.height);
+  return { scale, x: 0, y: 0, width: page.width * scale, height: page.height * scale };
+}
+
+/**
+ * One panel of the page in the middle of the screen, as large as fits with
+ * a little room about it, and nothing else of the page showing. The Apple
+ * apps place a panel by the same arithmetic (`ComicPaging.close`,
+ * packages/apple/Ribbon/Comic/ComicSession.swift).
+ */
+export function closeOn(panel: Panel, page: PixelSize, screen: PixelSize, room = 0.03): Placing {
+  const [w, h] = [panel.w * page.width, panel.h * page.height];
+  if (w <= 0 || h <= 0) return wholeOn(page, screen);
+  const fits = Math.min((screen.width * (1 - 2 * room)) / w, (screen.height * (1 - 2 * room)) / h);
+  const scale = Math.min(fits, wholeOn(page, screen).scale * MOST_ENLARGED);
+  // The page is moved so the panel's middle is the screen's.
+  return { scale, x: page.width * scale * (0.5 - (panel.x + panel.w / 2)), y: page.height * scale * (0.5 - (panel.y + panel.h / 2)), width: w * scale, height: h * scale };
+}
+
+/** The panel after a step onward (`1`) or back (`-1`) from panel `at` of `count`; null when the step goes on to another page. */
+export function stepped(at: number, by: 1 | -1, count: number): number | null {
+  const to = at + by;
+  return to >= 0 && to < count ? to : null;
+}
+
 /** A rectangle in a picture's own pixels. */
 export interface PixelBox {
   x: number;

@@ -331,7 +331,7 @@ const HANDLES: [number, number][] = [
  * the reader lets go of its pages (ComicView.tsx): left to the web view
  * as image elements, decoded pages pile up in its cache.
  */
-function usePagePicture(c: AppController, at: number): (PixelSize & { bitmap: ImageBitmap }) | null {
+export function usePagePicture(c: AppController, at: number): (PixelSize & { bitmap: ImageBitmap }) | null {
   const [picture, setPicture] = useState<(PixelSize & { bitmap: ImageBitmap }) | null>(null);
   // A PDF is opened once, when the editor opens, and its pages are drawn out of it.
   const pdf = useRef<Promise<import("./pdf").WebPdf> | null | undefined>(undefined);

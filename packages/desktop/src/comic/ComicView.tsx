@@ -10,7 +10,9 @@ import { Button } from "../ui/Button";
 import { Menu, type MenuItem } from "../ui/kit";
 import { useAppState, useController } from "../ui/store";
 import { usePageSwipe } from "../reader/swipe";
+import type { Panel } from "@ribbon/core/comic/panels";
 import { PanelEditor } from "./PanelEditor";
+import { PanelReader } from "./PanelReader";
 
 /**
  * The comic reader (docs/COMICS.md, section 5): a comic's pages, shown
@@ -32,6 +34,24 @@ export function ComicView() {
   const c = useController();
   // Marking the comic's panels takes the reader's place until it is done (PanelEditor.tsx).
   const [marking, setMarking] = useState(false);
+  // The comic's panels, where a server has them marked (docs/COMICS.md, section 14): it is read by them unless the
+  // reader says whole pages. Asked for again when marking is done, since that is where they change.
+  const [panels, setPanels] = useState<Map<number, Panel[]> | null>(null);
+  const [byPanel, setByPanel] = useState(true);
+  const openId = r?.status === "ready" ? r.bookId : null;
+  useEffect(() => {
+    setPanels(null);
+    if (!openId || marking) return;
+    let gone = false;
+    c.comicPanels(openId).then(
+      (marked) => !gone && setPanels(marked),
+      () => undefined,
+    );
+    return () => {
+      gone = true;
+    };
+  }, [c, openId, marking]);
+  const hasPanels = !!panels && panels.size > 0;
   if (!r) return null;
   const ready = r.status === "ready" ? r : null;
   const shown = ready ? onScreen(ready, settings.up) : null;
@@ -40,6 +60,7 @@ export function ComicView() {
     settings.up === "one" ? { label: "Two pages, as printed", onSelect: () => c.setComicSettings({ up: "two" }) } : { label: "One page at a time", onSelect: () => c.setComicSettings({ up: "one" }) },
     settings.fit === "page" ? { label: "Fit the width", onSelect: () => c.setComicSettings({ fit: "width" }) } : { label: "Fit the page", onSelect: () => c.setComicSettings({ fit: "page" }) },
     rightToLeft ? { label: "Read left to right", onSelect: () => c.setComicRightToLeft(r.bookId, false) } : { label: "Read right to left", onSelect: () => c.setComicRightToLeft(r.bookId, true) },
+    ...(hasPanels ? [byPanel ? { label: "Whole pages", onSelect: () => setByPanel(false) } : { label: "Read by panels", onSelect: () => setByPanel(true) }] : []),
     // A server's comic, for its admin: the panels it is read by on a television are marked here (docs/COMICS.md, section 14).
     ...(ready && c.canMarkPanels(r.bookId) ? [{ label: "Mark its panels…", onSelect: () => setMarking(true) }] : []),
   ];
@@ -65,7 +86,8 @@ export function ComicView() {
           <p className="mt-1 max-w-md">{r.message}</p>
         </div>
       )}
-      {ready && !marking && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} />}
+      {ready && !marking && !(hasPanels && byPanel) && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} />}
+      {ready && !marking && hasPanels && byPanel && <PanelReader key={ready.bookId} comic={ready} panels={panels} rightToLeft={rightToLeft} c={c} />}
       {ready && marking && <PanelEditor key={ready.bookId} comic={ready} title={title} c={c} onDone={() => setMarking(false)} />}
     </div>
   );
