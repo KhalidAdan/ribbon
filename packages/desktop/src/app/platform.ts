@@ -1,7 +1,7 @@
 import type { Platform } from "./controller";
 import { withPdfs } from "../host/pdf-host";
 import type { SourceEntry } from "@ribbon/core/sources";
-import { browserComicPageUrl, browserFileUrl, browserHome, browserHost, browserLibraryRoot } from "../host/browser";
+import { browserComicPageUrl, browserFileUrl, browserHome, browserHost, browserKeepSmallPage, browserLibraryRoot } from "../host/browser";
 import { log } from "./log";
 
 /** Where the remembered library lived before the Ribbon folder existed. */
@@ -68,7 +68,7 @@ export function memorySources(): Platform["sources"] {
  */
 export async function detectPlatform({ updates: mayUpdate = true }: { updates?: boolean } = {}): Promise<Platform> {
   if (isTauri()) {
-    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, comicPageUrl, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, tauriBrowserSignIn, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onSleepAndWake, tauriUpdates }, dialog] = await Promise.all([
+    const [{ tauriHost, allowLibrary, fileUrl, exactAudioUrl, audioUrl, comicPageUrl, keepSmallPage, onApple, uptimeMs, envLibrary, homeInfo, sourcesRead, sourcesWrite, revealHome, resetHome, tauriHomeMove, appSettingsRead, appSettingsWrite, tauriBrowserSignIn, onIos, pickFolderOnIos, restoreFoldersOnIos, keepFoldersOnIos, onQuitAsked, onSleepAndWake, tauriUpdates }, dialog] = await Promise.all([
       import("../host/tauri"),
       import("@tauri-apps/plugin-dialog"),
     ]);
@@ -98,6 +98,7 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
       allowFolder: allowLibrary,
       fileUrl,
       comicPageUrl,
+      keepSmallPage,
       exactAudioUrl,
       // Only where the asset protocol won't play every book: WebView2 plays them all through `fileUrl` (#226).
       ...(onApple() ? { audioUrl } : {}),
@@ -196,7 +197,8 @@ export async function detectPlatform({ updates: mayUpdate = true }: { updates?: 
     pickFolder: () => browserLibraryRoot(),
     allowFolder: async () => undefined,
     fileUrl: browserFileUrl,
-    comicPageUrl: browserComicPageUrl,
+    comicPageUrl: (absPath, entry, version, small) => browserComicPageUrl(absPath, entry, version, small),
+    keepSmallPage: (absPath, entry, jpeg) => browserKeepSmallPage(absPath, entry, jpeg),
     sources: memorySources(),
     defaultRoot: () => browserLibraryRoot(),
     appSettings: memorySettings(),

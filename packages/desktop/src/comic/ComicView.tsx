@@ -1,6 +1,6 @@
 import { ArrowLeftIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { onScreen, type ReadyComic } from "@ribbon/core/comic/session";
 import type { ComicSettings } from "@ribbon/core/comic/settings";
 import { imageSize, pageBox, type PixelSize } from "@ribbon/core/comic/size";
@@ -11,6 +11,8 @@ import { Menu, type MenuItem } from "../ui/kit";
 import { useAppState, useController } from "../ui/store";
 import { usePageSwipe } from "../reader/swipe";
 import type { Panel } from "@ribbon/core/comic/panels";
+import { ComicStrip } from "./ComicStrip";
+import { SharedPdf } from "./document";
 import { PanelEditor } from "./PanelEditor";
 import { PanelReader } from "./PanelReader";
 
@@ -52,6 +54,12 @@ export function ComicView() {
     };
   }, [c, openId, marking]);
   const hasPanels = !!panels && panels.size > 0;
+  // A PDF is opened once for the comic, and its pages and the strip's small ones are drawn out of it. Nothing is
+  // opened here: the first to draw from it does that.
+  const pdf = useMemo(() => {
+    const document = openId ? c.comicDocument() : undefined;
+    return document ? new SharedPdf(document) : null;
+  }, [c, openId]);
   if (!r) return null;
   const ready = r.status === "ready" ? r : null;
   const shown = ready ? onScreen(ready, settings.up) : null;
@@ -59,6 +67,7 @@ export function ComicView() {
   const view: MenuItem[] = [
     settings.up === "one" ? { label: "Two pages, as printed", onSelect: () => c.setComicSettings({ up: "two" }) } : { label: "One page at a time", onSelect: () => c.setComicSettings({ up: "one" }) },
     settings.fit === "page" ? { label: "Fit the width", onSelect: () => c.setComicSettings({ fit: "width" }) } : { label: "Fit the page", onSelect: () => c.setComicSettings({ fit: "page" }) },
+    ...(ready && ready.pages.length > 1 && !(hasPanels && byPanel) ? [settings.strip ? { label: "Hide small pages", onSelect: () => c.setComicSettings({ strip: false }) } : { label: "Show small pages", onSelect: () => c.setComicSettings({ strip: true }) }] : []),
     rightToLeft ? { label: "Read left to right", onSelect: () => c.setComicRightToLeft(r.bookId, false) } : { label: "Read right to left", onSelect: () => c.setComicRightToLeft(r.bookId, true) },
     ...(hasPanels ? [byPanel ? { label: "Whole pages", onSelect: () => setByPanel(false) } : { label: "Read by panels", onSelect: () => setByPanel(true) }] : []),
     // A server's comic, for its admin: the panels it is read by on a television are marked here (docs/COMICS.md, section 14).
@@ -86,7 +95,7 @@ export function ComicView() {
           <p className="mt-1 max-w-md">{r.message}</p>
         </div>
       )}
-      {ready && !marking && !(hasPanels && byPanel) && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} />}
+      {ready && !marking && !(hasPanels && byPanel) && <Pages key={ready.bookId} comic={ready} settings={settings} rightToLeft={rightToLeft} c={c} pdf={pdf} />}
       {ready && !marking && hasPanels && byPanel && <PanelReader key={ready.bookId} comic={ready} panels={panels} rightToLeft={rightToLeft} c={c} />}
       {ready && marking && <PanelEditor key={ready.bookId} comic={ready} title={title} c={c} onDone={() => setMarking(false)} />}
     </div>
@@ -131,7 +140,7 @@ async function fetchPage(address: string, signal: AbortSignal): Promise<Fetched>
   return { file, ...size };
 }
 
-function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; settings: ComicSettings; rightToLeft: boolean; c: AppController }) {
+function Pages({ comic, settings, rightToLeft, c, pdf }: { comic: ReadyComic; settings: ComicSettings; rightToLeft: boolean; c: AppController; pdf: SharedPdf | null }) {
   const shown = onScreen(comic, settings.up);
   const count = comic.pages.length;
 
@@ -149,17 +158,15 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
   // Drawn again when a page's file or picture lands.
   const [, landed] = useReducer((n: number) => n + 1, 0);
   useEffect(() => {
-    // A PDF is opened once, when its reader opens, and its pages are drawn out of it; pdf.js comes with the first PDF.
-    const document = c.comicDocument();
-    const pdf = document ? import("./pdf").then((m) => m.openWebPdf(document.url, document.bytes)) : null;
-    pdf?.catch(() => undefined);
+    // A PDF's pages are drawn out of it, opened once for the comic (document.ts).
+    const document = pdf?.take() ?? null;
     // A PDF's page is drawn as large as this screen could show it, and no larger.
     const longest = Math.min(4096, Math.max(window.screen.width, window.screen.height) * (window.devicePixelRatio || 1) * 1.6);
     const files = new PageWindow<Fetched>(count, {
       load: async (at, signal) => {
-        const address = pdf ? null : c.comicPageUrl(at);
-        if (!pdf && !address) throw new Error("no address for the page");
-        const file = pdf ? await (await pdf).size(at) : await fetchPage(address!, signal);
+        const address = document ? null : c.comicPageUrl(at);
+        if (!document && !address) throw new Error("no address for the page");
+        const file = document ? await (await document).size(at) : await fetchPage(address!, signal);
         c.comicMeasured(comic.bookId, at, file.width, file.height);
         return file;
       },
@@ -171,7 +178,7 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
         load: async (at) => {
           const file = await files.get(at);
           if (!file) throw new Error("the page's file didn't arrive");
-          if (pdf) return (await pdf).picture(at, longest);
+          if (document) return (await document).picture(at, longest);
           return createImageBitmap(file.file!);
         },
         release: (_, picture) => picture.close(),
@@ -186,10 +193,10 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
     return () => {
       fetched.current = null;
       decoded.current = null;
-      // The PDF last: the pages still being drawn are drawn out of it.
-      void Promise.all([pictures.close(), files.close()]).then(() => pdf?.then((open) => open.close(), () => undefined));
+      // The PDF is let go once the pages still being drawn out of it are done.
+      pdf?.letGo(Promise.all([pictures.close(), files.close()]));
     };
-  }, [comic.bookId, count, c]);
+  }, [comic.bookId, count, c, pdf]);
   useEffect(() => {
     const forward = comic.page >= page.current;
     fetched.current?.moveTo(comic.page, forward);
@@ -205,9 +212,9 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
   // On screen, a comic read right to left goes on to the left.
   const [onLeft, onRight] = rightToLeft ? [shown.next, shown.previous] : [shown.previous, shown.next];
 
-  // The keys a reader's hands are already on.
-  const keys = useRef({ shown, onLeft, onRight, count });
-  keys.current = { shown, onLeft, onRight, count };
+  // The keys a reader's hands are already on, and the strip's.
+  const keys = useRef({ shown, onLeft, onRight, count, settings });
+  keys.current = { shown, onLeft, onRight, count, settings };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -225,7 +232,10 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
       else if (e.key === "PageUp" || (e.key === " " && e.shiftKey)) go(k.shown.previous);
       else if (e.key === "Home") go(0, true);
       else if (e.key === "End") go(k.count - 1, true);
-      else if (e.key === "Escape") {
+      else if (e.key === "t" || e.key === "T") {
+        e.preventDefault();
+        if (k.count > 1) c.setComicSettings({ strip: !k.settings.strip });
+      } else if (e.key === "Escape") {
         e.preventDefault();
         void c.closeComic();
       }
@@ -305,6 +315,7 @@ function Pages({ comic, settings, rightToLeft, c }: { comic: ReadyComic; setting
         <button type="button" aria-label={rightToLeft ? "Previous page" : "Next page"} disabled={onRight === null} onClick={() => !swipe.justSwiped() && turn(onRight)} className="absolute inset-y-0 right-0 w-1/3 cursor-e-resize disabled:cursor-default" />
       </div>
 
+      {count > 1 && settings.strip && <ComicStrip comic={comic} shown={shown.pages} rightToLeft={rightToLeft} c={c} pdf={pdf} />}
       {count > 1 && (
         <footer className="flex h-10 shrink-0 items-center gap-3 border-t border-line px-4">
           <input

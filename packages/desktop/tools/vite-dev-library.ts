@@ -12,10 +12,23 @@ import { nodeHost } from "@ribbon/host-node/node";
 import { openComic } from "@ribbon/host-node/comic";
 import { loadPdfReader } from "@ribbon/host-node/pdf";
 import { isPage, pageType } from "@ribbon/core/comic/pages";
+import { SMALL_PAGE_HEIGHT } from "@ribbon/core/comic/strip";
 
 // pdf.js is loaded with this file: Vite closes the loader it read this plugin with, and a PDF met later
-// could no longer ask for it (packages/host-node/src/pdf.ts).
+// could no longer ask for it (packages/host-node/src/pdf.ts). The canvas a page is made small on, likewise.
 await loadPdfReader();
+const canvas = await import("@napi-rs/canvas").catch(() => null);
+
+/** A page made SMALL_PAGE_HEIGHT tall, as a JPEG, as the app's Rust makes one (comic_small.rs). */
+async function smallJpeg(page: Uint8Array): Promise<Uint8Array> {
+  if (!canvas) throw new Error("no canvas on this machine to make a small page with");
+  const picture = await canvas.loadImage(Buffer.from(page));
+  const scale = Math.min(1, SMALL_PAGE_HEIGHT / picture.height);
+  const [width, height] = [Math.max(1, Math.round(picture.width * scale)), Math.max(1, Math.round(picture.height * scale))];
+  const small = canvas.createCanvas(width, height);
+  small.getContext("2d").drawImage(picture, 0, 0, width, height);
+  return small.toBuffer("image/jpeg", 80);
+}
 
 const MIME: Record<string, string> = {
   mp3: "audio/mpeg",
@@ -84,6 +97,9 @@ export function devLibrary(root: string | undefined): Plugin {
     return abs;
   }
 
+  /** Pages' small pictures, made or handed over, by their comic and entry. */
+  const smallPages = new Map<string, Uint8Array>();
+
   async function body(req: IncomingMessage): Promise<Buffer> {
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
@@ -106,6 +122,38 @@ export function devLibrary(root: string | undefined): Plugin {
         try {
           if (op === "root") return json(res, 200, { root: absRoot });
           if (!absRoot) return json(res, 404, { error: "RIBBON_DEV_LIBRARY not set" });
+
+          if (op === "comicSmall" && req.method === "PUT") {
+            // A PDF's page drawn small by the page, kept as the app keeps one (comic_small.rs).
+            smallPages.set(`${url.searchParams.get("path")}\n${url.searchParams.get("entry")}`, new Uint8Array(await body(req)));
+            return json(res, 200, true);
+          }
+
+          if (op === "comicPage" && url.searchParams.get("small") === "1") {
+            // A page's small picture, made once and kept for as long as the harness runs.
+            const entry = url.searchParams.get("entry") ?? "";
+            const key = `${url.searchParams.get("path")}\n${entry}`;
+            let small = smallPages.get(key);
+            if (!small && isPage(entry)) {
+              const comic = await openComic(inside(url.searchParams.get("path") ?? ""));
+              try {
+                const chunks: Uint8Array[] = [];
+                for await (const chunk of comic.source(entry)) chunks.push(chunk);
+                small = await smallJpeg(new Uint8Array(Buffer.concat(chunks)));
+                smallPages.set(key, small);
+              } finally {
+                await comic.close();
+              }
+            }
+            // A PDF's, not drawn yet: nothing, and not an error.
+            if (!small) {
+              res.statusCode = 204;
+              return res.end();
+            }
+            res.statusCode = 200;
+            res.setHeader("content-type", "image/jpeg");
+            return res.end(small);
+          }
 
           if (op === "comicPage") {
             // One page, straight out of the archive, as the app's `ribboncomic` address gives it.

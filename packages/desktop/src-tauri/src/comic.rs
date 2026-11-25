@@ -212,10 +212,15 @@ fn content_type(entry: &str) -> &'static str {
 }
 
 /// The `ribboncomic` protocol: `?path=<file>&entry=<name>` is one page of a comic, for
-/// an image. Only files the asset scope allows, and only entries that are pages.
+/// an image, and with `&small=1` the same page small (comic_small.rs). Only files the
+/// asset scope allows, and only entries that are pages.
 pub fn respond<R: tauri::Runtime>(app: &tauri::AppHandle<R>, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     use tauri::http::{header, Response, StatusCode};
     let uri = request.uri().to_string();
+    // A page's small picture, for the strip (comic_small.rs).
+    if query(&uri, "small").is_some() {
+        return crate::comic_small::respond(app, &uri);
+    }
     let (Some(path), Some(entry)) = (query(&uri, "path"), query(&uri, "entry")) else {
         return failure(StatusCode::BAD_REQUEST, "path and entry are needed".into());
     };
