@@ -3,7 +3,8 @@
 **A design, read and accepted by the owner** (2026-11-25: "pretty low
 stakes. We can always fix later"). It is step 7 of [COMICS.md](COMICS.md),
 section 15: each kind of book with details of its own, a comic's above
-all, and then ComicVine filling a comic's in. Nothing here is built yet.
+all, and then ComicVine filling a comic's in. Built in 0.52.0: section 11
+says what was built and what is still open.
 Section 10's questions are decided as recommended, and the defaults
 marked **proposed** stand as written until he changes one.
 
@@ -712,3 +713,31 @@ north star's line (question 9) is made in [NORTHSTAR.md](NORTHSTAR.md).
     this work** (step 7), or wait? *Recommended: part of it, last.* It is
     small, the same reader as a side file's, and "each kind its own"
     covers texts too.
+
+## 11. Built
+
+**In 0.52.0** (2026-11-26), every step of section 9 but the fifth, one pull request each:
+
+| Step | Pull request |
+| --- | --- |
+| 2. Core: a comic's own details, its name, byline, place and label (`comic-name.ts`), the new edits, today's moved as they are read (`movedComicEdits`) | #298 |
+| 3. The desktop alone: `comics.csv`'s new columns and the one read again, the form by kind, credits and dates on a book's page | #301 |
+| 4. The server: `book.details`, the listing's names, the series' labels, the new fields in and out, the one-time move of `book_edit`, the MCP | #300 |
+| 6. The Apple apps: the series label, a comic's credits and dates, "Details from ComicVine" | #302 |
+| 7. An EPUB's own series, genres and translators, from its package | #299 |
+| 8. ComicVine on the server | #303 |
+| 9. ComicVine on the desktop alone, and a desktop keeping 0.51.0's comic form on a server that doesn't say it knows the new fields (`editFields`) | #304 |
+
+**The move on the owner's server** was tried first on a copy of its data (`npm run try-comic-move`): twenty comics, nineteen of them edited, no errors, and one name changed, as section 6 says it would: the collection whose title was in the old "Series Vol. 1 (#1–#6)" shape became "Transformers Vol. 1: Robots in Disguise", collecting 1–6. At the swap the server read 21 comics again (one had been added since) and moved the edits of the same nineteen.
+
+**A race found on the way** (#301): a book saved while the shelf was reading every edits file back could be shown as it was before the save until the next read. The read now gives way to saves made since it began (`readEdits` in the controller).
+
+**Still open:**
+
+- **Step 5**: the credits, dates and days on sale written into the Transformers comics' descriptions are not yet moved into their own fields. It waits on the owner's word, since it changes his server's data. Until then their cover dates come from their files' names (a year), not from the covers.
+- **ComicVine against real answers.** Both sides were built and tested against answers written by hand in ComicVine's shape, with no key: the role words, the shapes of its answers and how its search matches are unverified until the owner sets one.
+- **A collection matched on ComicVine takes ComicVine's run as its series**, name and year, which can split it from its issues' series. The owner's to decide.
+- **ComicVine's rules for asking** (one at a time, the hourly limit, retrying) are in core twice, the server's copy and the desktop's (`core/comicvine-gate.ts`): the server should take core's, with no change in what it does.
+- **The desktop's match record keeps what ComicVine said for each field**, not its whole answer, as the server does: if the role words need fixing, a person looks the comic up again.
+- **A PDF's own Title and Author** (its Info dictionary) aren't read yet.
+
