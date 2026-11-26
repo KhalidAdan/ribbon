@@ -113,7 +113,8 @@ export interface ServerJob {
 export interface ServerSeries {
   id: string;
   name: string;
-  books: { id: string; number: number | null; title: string | null; shelved: boolean }[];
+  /** Each book's `label` is what a list of the series calls a comic, "#7" or "Vol. 1", where it calls any other book "Book 2"; null for any other book. A server from before comics had details of their own doesn't send it. */
+  books: { id: string; number: number | null; title: string | null; shelved: boolean; label?: string | null }[];
 }
 
 /**

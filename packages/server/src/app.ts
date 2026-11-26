@@ -15,6 +15,7 @@ import { Jobs } from "./jobs.ts";
 import { nodeHost } from "@ribbon/host-node/node";
 import { listDirections, relistRecords } from "./library/book-folder.ts";
 import { BookIndex } from "./library/books.ts";
+import { readComicsAgain } from "./library/comic-details.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { audibleCatalog, booksToDescribe, describeBooks, type DescribeProgress } from "./library/describe.ts";
 import { booksToHydrate, hydrateBooks, type HydrateProgress } from "./library/hydrate.ts";
@@ -56,6 +57,9 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const invites = new Invites(db);
   const jobs = new Jobs(db);
   const books = new BookIndex(db);
+  // Comics added before comics had details of their own are read again, named from them, and their edits moved into them,
+  // once (comic-details.ts): before anything lists them, and before series are found by their names.
+  const comics = await readComicsAgain(config.dataDir, books);
   // Books added before the server kept series join theirs now; after that, as each folder is added.
   const series = new LibrarySeries(db);
   series.find(books.list(), Date.now());
@@ -75,6 +79,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   if (imported > 0) app.log.info(`took ${imported} place records kept in files into the database`);
   if (relisted > 0) app.log.info(`listed again the records of ${relisted} books whose record had lost them`);
   if (directed > 0) app.log.info(`listed which way ${directed} comics read, from their records`);
+  if (comics.read > 0) app.log.info(`read ${comics.read} comics again for their own details, and moved the edits of ${comics.moved} into them`);
+  if (comics.unreadable.length > 0) app.log.warn(`couldn't read ${comics.unreadable.length} comics again for their own details, to try at the next start: ${comics.unreadable.join(", ")}`);
   // JSON shrinks a lot; audio, pictures and EPUBs are compressed already and go as they are.
   await app.register(fastifyCompress, { encodings: ["br", "gzip"] });
   // The apps call the API from their own origin. They sign in with a token in a header, never a cookie, so any

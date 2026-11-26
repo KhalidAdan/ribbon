@@ -288,6 +288,7 @@ export function Short({ phone, children }: { phone: string; children: string }) 
 }
 
 /** A keyboard key, for hints. */
+/** A key, as a keycap: square for a letter or an arrow, as wide as its name for "Space" or "Page Up". */
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded-[4px] px-1 font-sans text-[0.6875rem]/4 text-ink-3 ring-1 ring-line-strong ring-inset">{children}</kbd>;
+  return <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-[4px] bg-raised px-1 font-sans text-[0.6875rem]/4 font-medium whitespace-nowrap text-ink-2 tabular-nums ring-1 ring-line-strong ring-inset">{children}</kbd>;
 }

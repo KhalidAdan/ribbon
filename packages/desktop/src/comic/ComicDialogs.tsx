@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { keyList } from "@ribbon/core/comic/keys";
+import { keyCaps, keyGroups } from "@ribbon/core/comic/keys";
 import { pageTyped } from "@ribbon/core/comic/zoom";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
@@ -80,7 +80,14 @@ export function JumpToPage({ open, page, count, onGo, onClose }: { open: boolean
   );
 }
 
-/** The reader's keys (`?`, or "Keys…" in the Pages menu), with the arrows the way the open comic reads (core/comic/keys.ts). */
+/**
+ * The reader's keys (`?`, or "All keys…" under View), grouped by what
+ * they're for, with the arrows the way the open comic reads
+ * (core/comic/keys.ts). Each line says what happens first, since that is
+ * what a person looks for, and the keys that do it on the right; keys
+ * that do the same are side by side, keys held together are joined by a
+ * plus.
+ */
 export function ComicKeyList({ open, rightToLeft, onClose }: { open: boolean; rightToLeft: boolean; onClose: () => void }) {
   return (
     <Dialog
@@ -88,25 +95,60 @@ export function ComicKeyList({ open, rightToLeft, onClose }: { open: boolean; ri
       onClose={onClose}
       labelId="comic-keys-title"
       title="Keys"
-      description={rightToLeft ? "This comic reads right to left, and the arrows go with it." : undefined}
+      description={rightToLeft ? "This comic reads right to left, so the arrows do too." : "For reading a comic. The arrows go the way it reads."}
+      hint={
+        <span className="inline-flex items-center gap-1.5">
+          Press <Kbd>?</Kbd> to see them again.
+        </span>
+      }
+      wide
       actions={
         <Button variant="primary" onClick={onClose}>
           Done
         </Button>
       }
     >
-      <dl className="grid min-h-0 grid-cols-[auto_1fr] gap-x-5 gap-y-2 overflow-y-auto px-5 pt-4 pb-5 text-base/6 sm:text-sm/5">
-        {keyList(rightToLeft).map((line) => (
-          <div key={line.does} className="contents">
-            <dt className="flex flex-wrap items-center gap-1">
-              {line.keys.map((key) => (
-                <Kbd key={key}>{key}</Kbd>
+      <div className="grid min-h-0 gap-x-10 gap-y-6 overflow-y-auto px-5 pt-5 pb-6 sm:grid-cols-2">
+        {keyGroups(rightToLeft).map((group, i) => (
+          <section key={group.title} aria-labelledby={`comic-keys-${i}`} className="flex flex-col gap-1">
+            <h3 id={`comic-keys-${i}`} className="text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">
+              {group.title}
+            </h3>
+            <dl className="divide-y divide-line">
+              {group.lines.map((line) => (
+                <div key={line.does} className="flex items-center justify-between gap-4 py-2">
+                  <dt className="min-w-0 text-base/6 text-ink sm:text-sm/5">{line.does}</dt>
+                  <dd className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                    {line.keys.map((key) => (
+                      <KeyCaps key={key} keyName={key} />
+                    ))}
+                  </dd>
+                </div>
               ))}
-            </dt>
-            <dd className="text-ink-2">{line.does}</dd>
-          </div>
+            </dl>
+            {group.note && <p className="pt-1 text-sm/5 text-ink-3 sm:text-xs/4">{group.note}</p>}
+          </section>
         ))}
-      </dl>
+      </div>
     </Dialog>
+  );
+}
+
+/** One key, or keys held together, as caps: "Shift+Space" is two caps with a plus between them. */
+function KeyCaps({ keyName }: { keyName: string }) {
+  const caps = keyCaps(keyName);
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {caps.map((cap, i) => (
+        <span key={cap} className="inline-flex items-center gap-0.5">
+          {i > 0 && (
+            <span className="text-xs/4 text-ink-3" aria-hidden="true">
+              +
+            </span>
+          )}
+          <Kbd>{cap}</Kbd>
+        </span>
+      ))}
+    </span>
   );
 }

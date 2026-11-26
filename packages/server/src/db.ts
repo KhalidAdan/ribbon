@@ -22,7 +22,7 @@ export function openDatabase(dataDir: string): DatabaseSync {
   return db;
 }
 
-/** A database from before comics gets the columns that say a book is one, and how many pages it has: no book in it is a comic. */
+/** A database from before comics gets the columns that say a book is one, how many pages it has, and what else it says of itself: no book in it is a comic. */
 function comicsToo(db: DatabaseSync): void {
   const columns = db.prepare("SELECT name FROM pragma_table_info('book')").all();
   if (!columns.some((c) => c.name === "has_comic")) db.exec("ALTER TABLE book ADD COLUMN has_comic INTEGER NOT NULL DEFAULT 0; ALTER TABLE book ADD COLUMN pages INTEGER");
@@ -31,6 +31,14 @@ function comicsToo(db: DatabaseSync): void {
   // And whether a comic reads right to left, as its file says (docs/COMICS.md, section 15): null for a comic added before the
   // library listed it, until its record is read, once, at start (book-folder.ts, `listDirections`).
   if (!columns.some((c) => c.name === "right_to_left")) db.exec("ALTER TABLE book ADD COLUMN right_to_left INTEGER");
+  // And a comic's own details as its files say them (docs/BOOK-DETAILS.md, section 4), so the listing names it without
+  // opening its book.json: null for a comic added before comics had details of their own, until its file is read again,
+  // once, at start (library/comic-details.ts).
+  if (!columns.some((c) => c.name === "details")) db.exec("ALTER TABLE book ADD COLUMN details TEXT");
+  // A comic's edits as they were before that start moved them into its own details (docs/BOOK-DETAILS.md, section 6):
+  // kept for a release, so the move can be undone by hand.
+  const edits = db.prepare("SELECT name FROM pragma_table_info('book_edit')").all();
+  if (!edits.some((c) => c.name === "edits_before_move")) db.exec("ALTER TABLE book_edit ADD COLUMN edits_before_move TEXT");
 }
 
 /**

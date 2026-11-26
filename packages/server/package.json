@@ -14,7 +14,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "link": "tsx src/link.ts",
-    "key": "tsx src/key.ts"
+    "key": "tsx src/key.ts",
+    "try-comic-move": "tsx src/try-comic-move.ts"
   },
   "dependencies": {
     "@fastify/compress": "^9.2.2",
