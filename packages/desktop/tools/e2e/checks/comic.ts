@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import type { Check } from "../run";
-import { CHECKS_COMIC, CHECKS_LONG_COMIC, CHECKS_PDF, type Ribbon } from "../app";
+import { CHECKS_COMIC, CHECKS_COMIC_INFO, CHECKS_LONG_COMIC, CHECKS_PDF, type Ribbon } from "../app";
 
 const TRACK = "[role=dialog] [data-comic-track]";
 
@@ -233,6 +233,25 @@ export const comicCheck: Check = {
       t.expect(false, "the library has the checks' comic", "none was found; run.ts makes one");
       return;
     }
+    // Its details, as its ComicInfo.xml gives them, read by the scan and named from on the shelf (docs/BOOK-DETAILS.md, step 3).
+    const details = await page.evaluate((id) => {
+      const b = window.__ribbon.getState().books.find((x) => x.book.id === id)!.book;
+      return { title: b.title, author: b.author, issue: b.issue ?? "", coverDate: b.coverDate ?? "", colours: b.credits?.colours ?? [], arcs: b.storyArcs ?? [] };
+    }, r.comicId);
+    const info = CHECKS_COMIC_INFO;
+    t.expect(
+      details.title === CHECKS_COMIC.title && details.author === `${info.Writer}; ${info.Penciller}` && details.issue === info.Number && details.coverDate === "2024-07" && details.colours.join() === info.Colorist && details.arcs.join() === info.StoryArc,
+      "the comic is named and credited from its ComicInfo.xml",
+      JSON.stringify(details),
+    );
+    await page.evaluate((id) => window.__ribbon.openReader(id), r.comicId);
+    const credited = await page
+      .waitForFunction((names) => names.every((n) => document.body.innerText.includes(n)), [info.Inker, info.Letterer, info.CoverArtist, info.Editor, info.Imprint], { timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    t.expect(credited, "its page lists who made it, by role, and its imprint");
+    await page.evaluate(() => window.__ribbon.showLibrary());
+
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one", fit: "page" }));
 
     const opened = await page.evaluate(async (id) => {

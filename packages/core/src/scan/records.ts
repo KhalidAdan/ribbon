@@ -35,8 +35,8 @@ export const LIBRARY_HEADERS = [
  */
 export const COMIC_HEADERS = ["comic", "pages", "right_to_left", "issue", "volume", "collects", ...ROLES.map(roleColumn), "imprint", "cover_date", "on_sale", "story_arcs", "comicvine"];
 
-/** A role's column: `coverArtists` is `cover_artists`. */
-function roleColumn(role: Role): string {
+/** A role's column, in library.csv and comics.csv: `coverArtists` is `cover_artists`. */
+export function roleColumn(role: Role): string {
   return role.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 

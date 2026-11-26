@@ -44,7 +44,7 @@ import { comicAfter, pageAt, pageLocator, pageProgress, type ComicEvent, type Co
 import { parseComicSettings, parseDirections, type ComicSettings } from "@ribbon/core/comic/settings";
 import { isWide } from "@ribbon/core/comic/spreads";
 import { onlyRead } from "@ribbon/core/kind";
-import { comicPages } from "./comic";
+import { comicPages, folderComicEdited } from "./comic";
 import { openingPlace, parseKeptPlaces, PlaceKeeper, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
 import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
@@ -742,7 +742,13 @@ export class AppController {
     return this.state.sources.map((s) => this.opened.get(s.id)).filter((o): o is Opened => !!o);
   }
 
-  /** Mark books with their source and lay that source's hand edits over them. */
+  /**
+   * Mark books with their source and lay that source's hand edits over
+   * them. A comic in a folder is named from its details once they are laid
+   * over it, its edits from before moved to the new shape first
+   * (app/comic.ts, `folderComicEdited`); a server's comic comes named by its
+   * server.
+   */
   private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
     return books.map((b) => {
       const { original, edits: _was, ...rest } = b;
@@ -752,6 +758,7 @@ export class AppController {
       const e = o.edits.get(base.id);
       const sourced = { ...rest, source: o.source.id };
       if (!e) return original || base !== b.book || b.source !== o.source.id ? { ...sourced, book: base } : b;
+      if (base.comic && !o.server) return { ...sourced, ...folderComicEdited(base, e.values) };
       return { ...sourced, book: applyEdits(base, e.values), original: base, edits: e.values };
     });
   }
@@ -1196,10 +1203,15 @@ export class AppController {
     if (kept && b.book.comic && form.rightToLeft !== undefined) this.forgetComicDirection(bookId);
   }
 
-  /** A folder's book edited: what differs from its files, kept beside it. */
+  /**
+   * A folder's book edited: what differs from its files, kept beside it.
+   * Its edits before are the ones in effect on the shelf (stamp): a comic's
+   * from before it had details of its own are read as the new ones there,
+   * so they are written in the new shape now.
+   */
   private async saveFolderEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<boolean> {
     const bookId = b.book.id;
-    const previous = o.edits.get(bookId)?.values ?? {};
+    const previous = b.edits ?? {};
     const values = diffEdits(b.original ?? b.book, form, previous);
     const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
     await o.lib.writeEdits(edits);
@@ -1266,7 +1278,8 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const previous = o.edits.get(bookId)?.values ?? {};
+    // The edits in effect: a comic's moved to the new shape (stamp), so the one taken back is the one the form showed.
+    const previous = b.edits ?? {};
     let kept = true;
     if (o.server) {
       const shared = sharedEdits(previous);

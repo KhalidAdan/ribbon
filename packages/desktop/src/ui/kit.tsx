@@ -117,6 +117,24 @@ export function Checkbox({ checked, onChange, id, label, name }: { checked: bool
   );
 }
 
+/** A radio button in ink, one of those sharing its `name`. Label it with `id` and a <label htmlFor>, or by wrapping it in its label. */
+export function Radio({ checked, onChange, id, name, value }: { checked: boolean; onChange: () => void; id?: string; name: string; value: string }) {
+  return (
+    <span className="group inline-grid size-5 shrink-0 grid-cols-1 sm:size-4">
+      <input
+        id={id}
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={onChange}
+        className="col-start-1 row-start-1 appearance-none rounded-full border border-line-strong bg-surface checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-place forced-colors:appearance-auto"
+      />
+      <span className="pointer-events-none col-start-1 row-start-1 size-[round(down,40%,1px)] self-center justify-self-center rounded-full bg-on-primary group-not-has-checked:opacity-0" />
+    </span>
+  );
+}
+
 /** One quiet icon, one bold line, one muted line, at most one action. */
 export function EmptyState({ icon: Glyph, title, children, action, compact = false }: { icon?: Icon; title: string; children?: ReactNode; action?: ReactNode; compact?: boolean }) {
   return (

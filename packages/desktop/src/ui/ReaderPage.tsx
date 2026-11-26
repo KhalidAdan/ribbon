@@ -1,7 +1,8 @@
 import { BookOpenIcon, BookmarkIcon, PlayIcon } from "@heroicons/react/16/solid";
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { orderBySeries, hiddenBookIds, seriesNumber, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { NEUTRAL_TONE, type Tone } from "@ribbon/core/tint";
+import type { Book } from "@ribbon/core/types";
 import { formatLeft } from "@ribbon/core/speed";
 import { chapterAt } from "@ribbon/core/scan/chapters";
 import { partAt } from "@ribbon/core/scan/parts";
@@ -18,6 +19,8 @@ import { formatBytes } from "./Servers";
 import { SeriesBooks } from "./SeriesPage";
 import { pageBook } from "@ribbon/core/screen";
 import { onlyRead, pagesKind, pagesLabel } from "@ribbon/core/kind";
+import { issuesText } from "@ribbon/core/comic-name";
+import { comicLabelIn, coverDateText, creditLines, dayText, namesText } from "./comic-details";
 
 /**
  * One book's page: the cover, the title in the book's own serif, where
@@ -26,6 +29,12 @@ import { onlyRead, pagesKind, pagesLabel } from "@ribbon/core/kind";
  * each, and lists the one you came from. A faint wash of the cover's
  * colour sits behind the top. Up and down move through the series;
  * Escape goes back to the library.
+ *
+ * A comic's page says what a comic has of its own (docs/BOOK-DETAILS.md,
+ * section 4): its cover date, the day it went on sale, its imprint beside
+ * its publisher and the issues a collection holds among the facts, and
+ * under them its people by what they did and its story arcs. In its own
+ * series it is "#7 of 19" or "Vol. 1 of 19", where a book is "Book 2".
  */
 export function ReaderPage() {
   // How far along comes from useShelfProgress: by the minute while the book plays.
@@ -147,14 +156,23 @@ export function ReaderPage() {
     ...(toRead ? [] : [{ term: "Length", value: formatLeft(book.book.durationMs) }]),
     // A server's book has its chapters read once it's here.
     ...(toRead || book.remote ? [] : [stories.length > 0 ? { term: "Stories", value: String(stories.length) } : { term: "Chapters", value: String(book.chapters.length) }]),
-    ...(book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
+    // A comic's cover date stands for its year, which is made from it.
+    ...(book.book.coverDate ? [{ term: "Cover date", value: coverDateText(book.book.coverDate) }] : book.book.year ? [{ term: "Year", value: String(book.book.year) }] : []),
+    ...(book.book.onSale ? [{ term: "On sale", value: dayText(book.book.onSale) }] : []),
     ...(book.book.publisher ? [{ term: "Publisher", value: book.book.publisher }] : []),
+    ...(book.book.imprint ? [{ term: "Imprint", value: book.book.imprint }] : []),
+    ...(book.book.collects ? [{ term: "Collects", value: issuesText(book.book.collects) }] : []),
     ...(book.book.language ? [{ term: "Language", value: languageName(book.book.language) }] : []),
     ...(book.book.ebook ? [{ term: "Ebook", value: "EPUB" }] : []),
     ...(book.book.comic ? [...(book.book.pages === undefined ? [] : [{ term: "Pages", value: String(book.book.pages) }]), pagesKind(book.book.comic) === "PDF" ? { term: "File", value: "PDF" } : { term: "Comic", value: /\.cbr$/i.test(book.book.comic) ? "CBR" : "CBZ" }] : []),
     ...(toRead || book.remote ? [] : [{ term: book.files.length === 1 ? "File" : "Files", value: book.files.length === 1 ? (book.files[0]!.path.split(".").pop() ?? "").toUpperCase() : String(book.files.length) }]),
     ...(book.remote && !toRead ? [{ term: "Download", value: formatBytes(book.book.sizeBytes) }] : []),
   ];
+
+  // A comic's people by what they did, and its story arcs, under the facts. A text's translators are said after its author instead.
+  const credits = book.book.comic ? creditLines(book.book.credits) : [];
+  const arcs = book.book.storyArcs ?? [];
+  const translators = book.book.comic ? [] : (book.book.credits?.translators ?? []);
 
   const wash = { "--tone": tone.accent } as CSSProperties;
 
@@ -170,7 +188,7 @@ export function ReaderPage() {
                 {inSeries.map((g) => (
                   <li key={g.key}>
                     <button type="button" onClick={() => c.openSeries(g.key)} className="rounded-sm text-left focus-ring hover:text-ink">
-                      {g.name} · Book {bookNumberIn(g, state.series[g.key], book.book.id)}
+                      {g.name} · {placeIn(g, state.series[g.key], book.book)}
                     </button>
                   </li>
                 ))}
@@ -180,6 +198,7 @@ export function ReaderPage() {
             {book.book.subtitle && <p className="mt-1 font-serif text-xl/7 text-pretty text-ink-2">{book.book.subtitle}</p>}
             <p className="mt-2 text-base/6 text-ink-2">
               {book.book.author || "Author unknown"}
+              {translators.length > 0 ? `, translated by ${namesText(translators)}` : ""}
               {book.book.narrator ? `, read by ${book.book.narrator}` : ""}
             </p>
 
@@ -259,10 +278,30 @@ export function ReaderPage() {
               {facts.map((f) => (
                 <div key={f.term} className="min-w-0">
                   <dt className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">{f.term}</dt>
-                  <dd className="mt-0.5 truncate text-base/6 font-medium text-ink tabular-nums sm:text-sm/5">{f.value}</dd>
+                  <dd className="mt-0.5 truncate text-base/6 font-medium text-ink tabular-nums sm:text-sm/5" title={f.value}>
+                    {f.value}
+                  </dd>
                 </div>
               ))}
             </dl>
+
+            {/* A comic's people and story arcs, on the facts' columns so the names line up under the second of them. */}
+            {(credits.length > 0 || arcs.length > 0) && (
+              <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-4" aria-label="Who made it">
+                {credits.map((line) => (
+                  <Fragment key={line.role}>
+                    <dt className="text-sm/6 text-ink-3 sm:text-[0.8125rem]/5">{line.label}</dt>
+                    <dd className="text-base/6 text-ink sm:col-span-3 sm:text-sm/5">{line.names}</dd>
+                  </Fragment>
+                ))}
+                {arcs.length > 0 && (
+                  <>
+                    <dt className="text-sm/6 text-ink-3 sm:text-[0.8125rem]/5">{arcs.length === 1 ? "Story arc" : "Story arcs"}</dt>
+                    <dd className="text-base/6 text-ink sm:col-span-3 sm:text-sm/5">{namesText(arcs)}</dd>
+                  </>
+                )}
+              </dl>
+            )}
 
             <div className="mt-8">
               {description ? (
@@ -316,6 +355,16 @@ function languageName(code: string): string {
 
 /** The three-letter codes audiobook tags use most, to their two-letter forms. */
 const ISO3: Record<string, string> = { eng: "en", deu: "de", ger: "de", fra: "fr", fre: "fr", spa: "es", ita: "it", jpn: "ja", nld: "nl", dut: "nl", por: "pt", rus: "ru", pol: "pl", swe: "sv", nor: "no", dan: "da", fin: "fi", zho: "zh", chi: "zh" };
+
+/**
+ * Where a book comes in a series, as its page says it after the series'
+ * name: "Book 4 of 10". A comic in its own series goes by its label
+ * (comic-details.ts): "#7 of 19", "Vol. 1 of 19".
+ */
+function placeIn(group: SeriesGroup, record: SeriesRecord | undefined, book: Book): string {
+  const label = comicLabelIn(book, group.name);
+  return label ? `${label} of ${group.bookIds.length}` : `Book ${bookNumberIn(group, record, book.id)}`;
+}
 
 /** A book's number in a series, as its page shows it: "4 of 10" while the numbers are the positions; "9" when the series has gaps or a book in parts. */
 function bookNumberIn(group: SeriesGroup, record: SeriesRecord | undefined, bookId: string): string {

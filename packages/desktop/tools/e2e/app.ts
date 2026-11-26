@@ -15,7 +15,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { promises as fs, existsSync } from "node:fs";
 import * as path from "node:path";
 import type { AppController } from "../../src/app/controller";
-import { makeComic, makePdf } from "@ribbon/host-node/make-comic";
+import { comicInfoXml, makeComic, makePdf } from "@ribbon/host-node/make-comic";
+import { comicEntries } from "@ribbon/host-node/comic";
+import { comicInfoEntry } from "@ribbon/core/comic/pages";
 
 /**
  * The comic the checks read: made here, into the test library, when it
@@ -27,6 +29,31 @@ import { makeComic, makePdf } from "@ribbon/host-node/make-comic";
 export const CHECKS_PDF = { file: "Made As A PDF 001.pdf", title: "Made As A PDF #1", pages: 30, wide: [5], width: 500, height: 750 };
 
 export const CHECKS_COMIC = { file: "Made For The Checks 001.cbz", title: "Made For The Checks #1", pages: 40, wide: [10], width: 1000, height: 1500 };
+
+/**
+ * What the checks' comic says of itself in its ComicInfo.xml: every detail
+ * Ribbon reads of one (docs/BOOK-DETAILS.md, section 2), so the checks see
+ * the scan carry them from the archive to the comic's page. It gives no
+ * title, so the shelf names it by its series and number, as before.
+ */
+export const CHECKS_COMIC_INFO = {
+  Series: "Made For The Checks",
+  Number: "1",
+  Writer: "Ada Quill",
+  Penciller: "Ben Nib",
+  Inker: "Cy Ink",
+  Colorist: "Di Hue",
+  Letterer: "Ed Script",
+  CoverArtist: "Flo Wash",
+  Editor: "Gus Red",
+  Publisher: "Paper Moon",
+  Imprint: "Lantern",
+  Year: 2024,
+  Month: 7,
+  Day: 10,
+  StoryArc: "The Checks",
+  LanguageISO: "en",
+};
 
 /** A comic of an omnibus's length, to hold the strip of small pages to costing what an issue does: 600 pages, smaller ones, so it is made in seconds. */
 export const CHECKS_LONG_COMIC = { file: "Made For The Checks Omnibus 001.cbz", title: "Made For The Checks Omnibus #1", pages: 600, width: 600, height: 900 };
@@ -84,7 +111,10 @@ export async function launch(o: LaunchOptions): Promise<Ribbon> {
     await fs.rm(o.work, { recursive: true, force: true });
     await fs.mkdir(o.work, { recursive: true });
     const comic = path.join(o.library, CHECKS_COMIC.file);
-    if (!existsSync(comic)) await makeComic(comic, { pages: CHECKS_COMIC.pages, wide: CHECKS_COMIC.wide, width: CHECKS_COMIC.width, height: CHECKS_COMIC.height });
+    // Made again where an older run made it without its ComicInfo.xml.
+    if (!existsSync(comic) || !comicInfoEntry((await comicEntries(comic)).map((e) => e.name))) {
+      await makeComic(comic, { pages: CHECKS_COMIC.pages, wide: CHECKS_COMIC.wide, width: CHECKS_COMIC.width, height: CHECKS_COMIC.height, comicInfo: comicInfoXml(CHECKS_COMIC_INFO) });
+    }
     const long = path.join(o.library, CHECKS_LONG_COMIC.file);
     if (!existsSync(long)) await makeComic(long, { pages: CHECKS_LONG_COMIC.pages, width: CHECKS_LONG_COMIC.width, height: CHECKS_LONG_COMIC.height });
     // In a folder of its own: a PDF beside the test book's audio would be taken for its booklet.

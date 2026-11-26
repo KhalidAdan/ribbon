@@ -17,7 +17,7 @@ import type { EditValues } from "../edits";
 import { coverArgs } from "./cover";
 import { bytesToEbooks, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
 import { readerOnly } from "../ebook";
-import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, type ComicRecord } from "./comics";
+import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, keepsComicDetails, type ComicRecord } from "./comics";
 import { namedComic } from "../comic-name";
 import { archiveProblem, isPdfFile, pageOrder } from "../comic/pages";
 
@@ -106,6 +106,13 @@ interface Records {
   previousEbooks: Map<string, EbookPackage>;
   /** What earlier scans read of each comic, by path. */
   previousComics: Map<string, ComicRecord>;
+  /**
+   * True when every comic is to be read again: comics.csv was written
+   * before comics kept their details (docs/BOOK-DETAILS.md, section 4).
+   * `previousComics` still holds what it kept, so the shelf shows each
+   * comic as it was while it is read.
+   */
+  rereadComics: boolean;
   corrections: Map<string, Correction[]>;
   filesCsv: Uint8Array | null;
   libraryCsv: Uint8Array | null;
@@ -140,8 +147,11 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   // Anthology files recorded before stories had names are read again so theirs can be.
   for (const path of unnamedStories(records.previous)) records.previous.delete(path);
   // Nothing counts as known when every file is to be read again. An
-  // EPUB whose package was read before is not opened again, nor a comic.
-  const known = [...(records.reread ? [] : records.previous.values()), ...records.previousEbooks.values(), ...records.previousComics.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  // EPUB whose package was read before is not opened again, nor a comic,
+  // unless its record is from before comics kept their details. A PDF
+  // has no ComicInfo.xml to read again: its pages are all it has.
+  const comicsKnown = [...records.previousComics.values()].filter((c) => !records.rereadComics || isPdfFile(c.path));
+  const known = [...(records.reread ? [] : records.previous.values()), ...records.previousEbooks.values(), ...comicsKnown].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,
   // and the pipeline folds them into the arrived set, rebuilds the shelf
@@ -785,6 +795,11 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* read them again */
     }
   }
+  // Records from before comics kept their details keep only some of what
+  // each comic's files say: read every comic once more, this once, after
+  // the shelf has painted, as on a first scan. Until each is read, it
+  // shows as those records have it.
+  const rereadComics = !!comicsCsv && !keepsComicDetails(comicsCsv);
   const previous = new Map<string, AudioFile>();
   // Records from before the scan kept descriptions, genres and the rest
   // carry none of them: read every file's tags once more, this once. What
@@ -816,7 +831,7 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* ignore */
     }
   }
-  return { previous, reread, previousBooks, previousEbooks, previousComics, corrections, filesCsv, libraryCsv, ebooksCsv, comicsCsv };
+  return { previous, reread, previousBooks, previousEbooks, previousComics, rereadComics, corrections, filesCsv, libraryCsv, ebooksCsv, comicsCsv };
 }
 
 /**
