@@ -435,6 +435,9 @@ interface Opened {
   keeper: PositionKeeper;
   /** Hand edits to books' details, by book id. */
   edits: Map<string, BookEdits>;
+  /** How many times this app has saved a book's edits beside these books, and when each book's last was, by that count (readEdits). */
+  editWrites: number;
+  editWrittenAt: Map<string, number>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
   /** What came of asking about each book's chapter names; read once, on the first ask. */
@@ -1034,6 +1037,8 @@ export class AppController {
       lib,
       books: [],
       edits: new Map(),
+      editWrites: 0,
+      editWrittenAt: new Map(),
       log: [],
       pendingLog: [],
       names: null,
@@ -1172,9 +1177,29 @@ export class AppController {
     if (changed.length > 0) this.publishBooks();
   }
 
+  /**
+   * Every edits file beside a source's books, read without losing a save
+   * made while the read was going on. Reading them all takes a while, and
+   * a book saved meanwhile may have been read before its new file was
+   * written: what this app saved since the read began is newer than
+   * whatever the read found for that book, so it stands, or its absence
+   * does where the save took every edit back.
+   */
+  private async readEdits(o: Opened): Promise<Map<string, BookEdits>> {
+    const began = o.editWrites;
+    const read = new Map(await o.lib.readAllEdits());
+    for (const [bookId, at] of o.editWrittenAt) {
+      if (at <= began) continue;
+      const saved = o.edits.get(bookId);
+      if (saved) read.set(bookId, saved);
+      else read.delete(bookId);
+    }
+    return read;
+  }
+
   /** Read a source's hand edits and lay them over its books, with a server's own (editsFor). */
   private async takeEdits(o: Opened): Promise<void> {
-    const edits = await o.lib.readAllEdits().catch((e: unknown) => {
+    const edits = await this.readEdits(o).catch((e: unknown) => {
       log.warn("could not read the edits beside the books:", describe(e));
       return null;
     });
@@ -1329,8 +1354,10 @@ export class AppController {
     return true;
   }
 
-  /** A book's edits laid over it on the shelf. */
+  /** A book's edits, just saved beside it, laid over it on the shelf; a read of every edits file already under way gives way to them (readEdits). */
   private keepEdits(o: Opened, edits: BookEdits): void {
+    o.editWrites++;
+    o.editWrittenAt.set(edits.bookId, o.editWrites);
     if (Object.keys(edits.values).length === 0) o.edits.delete(edits.bookId);
     else o.edits.set(edits.bookId, edits);
     o.books = this.stamp(o, o.books);
@@ -1453,7 +1480,7 @@ export class AppController {
       log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
       for (const e of result.errors) log.warn("scan:", source.name, e.path, e.message);
       await positionsReady;
-      const edits = await lib.readAllEdits().catch(() => null);
+      const edits = await this.readEdits(o).catch(() => null);
       if (!alive()) return;
       if (edits) o.edits = this.editsFor(o, edits);
       o.books = this.stamp(o, books);
