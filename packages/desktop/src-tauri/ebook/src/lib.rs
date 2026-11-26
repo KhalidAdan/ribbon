@@ -242,15 +242,31 @@ pub struct Package {
     pub meta: Meta,
     /// The cover image's path in the EPUB, when the package names one.
     pub cover: Option<String>,
+    /// The package's `<metadata>` element as the file has it, or "" when
+    /// it has none. Core reads its series, subjects and translators from
+    /// it (`parseOpf`, core/scan/sidefiles.ts), with the reader it reads a
+    /// `metadata.opf` beside an audiobook with, as it reads a comic's
+    /// ComicInfo.xml: so there is one reader of those, not one here too.
+    pub metadata: String,
 }
 
 impl Package {
     /// What a scan hands the web side, as tags: authors joined by
-    /// semicolons, ISBNs by spaces. Other identifiers are left out.
+    /// semicolons, ISBNs by spaces, and the package's metadata as written,
+    /// `opf`. Other identifiers are left out.
     pub fn tags(&self) -> HashMap<String, String> {
         let m = &self.meta;
         let isbns: Vec<&str> = m.identifiers.iter().filter(|i| i.scheme == "isbn").map(|i| i.value.as_str()).collect();
-        let fields = [("title", m.title.clone()), ("author", m.authors.join("; ")), ("isbn", isbns.join(" ")), ("language", m.language.clone()), ("publisher", m.publisher.clone()), ("date", m.date.clone()), ("description", m.description.clone())];
+        let fields = [
+            ("title", m.title.clone()),
+            ("author", m.authors.join("; ")),
+            ("isbn", isbns.join(" ")),
+            ("language", m.language.clone()),
+            ("publisher", m.publisher.clone()),
+            ("date", m.date.clone()),
+            ("description", m.description.clone()),
+            ("opf", self.metadata.clone()),
+        ];
         fields.into_iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| (k.to_string(), v)).collect()
     }
 }
@@ -263,7 +279,32 @@ pub fn read_package<R: Read + Seek>(reader: R) -> Option<Package> {
     let (opf_path, text) = package_file(&mut zip).ok()?;
     let opf = xml::parse(&text);
     let package = opf.find("package")?;
-    Some(Package { meta: read_meta(package), cover: cover_of(package, &opf_path) })
+    Some(Package { meta: read_meta(package), cover: cover_of(package, &opf_path), metadata: metadata_text(&text).to_string() })
+}
+
+/// The package's `<metadata>` element as it is written in the package
+/// file, tags and all, or "" when there is none. Only that element: the
+/// manifest and spine of a long book can be many times its size, and a
+/// scan hands this over for every EPUB it reads.
+fn metadata_text(opf: &str) -> &str {
+    let mut reader = quick_xml::Reader::from_str(opf);
+    let config = reader.config_mut();
+    config.check_end_names = false;
+    config.allow_unmatched_ends = true;
+    loop {
+        // Where the next event begins: the element's `<`, when it is the one.
+        let start = reader.buffer_position() as usize;
+        match reader.read_event() {
+            Ok(quick_xml::events::Event::Start(e)) if e.local_name().as_ref().eq_ignore_ascii_case(b"metadata") => {
+                return match reader.read_to_end(e.name()) {
+                    Ok(_) => opf.get(start..reader.buffer_position() as usize).unwrap_or(""),
+                    Err(_) => "",
+                };
+            }
+            Ok(quick_xml::events::Event::Eof) | Err(_) => return "",
+            Ok(_) => {}
+        }
+    }
 }
 
 /// The cover image the package names: EPUB 3's `cover-image` item, else

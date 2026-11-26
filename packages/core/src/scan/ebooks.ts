@@ -1,10 +1,17 @@
-import { bytesToRows, int, bool, rowsToBytes } from "../csv";
-import { splitPeople } from "./sidefiles";
+import { bytesToRows, int, num, bool, rowsToBytes } from "../csv";
+import { parseOpf, splitPeople } from "./sidefiles";
 
 /**
  * What a scan reads of an EPUB: its package's metadata, no chapters
  * (docs/READING.md, section 2). Rust reads it, once per file; it is kept
  * in `.ribbon/ebooks.csv` so an unchanged EPUB is not opened again.
+ *
+ * Rust reads what the reader's book model needs of it as well (the title,
+ * authors, ISBNs by their check digit, language, publisher, date and
+ * description), and hands over the package's metadata as written for the
+ * rest: its series, subjects and translators, read here by the reader a
+ * `metadata.opf` beside an audiobook goes through (`parseOpf`;
+ * docs/BOOK-DETAILS.md, section 2, "A text").
  */
 export interface EbookPackage {
   /** Library-relative, forward slashes. */
@@ -21,24 +28,48 @@ export interface EbookPackage {
   description: string;
   /** The package names a cover image. */
   hasCover: boolean;
+  /** Calibre's `calibre:series`, else EPUB 3's series collection; empty when it names none. */
+  series: string;
+  /** Its place in that series; null with no series. */
+  seriesIndex: number | null;
+  /** Its `dc:subject`s, which a text keeps as its genres. */
+  subjects: string[];
+  /** Its creators and contributors with the role `trl`. */
+  translators: string[];
 }
 
-export const EBOOK_HEADERS = ["path", "size_bytes", "mtime_ms", "title", "authors", "isbn", "language", "publisher", "date", "description", "has_cover"];
+export const EBOOK_HEADERS = ["path", "size_bytes", "mtime_ms", "title", "authors", "isbn", "language", "publisher", "date", "description", "has_cover", "series", "series_index", "subjects", "translators"];
 
-/** A package from the tags the scanner sent: authors by semicolons, ISBNs by spaces. */
+/**
+ * An ebooks.csv without this column was written before a package's
+ * series, subjects and translators were kept, so every EPUB's package is
+ * read once more (scan.ts, `readRecords`).
+ */
+export const EBOOK_DETAIL_COLUMN = "translators";
+
+/**
+ * A package from the tags the scanner sent: authors by semicolons, ISBNs
+ * by spaces, and `opf`, the package's metadata as written, for the rest.
+ */
 export function packageFromTags(file: { path: string; sizeBytes: number; mtimeMs: number }, tags: Record<string, string>, hasCover: boolean): EbookPackage {
+  const opf = tags.opf ? parseOpf(tags.opf) : {};
   return {
     path: file.path,
     sizeBytes: file.sizeBytes,
     mtimeMs: file.mtimeMs,
     title: tags.title ?? "",
-    authors: (tags.author ?? "").split(/\s*;\s*/).filter(Boolean),
-    isbns: (tags.isbn ?? "").split(/\s+/).filter(Boolean),
+    authors: listOf(tags.author, /\s*;\s*/),
+    isbns: listOf(tags.isbn, /\s+/),
     language: tags.language ?? "",
     publisher: tags.publisher ?? "",
     date: tags.date ?? "",
     description: tags.description ?? "",
     hasCover,
+    series: opf.series ?? "",
+    // A number with no series isn't a place in one: the shelf would take the book for a numbered folder's (series.ts).
+    seriesIndex: opf.series ? (opf.seriesIndex ?? null) : null,
+    subjects: opf.genres ?? [],
+    translators: opf.translators ?? [],
   };
 }
 
@@ -56,19 +87,51 @@ export function ebooksToBytes(list: readonly EbookPackage[]): Promise<Uint8Array
       date: e.date,
       description: e.description,
       has_cover: e.hasCover ? "1" : "0",
+      series: e.series,
+      series_index: e.seriesIndex === null ? "" : String(e.seriesIndex),
+      subjects: e.subjects.join("; "),
+      translators: e.translators.join("; "),
     })),
     EBOOK_HEADERS,
   );
 }
 
+/** ebooks.csv read back. One written before the new columns reads with no series, subjects or translators. */
 export async function bytesToEbooks(bytes: Uint8Array): Promise<Map<string, EbookPackage>> {
   const { rows } = await bytesToRows(bytes);
   const out = new Map<string, EbookPackage>();
   for (const r of rows) {
     if (!r.path) continue;
-    out.set(r.path, packageFromTags({ path: r.path, sizeBytes: int(r.size_bytes), mtimeMs: int(r.mtime_ms) }, { title: r.title ?? "", author: r.authors ?? "", isbn: r.isbn ?? "", language: r.language ?? "", publisher: r.publisher ?? "", date: r.date ?? "", description: r.description ?? "" }, bool(r.has_cover)));
+    out.set(r.path, {
+      path: r.path,
+      sizeBytes: int(r.size_bytes),
+      mtimeMs: int(r.mtime_ms),
+      title: r.title ?? "",
+      authors: listOf(r.authors, /\s*;\s*/),
+      isbns: listOf(r.isbn, /\s+/),
+      language: r.language ?? "",
+      publisher: r.publisher ?? "",
+      date: r.date ?? "",
+      description: r.description ?? "",
+      hasCover: bool(r.has_cover),
+      series: r.series ?? "",
+      seriesIndex: r.series && r.series_index ? num(r.series_index) : null,
+      subjects: listOf(r.subjects, /\s*;\s*/),
+      translators: listOf(r.translators, /\s*;\s*/),
+    });
   }
   return out;
+}
+
+/** Whether an ebooks.csv keeps everything this version reads of a package, by its header line. */
+export function ebooksCsvIsCurrent(bytes: Uint8Array): boolean {
+  const header = new TextDecoder().decode(bytes.subarray(0, 1024)).split("\n", 1)[0]!;
+  return header.split(",").some((h) => h.trim() === EBOOK_DETAIL_COLUMN);
+}
+
+/** A list kept in one tag or cell, with nothing empty in it. */
+function listOf(text: string | undefined, apart: RegExp): string[] {
+  return (text ?? "").split(apart).filter(Boolean);
 }
 
 /** An ISBN-10 or ISBN-13 as ISBN-13, so the two forms of one number agree; null when it is not one. */

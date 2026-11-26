@@ -119,7 +119,14 @@ nothing.
 An EPUB that pairs with nothing is a book of its own, to read. It has no
 audio: its page offers Read and not Play, and its progress is how far
 through the text this machine has read. Its title, author, year,
-publisher, language, description and cover come from its package.
+publisher, language, description and cover come from its package, and
+so do its series and its place in it (Calibre's `calibre:series`, or
+EPUB 3's series collection), its genres (`dc:subject`) and its
+translators (a creator with the role `trl`): Rust hands the package's
+metadata over as written, and core reads those with the reader a
+`metadata.opf` goes through (`parseOpf`; BOOK-DETAILS.md, section 2). A
+person's edits, and a series set up by hand, stand over them. An EPUB
+that pairs with an audiobook names none of the audiobook's details.
 
 The EPUB's identifiers (ISBN, its own `urn:uuid`) are claims on the text
 edition, never on the book (section 5).
@@ -127,7 +134,10 @@ edition, never on the book (section 5).
 The scan reads only an EPUB's package: the zip's directory, the
 container and the package file, a few small reads wherever it is, and
 nothing for any other file. What it read is kept in
-`.ribbon/ebooks.csv`, so an unchanged EPUB is not opened again. The
+`.ribbon/ebooks.csv`, so an unchanged EPUB is not opened again. An
+ebooks.csv from before it kept the series, subjects and translators is
+read as if it weren't there, once: each package is read again after the
+shelf has painted, and each EPUB shows as it was until it is. The
 chapters are read when the book is read.
 
 ## 3. What is refused
