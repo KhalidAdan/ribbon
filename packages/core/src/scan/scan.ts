@@ -15,9 +15,9 @@ import { booksToBytes, bytesToBooks, bytesToChapters, bytesToFiles, chaptersToBy
 import { bytesToRows, type Row } from "../csv";
 import type { EditValues } from "../edits";
 import { coverArgs } from "./cover";
-import { bytesToEbooks, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
+import { bytesToEbooks, ebooksCsvIsCurrent, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
 import { readerOnly } from "../ebook";
-import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, type ComicRecord } from "./comics";
+import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, keepsComicDetails, type ComicRecord } from "./comics";
 import { namedComic } from "../comic-name";
 import { archiveProblem, isPdfFile, pageOrder } from "../comic/pages";
 
@@ -104,8 +104,22 @@ interface Records {
   previousBooks: Map<string, Book>;
   /** What earlier scans read of each EPUB's package, by path. */
   previousEbooks: Map<string, EbookPackage>;
+  /**
+   * True when every EPUB's package is to be read again, once: ebooks.csv
+   * was written before it kept a package's series, subjects and
+   * translators. `previousEbooks` still holds what it did keep, so the
+   * shelf shows each EPUB as it was until its package is read.
+   */
+  rereadEbooks: boolean;
   /** What earlier scans read of each comic, by path. */
   previousComics: Map<string, ComicRecord>;
+  /**
+   * True when every comic is to be read again: comics.csv was written
+   * before comics kept their details (docs/BOOK-DETAILS.md, section 4).
+   * `previousComics` still holds what it kept, so the shelf shows each
+   * comic as it was while it is read.
+   */
+  rereadComics: boolean;
   corrections: Map<string, Correction[]>;
   filesCsv: Uint8Array | null;
   libraryCsv: Uint8Array | null;
@@ -140,8 +154,12 @@ export async function scanLibrary(host: Host, root: string, opts: ScanOptions = 
   // Anthology files recorded before stories had names are read again so theirs can be.
   for (const path of unnamedStories(records.previous)) records.previous.delete(path);
   // Nothing counts as known when every file is to be read again. An
-  // EPUB whose package was read before is not opened again, nor a comic.
-  const known = [...(records.reread ? [] : records.previous.values()), ...records.previousEbooks.values(), ...records.previousComics.values()].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
+  // EPUB whose package was read before is not opened again, unless what
+  // was kept of it is from before its series and the rest; nor a comic,
+  // unless its record is from before comics kept their details. A PDF
+  // has no ComicInfo.xml to read again: its pages are all it has.
+  const comicsKnown = [...records.previousComics.values()].filter((c) => !records.rereadComics || isPdfFile(c.path));
+  const known = [...(records.reread ? [] : records.previous.values()), ...(records.rereadEbooks ? [] : records.previousEbooks.values()), ...comicsKnown].map((f) => ({ path: f.path, sizeBytes: f.sizeBytes, mtimeMs: f.mtimeMs }));
 
   // The host pushes batches of files; a channel turns them into a source,
   // and the pipeline folds them into the arrived set, rebuilds the shelf
@@ -254,15 +272,31 @@ function packagesOf(files: readonly ScannedFile[], records: Records): Map<string
   const out = new Map<string, EbookPackage>();
   for (const f of files) {
     if (f.kind !== "ebook") continue;
+    const was = records.previousEbooks.get(f.path);
     if (f.fresh && !f.pending) {
-      out.set(f.path, packageFromTags(f, f.tags, f.hasCover));
+      // Read again unchanged and nothing came back (a share that dropped as it was read, say): what was read before stands.
+      const unread = Object.keys(f.tags).length === 0 && was && !isStale(was, f);
+      out.set(f.path, unread ? was : packageOf(f));
       continue;
     }
     // Being read again, it is what it was until it is; changed and not read, it is unknown.
-    const was = records.previousEbooks.get(f.path);
     if (was && (f.pending || !isStale(was, f))) out.set(f.path, was);
   }
   return out;
+}
+
+/**
+ * Each EPUB's package as its tags say, worked out once for each file the
+ * host sends rather than on every rebuild: the shelf is rebuilt as often
+ * as every PUBLISH_INTERVAL_MS while a scan streams in, and reading a
+ * package's metadata (`parseOpf`) is the part of a rebuild that isn't
+ * cheap. Kept by the very file the host sent, and let go with it.
+ */
+const packageByFile = new WeakMap<ScannedFile, EbookPackage>();
+function packageOf(f: ScannedFile): EbookPackage {
+  let p = packageByFile.get(f);
+  if (!p) packageByFile.set(f, (p = packageFromTags(f, f.tags, f.hasCover)));
+  return p;
 }
 
 /**
@@ -324,9 +358,15 @@ function buildComic(group: BookGroup, byPath: Map<string, ScannedFile>, comics: 
 
 /**
  * A book that is only an EPUB (docs/READING.md, section 2): named by its
- * package, else by its file name, with no audio. Its ISBN is the text
- * edition's, so it is not the book's. None while the EPUB is still being
- * read for the first time: it may yet pair with an audiobook.
+ * package, else by its file name, with no audio. Its series, genres and
+ * translators are its package's too (docs/BOOK-DETAILS.md, section 2, "A
+ * text"); a person's edits lie over them, and a series made or changed by
+ * hand stands over the one it names (series.ts), as for any book. Its ISBN
+ * is the text edition's, so it is not the book's. None while the EPUB is
+ * still being read for the first time: it may yet pair with an audiobook.
+ *
+ * An EPUB that goes with an audiobook names nothing of it: the audiobook
+ * is named by its tags and side files, as it always was.
  */
 function buildReaderOnly(group: BookGroup, byPath: Map<string, ScannedFile>, packages: Map<string, EbookPackage>): ScannedBook | null {
   const path = group.ebook!;
@@ -337,6 +377,7 @@ function buildReaderOnly(group: BookGroup, byPath: Map<string, ScannedFile>, pac
   const id = bookId(group.path, file.sizeBytes);
   const title = pkg?.title.trim() || group.name;
   const year = pkg?.date.match(/\d{4}/)?.[0];
+  const translators = pkg?.translators ?? [];
   const book: Book = {
     id,
     path: group.path,
@@ -344,12 +385,13 @@ function buildReaderOnly(group: BookGroup, byPath: Map<string, ScannedFile>, pac
     rawTitle: title,
     author: authorsOf(pkg?.authors ?? []),
     narrator: "",
-    series: "",
-    seriesIndex: null,
+    series: pkg?.series ?? "",
+    seriesIndex: pkg?.seriesIndex ?? null,
     year: year ? Number(year) : null,
-    ...details({ publisher: pkg?.publisher ?? "", description: pkg?.description ?? "", language: pkg?.language ?? "" }),
+    ...details({ genres: pkg?.subjects ?? [], publisher: pkg?.publisher ?? "", description: pkg?.description ?? "", language: pkg?.language ?? "" }),
     cover: pkg?.hasCover ? `${RIBBON_DIR}/covers/${id}.jpg` : "",
     ebook: path,
+    ...(translators.length > 0 ? { credits: { translators } } : {}),
     durationMs: 0,
     sizeBytes: file.sizeBytes,
     fileCount: 0,
@@ -777,6 +819,11 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* read them again */
     }
   }
+  // An ebooks.csv from before a package's series, subjects and translators
+  // were kept has none of them: every EPUB's package is read once more,
+  // this once, as a changed EPUB's is, streamed in after the shelf has
+  // painted. What it does keep still shows until each package is read.
+  const rereadEbooks = !!ebooksCsv && !ebooksCsvIsCurrent(ebooksCsv);
   let previousComics = new Map<string, ComicRecord>();
   if (comicsCsv) {
     try {
@@ -785,6 +832,11 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* read them again */
     }
   }
+  // Records from before comics kept their details keep only some of what
+  // each comic's files say: read every comic once more, this once, after
+  // the shelf has painted, as on a first scan. Until each is read, it
+  // shows as those records have it.
+  const rereadComics = !!comicsCsv && !keepsComicDetails(comicsCsv);
   const previous = new Map<string, AudioFile>();
   // Records from before the scan kept descriptions, genres and the rest
   // carry none of them: read every file's tags once more, this once. What
@@ -816,7 +868,7 @@ async function readRecords(host: Host, root: string, incremental: boolean): Prom
       /* ignore */
     }
   }
-  return { previous, reread, previousBooks, previousEbooks, previousComics, corrections, filesCsv, libraryCsv, ebooksCsv, comicsCsv };
+  return { previous, reread, previousBooks, previousEbooks, rereadEbooks, previousComics, rereadComics, corrections, filesCsv, libraryCsv, ebooksCsv, comicsCsv };
 }
 
 /**

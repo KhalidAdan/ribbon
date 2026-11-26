@@ -117,6 +117,24 @@ export function Checkbox({ checked, onChange, id, label, name }: { checked: bool
   );
 }
 
+/** A radio button in ink, one of those sharing its `name`. Label it with `id` and a <label htmlFor>, or by wrapping it in its label. */
+export function Radio({ checked, onChange, id, name, value }: { checked: boolean; onChange: () => void; id?: string; name: string; value: string }) {
+  return (
+    <span className="group inline-grid size-5 shrink-0 grid-cols-1 sm:size-4">
+      <input
+        id={id}
+        type="radio"
+        name={name}
+        value={value}
+        checked={checked}
+        onChange={onChange}
+        className="col-start-1 row-start-1 appearance-none rounded-full border border-line-strong bg-surface checked:border-primary checked:bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-place forced-colors:appearance-auto"
+      />
+      <span className="pointer-events-none col-start-1 row-start-1 size-[round(down,40%,1px)] self-center justify-self-center rounded-full bg-on-primary group-not-has-checked:opacity-0" />
+    </span>
+  );
+}
+
 /** One quiet icon, one bold line, one muted line, at most one action. */
 export function EmptyState({ icon: Glyph, title, children, action, compact = false }: { icon?: Icon; title: string; children?: ReactNode; action?: ReactNode; compact?: boolean }) {
   return (
@@ -270,6 +288,7 @@ export function Short({ phone, children }: { phone: string; children: string }) 
 }
 
 /** A keyboard key, for hints. */
+/** A key, as a keycap: square for a letter or an arrow, as wide as its name for "Space" or "Page Up". */
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="rounded-[4px] px-1 font-sans text-[0.6875rem]/4 text-ink-3 ring-1 ring-line-strong ring-inset">{children}</kbd>;
+  return <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-[4px] bg-raised px-1 font-sans text-[0.6875rem]/4 font-medium whitespace-nowrap text-ink-2 tabular-nums ring-1 ring-line-strong ring-inset">{children}</kbd>;
 }

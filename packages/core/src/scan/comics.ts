@@ -2,7 +2,8 @@ import { bytesToRows, int, bool, rowsToBytes } from "../csv";
 import { comicVineIssue, parseComicInfo, type ComicInfo } from "../comic/comicinfo";
 import { parseComicName } from "../comic/filename";
 import { issueNumber } from "../comic-name";
-import type { Book } from "../types";
+import { ROLES, type Book, type Credits } from "../types";
+import { roleColumn } from "./records";
 
 /**
  * What a scan reads of a comic (docs/COMICS.md, section 4): how many
@@ -22,14 +23,57 @@ export interface ComicRecord extends ComicInfo {
 }
 
 /**
- * The columns `comics.csv` has had since comics came, which keep less
- * than a ComicRecord holds: of the people, only the writers; a number
- * only when it is one; no volume, format, month, day, imprint, story arc
- * or address. A comic read again from this record is named from what it
- * keeps (docs/BOOK-DETAILS.md, section 4, has the columns that keep the
- * rest, and the one reading again that fills them).
+ * The columns of `comics.csv`: ComicInfo.xml as the file says it, read in
+ * full (docs/BOOK-DETAILS.md, section 4), its people one role to a column,
+ * names apart by semicolons. `issue` is its `Number` as printed ("1.MU",
+ * "½"). `number` is kept beside it for a Ribbon from before, sharing the
+ * folder, which reads that column as a number and has no other: it holds
+ * the issue only when it is one, so that Ribbon still puts the comic in
+ * its place.
  */
-export const COMIC_RECORD_HEADERS = ["path", "size_bytes", "mtime_ms", "pages", "title", "series", "number", "year", "writers", "publisher", "summary", "language", "genres", "right_to_left"];
+export const COMIC_RECORD_HEADERS = [
+  "path",
+  "size_bytes",
+  "mtime_ms",
+  "pages",
+  "title",
+  "series",
+  "number",
+  "issue",
+  "volume",
+  "format",
+  "year",
+  "month",
+  "day",
+  ...ROLES.map(roleColumn),
+  "publisher",
+  "imprint",
+  "summary",
+  "language",
+  "genres",
+  "story_arc",
+  "web",
+  "right_to_left",
+];
+
+/**
+ * The column a `comics.csv` written before comics kept their details has
+ * not got. Its records keep only some of what a file says (of the people,
+ * only the writers; a number only when it is one), so its comics are read
+ * again, once, after the shelf has painted (scan.ts, `readRecords`).
+ */
+export const COMIC_DETAIL_COLUMN = "issue";
+
+/**
+ * Whether a `comics.csv` keeps everything a comic's files say, or was
+ * written before it did. One with no records at all, written once the
+ * library's last comic went, has nothing to read again.
+ */
+export function keepsComicDetails(bytes: Uint8Array): boolean {
+  // The columns are the first line, and short: the first kilobyte holds them.
+  const header = new TextDecoder().decode(bytes.subarray(0, 1024)).split(/\r?\n/, 1)[0] ?? "";
+  return header.trim() === "" || header.split(",").some((column) => column.trim() === COMIC_DETAIL_COLUMN);
+}
 
 /** A record from the tags the scanner sent: `pages`, and `comicinfo`, the archive's ComicInfo.xml as text. */
 export function comicFromTags(file: { path: string; sizeBytes: number; mtimeMs: number }, tags: Record<string, string>): ComicRecord {
@@ -37,6 +81,7 @@ export function comicFromTags(file: { path: string; sizeBytes: number; mtimeMs: 
 }
 
 export function comicsToBytes(list: readonly ComicRecord[]): Promise<Uint8Array> {
+  const whole = (n: number | undefined) => (n === undefined ? "" : String(n));
   return rowsToBytes(
     list.map((c) => ({
       path: c.path,
@@ -45,34 +90,55 @@ export function comicsToBytes(list: readonly ComicRecord[]): Promise<Uint8Array>
       pages: String(c.pages),
       title: c.title ?? "",
       series: c.series ?? "",
-      // A number only, as a Ribbon from before reads this column: "1.MU" would be no number to it.
       number: numberColumn(c.number),
-      year: c.year === undefined ? "" : String(c.year),
-      writers: (c.credits?.writers ?? []).join("; "),
+      issue: c.number ?? "",
+      volume: c.volume ?? "",
+      format: c.format ?? "",
+      year: whole(c.year),
+      month: whole(c.month),
+      day: whole(c.day),
+      ...Object.fromEntries(ROLES.map((role) => [roleColumn(role), (c.credits?.[role] ?? []).join("; ")])),
       publisher: c.publisher ?? "",
+      imprint: c.imprint ?? "",
       summary: c.summary ?? "",
       language: c.language ?? "",
       genres: (c.genres ?? []).join("; "),
+      story_arc: (c.storyArcs ?? []).join("; "),
+      web: c.web ?? "",
       right_to_left: c.rightToLeft ? "1" : "0",
     })),
     COMIC_RECORD_HEADERS,
   );
 }
 
+/** The `number` column, for a Ribbon from before: the issue when it is a number, as that Ribbon reads one. "1.MU" is none to it. */
 function numberColumn(number: string | undefined): string {
   const n = number === undefined ? null : issueNumber(number);
   return n === null ? "" : String(n);
 }
 
+/**
+ * The records in a `comics.csv`, by path. One written before comics kept
+ * their details is read as far as its columns go, `number` as the issue:
+ * enough to show each comic as it was until it is read again.
+ */
 export async function bytesToComics(bytes: Uint8Array): Promise<Map<string, ComicRecord>> {
   const { rows } = await bytesToRows(bytes);
   const list = (cell: string | undefined) => (cell ?? "").split(/\s*;\s*/).filter(Boolean);
+  const whole = (cell: string | undefined) => (cell ? int(cell) : 0);
   const out = new Map<string, ComicRecord>();
   for (const r of rows) {
     if (!r.path) continue;
-    const writers = list(r.writers);
+    const credits: Credits = {};
+    for (const role of ROLES) {
+      const names = list(r[roleColumn(role)]);
+      if (names.length > 0) credits[role] = names;
+    }
     const genres = list(r.genres);
-    const year = r.year ? int(r.year) : 0;
+    const storyArcs = list(r.story_arc);
+    // The issue as printed; a record from before has only the number.
+    const issue = r.issue ?? r.number;
+    const [year, month, day] = [whole(r.year), whole(r.month), whole(r.day)];
     out.set(r.path, {
       path: r.path,
       sizeBytes: int(r.size_bytes),
@@ -80,13 +146,20 @@ export async function bytesToComics(bytes: Uint8Array): Promise<Map<string, Comi
       pages: int(r.pages),
       ...(r.title ? { title: r.title } : {}),
       ...(r.series ? { series: r.series } : {}),
-      ...(r.number ? { number: r.number } : {}),
-      ...(year > 0 ? { year } : {}),
-      ...(writers.length > 0 ? { credits: { writers } } : {}),
+      ...(issue ? { number: issue } : {}),
+      ...(r.volume ? { volume: r.volume } : {}),
+      ...(r.format ? { format: r.format } : {}),
+      ...(Object.keys(credits).length > 0 ? { credits } : {}),
       ...(r.publisher ? { publisher: r.publisher } : {}),
+      ...(r.imprint ? { imprint: r.imprint } : {}),
+      ...(year > 0 ? { year } : {}),
+      ...(month > 0 ? { month } : {}),
+      ...(day > 0 ? { day } : {}),
       ...(r.summary ? { summary: r.summary } : {}),
       ...(r.language ? { language: r.language } : {}),
       ...(genres.length > 0 ? { genres } : {}),
+      ...(storyArcs.length > 0 ? { storyArcs } : {}),
+      ...(r.web ? { web: r.web } : {}),
       ...(bool(r.right_to_left) ? { rightToLeft: true } : {}),
     });
   }

@@ -44,7 +44,7 @@ import { comicAfter, pageAt, pageLocator, pageProgress, type ComicEvent, type Co
 import { parseComicSettings, parseDirections, type ComicSettings } from "@ribbon/core/comic/settings";
 import { isWide } from "@ribbon/core/comic/spreads";
 import { onlyRead } from "@ribbon/core/kind";
-import { comicPages } from "./comic";
+import { comicPages, folderComicEdited } from "./comic";
 import { openingPlace, parseKeptPlaces, PlaceKeeper, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
 import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
@@ -435,6 +435,9 @@ interface Opened {
   keeper: PositionKeeper;
   /** Hand edits to books' details, by book id. */
   edits: Map<string, BookEdits>;
+  /** How many times this app has saved a book's edits beside these books, and when each book's last was, by that count (readEdits). */
+  editWrites: number;
+  editWrittenAt: Map<string, number>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
   /** What came of asking about each book's chapter names; read once, on the first ask. */
@@ -742,7 +745,13 @@ export class AppController {
     return this.state.sources.map((s) => this.opened.get(s.id)).filter((o): o is Opened => !!o);
   }
 
-  /** Mark books with their source and lay that source's hand edits over them. */
+  /**
+   * Mark books with their source and lay that source's hand edits over
+   * them. A comic in a folder is named from its details once they are laid
+   * over it, its edits from before moved to the new shape first
+   * (app/comic.ts, `folderComicEdited`); a server's comic comes named by its
+   * server.
+   */
   private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
     return books.map((b) => {
       const { original, edits: _was, ...rest } = b;
@@ -752,6 +761,7 @@ export class AppController {
       const e = o.edits.get(base.id);
       const sourced = { ...rest, source: o.source.id };
       if (!e) return original || base !== b.book || b.source !== o.source.id ? { ...sourced, book: base } : b;
+      if (base.comic && !o.server) return { ...sourced, ...folderComicEdited(base, e.values) };
       return { ...sourced, book: applyEdits(base, e.values), original: base, edits: e.values };
     });
   }
@@ -1027,6 +1037,8 @@ export class AppController {
       lib,
       books: [],
       edits: new Map(),
+      editWrites: 0,
+      editWrittenAt: new Map(),
       log: [],
       pendingLog: [],
       names: null,
@@ -1165,9 +1177,29 @@ export class AppController {
     if (changed.length > 0) this.publishBooks();
   }
 
+  /**
+   * Every edits file beside a source's books, read without losing a save
+   * made while the read was going on. Reading them all takes a while, and
+   * a book saved meanwhile may have been read before its new file was
+   * written: what this app saved since the read began is newer than
+   * whatever the read found for that book, so it stands, or its absence
+   * does where the save took every edit back.
+   */
+  private async readEdits(o: Opened): Promise<Map<string, BookEdits>> {
+    const began = o.editWrites;
+    const read = new Map(await o.lib.readAllEdits());
+    for (const [bookId, at] of o.editWrittenAt) {
+      if (at <= began) continue;
+      const saved = o.edits.get(bookId);
+      if (saved) read.set(bookId, saved);
+      else read.delete(bookId);
+    }
+    return read;
+  }
+
   /** Read a source's hand edits and lay them over its books, with a server's own (editsFor). */
   private async takeEdits(o: Opened): Promise<void> {
-    const edits = await o.lib.readAllEdits().catch((e: unknown) => {
+    const edits = await this.readEdits(o).catch((e: unknown) => {
       log.warn("could not read the edits beside the books:", describe(e));
       return null;
     });
@@ -1196,10 +1228,15 @@ export class AppController {
     if (kept && b.book.comic && form.rightToLeft !== undefined) this.forgetComicDirection(bookId);
   }
 
-  /** A folder's book edited: what differs from its files, kept beside it. */
+  /**
+   * A folder's book edited: what differs from its files, kept beside it.
+   * Its edits before are the ones in effect on the shelf (stamp): a comic's
+   * from before it had details of its own are read as the new ones there,
+   * so they are written in the new shape now.
+   */
   private async saveFolderEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<boolean> {
     const bookId = b.book.id;
-    const previous = o.edits.get(bookId)?.values ?? {};
+    const previous = b.edits ?? {};
     const values = diffEdits(b.original ?? b.book, form, previous);
     const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
     await o.lib.writeEdits(edits);
@@ -1266,7 +1303,8 @@ export class AppController {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const previous = o.edits.get(bookId)?.values ?? {};
+    // The edits in effect: a comic's moved to the new shape (stamp), so the one taken back is the one the form showed.
+    const previous = b.edits ?? {};
     let kept = true;
     if (o.server) {
       const shared = sharedEdits(previous);
@@ -1316,8 +1354,10 @@ export class AppController {
     return true;
   }
 
-  /** A book's edits laid over it on the shelf. */
+  /** A book's edits, just saved beside it, laid over it on the shelf; a read of every edits file already under way gives way to them (readEdits). */
   private keepEdits(o: Opened, edits: BookEdits): void {
+    o.editWrites++;
+    o.editWrittenAt.set(edits.bookId, o.editWrites);
     if (Object.keys(edits.values).length === 0) o.edits.delete(edits.bookId);
     else o.edits.set(edits.bookId, edits);
     o.books = this.stamp(o, o.books);
@@ -1440,7 +1480,7 @@ export class AppController {
       log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
       for (const e of result.errors) log.warn("scan:", source.name, e.path, e.message);
       await positionsReady;
-      const edits = await lib.readAllEdits().catch(() => null);
+      const edits = await this.readEdits(o).catch(() => null);
       if (!alive()) return;
       if (edits) o.edits = this.editsFor(o, edits);
       o.books = this.stamp(o, books);

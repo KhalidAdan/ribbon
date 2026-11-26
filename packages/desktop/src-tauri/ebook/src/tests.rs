@@ -395,6 +395,38 @@ fn reads_only_the_package_for_a_scan() {
 }
 
 #[test]
+fn hands_over_the_package_metadata_as_written() {
+    // Calibre's series and a translator, which core reads from the text (parseOpf), not Rust.
+    let opf = OPF.replace("<dc:language>", r#"<dc:creator opf:role="trl">Tom Turner</dc:creator><meta name="calibre:series" content="Made Up Saga"/><dc:language>"#);
+    let bytes = epub(&[("META-INF/container.xml", CONTAINER), ("OEBPS/content.opf", opf.as_bytes())]);
+    let p = read_package(Cursor::new(bytes)).expect("a package");
+    let start = opf.find("<metadata").unwrap();
+    let end = opf.find("</metadata>").unwrap() + "</metadata>".len();
+    assert_eq!(p.metadata, &opf[start..end]);
+    assert_eq!(p.tags().get("opf"), Some(&p.metadata));
+    // Only the metadata: the manifest and spine stay behind.
+    assert!(!p.metadata.contains("<manifest"));
+    // The translator is not an author.
+    assert_eq!(p.meta.authors, vec!["Mike Brooks"]);
+}
+
+#[test]
+fn finds_the_metadata_however_it_is_written() {
+    // With a prefix, after a comment that names it, and with a manifest that would be found first by a careless search.
+    let prefixed = r#"<?xml version="1.0"?><!-- <metadata>not this</metadata> --><opf:package xmlns:opf="http://www.idpf.org/2007/opf"><opf:metadata><dc:title>Made Up</dc:title></opf:metadata><opf:manifest/></opf:package>"#;
+    assert_eq!(metadata_text(prefixed), "<opf:metadata><dc:title>Made Up</dc:title></opf:metadata>");
+    // EPUB 2's older shape, a dc-metadata inside the metadata, comes whole.
+    let nested = "<package><metadata><dc-metadata><dc:title>Old</dc:title></dc-metadata></metadata></package>";
+    assert_eq!(metadata_text(nested), "<metadata><dc-metadata><dc:title>Old</dc:title></dc-metadata></metadata>");
+    // None, or empty, or never closed: nothing to hand over.
+    assert_eq!(metadata_text("<package><manifest/></package>"), "");
+    assert_eq!(metadata_text("<package><metadata/></package>"), "");
+    assert_eq!(metadata_text("<package><metadata><dc:title>Cut off"), "");
+    // A package with no metadata hands over no `opf` tag.
+    assert!(Package::default().tags().get("opf").is_none());
+}
+
+#[test]
 fn finds_the_cover_the_way_epub_2_names_it_and_copies_it() {
     let opf = OPF.replace("<dc:language>", r#"<meta name="cover" content="icon"/><dc:language>"#);
     let png = png();

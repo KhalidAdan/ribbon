@@ -17,6 +17,8 @@ export interface SideMeta {
   subtitle?: string;
   authors?: string[];
   narrators?: string[];
+  /** A text's translators: creators and contributors with the role `trl`. An audiobook's details don't keep them (docs/BOOK-DETAILS.md, section 2). */
+  translators?: string[];
   series?: string;
   seriesIndex?: number;
   description?: string;
@@ -94,15 +96,20 @@ export function elements(xml: string, names: string[]): XmlElement[] {
   return out;
 }
 
-/** Read an OPF package document. Unknown or malformed parts are left out. */
+/**
+ * Read an OPF package document: a `metadata.opf` beside a book, or an
+ * EPUB's own package, which the scanner hands over as its `opf` tag
+ * (ebooks.ts). Unknown or malformed parts are left out.
+ */
 export function parseOpf(xml: string): SideMeta {
   const meta: SideMeta = {};
   const els = elements(xml, ["title", "creator", "contributor", "description", "publisher", "language", "subject", "identifier", "date", "meta"]);
-  // EPUB 3 refines a creator's role with <meta refines="#id" property="role">.
-  const roles = new Map<string, string>();
-  for (const e of els) if (e.name === "meta" && e.attrs.property === "role" && e.attrs.refines) roles.set(e.attrs.refines.replace(/^#/, ""), e.text.toLowerCase());
+  // EPUB 3 says more of an element in metas that refine it: a creator's role, a collection's type and a book's place in it.
+  const refining = (property: string) => new Map(els.filter((e) => e.name === "meta" && e.attrs.property === property && e.attrs.refines).map((e) => [e.attrs.refines!.replace(/^#/, ""), e.text]));
+  const roles = refining("role");
   const authors: string[] = [];
   const narrators: string[] = [];
+  const translators: string[] = [];
   const genres: string[] = [];
   for (const e of els) {
     const v = e.text;
@@ -117,6 +124,7 @@ export function parseOpf(xml: string): SideMeta {
         const role = (e.attrs.role ?? (e.attrs.id ? roles.get(e.attrs.id) : undefined) ?? (e.name === "creator" ? "aut" : "")).toLowerCase();
         if (role === "aut" || role === "author") authors.push(v);
         else if (role === "nrt" || role === "narrator" || role === "reader") narrators.push(v);
+        else if (role === "trl" || role === "translator") translators.push(v);
         break;
       }
       case "description":
@@ -144,26 +152,39 @@ export function parseOpf(xml: string): SideMeta {
         break;
       }
       case "meta": {
-        // Calibre's series, and EPUB 3's collection.
+        // Calibre's series, over EPUB 3's collections (below), which say the same where Calibre wrote both.
         const name = (e.attrs.name ?? "").toLowerCase();
         if (name === "calibre:series" && e.attrs.content) meta.series = e.attrs.content;
         if (name === "calibre:series_index" && e.attrs.content) {
           const n = Number(e.attrs.content);
           if (Number.isFinite(n)) meta.seriesIndex = n;
         }
-        if (e.attrs.property === "belongs-to-collection" && v && !meta.series) meta.series = v;
-        if (e.attrs.property === "group-position" && v) {
-          const n = Number(v);
-          if (Number.isFinite(n)) meta.seriesIndex = n;
-        }
         break;
       }
     }
   }
+  if (!meta.series) Object.assign(meta, collectionSeries(els, refining("collection-type"), refining("group-position")));
   if (authors.length > 0) meta.authors = unique(authors);
   if (narrators.length > 0) meta.narrators = unique(narrators);
+  if (translators.length > 0) meta.translators = unique(translators);
   if (genres.length > 0) meta.genres = unique(genres);
   return meta;
+}
+
+/**
+ * EPUB 3's series: a collection the book belongs to, with its place in
+ * it refining that collection. A collection that says it is a series
+ * comes first; else the first one, unless it says it is a "set" (books
+ * that go together in no order, which is no series).
+ */
+function collectionSeries(els: readonly XmlElement[], types: Map<string, string>, positions: Map<string, string>): Pick<SideMeta, "series" | "seriesIndex"> {
+  const collections = els.filter((e) => e.name === "meta" && e.attrs.property === "belongs-to-collection" && e.text);
+  const typeOf = (e: XmlElement) => (e.attrs.id ? types.get(e.attrs.id)?.trim().toLowerCase() : undefined);
+  const series = collections.find((e) => typeOf(e) === "series") ?? collections.find((e) => typeOf(e) !== "set");
+  if (!series) return {};
+  const position = (series.attrs.id ? positions.get(series.attrs.id) : undefined)?.trim();
+  const n = position ? Number(position) : NaN;
+  return { series: series.text, ...(Number.isFinite(n) ? { seriesIndex: n } : {}) };
 }
 
 /** Fold the side files of one book folder, by name, into one set of fields. */

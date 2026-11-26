@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { namedComic } from "@ribbon/core/comic-name";
-import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, type ComicRecord } from "@ribbon/core/scan/comics";
+import { bytesToRows } from "@ribbon/core/csv";
+import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, keepsComicDetails, type ComicRecord } from "@ribbon/core/scan/comics";
 import { bytesToBooks, booksToBytes } from "@ribbon/core/scan/records";
 import type { Book } from "@ribbon/core/types";
 
@@ -87,12 +88,69 @@ describe("a comic's details from its files", () => {
   });
 });
 
-describe("comics.csv, as it has been", () => {
-  it("keeps what its columns hold and reads it back, a number only where it is one", async () => {
-    const record = recordOf({ Title: "Chapter Seven", Series: "Spider-Man", Number: "1.MU", Year: "2024", Writer: "Ada Quill, Ben Nib", Penciller: "Cy Ink", Genre: "Action", LanguageISO: "en", Manga: "YesAndRightToLeft" });
+/** A whole ComicInfo.xml, every element Ribbon reads. */
+const EVERYTHING = {
+  Title: "Chapter Seven",
+  Series: "Spider-Man",
+  Number: "1.MU",
+  Volume: "2023",
+  Format: "Annual",
+  Writer: "Ada Quill, Ben Nib",
+  Penciller: "Cy Ink",
+  Inker: "Di Pen",
+  Colorist: "Ed Hue",
+  Letterer: "Flo Script",
+  CoverArtist: "Gus Wash",
+  Editor: "Hal Red",
+  Translator: "Ida Word",
+  Publisher: "Paper Moon",
+  Imprint: "Lantern",
+  Year: "2024",
+  Month: "7",
+  Day: "10",
+  Summary: "They swing.",
+  LanguageISO: "en",
+  Genre: "Action",
+  StoryArc: "The Long Way, Home Again",
+  Web: "https://comicvine.gamespot.com/x/4000-1234567/",
+  Manga: "YesAndRightToLeft",
+};
+
+/** comics.csv as Ribbon wrote it before comics kept their details (0.51.0 and before), from records in its columns. */
+const OLD_COLUMNS = ["path", "size_bytes", "mtime_ms", "pages", "title", "series", "number", "year", "writers", "publisher", "summary", "language", "genres", "right_to_left"];
+const oldComicsCsv = (...rows: string[][]) => new TextEncoder().encode([OLD_COLUMNS.join(","), ...rows.map((r) => r.join(","))].join("\n") + "\n");
+
+describe("comics.csv", () => {
+  it("keeps everything a comic's ComicInfo.xml says, and reads it back as it was", async () => {
+    const record = recordOf(EVERYTHING);
     const back = (await bytesToComics(await comicsToBytes([record]))).get(file.path)!;
-    expect(back).toEqual({ ...file, pages: 24, title: "Chapter Seven", series: "Spider-Man", year: 2024, credits: { writers: ["Ada Quill", "Ben Nib"] }, genres: ["Action"], language: "en", rightToLeft: true });
-    expect((await bytesToComics(await comicsToBytes([recordOf({ Number: "014" })]))).get(file.path)!.number).toBe("14");
+    expect(back).toEqual(record);
+    // So a comic named from its record is the comic named from its file: the scan's name, byline, place and all.
+    expect(shelved(back, "anything")).toEqual(shelved(record, "anything"));
+    expect(shelved(back, "anything")).toMatchObject({ title: "Spider-Man #1.MU: Chapter Seven", author: "Ada Quill; Ben Nib; Cy Ink", coverDate: "2024-07", storyArcs: ["The Long Way", "Home Again"], comicvine: "4000-1234567" });
+  });
+
+  it("keeps an issue as printed, and a number beside it only where it is one, for a Ribbon from before that reads only that", async () => {
+    const rows = async (record: ComicRecord) => (await bytesToRows(await comicsToBytes([record]))).rows[0]!;
+    expect(await rows(recordOf({ Series: "Spider-Man", Number: "1.MU" }))).toMatchObject({ issue: "1.MU", number: "" });
+    expect(await rows(recordOf({ Series: "Saga", Number: "½" }))).toMatchObject({ issue: "½", number: "0.5" });
+    expect(await rows(recordOf({ Series: "Saga", Number: "014" }))).toMatchObject({ issue: "14", number: "14" });
+    // Its writers stay in the column a Ribbon from before reads them from.
+    expect(await rows(recordOf({ Writer: "Ada Quill, Ben Nib" }))).toMatchObject({ writers: "Ada Quill; Ben Nib" });
+  });
+
+  it("says whether it keeps a comic's details, from its columns alone", async () => {
+    expect(keepsComicDetails(await comicsToBytes([recordOf(EVERYTHING)]))).toBe(true);
+    // Written once the last comic went: nothing in it to read again.
+    expect(keepsComicDetails(await comicsToBytes([]))).toBe(true);
+    expect(keepsComicDetails(oldComicsCsv())).toBe(false);
+    expect(keepsComicDetails(new TextEncoder().encode(`${OLD_COLUMNS.join(",")}\r\n`))).toBe(false);
+  });
+
+  it("reads one from before as far as its columns go, its number as the issue", async () => {
+    const old = await bytesToComics(oldComicsCsv([file.path, "100", "1", "24", "Chapter Seven", "Saga", "14", "2019", "Ada Quill; Ben Nib", "Paper Moon", "", "en", "Fantasy", "1"], ["Loose.cbz", "5", "1", "3", "", "", "", "", "", "", "", "", "", "0"]));
+    expect(old.get(file.path)).toEqual({ ...file, pages: 24, title: "Chapter Seven", series: "Saga", number: "14", year: 2019, credits: { writers: ["Ada Quill", "Ben Nib"] }, publisher: "Paper Moon", language: "en", genres: ["Fantasy"], rightToLeft: true });
+    expect(old.get("Loose.cbz")).toEqual({ path: "Loose.cbz", sizeBytes: 5, mtimeMs: 1, pages: 3 });
   });
 });
 

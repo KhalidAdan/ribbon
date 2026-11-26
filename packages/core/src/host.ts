@@ -45,7 +45,9 @@ export interface ScannedFile {
    * with their contents in tags.text. An EPUB is "ebook": when fresh, its
    * package's title, author (semicolons between names), isbn (spaces
    * between), language, publisher, date and description are its tags,
-   * and hasCover says the package names a cover image. A CBZ is "comic":
+   * `opf` is the package's `<metadata>` element as written (core reads its
+   * series, subjects and translators: core/scan/ebooks.ts), and hasCover
+   * says the package names a cover image. A CBZ is "comic":
    * when fresh, `pages` is how many pictures its archive lists and
    * `comicinfo` is its ComicInfo.xml as text, when it has one
    * (core/scan/comics.ts reads both). A PDF is "pdf": when fresh, `pages`

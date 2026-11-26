@@ -1,15 +1,14 @@
-import { ArrowLeftIcon } from "@heroicons/react/16/solid";
+import { ArrowLeftIcon, ChevronUpIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { comicKey } from "@ribbon/core/comic/keys";
 import { onScreen, type ReadyComic } from "@ribbon/core/comic/session";
 import { nextGround, type ComicSettings, type Ground } from "@ribbon/core/comic/settings";
-import { pageBox, type Fit, type PixelSize } from "@ribbon/core/comic/size";
+import { pageBox, type PixelSize } from "@ribbon/core/comic/size";
 import { DECODED, DECODED_FACING } from "@ribbon/core/comic/window";
 import { keptInPlace, startingCorner, zoomed, zoomIn, zoomOut, zoomToggled } from "@ribbon/core/comic/zoom";
 import type { AppController } from "../app/controller";
 import { Button } from "../ui/Button";
-import { Menu, type MenuItem } from "../ui/kit";
 import { useAppState, useController } from "../ui/store";
 import { usePageSwipe } from "../reader/swipe";
 import type { Panel } from "@ribbon/core/comic/panels";
@@ -22,6 +21,7 @@ import { ScrollPages } from "./ScrollPages";
 import { PageCanvas, type Drawn } from "./PageCanvas";
 import { PanelEditor } from "./PanelEditor";
 import { PanelReader } from "./PanelReader";
+import { ViewMenu } from "./ViewMenu";
 
 /**
  * The comic reader (docs/COMICS.md, section 5): a comic's pages, shown
@@ -123,26 +123,6 @@ export function ComicView() {
   if (!r) return null;
   const shown = ready ? onScreen(ready, up) : null;
 
-  const fits: { fit: Fit; label: string }[] = [
-    { fit: "page", label: "Fit the page" },
-    { fit: "width", label: "Fit the width" },
-    { fit: "height", label: "Fit the height" },
-  ];
-  const view: MenuItem[] = [
-    ...(count > 1 ? [{ label: "Go to page…", onSelect: () => setAsking("jump") }] : []),
-    settings.scroll ? { label: "Turn the pages", onSelect: () => c.setComicSettings({ scroll: false }) } : { label: "One long scroll", onSelect: () => c.setComicSettings({ scroll: true }) },
-    // Two pages up and the fits are for turning the pages; the scroll is a column of its own width.
-    ...(settings.scroll ? [] : [settings.up === "one" ? { label: "Two pages, as printed", onSelect: () => c.setComicSettings({ up: "two" }) } : { label: "One page at a time", onSelect: () => c.setComicSettings({ up: "one" }) }]),
-    ...(settings.scroll ? [] : fits.filter((f) => f.fit !== settings.fit).map((f) => ({ label: f.label, onSelect: () => c.setComicSettings({ fit: f.fit }) }))),
-    ...(count > 1 && reading ? [settings.strip ? { label: "Hide small pages", onSelect: () => c.setComicSettings({ strip: false }) } : { label: "Show small pages", onSelect: () => c.setComicSettings({ strip: true }) }] : []),
-    rightToLeft ? { label: "Read left to right", onSelect: () => c.setComicRightToLeft(r.bookId, false) } : { label: "Read right to left", onSelect: () => c.setComicRightToLeft(r.bookId, true) },
-    ...(hasPanels && !settings.scroll ? [byPanel ? { label: "Whole pages", onSelect: () => setByPanel(false) } : { label: "Read by panels", onSelect: () => setByPanel(true) }] : []),
-    ...GROUND_NAMES.filter((g) => g.ground !== settings.ground).map((g) => ({ label: g.label, onSelect: () => c.setComicSettings({ ground: g.ground }) })),
-    // A server's comic, for its admin: the panels it is read by on a television are marked here (docs/COMICS.md, section 14).
-    ...(ready && c.canMarkPanels(r.bookId) ? [{ label: "Mark its panels…", onSelect: () => setMarking(true) }] : []),
-    { label: "Keys…", onSelect: () => setAsking("keys") },
-  ];
-
   return (
     <div role="dialog" aria-modal="true" aria-label={`Reading ${title || "a comic"}`} className="safe-area fixed inset-0 z-30 flex flex-col bg-canvas text-ink">
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2 sm:px-3">
@@ -154,7 +134,23 @@ export function ComicView() {
           {/* While its panels are marked, the page being marked is the editor's to name, and need not be the one being read. */}
           {ready && shown && !marking && <p className="truncate text-xs/4 text-ink-3 tabular-nums">{folio(shown.pages, ready.pages.length)}</p>}
         </div>
-        {!marking && <Menu label="How the pages are shown" title="Pages" items={view} />}
+        {!marking && (
+          <ViewMenu
+            settings={settings}
+            rightToLeft={rightToLeft}
+            hasPanels={hasPanels}
+            byPanel={byPanel}
+            count={count}
+            // A server's comic, for its admin: the panels it is read by on a television are marked here (docs/COMICS.md, section 14).
+            canMarkPanels={!!ready && c.canMarkPanels(r.bookId)}
+            onSettings={(change) => c.setComicSettings(change)}
+            onDirection={(rtl) => c.setComicRightToLeft(r.bookId, rtl)}
+            onByPanel={setByPanel}
+            onJump={() => setAsking("jump")}
+            onMarkPanels={() => setMarking(true)}
+            onKeys={() => setAsking("keys")}
+          />
+        )}
       </header>
 
       {r.status === "opening" && <div className="flex-1" aria-busy="true" />}
@@ -169,26 +165,32 @@ export function ComicView() {
       {ready && reading === "panels" && <PanelReader key={ready.bookId} comic={ready} panels={panels!} rightToLeft={rightToLeft} c={c} ground={groundColour(settings.ground)} />}
       {ready && marking && <PanelEditor key={ready.bookId} comic={ready} title={title} c={c} onDone={() => setMarking(false)} />}
 
-      {/* Under either reader: the strip of small pages, and the slider, each running the way the comic reads. */}
-      {ready && shown && reading && count > 1 && settings.strip && <ComicStrip comic={ready} shown={shown.pages} rightToLeft={rightToLeft} c={c} pdf={pdf} />}
+      {/* Under either reader: the strip of small pages, folding up out of the foot and back, with its tab at the right,
+          and the slider. Each runs the way the comic reads. */}
       {ready && shown && reading && count > 1 && (
-        <footer className="flex h-10 shrink-0 items-center gap-3 border-t border-line px-4">
-          <input
-            type="range"
-            aria-label="Page"
-            aria-valuetext={folio(shown.pages, count)}
-            min={1}
-            max={count}
-            step={1}
-            value={ready.page + 1}
-            dir={rightToLeft ? "rtl" : "ltr"}
-            onChange={(e) => c.turnComic(Number(e.target.value) - 1, "seek")}
-            className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-line-strong accent-ink"
-          />
-          <p className="w-20 shrink-0 text-right text-[0.8125rem]/5 text-ink-2 tabular-nums">
-            {ready.page + 1} of {count}
-          </p>
-        </footer>
+        <div className="relative shrink-0">
+          <StripTab open={settings.strip} onToggle={() => c.setComicSettings({ strip: !settings.strip })} />
+          <Unfolding open={settings.strip}>
+            <ComicStrip comic={ready} shown={shown.pages} rightToLeft={rightToLeft} c={c} pdf={pdf} />
+          </Unfolding>
+          <footer className="flex h-10 items-center gap-3 border-t border-line px-4">
+            <input
+              type="range"
+              aria-label="Page"
+              aria-valuetext={folio(shown.pages, count)}
+              min={1}
+              max={count}
+              step={1}
+              value={ready.page + 1}
+              dir={rightToLeft ? "rtl" : "ltr"}
+              onChange={(e) => c.turnComic(Number(e.target.value) - 1, "seek")}
+              className="h-1 min-w-0 flex-1 cursor-pointer appearance-none rounded-full bg-line-strong accent-ink"
+            />
+            <p className="w-20 shrink-0 text-right text-[0.8125rem]/5 text-ink-2 tabular-nums">
+              {ready.page + 1} of {count}
+            </p>
+          </footer>
+        </div>
       )}
 
       {ready && <JumpToPage open={asking === "jump"} page={ready.page} count={count} onGo={(to) => c.turnComic(to, "seek")} onClose={() => setAsking(null)} />}
@@ -197,13 +199,61 @@ export function ComicView() {
   );
 }
 
-/** The grounds behind the page, as the Pages menu names them. */
-const GROUND_NAMES: { ground: Ground; label: string }[] = [
-  { ground: "ribbon", label: "Ribbon's own ground" },
-  { ground: "black", label: "A black ground" },
-  { ground: "grey", label: "A grey ground" },
-  { ground: "white", label: "A white ground" },
-];
+/**
+ * The tab the strip of small pages hangs from (`T` does the same): a caret
+ * at the right of the reader's foot, joined to whatever is at the top of it,
+ * the strip when it shows and the slider when it doesn't. It sits over the
+ * page's corner, so it is drawn in the foot's own ground with the foot's
+ * hairline round it, and the line under it is the foot's, hidden.
+ */
+function StripTab({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-label={open ? "Hide the small pages" : "Show the small pages"}
+      title={open ? "Hide the small pages (T)" : "Show the small pages (T)"}
+      // A click leaves the keys where they were: on the pages.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onToggle}
+      className="absolute right-3 bottom-full z-10 -mb-px flex h-6 w-12 items-center justify-center rounded-t-md border border-b-0 border-line bg-canvas text-ink-2 focus-ring hover:text-ink"
+    >
+      <span className="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true" />
+      <ChevronUpIcon className={clsx("size-4 shrink-0 fill-current transition-transform duration-200 ease-out motion-reduce:transition-none", open && "rotate-180")} aria-hidden="true" />
+    </button>
+  );
+}
+
+/** How long a fold waits for its way out to finish before it lets go anyway: a hidden window runs no transitions. */
+const FOLD_WITHIN_MS = 250;
+
+/**
+ * What folds up out of the foot and back down into it, like an accordion:
+ * its height grows from nothing, and shrinks back, in 200ms. What it holds is
+ * made when it opens and let go once it has folded away, so the strip's
+ * small pictures are only held while they can be seen.
+ */
+function Unfolding({ open, children }: { open: boolean; children: ReactNode }) {
+  const [held, setHeld] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setHeld(true);
+      return;
+    }
+    const gone = setTimeout(() => setHeld(false), FOLD_WITHIN_MS);
+    return () => clearTimeout(gone);
+  }, [open]);
+  return (
+    <div
+      className={clsx("grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}
+      onTransitionEnd={(e) => {
+        if (e.target === e.currentTarget && !open) setHeld(false);
+      }}
+    >
+      <div className="min-h-0 overflow-hidden">{(open || held) && children}</div>
+    </div>
+  );
+}
 
 /** The colour behind the page; none for Ribbon's own, which is the app's light or dark as it is. */
 export function groundColour(ground: Ground): string | undefined {
