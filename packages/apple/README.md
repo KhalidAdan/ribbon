@@ -109,6 +109,15 @@ for listening without a network.
   it started and how it ended, and the time spent in it on every device),
   and the rest of its series. Listen again, on a finished book, always
   starts from the beginning as a new listen-through, as the desktop's does.
+  A comic's page says what a comic has of its own, as the desktop's does
+  (docs/BOOK-DETAILS.md, section 4): "Transformers (2023) · #7 of 19" in its
+  own series, where a book says "Book 7 of 19"; its cover date ("July 2024"),
+  the day it went on sale, its imprint beside its publisher and the issues a
+  collection holds among the facts; under them its people by what they did
+  (Writer, Art, Inks, Colours, Letters, Cover, Editors, Translators) and its
+  story arcs. A comic whose details came from ComicVine says "Details from
+  ComicVine", as ComicVine asks: on the iPad and the iPhone it opens the
+  comic's page there, and the TV, which can't open a page, names the site.
 - **The player**: the chapter and how far into it, the transport (chapters,
   thirty seconds back and on), speed, the sleep timer, and the chapter list.
   The player and the reader share one narration: leaving either leaves the
@@ -310,6 +319,7 @@ passages.
 | `PeopleView.swift`, `SignInView.swift` | Who's reading, and signing in. |
 | `Library/Library.swift` | A person's books and how far through each, grouped as the desktop's shelf. |
 | `Library/LibraryView.swift`, `Library/BookView.swift` | The library, and a book's page with its series. |
+| `Library/ComicDetails.swift` | A comic's own details as its page words them: its people by role, its dates, the issues it collects, and ComicVine's page. |
 | `Remote.swift` | Every press and touch, seen first: when the person last did anything, and the one press that only wakes something. |
 | `Listening/Listening.swift` | The book being listened to: play, chapters, speed, the sleep timer, the place, resuming, chapter cards, the end. |
 | `Listening/Resume.swift` | How far back resuming goes, as the desktop's `packages/core/src/resume.ts`. |
