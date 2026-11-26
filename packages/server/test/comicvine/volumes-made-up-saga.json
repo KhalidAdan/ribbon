@@ -1,0 +1,52 @@
+{
+  "error": "OK",
+  "limit": 20,
+  "offset": 0,
+  "number_of_page_results": 4,
+  "number_of_total_results": 4,
+  "status_code": 1,
+  "results": [
+    {
+      "count_of_issues": 6,
+      "id": 9003,
+      "image": { "thumb_url": "https://comicvine.gamespot.com/a/uploads/scale_avatar/9/9003/made-up-saga-tales-1.jpg" },
+      "name": "Made Up Saga Tales",
+      "publisher": { "api_detail_url": "https://comicvine.gamespot.com/api/publisher/4010-90031/", "id": 90031, "name": "Made Up Press" },
+      "site_detail_url": "https://comicvine.gamespot.com/made-up-saga-tales/4050-9003/",
+      "start_year": "2019"
+    },
+    {
+      "count_of_issues": 3,
+      "id": 9002,
+      "image": null,
+      "name": "Made Up Saga",
+      "publisher": { "api_detail_url": "https://comicvine.gamespot.com/api/publisher/4010-90033/", "id": 90033, "name": "Another Press" },
+      "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9002/",
+      "start_year": "2021"
+    },
+    {
+      "count_of_issues": 12,
+      "id": 9001,
+      "image": {
+        "icon_url": "https://comicvine.gamespot.com/a/uploads/square_avatar/9/9001/made-up-saga-1.jpg",
+        "small_url": "https://comicvine.gamespot.com/a/uploads/scale_small/9/9001/made-up-saga-1.jpg",
+        "thumb_url": "https://comicvine.gamespot.com/a/uploads/scale_avatar/9/9001/made-up-saga-1.jpg",
+        "original_url": "https://comicvine.gamespot.com/a/uploads/original/9/9001/made-up-saga-1.jpg"
+      },
+      "name": "Made Up Saga",
+      "publisher": { "api_detail_url": "https://comicvine.gamespot.com/api/publisher/4010-90031/", "id": 90031, "name": "Made Up Press" },
+      "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9001/",
+      "start_year": "2018"
+    },
+    {
+      "count_of_issues": 2,
+      "id": 9004,
+      "image": { "thumb_url": "https://comicvine.gamespot.com/a/uploads/scale_avatar/9/9004/made-up-saga-compendium-one.jpg" },
+      "name": "Made Up Saga",
+      "publisher": { "api_detail_url": "https://comicvine.gamespot.com/api/publisher/4010-90031/", "id": 90031, "name": "Made Up Press" },
+      "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9004/",
+      "start_year": "2019"
+    }
+  ],
+  "version": "1.0"
+}

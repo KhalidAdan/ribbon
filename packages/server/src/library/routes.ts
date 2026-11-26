@@ -21,6 +21,8 @@ import { importFolder, type ImportProgress } from "./importer.ts";
 import { findFolder } from "./folders.ts";
 import { booksToHydrate, hydrateBooks } from "./hydrate.ts";
 import { booksToDescribe, describeBooks, type Catalog, type DescribeProgress } from "./describe.ts";
+import { startMatching } from "./comic-match.ts";
+import type { ComicVine } from "./comicvine.ts";
 
 /**
  * The order the admin's devices transcribe books in: the ones still missing
@@ -45,7 +47,10 @@ export function inTranscribingOrder<T extends { done: number; total: number }>(b
  * (`GET /api/library/readalong`), so a book left by chapter is never found
  * only on the TV. The listing the apps read comes in its own routes.
  */
-export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jobs; books: BookIndex; places: Places; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; panels: ComicPanels; dataDir: string; folders: string[] }): void {
+export function libraryRoutes(
+  app: FastifyInstance,
+  deps: { auth: Auth; jobs: Jobs; books: BookIndex; places: Places; series: LibrarySeries; events: Events; frames: Mp3Frames; readAlongs: ReadAlongs; search: SearchIndex; catalog: Catalog | null; comicVine: ComicVine | null; panels: ComicPanels; dataDir: string; folders: string[] },
+): void {
   const host = nodeHost();
 
   app.post<{ Body: { folder?: unknown } }>("/api/library/import", async (request, reply) => {
@@ -92,6 +97,8 @@ export function libraryRoutes(app: FastifyInstance, deps: { auth: Auth; jobs: Jo
         // The ones still without a description get the catalog's, once this job is done (describe.ts).
         const catalog = deps.catalog;
         if (catalog) deps.jobs.start<DescribeProgress>("describe", { books: 0, done: 0, described: 0, current: null }, async (report) => describeBooks(catalog, deps.dataDir, await booksToDescribe(deps.dataDir, deps.books), report), me.id);
+        // And the comics whose files name their issue on ComicVine are matched to it, one at a time (comic-match.ts).
+        if (deps.comicVine) startMatching({ ...deps, comicVine: deps.comicVine }, me.id);
         return done;
       },
       me.id,

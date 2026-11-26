@@ -66,8 +66,8 @@ export function epubOf(file: string, book: { title: string; description?: string
 }
 
 /** A fresh server with its data in `dir/data`, and the admin's token from the first invite. */
-export async function serverWithAdmin(dir: string, config: Partial<ServerConfig> = {}): Promise<{ server: RibbonServer; admin: string }> {
-  const server = await buildServer({ dataDir: path.join(dir, "data"), host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!", ...config });
+export async function serverWithAdmin(dir: string, config: Partial<ServerConfig> = {}, opts: Parameters<typeof buildServer>[1] = {}): Promise<{ server: RibbonServer; admin: string }> {
+  const server = await buildServer({ dataDir: path.join(dir, "data"), host: "127.0.0.1", port: 0, url: "https://ribbon.example", secret: "a test secret of thirty-two chars!!", ...config }, opts);
   const code = server.invites.firstAdmin().code;
   const joined = await server.app.inject({ method: "POST", url: `/api/invites/${code}/accept`, payload: { name: "admin", password: "a long password" } });
   return { server, admin: (joined.json() as { token: string }).token };

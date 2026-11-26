@@ -39,10 +39,13 @@ const ASK_FIRST = "private, no-cache";
  *   off (the admin deletes one in routes.ts). A book a person edited is
  *   listed as edited, with its edits (the admin edits one in routes.ts). A
  *   comic's title and author are its name and byline, made from its details
- *   (books.ts). And the fields a book's edits may have here (`editFields`).
+ *   (books.ts). And the fields a book's edits may have here (`editFields`),
+ *   and whether comics can be looked up on ComicVine here (`comicVine`,
+ *   only when they can: comicvine-routes.ts).
  * - `GET /api/books/:id`: one book in full: its files, chapters and parts,
  *   the chapters as corrected (chapters.ts), its details as edited, a
- *   comic's own among them.
+ *   comic's own among them, and what ComicVine said of a comic matched
+ *   there (`matched`, beside `edited`).
  * - `GET /api/series`: the library's series, each with its books in order,
  *   a comic labelled "#7" or "Vol. 1" (series.ts; the admin changes them in
  *   routes.ts).
@@ -61,7 +64,7 @@ const ASK_FIRST = "private, no-cache";
  * people listen. Files carry an ETag and Last-Modified and answer Range
  * and If-Range, so a download that stopped carries on where it was.
  */
-export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; series: LibrarySeries; dataDir: string; frames: Mp3Frames; readAlongs: ReadAlongs }): Promise<void> {
+export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; series: LibrarySeries; dataDir: string; frames: Mp3Frames; readAlongs: ReadAlongs; comicVine?: boolean }): Promise<void> {
   // Sends files with Range, ETag and Last-Modified (the `send` module); no routes of its own.
   // Made now, not with the first book: the files plugin wants its folder to exist.
   mkdirSync(path.join(deps.dataDir, "books"), { recursive: true });
@@ -71,7 +74,9 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     if (!(await signedIn(deps.auth, request))) await reply.code(401).send({ error: "Sign in first." });
   };
 
-  app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { books: deps.books.list(), deleted: deps.books.deleted(), editFields: KEPT_EDIT_FIELDS }));
+  app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) =>
+    sendRevalidated(request, reply, { books: deps.books.list(), deleted: deps.books.deleted(), editFields: KEPT_EDIT_FIELDS, ...(deps.comicVine ? { comicVine: true } : {}) }),
+  );
 
   app.get("/api/series", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { series: deps.series.list() }));
 
@@ -79,7 +84,8 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     const stored = await storedBook(deps, request.params.id);
     if (!stored) return reply.code(404).send({ error: "No such book on this server." });
     const served = await servedBook(bookDir(deps.dataDir, request.params.id), stored);
-    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(request.params.id), deps.books.chosenCover(request.params.id), deps.books.hasDetails(request.params.id)));
+    const id = request.params.id;
+    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(id), deps.books.chosenCover(id), deps.books.hasDetails(id), deps.books.match(id)));
   });
 
   app.get<{ Params: { name: string } }>("/covers/:name", { onRequest: mustSignIn }, async (request, reply) => {

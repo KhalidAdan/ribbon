@@ -1,0 +1,18 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "count_of_issues": 2,
+    "id": 9004,
+    "image": { "thumb_url": "https://comicvine.gamespot.com/a/uploads/scale_avatar/9/9004/made-up-saga-compendium-one.jpg" },
+    "name": "Made Up Saga",
+    "publisher": { "api_detail_url": "https://comicvine.gamespot.com/api/publisher/4010-90031/", "id": 90031, "name": "Made Up Press" },
+    "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9004/",
+    "start_year": "2019"
+  },
+  "version": "1.0"
+}

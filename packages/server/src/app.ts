@@ -16,6 +16,8 @@ import { nodeHost } from "@ribbon/host-node/node";
 import { listDirections, relistRecords } from "./library/book-folder.ts";
 import { BookIndex } from "./library/books.ts";
 import { readComicsAgain } from "./library/comic-details.ts";
+import { startMatching } from "./library/comic-match.ts";
+import { ComicVine, type Clock } from "./library/comicvine.ts";
 import { booksToPrepare, prepareBooks, type PrepareProgress } from "./library/prepare.ts";
 import { audibleCatalog, booksToDescribe, describeBooks, type DescribeProgress } from "./library/describe.ts";
 import { booksToHydrate, hydrateBooks, type HydrateProgress } from "./library/hydrate.ts";
@@ -33,6 +35,7 @@ import { placesRoutes } from "./places-routes.ts";
 import { ComicPanels } from "./library/panels.ts";
 import { panelsRoutes } from "./panels-routes.ts";
 import { mcpRoutes } from "./mcp.ts";
+import { comicVineRoutes } from "./comicvine-routes.ts";
 import { readAlongRoutes } from "./readalong-routes.ts";
 
 export interface RibbonServer {
@@ -51,7 +54,7 @@ export interface RibbonServer {
  * accounts, invites and the routes over them (docs/SERVER.md). Built
  * without listening, so the tests drive it with `app.inject`.
  */
-export async function buildServer(config: ServerConfig, opts: { logger?: boolean } = {}): Promise<RibbonServer> {
+export async function buildServer(config: ServerConfig, opts: { logger?: boolean; comicVineClock?: Clock } = {}): Promise<RibbonServer> {
   const db = openDatabase(config.dataDir);
   const auth = await openAuth(db, config);
   const invites = new Invites(db);
@@ -169,13 +172,17 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   // The narration isn't transcribed here: a device with a graphics card transcribes each book whole and sends it (records.ts, `keepTranscript`).
   // A comic's panels: for the devices to read by, and for an assistant to set through the MCP (docs/COMICS.md, section 14).
   const panels = new ComicPanels(db);
-  libraryRoutes(app, { auth, jobs, books, places, series, events, frames, readAlongs, search, catalog, panels, dataDir: config.dataDir, folders: config.folders ?? [] });
-  await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames, readAlongs });
+  // When the admin has turned it on, comics whose files name their issue on ComicVine are matched to it (comic-match.ts).
+  const comicVine = config.comicVine ? new ComicVine(db, { ...config.comicVine, ...(opts.comicVineClock ? { clock: opts.comicVineClock } : {}) }) : null;
+  if (comicVine) startMatching({ jobs, comicVine, books, series, events, dataDir: config.dataDir }, null);
+  libraryRoutes(app, { auth, jobs, books, places, series, events, frames, readAlongs, search, catalog, comicVine, panels, dataDir: config.dataDir, folders: config.folders ?? [] });
+  await libraryApi(app, { auth, books, series, dataDir: config.dataDir, frames, readAlongs, comicVine: comicVine !== null });
   placesRoutes(app, { auth, places, events });
   readAlongRoutes(app, { auth, books, places, goals: new Goals(db), events, readAlongs, search, frames, dataDir: config.dataDir });
 
   panelsRoutes(app, { auth, books, panels, dataDir: config.dataDir });
-  mcpRoutes(app, { auth, books, panels, series, events, dataDir: config.dataDir });
+  mcpRoutes(app, { auth, books, panels, series, events, comicVine, dataDir: config.dataDir });
+  comicVineRoutes(app, { auth, books, series, events, comicVine, dataDir: config.dataDir });
 
   return { app, auth, db, invites, jobs, books, places, events };
 }

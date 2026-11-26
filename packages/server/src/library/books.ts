@@ -1,7 +1,8 @@
 import path from "node:path";
 import type { ComicPage } from "./comic.ts";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
-import { comicLabel, comicNamingOf, namedComic } from "@ribbon/core/comic-name";
+import { comicLabel, comicNamingOf, namedComic, type ComicShape } from "@ribbon/core/comic-name";
+import { withMatch, type ComicVineLayer, type CvIssue, type CvVolume, type LookedUp, type SharedMatch } from "@ribbon/core/comicvine";
 import { applyEdits, EDIT_FIELDS, originalOf, type EditValues, type SharedEdits } from "@ribbon/core/edits";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { remoteBook } from "@ribbon/core/server-books";
@@ -96,10 +97,32 @@ export const KEPT_EDIT_FIELDS = EDIT_FIELDS.filter((f) => f !== "cover");
  * known. They aren't for a comic stored before comics had details of their
  * own whose file couldn't be read again (comic-details.ts): it is shown as
  * it was then.
+ *
+ * A comic matched on ComicVine has what ComicVine said between its files
+ * and the edits (docs/BOOK-DETAILS.md, section 7): each field is the
+ * person's edit if there is one, else ComicVine's, else its files'.
  */
-export function asEdited<B extends Partial<Book>>(book: B, values: EditValues, named: boolean): B {
-  const edited = applyEdits(book, values);
+export function asEdited<B extends Partial<Book>>(book: B, values: EditValues, named: boolean, match: ComicVineLayer | null = null): B {
+  const edited = applyEdits(withMatch(book, match), values);
   return named ? namedComic(edited, values) : edited;
+}
+
+/**
+ * A comic's ComicVine match as the server keeps it (`book_match`): what
+ * ComicVine said for each field and the issue's page (the layer), how its
+ * number was read, its whole answer, and when and by whom it was kept
+ * (null: by the server itself, by the address in its file).
+ */
+export interface KeptMatch extends ComicVineLayer {
+  as: ComicShape;
+  answer: { issue: CvIssue; run: CvVolume | null };
+  matchedAt: string;
+  matchedBy: string | null;
+}
+
+/** A match as a device is given it, beside the edits: its whole answer stays on the server. */
+export function sharedMatch(match: KeptMatch): SharedMatch {
+  return { address: match.address, as: match.as, values: match.values, matchedAt: match.matchedAt };
 }
 
 /** The ids that name a book besides its files: its ISBN and ASIN, as the position log writes them (docs/POSITION-FORMAT.md, section 4). */
@@ -189,6 +212,76 @@ export class BookIndex {
       this.db.exec("ROLLBACK");
       throw e;
     }
+  }
+
+  /** A comic's ComicVine match, or null when it has none. */
+  match(id: string): KeptMatch | null {
+    const row = this.db.prepare("SELECT * FROM book_match WHERE book_id = ?").get(id);
+    if (!row) return null;
+    return {
+      address: String(row.address),
+      as: String(row.matched_as) as ComicShape,
+      values: JSON.parse(String(row.said)) as EditValues,
+      answer: JSON.parse(String(row.answer)) as KeptMatch["answer"],
+      matchedAt: String(row.matched_at),
+      matchedBy: row.matched_by === null ? null : String(row.matched_by),
+    };
+  }
+
+  /** Keep what a look-up found as a comic's match, in place of the one it had: its edits stay as they are. False when there's no such book. */
+  keepMatch(id: string, found: LookedUp, by: string | null, at: string): boolean {
+    if (!this.has(id)) return false;
+    this.db
+      .prepare(
+        `INSERT INTO book_match (book_id, address, matched_as, said, answer, matched_at, matched_by) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (book_id) DO UPDATE SET address = excluded.address, matched_as = excluded.matched_as, said = excluded.said, answer = excluded.answer, matched_at = excluded.matched_at, matched_by = excluded.matched_by`,
+      )
+      .run(id, found.address, found.as, JSON.stringify(found.values), JSON.stringify({ issue: found.issue, run: found.run }), at, by);
+    return true;
+  }
+
+  /**
+   * Forget a comic's match: what ComicVine said goes, whole, and the comic
+   * is what its files and its edits say again. The server won't match it by
+   * itself afterwards, which would put back what a person took away. False
+   * when it had none.
+   */
+  forgetMatch(id: string, at: number): boolean {
+    const match = this.match(id);
+    if (!match) return false;
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare("DELETE FROM book_match WHERE book_id = ?").run(id);
+      this.noteAsked(id, match.address, at);
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+    return true;
+  }
+
+  /**
+   * The comics the server matches by itself (comic-match.ts): each whose
+   * file names a ComicVine issue (its ComicInfo's `Web`), with that issue,
+   * never matched and never looked up by itself before. Oldest added first.
+   */
+  comicsToMatch(): { id: string; issue: string }[] {
+    return this.db
+      .prepare(
+        `SELECT book.id, book.details FROM book LEFT JOIN book_match ON book_match.book_id = book.id LEFT JOIN comicvine_asked ON comicvine_asked.book_id = book.id
+         WHERE book.has_comic = 1 AND book.details IS NOT NULL AND book_match.book_id IS NULL AND comicvine_asked.book_id IS NULL ORDER BY book.added_at, book.id`,
+      )
+      .all()
+      .flatMap((row) => {
+        const issue = (JSON.parse(String(row.details)) as OwnDetails).comicvine;
+        return issue ? [{ id: String(row.id), issue }] : [];
+      });
+  }
+
+  /** Note that the server looked a comic up by itself, or that a person forgot its match: it isn't looked up by itself again. */
+  noteAsked(id: string, address: string, at: number): void {
+    this.db.prepare("INSERT INTO comicvine_asked (book_id, address, asked_at) VALUES (?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET address = excluded.address, asked_at = excluded.asked_at").run(id, address, at);
   }
 
   /** List a book as having an EPUB of these bytes now: an audiobook given the EPUB beside it in its folder after it was added (importer.ts). */
@@ -295,21 +388,28 @@ export interface KeptEdits {
 /** The fields of a book the library answer lists, and so the ones whose files' values it gives with the edits. */
 const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex", "rightToLeft"] as const;
 
-/** The book table with each book's edits and the cover chosen for it, if it has them, and its words, once its text is indexed (search.ts). */
-const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at, sentence_index.words
-  FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id LEFT JOIN book_cover ON book_cover.book_id = book.id LEFT JOIN sentence_index ON sentence_index.book_id = book.id`;
+/**
+ * The book table with each book's edits and the cover chosen for it, if it has them, a comic's ComicVine match, and its
+ * words, once its text is indexed (search.ts).
+ */
+const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at,
+  book_match.address AS matched_address, book_match.said AS matched_said, sentence_index.words
+  FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id LEFT JOIN book_cover ON book_cover.book_id = book.id LEFT JOIN book_match ON book_match.book_id = book.id
+  LEFT JOIN sentence_index ON sentence_index.book_id = book.id`;
 
-/** A row of the book table as the library answer gives it, with its edits laid over it and the cover chosen for it. */
+/** A row of the book table as the library answer gives it, with what ComicVine said and its edits laid over it, and the cover chosen for it. */
 function listed(row: Record<string, SQLOutputValue>): ListedBook {
   const book = filed(row);
   const chosen = row.chosen_hash === null || row.chosen_hash === undefined ? null : { hash: String(row.chosen_hash), aspect: Number(row.chosen_aspect), colour: String(row.chosen_colour) };
-  if ((row.edits === null || row.edits === undefined) && !chosen) return book;
+  const hasEdits = row.edits !== null && row.edits !== undefined;
+  const match = layerOf(row);
+  if (!hasEdits && !chosen && !match) return book;
   const values = editsOf(row);
-  // What its files say, a comic's own details among them: so a comic is named as its edits make it, its byline and its
-  // place in its series too (comic-name.ts).
+  // What its files say, a comic's own details among them: so a comic is named as ComicVine and its edits make it, its
+  // byline and its place in its series too (comic-name.ts).
   const own = detailsOf(row);
   const files = { ...remoteBook(book).book, ...own };
-  const edited = asEdited(files, values, own !== null);
+  const edited = asEdited(files, values, own !== null, match);
   const shown = Object.fromEntries(LISTED_FIELDS.filter((f) => values[f] !== undefined).map((f) => [f, values[f]!]));
   const { rightToLeft: _filed, ...rest } = book;
   return {
@@ -322,29 +422,39 @@ function listed(row: Record<string, SQLOutputValue>): ListedBook {
     // Only a comic reads one way or the other, whatever edit a request sent for another book.
     ...(book.comic && edited.rightToLeft ? { rightToLeft: true as const } : {}),
     ...(chosen ? { cover: chosen } : {}),
-    edited: { values, original: originalOf(files, shown), updatedAt: String(row.edited_at ?? row.chosen_at), ...(chosen ? { chosenCover: true as const } : {}) },
+    // What taking an edit back returns to: ComicVine's, where it said something, else the files'.
+    ...(hasEdits || chosen ? { edited: { values, original: originalOf(withMatch(files, match), shown), updatedAt: String(row.edited_at ?? row.chosen_at), ...(chosen ? { chosenCover: true as const } : {}) } } : {}),
   };
 }
 
 /**
  * A stored book as a device is given it (`GET /api/books/:id`): its details
- * as edited, with what its files say for each field edited, so the desktop
- * can take an edit back, and the cover chosen for it.
+ * as edited, with what each field edited returns to if the edit is taken
+ * back (its files', or ComicVine's where it said something), so the desktop
+ * can take an edit back, and the cover chosen for it. A comic matched on
+ * ComicVine comes with what ComicVine said, beside its edits (`matched`):
+ * its issue's page, to show "Details from ComicVine" and link back to.
  */
-export function editedStored(stored: StoredBook, edits: KeptEdits | null, chosen: Cover | null, named: boolean): StoredBook & { edited?: SharedEdits } {
-  if (!edits && !chosen) return stored;
+export function editedStored(stored: StoredBook, edits: KeptEdits | null, chosen: Cover | null, named: boolean, match: KeptMatch | null = null): StoredBook & { edited?: SharedEdits; matched?: SharedMatch } {
+  if (!edits && !chosen && !match) return stored;
   const values = edits?.values ?? {};
   return {
     ...stored,
-    book: asEdited(stored.book, values, named),
+    book: asEdited(stored.book, values, named, match),
     ...(chosen ? { cover: chosen } : {}),
-    edited: { values, original: originalOf(stored.book, values), updatedAt: edits?.updatedAt ?? "", ...(chosen ? { chosenCover: true as const } : {}) },
+    ...(edits || chosen ? { edited: { values, original: originalOf(withMatch(stored.book, match), values), updatedAt: edits?.updatedAt ?? "", ...(chosen ? { chosenCover: true as const } : {}) } } : {}),
+    ...(match ? { matched: sharedMatch(match) } : {}),
   };
 }
 
 /** A row's edits, or none. */
 function editsOf(row: Record<string, SQLOutputValue>): EditValues {
   return row.edits === null || row.edits === undefined ? {} : (JSON.parse(String(row.edits)) as EditValues);
+}
+
+/** What ComicVine said of a row's comic, as the book table's queries join it (`matched_said`, `matched_address`), or null. */
+function layerOf(row: Record<string, SQLOutputValue>): ComicVineLayer | null {
+  return row.matched_said === null || row.matched_said === undefined ? null : { values: JSON.parse(String(row.matched_said)) as EditValues, address: String(row.matched_address) };
 }
 
 /** A row's own details (a comic's), or null: any other book's, and a comic's not read again yet. */
@@ -361,13 +471,13 @@ function detailsText(book: Book): string | null {
 /**
  * A comic's label in a series, "#7", "Vol. 1" or the issues a collection
  * holds (comic-name.ts), from its row in the book table (its series and
- * its own details) and its edits; null for any other book, which a list of
- * a series labels by its number, as ever.
+ * its own details), what ComicVine said of it and its edits; null for any
+ * other book, which a list of a series labels by its number, as ever.
  */
 export function seriesLabel(row: Record<string, SQLOutputValue>): string | null {
   const own = detailsOf(row);
   if (!own) return null;
-  return comicLabel(comicNamingOf(applyEdits({ series: String(row.series), ...own }, editsOf(row))));
+  return comicLabel(comicNamingOf(applyEdits(withMatch({ series: String(row.series), ...own }, layerOf(row)), editsOf(row))));
 }
 
 /** A row of the book table as its files have it. */

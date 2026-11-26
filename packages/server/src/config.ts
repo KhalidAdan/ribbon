@@ -37,6 +37,12 @@ export interface ServerConfig {
    */
   descriptions?: { store: string } | null;
   /**
+   * Looking comics up on ComicVine (library/comicvine.ts, docs/BOOK-DETAILS.md, section 7): the server owner's own key
+   * for its API, RIBBON_COMICVINE_KEY. Null, the default, asks no one, and the edit form offers no "Look it up". `api`
+   * is where its API is, ComicVine's unless a test gives a stand-in.
+   */
+  comicVine?: { key: string; api?: string } | null;
+  /**
    * The folders a folder picked on another computer is looked for under (library/folders.ts): the server's own
    * mount of the share the apps add folders from. RIBBON_FOLDERS, separated as this system separates paths (`:`,
    * or `;` on Windows). None by default: a folder is found only at the path it was picked at.
@@ -67,6 +73,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     ebookTool: env.RIBBON_EBOOK_TOOL ?? builtTool("ribbon-ebook"),
     framesTool: env.RIBBON_FRAMES_TOOL ?? builtTool("ribbon-frames"),
     descriptions: env.RIBBON_DESCRIPTIONS === "audible" ? { store: env.RIBBON_AUDIBLE_STORE || "us" } : null,
+    comicVine: env.RIBBON_COMICVINE_KEY?.trim() ? { key: env.RIBBON_COMICVINE_KEY.trim() } : null,
     folders: (env.RIBBON_FOLDERS ?? "").split(path.delimiter).filter(Boolean).map((folder) => path.resolve(folder)),
   };
 }

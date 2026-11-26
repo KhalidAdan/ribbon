@@ -1,0 +1,28 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "cover_date": "2024-05-01",
+    "deck": null,
+    "description": "<p>The giants fall.</p>",
+    "id": 700010,
+    "issue_number": "10",
+    "name": "Iron Dusk",
+    "person_credits": [
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90010/", "id": 90010, "name": "Dana Pen", "site_detail_url": "https://comicvine.gamespot.com/dana-pen/4040-90010/", "role": "writer" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90011/", "id": 90011, "name": "Eli Ink", "site_detail_url": "https://comicvine.gamespot.com/eli-ink/4040-90011/", "role": "penciler, inker" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90012/", "id": 90012, "name": "Hal Glow", "site_detail_url": "https://comicvine.gamespot.com/hal-glow/4040-90012/", "role": "colorist" }
+    ],
+    "site_detail_url": "https://comicvine.gamespot.com/steel-giants-10-iron-dusk/4000-700010/",
+    "store_date": "2024-05-08",
+    "story_arc_credits": [
+      { "api_detail_url": "https://comicvine.gamespot.com/api/story_arc/4045-70010/", "id": 70010, "name": "Iron Dusk", "site_detail_url": "https://comicvine.gamespot.com/iron-dusk/4045-70010/" }
+    ],
+    "volume": { "api_detail_url": "https://comicvine.gamespot.com/api/volume/4050-7001/", "id": 7001, "name": "Steel Giants", "site_detail_url": "https://comicvine.gamespot.com/steel-giants/4050-7001/" }
+  },
+  "version": "1.0"
+}

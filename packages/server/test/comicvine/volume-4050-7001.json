@@ -1,0 +1,22 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "count_of_issues": 19,
+    "id": 7001,
+    "image": {
+      "icon_url": "https://comicvine.gamespot.com/a/uploads/square_avatar/7/7001/steel-giants-1.jpg",
+      "small_url": "https://comicvine.gamespot.com/a/uploads/scale_small/7/7001/steel-giants-1.jpg",
+      "thumb_url": "https://comicvine.gamespot.com/a/uploads/scale_avatar/7/7001/steel-giants-1.jpg"
+    },
+    "name": "Steel Giants",
+    "publisher": { "api_detail_url": "https://comicvine.gamespot.com/api/publisher/4010-90032/", "id": 90032, "name": "Anvil Comics" },
+    "site_detail_url": "https://comicvine.gamespot.com/steel-giants/4050-7001/",
+    "start_year": "2023"
+  },
+  "version": "1.0"
+}
