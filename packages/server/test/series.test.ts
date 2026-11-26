@@ -268,7 +268,7 @@ describe("the series routes", () => {
     expect((await as(admin, "POST", "/api/series", { name: "Siege", books: [{ id: 5 }] })).statusCode).toBe(400);
     const made = await as(admin, "POST", "/api/series", { name: "Siege", books });
     expect(made.statusCode).toBe(201);
-    expect(await listed()).toEqual([{ id: "siege", name: "Siege", books: [{ id: SHELF[2], number: null, title: null, shelved: true }, { id: SHELF[0], number: 7, title: null, shelved: true }] }]);
+    expect(await listed()).toEqual([{ id: "siege", name: "Siege", books: [{ id: SHELF[2], number: null, title: null, shelved: true, label: null }, { id: SHELF[0], number: 7, title: null, shelved: true, label: null }] }]);
   });
 
   it("is answered again only when it changed", async () => {

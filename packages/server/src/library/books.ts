@@ -1,10 +1,11 @@
 import path from "node:path";
 import type { ComicPage } from "./comic.ts";
 import type { DatabaseSync, SQLOutputValue } from "node:sqlite";
-import { applyEdits, originalOf, type EditValues, type SharedEdits } from "@ribbon/core/edits";
+import { comicLabel, comicNamingOf, namedComic } from "@ribbon/core/comic-name";
+import { applyEdits, EDIT_FIELDS, originalOf, type EditValues, type SharedEdits } from "@ribbon/core/edits";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import { remoteBook } from "@ribbon/core/server-books";
-import type { LoudnessMeasurement, SilenceRange } from "@ribbon/core/types";
+import type { Book, LoudnessMeasurement, SilenceRange } from "@ribbon/core/types";
 import type { Cover } from "./covers.ts";
 
 /**
@@ -61,6 +62,46 @@ export interface StoredAnalysis {
   silence: { file: number; ranges: SilenceRange[] }[];
 }
 
+/**
+ * A book's own details beyond the columns the listing has: a comic's
+ * (docs/BOOK-DETAILS.md, section 2), its story's own name, its people, its
+ * issue or its volume and the issues it collects, and the rest. The book
+ * table keeps them as its files say them, as JSON (`book.details`), so the
+ * listing can name a comic and a series label it without opening its
+ * book.json; its edits are laid over them where it is listed.
+ */
+const OWN_DETAILS = ["rawTitle", "credits", "issue", "volume", "collects", "imprint", "coverDate", "onSale", "storyArcs", "comicvine"] as const satisfies readonly (keyof Book)[];
+
+export type OwnDetails = Partial<Pick<Book, (typeof OWN_DETAILS)[number]>>;
+
+/** A book's own details as the book table keeps them: a comic's, and null for any other book, which has none of its own yet. */
+export function ownDetails(book: Book): OwnDetails | null {
+  if (!book.comic) return null;
+  return Object.fromEntries(OWN_DETAILS.filter((k) => book[k] !== undefined).map((k) => [k, book[k]]));
+}
+
+/**
+ * The fields a book's edits may have on this server, as the library answer
+ * says (`editFields`): all of core's but the cover, which comes as a
+ * picture. A desktop asks a comic for its own details only on a server that
+ * lists them; a server from before comics had details of their own says
+ * nothing, and refuses a field it doesn't know (docs/BOOK-DETAILS.md,
+ * section 4).
+ */
+export const KEPT_EDIT_FIELDS = EDIT_FIELDS.filter((f) => f !== "cover");
+
+/**
+ * A book with a person's edits laid over it, as every device is given it: a
+ * comic named from its details as edited (comic-name.ts), where they are
+ * known. They aren't for a comic stored before comics had details of their
+ * own whose file couldn't be read again (comic-details.ts): it is shown as
+ * it was then.
+ */
+export function asEdited<B extends Partial<Book>>(book: B, values: EditValues, named: boolean): B {
+  const edited = applyEdits(book, values);
+  return named ? namedComic(edited, values) : edited;
+}
+
 /** The ids that name a book besides its files: its ISBN and ASIN, as the position log writes them (docs/POSITION-FORMAT.md, section 4). */
 export function claimsOf(book: ScannedBook["book"]): string[] {
   const claims: string[] = [];
@@ -93,10 +134,10 @@ export class BookIndex {
     const b = stored.book;
     this.db
       .prepare(
-        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages, is_pdf, right_to_left)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages, is_pdf, right_to_left, details)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0, b.comic ? (b.rightToLeft ? 1 : 0) : null);
+      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0, b.comic ? (b.rightToLeft ? 1 : 0) : null, detailsText(b));
     for (const claim of claims) this.db.prepare("INSERT OR IGNORE INTO book_claim (claim, book_id) VALUES (?, ?)").run(claim, id);
     // Deleted once and added again: devices keep it now.
     this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
@@ -113,6 +154,41 @@ export class BookIndex {
   /** List a comic as reading right to left, or not, as its file says. */
   listDirection(id: string, rightToLeft: boolean): void {
     this.db.prepare("UPDATE book SET right_to_left = ? WHERE id = ?").run(rightToLeft ? 1 : 0, id);
+  }
+
+  /** The comics added before comics had details of their own: their files are read again, once, at start (comic-details.ts). */
+  comicsToReadAgain(): string[] {
+    return this.db
+      .prepare("SELECT id FROM book WHERE has_comic = 1 AND details IS NULL")
+      .all()
+      .map((row) => String(row.id));
+  }
+
+  /** Whether a comic's own details are listed: every comic's but one stored before they were whose file couldn't be read again. */
+  hasDetails(id: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM book WHERE id = ? AND details IS NOT NULL").get(id);
+  }
+
+  /**
+   * Comics read again (comic-details.ts), listed as their files say now,
+   * with their edits moved into the details they have now: all of them in
+   * one transaction, so a start that stops halfway leaves every comic as it
+   * was, to be read again on the next. Each comic's edits as they were are
+   * kept beside them (`edits_before_move`), so the move can be undone by
+   * hand; nothing else about them changes, not even when they were made.
+   */
+  readAgain(comics: readonly { id: string; book: Book; moved: EditValues | null }[]): void {
+    this.db.exec("BEGIN");
+    try {
+      for (const { id, book, moved } of comics) {
+        this.db.prepare("UPDATE book SET title = ?, author = ?, series = ?, series_index = ?, details = ? WHERE id = ?").run(book.title, book.author, book.series, book.seriesIndex, detailsText(book), id);
+        if (moved) this.db.prepare("UPDATE book_edit SET edits_before_move = edits, edits = ? WHERE book_id = ?").run(JSON.stringify(moved), id);
+      }
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
   }
 
   /** List a book as having an EPUB of these bytes now: an audiobook given the EPUB beside it in its folder after it was added (importer.ts). */
@@ -228,9 +304,12 @@ function listed(row: Record<string, SQLOutputValue>): ListedBook {
   const book = filed(row);
   const chosen = row.chosen_hash === null || row.chosen_hash === undefined ? null : { hash: String(row.chosen_hash), aspect: Number(row.chosen_aspect), colour: String(row.chosen_colour) };
   if ((row.edits === null || row.edits === undefined) && !chosen) return book;
-  const values = row.edits === null || row.edits === undefined ? {} : (JSON.parse(String(row.edits)) as EditValues);
-  const files = remoteBook(book).book;
-  const edited = applyEdits(files, values);
+  const values = editsOf(row);
+  // What its files say, a comic's own details among them: so a comic is named as its edits make it, its byline and its
+  // place in its series too (comic-name.ts).
+  const own = detailsOf(row);
+  const files = { ...remoteBook(book).book, ...own };
+  const edited = asEdited(files, values, own !== null);
   const shown = Object.fromEntries(LISTED_FIELDS.filter((f) => values[f] !== undefined).map((f) => [f, values[f]!]));
   const { rightToLeft: _filed, ...rest } = book;
   return {
@@ -252,15 +331,43 @@ function listed(row: Record<string, SQLOutputValue>): ListedBook {
  * as edited, with what its files say for each field edited, so the desktop
  * can take an edit back, and the cover chosen for it.
  */
-export function editedStored(stored: StoredBook, edits: KeptEdits | null, chosen: Cover | null): StoredBook & { edited?: SharedEdits } {
+export function editedStored(stored: StoredBook, edits: KeptEdits | null, chosen: Cover | null, named: boolean): StoredBook & { edited?: SharedEdits } {
   if (!edits && !chosen) return stored;
   const values = edits?.values ?? {};
   return {
     ...stored,
-    book: applyEdits(stored.book, values),
+    book: asEdited(stored.book, values, named),
     ...(chosen ? { cover: chosen } : {}),
     edited: { values, original: originalOf(stored.book, values), updatedAt: edits?.updatedAt ?? "", ...(chosen ? { chosenCover: true as const } : {}) },
   };
+}
+
+/** A row's edits, or none. */
+function editsOf(row: Record<string, SQLOutputValue>): EditValues {
+  return row.edits === null || row.edits === undefined ? {} : (JSON.parse(String(row.edits)) as EditValues);
+}
+
+/** A row's own details (a comic's), or null: any other book's, and a comic's not read again yet. */
+function detailsOf(row: Record<string, SQLOutputValue>): OwnDetails | null {
+  return row.details === null || row.details === undefined ? null : (JSON.parse(String(row.details)) as OwnDetails);
+}
+
+/** A book's own details as the book table's column keeps them. */
+function detailsText(book: Book): string | null {
+  const own = ownDetails(book);
+  return own ? JSON.stringify(own) : null;
+}
+
+/**
+ * A comic's label in a series, "#7", "Vol. 1" or the issues a collection
+ * holds (comic-name.ts), from its row in the book table (its series and
+ * its own details) and its edits; null for any other book, which a list of
+ * a series labels by its number, as ever.
+ */
+export function seriesLabel(row: Record<string, SQLOutputValue>): string | null {
+  const own = detailsOf(row);
+  if (!own) return null;
+  return comicLabel(comicNamingOf(applyEdits({ series: String(row.series), ...own }, editsOf(row))));
 }
 
 /** A row of the book table as its files have it. */

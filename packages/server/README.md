@@ -155,7 +155,25 @@ container starts.
 
 To update, pull, build again, and replace the container (`docker rm -f
 ribbon-server`, then the same `docker run`): everything it keeps is in the
-data folder. To move a server to another machine, copy its data folder:
+data folder.
+
+**Comics from before they had details of their own** (docs/BOOK-DETAILS.md,
+section 6) are moved into them once, the first time a newer server starts:
+each one's ComicInfo.xml read again, its name made from its details, and its
+edits moved into the new fields, in one transaction, with the edits as they
+were kept beside them (`book_edit.edits_before_move`). To see what that will
+do first, try it on a copy:
+
+```bash
+npm run try-comic-move -- /path/to/ribbon-data /path/to/a/new/folder
+```
+
+(in the container: `docker exec ribbon-server node --import tsx
+src/try-comic-move.ts /data /tmp/comic-move`.) It copies the database and
+each comic's record into the new folder, reads each comic's file where it
+is, writes nothing to the data folder, and prints every comic before and
+after: its name, byline, series, issue or volume, the issues it collects,
+its title and its edits. To move a server to another machine, copy its data folder:
 the database as `sqlite3 ribbon.db ".backup copy.db"` takes it (a plain copy
 of a running one may be torn), then `secret`, `people/` and `books/`. The
 same secret keeps everyone signed in; a new address means the apps connect
@@ -221,10 +239,12 @@ and is told to update.
 The server has an MCP at `/mcp` (docs/COMICS.md, section 14): an assistant
 you point at it can list the comics, look at a page, and say what its
 panels are and in what order, so a comic can be read a panel at a time.
-It can also fill in a comic's details (title, writers and artists, series
-and number, year, publisher, description) from wherever you tell it to
-look, and make any page of a comic its cover; what it sets is kept as the
-desktop's edit form keeps it, and can be taken back there.
+It can also fill in a comic's details from wherever you tell it to look,
+by the names of a comic's own (docs/BOOK-DETAILS.md, section 5): its
+series, its issue or its volume and the issues it collects, its title (the
+story's own name), its people by what they did, its cover date and day on
+sale, and the rest; and make any page of a comic its cover. What it sets is
+kept as the desktop's edit form keeps it, and can be taken back there.
 It answers only to a key you make, and only an admin's:
 
 ```bash
