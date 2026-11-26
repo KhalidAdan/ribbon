@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import type { ButtonHTMLAttributes, ComponentType, ReactNode, SVGProps } from "react";
+import type { ButtonHTMLAttributes, ComponentType, ReactNode, Ref, SVGProps } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "md" | "sm";
@@ -14,6 +14,8 @@ interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
   trailing?: Icon;
   type?: "button" | "submit";
   children: ReactNode;
+  /** The button itself, for whoever gives the focus back to it (React 19 passes a ref as a prop). */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /**
