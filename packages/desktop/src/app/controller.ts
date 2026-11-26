@@ -1,7 +1,7 @@
 import type { Panel } from "@ribbon/core/comic/panels";
 import type { Host, ScanProgress } from "@ribbon/core/host";
 import { extractMissingCovers, type ScannedBook } from "@ribbon/core/scan/scan";
-import type { Bookmark, BookSettings, Highlight, Position, SilenceRange } from "@ribbon/core/types";
+import type { Book, Bookmark, BookSettings, Highlight, Position, SilenceRange } from "@ribbon/core/types";
 import type { Problem } from "@ribbon/core/problems";
 import { defaultChoices, deletedSeriesRecord, detectSeries, mergeSeries, newSeriesRecord, normalizeChoices, uniqueKey, type SeriesChoice, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import type { BookAbout } from "@ribbon/core/about";
@@ -44,7 +44,12 @@ import { comicAfter, pageAt, pageLocator, pageProgress, type ComicEvent, type Co
 import { parseComicSettings, parseDirections, type ComicSettings } from "@ribbon/core/comic/settings";
 import { isWide } from "@ribbon/core/comic/spreads";
 import { onlyRead } from "@ribbon/core/kind";
-import { comicPages, folderComicEdited } from "./comic";
+import { comicPages, folderComicEdited, serverComicInFull } from "./comic";
+import { ComicVineHere } from "./comicvine";
+import { comicVineAddress, runOf, runPicture, withMatch, type ComicVineLayer, type LookedUp as FoundIssue, type Run, type RunSearch } from "@ribbon/core/comicvine";
+import { ComicVineUnreachable, realClock } from "@ribbon/core/comicvine-gate";
+import { comicShape, type ComicShape } from "@ribbon/core/comic-name";
+import type { MatchRecord } from "@ribbon/core/matched";
 import { openingPlace, parseKeptPlaces, PlaceKeeper, ReadingKeeper, type KeptPlace } from "./reading";
 import { readingAfter, readyReading, type ExportStatus, type ReadingEvent, type ReadingSession } from "@ribbon/core/reading/session";
 import { OPEN, OPENING, phaseOf, type FolderState, type Phase } from "@ribbon/core/lifecycle";
@@ -112,6 +117,43 @@ const GOAL_CHECK_MS = 15_000;
 /** The transcript is kept beside the book at most this often while it grows, and when it is done. */
 const ALIGNED_WRITE_MS = 30_000;
 
+/**
+ * A book as its edit form shows it (ui/EditBook.tsx): as it stands; what
+ * taking a field's edit back returns to, which is what its files say, with
+ * what ComicVine said over them for a matched comic; and what ComicVine
+ * said, with its issue's page to link back to. A server's comic is shown
+ * as its server sends it in full (serverComicToEdit), its own details and
+ * its match with it.
+ */
+export interface ShownToEdit {
+  book: Book;
+  reference: Book;
+  matched: (ComicVineLayer & { as?: ComicShape }) | null;
+}
+
+/** A book as the shelf has it, as its edit form shows it (above). */
+export function shownToEdit(b: ScannedBook): ShownToEdit {
+  return { book: b.book, reference: withMatch(b.original ?? b.book, b.comicVineMatch), matched: b.comicVineMatch ?? null };
+}
+
+/** A run of a series on ComicVine, offered to a person to choose: what core's `runOf` says of it, and where its small picture is (ComicVine's address here, the server's there), or null. */
+export type OfferedRun = Run & { picture: string | null };
+
+/** What a comic is looked up by: an issue's page on ComicVine, or a run's with the issue's number in it; and how its number is read. */
+export interface ComicVineAsked {
+  address: string;
+  issue?: string;
+  as: ComicShape;
+}
+
+/** What ComicVine says of a comic, shown beside it before it's kept: its issue's page, how its number was read, what it says for each field, and its run. */
+export interface FoundOnComicVine {
+  address: string;
+  as: ComicShape;
+  values: EditValues;
+  run: Run | null;
+}
+
 /** A comic's pages, as pictures to choose its cover from: how many, and where each is had. Pages count from 0. */
 export type PagesToChoose = { count: number } & ({ from: "server"; page(at: number): Promise<Blob> } | { from: "archive"; url(at: number): string } | { from: "pdf"; url: string; bytes: number });
 
@@ -175,6 +217,8 @@ export interface Platform {
   askToClose?: (why: string) => Promise<boolean>;
   /** New versions of Ribbon, where it installs them itself: Windows and the Mac, not a phone (updates.ts). */
   updates?: UpdateSource;
+  /** How long ComicVine's door waits between one answer and the next request: core's second and a half (core/comicvine-gate.ts), unless a test says less. */
+  comicVineGapMs?: number;
   /** The one folder the app owns on this machine, when there is one. */
   home?: {
     path(): Promise<string>;
@@ -313,6 +357,8 @@ export interface AppState {
   about: Record<string, BookAbout>;
   /** Whether descriptions are looked up online, and how the current run is going. */
   lookup: { enabled: boolean } & LookupStatus;
+  /** A ComicVine key is set in Settings, Online: the comics in folders can be looked up there (docs/BOOK-DETAILS.md, section 7). The key itself stays in the app's settings. */
+  comicVineKey: boolean;
   /** How long the last scan to finish took, for the header. */
   lastScanMs: number | null;
   /**
@@ -438,6 +484,10 @@ interface Opened {
   /** How many times this app has saved a book's edits beside these books, and when each book's last was, by that count (readEdits). */
   editWrites: number;
   editWrittenAt: Map<string, number>;
+  /** What ComicVine said of each comic in this folder, or why nothing is kept, by book id (core/matched.ts); none for a server's, which keeps its own. */
+  matches: Map<string, MatchRecord>;
+  /** When each comic's ComicVine record was last kept here, counted with the edits' saves (readMatches). */
+  matchWrittenAt: Map<string, number>;
   /** The position log's records other than places: listen-throughs, sessions, marks, deletions. */
   log: LogRecord[];
   /** What came of asking about each book's chapter names; read once, on the first ask. */
@@ -543,8 +593,10 @@ interface Opened {
  *   page shows and whether the full player is open over it, core/screen.ts,
  *   told through `toScreen`), **History** (listen-throughs and sessions from the
  *   position log), **Series**, **Descriptions** (book details from online
- *   catalogs, only when turned on), **Chapter names** (Audible's names
- *   for a book's numbered chapters).
+ *   catalogs, only when turned on), **ComicVine** (a comic's details
+ *   looked up when a person asks, or by the address its file gives, with a
+ *   key; a server's comic, through its server), **Chapter names**
+ *   (Audible's names for a book's numbered chapters).
  *
  * ## Habits worth knowing
  *
@@ -615,6 +667,10 @@ export class AppController {
   /** The lookup pass over every source, while one runs. */
   private lookupRun: Promise<void> | null = null;
   private appSettings: Record<string, unknown> = {};
+  /** ComicVine, for the comics in folders, with the key in the app's settings (comicvine.ts). */
+  private readonly comicVine: ComicVineHere;
+  /** The pass matching comics by the ComicVine address their files give, while one runs. */
+  private matchingRun: Promise<void> | null = null;
   /** This installation in the position log: a random id, made once and kept in the app's settings. */
   private deviceId: string = globalThis.crypto.randomUUID();
   /** The list of folders is known, read at boot or a folder added: until then the phase is "boot" (core/lifecycle.ts). */
@@ -662,6 +718,7 @@ export class AppController {
       seriesNew: false,
       about: {},
       lookup: { enabled: false, running: false, done: 0, total: 0 },
+      comicVineKey: false,
       lastScanMs: null,
       assetsReady: false,
       coverVersion: 0,
@@ -689,6 +746,7 @@ export class AppController {
     };
     this.jobs = new JobQueue((book) => this.libOf(book));
     this.jobs.onStatus((s, result) => this.onJob(s, result));
+    this.comicVine = new ComicVineHere(platform.host, () => this.comicVineKey(), realClock, platform.comicVineGapMs);
   }
 
   // Store plumbing ------------------------------------------------------
@@ -749,20 +807,24 @@ export class AppController {
    * Mark books with their source and lay that source's hand edits over
    * them. A comic in a folder is named from its details once they are laid
    * over it, its edits from before moved to the new shape first
-   * (app/comic.ts, `folderComicEdited`); a server's comic comes named by its
-   * server.
+   * (app/comic.ts, `folderComicEdited`), with what ComicVine said of it
+   * between its files and its edits when it is matched; a server's comic
+   * comes named, and matched, by its server.
    */
   private stamp(o: Opened, books: readonly ScannedBook[]): ScannedBook[] {
     return books.map((b) => {
-      const { original, edits: _was, ...rest } = b;
+      const { original, edits: _was, comicVineMatch: _layer, ...rest } = b;
       // A server's book downloaded here is named as the server lists it, not as its files here say.
       const filed = original ?? b.book;
       const base = o.server && !b.remote ? o.server.asListed(filed) : filed;
       const e = o.edits.get(base.id);
+      const match = base.comic && !o.server ? (o.matches.get(base.id)?.match ?? null) : null;
       const sourced = { ...rest, source: o.source.id };
-      if (!e) return original || base !== b.book || b.source !== o.source.id ? { ...sourced, book: base } : b;
-      if (base.comic && !o.server) return { ...sourced, ...folderComicEdited(base, e.values) };
-      return { ...sourced, book: applyEdits(base, e.values), original: base, edits: e.values };
+      if (!e && !match) return original || base !== b.book || b.source !== o.source.id ? { ...sourced, book: base } : b;
+      if (base.comic && !o.server) return { ...sourced, ...folderComicEdited(base, e?.values ?? {}, match) };
+      // A server's comic keeps the name, byline and place its server made: a title edit there is only the story's own name.
+      const named = base.comic ? o.server?.comicAsListed(base.id) : null;
+      return { ...sourced, book: { ...applyEdits(base, e!.values), ...named }, original: base, edits: e!.values };
     });
   }
 
@@ -889,7 +951,7 @@ export class AppController {
   async boot(): Promise<void> {
     if (this.platform.appSettings) {
       this.appSettings = await this.platform.appSettings.read().catch(() => ({}));
-      this.set({ lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), comicSettings: parseComicSettings(this.appSettings.comics), comicDirections: parseDirections(this.appSettings.comicDirections), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
+      this.set({ comicVineKey: !!this.comicVineKey(), lookup: { ...this.state.lookup, enabled: this.appSettings.lookupDescriptions === true }, view: parseView(this.appSettings.libraryView), history: { ...this.state.history, recording: this.appSettings.recordSessions !== false }, readingSettings: parseReading(this.appSettings.reading), comicSettings: parseComicSettings(this.appSettings.comics), comicDirections: parseDirections(this.appSettings.comicDirections), speech: { model: typeof this.appSettings.speechModel === "string" && this.appSettings.speechModel ? this.appSettings.speechModel : null, downloading: null }, perfLog: this.appSettings.perfLog === true });
       perf.setLogging(this.appSettings.perfLog === true);
       // Ribbon's model was whisper base until it was small (#152): one downloaded then is replaced, once, in the background,
       // where it hears (not a phone).
@@ -1039,6 +1101,8 @@ export class AppController {
       edits: new Map(),
       editWrites: 0,
       editWrittenAt: new Map(),
+      matches: new Map(),
+      matchWrittenAt: new Map(),
       log: [],
       pendingLog: [],
       names: null,
@@ -1197,14 +1261,39 @@ export class AppController {
     return read;
   }
 
-  /** Read a source's hand edits and lay them over its books, with a server's own (editsFor). */
+  /**
+   * What ComicVine said of each comic beside a folder's books, or why
+   * nothing is kept (core/matched.ts), read without losing a match kept
+   * while the read went on, as readEdits does. A server keeps its own.
+   */
+  private async readMatches(o: Opened): Promise<Map<string, MatchRecord>> {
+    if (o.server) return new Map();
+    const began = o.editWrites;
+    const read = await o.lib.readAllMatches();
+    for (const [bookId, at] of o.matchWrittenAt) {
+      if (at <= began) continue;
+      const kept = o.matches.get(bookId);
+      if (kept) read.set(bookId, kept);
+      else read.delete(bookId);
+    }
+    return read;
+  }
+
+  /** Read a source's hand edits and lay them over its books, with a server's own (editsFor), and what ComicVine said of its comics under them. */
   private async takeEdits(o: Opened): Promise<void> {
-    const edits = await this.readEdits(o).catch((e: unknown) => {
-      log.warn("could not read the edits beside the books:", describe(e));
-      return null;
-    });
+    const [edits, matches] = await Promise.all([
+      this.readEdits(o).catch((e: unknown) => {
+        log.warn("could not read the edits beside the books:", describe(e));
+        return null;
+      }),
+      this.readMatches(o).catch((e: unknown) => {
+        log.warn("could not read what ComicVine said of the comics beside the books:", describe(e));
+        return null;
+      }),
+    ]);
     if (!edits || this.opened.get(o.source.id) !== o) return;
     o.edits = this.editsFor(o, edits);
+    if (matches) o.matches = matches;
     o.books = this.stamp(o, o.books);
     this.publishBooks();
   }
@@ -1220,11 +1309,11 @@ export class AppController {
    * machine's own choice for it (setComicRightToLeft) goes, so it reads as
    * the form's switch says.
    */
-  async saveEdits(bookId: string, form: Partial<Record<EditField, string>>): Promise<void> {
+  async saveEdits(bookId: string, form: Partial<Record<EditField, string>>, shown?: ShownToEdit): Promise<void> {
     const b = this.state.books.find((x) => x.book.id === bookId);
     const o = b && this.openedOf(b);
     if (!b || !o) return;
-    const kept = o.server ? await this.saveServerEdits(o, b, form) : await this.saveFolderEdits(o, b, form);
+    const kept = o.server ? await this.saveServerEdits(o, b, form, shown) : await this.saveFolderEdits(o, b, form);
     if (kept && b.book.comic && form.rightToLeft !== undefined) this.forgetComicDirection(bookId);
   }
 
@@ -1232,12 +1321,15 @@ export class AppController {
    * A folder's book edited: what differs from its files, kept beside it.
    * Its edits before are the ones in effect on the shelf (stamp): a comic's
    * from before it had details of its own are read as the new ones there,
-   * so they are written in the new shape now.
+   * so they are written in the new shape now. A matched comic's edits are
+   * what differs from its files with what ComicVine said over them: a field
+   * set to ComicVine's stops being an edit, and shows ComicVine's for as
+   * long as the match is kept.
    */
   private async saveFolderEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<boolean> {
     const bookId = b.book.id;
     const previous = b.edits ?? {};
-    const values = diffEdits(b.original ?? b.book, form, previous);
+    const values = diffEdits(withMatch(b.original ?? b.book, b.comicVineMatch), form, previous);
     const edits: BookEdits = { bookId, values, updatedAt: new Date().toISOString() };
     await o.lib.writeEdits(edits);
     this.keepEdits(o, edits);
@@ -1329,10 +1421,23 @@ export class AppController {
    * the server lists is the book, here as everywhere. A cover goes on its
    * own, as a picture (setCover). Whether the server has the book as the
    * form says, which it does when nothing changed.
+   *
+   * The form is compared with the book as it showed it (`shown`: a comic's
+   * own details, which the server sends only in full, serverComicToEdit),
+   * else as the shelf has it. A field set back to what taking its edit back
+   * returns to (the files', or ComicVine's for a matched comic) stops being
+   * an edit, as in a folder. Only the fields the server takes are sent: a
+   * server from before a comic had details of its own refuses the rest.
    */
-  private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>): Promise<boolean> {
-    const changed = changedFields(b.book, form);
-    return Object.keys(changed).length === 0 || (await this.sendServerEdits(o, b, { ...sharedEdits(b.edits ?? {}), ...changed }));
+  private async saveServerEdits(o: Opened, b: ScannedBook, form: Partial<Record<EditField, string>>, shown?: ShownToEdit): Promise<boolean> {
+    const changed = changedFields(shown?.book ?? b.book, form);
+    if (Object.keys(changed).length === 0) return true;
+    const reference = shown?.reference ?? b.original ?? b.book;
+    const values: EditValues = { ...sharedEdits(b.edits ?? {}), ...changed };
+    for (const f of Object.keys(changed) as EditField[]) if (b.edits?.[f] !== undefined && changedFields(reference, { [f]: changed[f] })[f] === undefined) delete values[f];
+    const takes = o.server!.editFields;
+    for (const f of Object.keys(values) as EditField[]) if (!takes.has(f)) delete values[f];
+    return this.sendServerEdits(o, b, values);
   }
 
   /**
@@ -1480,9 +1585,10 @@ export class AppController {
       log.info(`scan timings: records ${t.recordsMs} ms, scan ${t.scanMs} ms, rescue ${t.rescueMs} ms, build ${t.buildMs} ms, write ${t.writeMs} ms; ${t.publishes} interim builds took ${t.publishMs} ms`);
       for (const e of result.errors) log.warn("scan:", source.name, e.path, e.message);
       await positionsReady;
-      const edits = await this.readEdits(o).catch(() => null);
+      const [edits, matches] = await Promise.all([this.readEdits(o).catch(() => null), this.readMatches(o).catch(() => null)]);
       if (!alive()) return;
       if (edits) o.edits = this.editsFor(o, edits);
+      if (matches) o.matches = matches;
       o.books = this.stamp(o, books);
       o.scanning = null;
       const elapsed = Date.now() - started;
@@ -1508,6 +1614,7 @@ export class AppController {
         .catch((e: unknown) => isReadOnly(e) || log.warn("could not keep covers beside the books:", describe(e)));
       if (background) this.offerSeriesSetup();
       this.maybeLookup();
+      this.maybeMatchComics();
     } catch (e) {
       log.error("scan failed:", source.name, describe(e));
       o.scanning = null;
@@ -4815,6 +4922,233 @@ export class AppController {
     })().finally(() => {
       this.lookupRun = null;
     });
+  }
+
+  // ComicVine -------------------------------------------------------------
+  //
+  // A comic's details from ComicVine (docs/BOOK-DETAILS.md, section 7). A
+  // server's comic is looked up by its server, through its routes, for its
+  // admin, when its owner turned it on. A comic in a folder is looked up
+  // here, with the person's own key (comicvine.ts), and its match kept
+  // beside it (core/matched.ts), between its files and its edits (stamp).
+  // Nothing is ever searched for without a person pressing "Look it up".
+
+  /** The ComicVine key in the app's settings, or null. It goes nowhere but to ComicVine. */
+  private comicVineKey(): string | null {
+    const key = this.appSettings.comicVineKey;
+    return typeof key === "string" && key.trim() ? key.trim() : null;
+  }
+
+  /**
+   * Set the person's ComicVine key, or take it away (null). It is kept in
+   * the app's settings on this computer, never beside the books, which may
+   * be a share others read. Set, the comics in folders can be looked up, and
+   * the ones whose files give their issue's address are matched to it.
+   */
+  async setComicVineKey(key: string | null): Promise<void> {
+    const kept = key?.trim() || null;
+    const { comicVineKey: _was, ...rest } = this.appSettings;
+    this.appSettings = kept ? { ...rest, comicVineKey: kept } : rest;
+    this.set({ comicVineKey: kept !== null });
+    await this.platform.appSettings?.write(this.appSettings).catch((e: unknown) => log.warn("could not save settings:", describe(e)));
+    if (kept) this.maybeMatchComics();
+  }
+
+  /**
+   * Where a comic is looked up on ComicVine, or null when it can't be: here,
+   * for a comic in a folder this computer can write to, with a key set; on
+   * its server, for the server's admin, when its owner turned ComicVine on
+   * and it keeps a comic's own details.
+   */
+  comicVineFor(bookId: string): "here" | "server" | null {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b?.book.comic || !o) return null;
+    if (o.server) return o.serverAdmin && o.server.looksUpComics && o.server.keepsComicDetails ? "server" : null;
+    return this.state.comicVineKey && this.comicVine.on && !this.state.sourceStatus[o.source.id]?.readOnly ? "here" : null;
+  }
+
+  /**
+   * The fields a book's edits may have where it is kept: every one for a
+   * book in a folder (null); for a server's, the ones that server takes,
+   * which on a server from before comics had details of their own are
+   * 0.51.0's (server/shelf.ts, `editFields`).
+   */
+  editFieldsFor(bookId: string): ReadonlySet<EditField> | null {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    return (b && this.openedOf(b)?.server?.editFields) ?? null;
+  }
+
+  /**
+   * A server's comic as its edit form shows it: with its own details (its
+   * issue, its people by role, …) and what ComicVine said of it, which the
+   * server sends only with the comic in full. Null for any other book, and
+   * on a server from before comics had details of their own, where a
+   * comic's form is 0.51.0's and shows it as listed.
+   */
+  async serverComicToEdit(bookId: string): Promise<ShownToEdit | null> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b?.book.comic || !o?.server?.keepsComicDetails) return null;
+    const detail = await o.server.client.book(serverIdOf(b));
+    const book = serverComicInFull(b.book, detail.book);
+    return { book, reference: applyEdits(book, detail.edited?.original ?? {}), matched: detail.matched ?? null };
+  }
+
+  /** The runs ComicVine has by a series' name, of the year given, for a person to choose from: each with its first year, publisher, issues and small picture. */
+  async comicVineRuns(bookId: string, search: RunSearch): Promise<OfferedRun[]> {
+    const { o } = this.comicVineAsk(bookId);
+    if (o.server) return o.server.client.comicVineRuns(search.name, search.year);
+    return (await this.comicVine.runs(search)).map((run) => ({ ...runOf(run), picture: runPicture(run) }));
+  }
+
+  /** A run's small picture, to show beside it, or null when there's none. */
+  async comicVineRunPicture(bookId: string, run: OfferedRun): Promise<Blob | null> {
+    const { o } = this.comicVineAsk(bookId);
+    if (!run.picture) return null;
+    if (o.server) return o.server.client.comicVineRunPicture(run.picture).catch(() => null);
+    const bytes = await this.comicVine.picture(run.picture);
+    return bytes ? new Blob([bytes as Uint8Array<ArrayBuffer>]) : null;
+  }
+
+  /**
+   * Look a comic up on ComicVine as a person asked ("Look it up"): by an
+   * issue's address, or a run's with the issue's number, read as the comic
+   * is said to be. Nothing is kept: what ComicVine says is shown beside the
+   * comic first. Throws, in words a person can act on, when it can't be.
+   */
+  async lookUpOnComicVine(bookId: string, asked: ComicVineAsked): Promise<FoundOnComicVine> {
+    const { o, b } = this.comicVineAsk(bookId);
+    if (o.server) return o.server.client.lookUpOnComicVine(serverIdOf(b), asked);
+    const found = await this.lookUpHere(asked);
+    return { address: found.address, as: found.as, values: found.values, run: found.run ? runOf(found.run) : null };
+  }
+
+  /**
+   * "Use these": what ComicVine says, kept as the comic's match, in place
+   * of the one it had, between its files and its edits; no edit changes.
+   * In a folder it is looked up again (a request answered within the day
+   * is kept, so nothing is asked twice) and kept beside the comic; on a
+   * server, the server keeps it for everyone.
+   */
+  async keepComicVineMatch(bookId: string, asked: ComicVineAsked): Promise<void> {
+    const { o, b } = this.comicVineAsk(bookId);
+    if (o.server) {
+      await o.server.client.keepComicVineMatch(serverIdOf(b), asked);
+      log.info("matched on the server's ComicVine:", b.book.title);
+      await this.refreshServer(o);
+      return;
+    }
+    const found = await this.lookUpHere(asked);
+    await this.keepMatchRecord(o, { bookId: (b.original ?? b.book).id, askedAt: new Date().toISOString(), match: { address: found.address, as: found.as, values: found.values } });
+    log.info("matched on ComicVine:", b.book.title);
+  }
+
+  /**
+   * "Forget the match": what ComicVine said goes, whole, and the comic is
+   * what its files and its edits say again. In a folder it is noted as
+   * forgotten beside the comic, so it's never matched by itself again, on
+   * this computer or another sharing the folder. Needs no key: a match kept
+   * before the key was taken away can still be let go of.
+   */
+  async forgetComicVineMatch(bookId: string): Promise<void> {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b?.book.comic || !o) return;
+    if (o.server) {
+      await o.server.client.forgetComicVineMatch(serverIdOf(b));
+      await this.refreshServer(o);
+      return;
+    }
+    await this.keepMatchRecord(o, { bookId: (b.original ?? b.book).id, askedAt: new Date().toISOString(), match: null, none: "forgotten" });
+    log.info("forgot the ComicVine match of", b.book.title);
+  }
+
+  /** Open a page of ComicVine's in the system's browser: a matched comic's link back to it, as its terms ask. */
+  openComicVinePage(address: string): void {
+    const open = this.platform.host.comicVineOpen;
+    if (open) void open(address).catch((e: unknown) => this.set({ error: `Couldn't open ComicVine's page: ${describe(e)}` }));
+  }
+
+  /** A comic that can be looked up, and where it is; throws when it can't be, which the form never offers. */
+  private comicVineAsk(bookId: string): { o: Opened; b: ScannedBook } {
+    const b = this.state.books.find((x) => x.book.id === bookId);
+    const o = b && this.openedOf(b);
+    if (!b || !o || !this.comicVineFor(bookId)) throw new Error("This comic can’t be looked up on ComicVine here.");
+    return { o, b };
+  }
+
+  /** Look a comic in a folder up, by the address a person gave; why not, when it can't be. */
+  private async lookUpHere(asked: ComicVineAsked): Promise<FoundIssue> {
+    const address = comicVineAddress(asked.address ?? "");
+    if (!address) throw new Error("That isn’t a page on ComicVine: give an issue’s (…/4000-1234567/), or its run’s (…/4050-123456/) with the issue’s number.");
+    const number = asked.issue?.trim() ?? "";
+    if (address.kind === "run" && !number) throw new Error("Give the number of the issue in that run: a collection’s is its volume.");
+    const found = await this.comicVine.lookUp({ address, as: asked.as, ...(number ? { number } : {}) }, "person");
+    if (!found) throw new Error(address.kind === "run" ? `ComicVine has no issue ${number} in that run.` : "ComicVine has no such issue.");
+    return found;
+  }
+
+  /** A comic's ComicVine record kept beside it, and laid on the shelf; a read of every record already under way gives way to it (readMatches). */
+  private async keepMatchRecord(o: Opened, record: MatchRecord): Promise<void> {
+    await o.lib.writeMatch(record);
+    o.editWrites++;
+    o.matchWrittenAt.set(record.bookId, o.editWrites);
+    o.matches.set(record.bookId, record);
+    o.books = this.stamp(o, o.books);
+    this.publishBooks();
+  }
+
+  /** Match the comics in folders by the addresses their files give, after every shelf is settled; one pass at a time. */
+  private maybeMatchComics(): void {
+    if (!this.comicVine.on || this.matchingRun) return;
+    if (this.state.books.some((b) => b.pending) || this.openedInOrder().some((o) => o.scanning)) return;
+    this.matchingRun = this.matchComicsByAddress().finally(() => {
+      this.matchingRun = null;
+    });
+  }
+
+  /**
+   * The one look-up Ribbon makes by itself (docs/BOOK-DETAILS.md, section
+   * 7, question 6): a comic in a folder whose ComicInfo `Web` is a
+   * ComicVine issue's page is matched to that issue, in the background, one
+   * comic at a time, only with a key set. It never searches. Each comic is
+   * asked once, found or not, and never again once a person forgot its
+   * match; a person's look-up goes through the door before its next request.
+   * Three comics in a row ComicVine can't be asked about, and it stops
+   * until the next scan, as the server's does; those are asked next time.
+   */
+  private async matchComicsByAddress(): Promise<void> {
+    let unreachable = 0;
+    for (const o of this.openedInOrder()) {
+      if (o.server || this.state.sourceStatus[o.source.id]?.readOnly) continue;
+      for (const b of [...o.books]) {
+        if (this.opened.get(o.source.id) !== o || !this.comicVine.on) return;
+        const files = b.original ?? b.book;
+        const address = files.comic && files.comicvine ? comicVineAddress(files.comicvine) : null;
+        if (address?.kind !== "issue" || o.matches.has(files.id)) continue;
+        try {
+          const found = await this.comicVine.lookUp({ address, as: comicShape(b.book) }, "background");
+          unreachable = 0;
+          // Matched by a person while it was being asked about: theirs stands.
+          if (o.matches.has(files.id) || this.opened.get(o.source.id) !== o) continue;
+          const askedAt = new Date().toISOString();
+          await this.keepMatchRecord(o, found ? { bookId: files.id, askedAt, match: { address: found.address, as: found.as, values: found.values } } : { bookId: files.id, askedAt, match: null, none: "not found" });
+          log.info(found ? "matched on ComicVine by the address its file gives:" : "ComicVine has no issue at the address its file gives:", b.book.title);
+        } catch (e) {
+          // A folder this computer can't write to keeps no matches: on to the next.
+          if (isReadOnly(e)) break;
+          if (!(e instanceof ComicVineUnreachable)) {
+            log.warn("ComicVine: couldn't match", b.book.title, describe(e));
+            continue;
+          }
+          if (++unreachable >= 3) {
+            log.warn("ComicVine: stopping until the next scan; it couldn't be asked about three comics in a row:", e.message);
+            return;
+          }
+        }
+      }
+    }
   }
 
   // Chapter names --------------------------------------------------------

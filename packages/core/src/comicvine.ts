@@ -183,6 +183,12 @@ export interface CvRequest {
   params: Record<string, string>;
 }
 
+/** A request as an answer to it is kept by: its path and what it asks, without the key, in one order. */
+export function requestKey(request: CvRequest): string {
+  const params = Object.entries(request.params).sort(([a], [b]) => a.localeCompare(b));
+  return `${request.path}?${new URLSearchParams(params).toString()}`;
+}
+
 /** What is read of an issue: its number, name and dates; its people and arcs; its run; its words and its page. */
 const ISSUE_FIELDS = "id,name,issue_number,cover_date,store_date,volume,person_credits,story_arc_credits,site_detail_url,deck,description";
 

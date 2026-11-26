@@ -8,6 +8,7 @@ import { useAppState, useController } from "./store";
 import { Button, IconButton } from "./Button";
 import { EmptyState, Group, Menu, Row, SectionHeader, Toggle } from "./kit";
 import { ConnectServer } from "./Servers";
+import { Dialog } from "./Dialog";
 import { settingsLine } from "../app/updates";
 import { sourceProblem } from "../app/controller";
 
@@ -28,6 +29,7 @@ export function SettingsPane() {
     series: s.series,
     about: s.about,
     lookup: s.lookup,
+    comicVineKey: s.comicVineKey,
     speech: s.speech,
     history: s.history,
     goal: s.goal,
@@ -41,6 +43,7 @@ export function SettingsPane() {
   const series = useMemo(() => c.detectedSeries(), [c, state.books, state.sources, state.series]);
   const [homePath, setHomePath] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [keying, setKeying] = useState(false);
   useEffect(() => {
     void c.homePath().then(setHomePath);
   }, [c]);
@@ -261,6 +264,25 @@ export function SettingsPane() {
               aside={<Toggle label="Look up descriptions and chapter names online" checked={state.lookup.enabled} onChange={(on) => void c.setLookup(on)} />}
             />
           </Group>
+          <Group footer="With your own key, from a ComicVine account, for your own use: Ribbon sends what names a comic (a series’ name, a number, a year, or its page’s address) when you look it up from its details, and for a comic whose file gives its page there. What ComicVine says is kept beside the comic, under your own changes, with a link back to ComicVine. The key stays in Ribbon’s settings on this computer, never beside your books. A server’s comics are looked up by the server, with its own key.">
+            <Row
+              title="Comics from ComicVine"
+              description={state.comicVineKey ? "Your key is set: look a comic up from its details." : "No key: comics in your folders aren’t looked up."}
+              aside={
+                <>
+                  {state.comicVineKey && (
+                    <Button size="sm" variant="ghost" onClick={() => void c.setComicVineKey(null)}>
+                      Remove
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => setKeying(true)}>
+                    {state.comicVineKey ? "Change key…" : "Add key…"}
+                  </Button>
+                </>
+              }
+            />
+          </Group>
+          <ComicVineKey open={keying} onClose={() => setKeying(false)} />
           {state.update && (
             <Group footer="Asks Ribbon’s releases on GitHub for a newer version a little after Ribbon starts and every few hours, and downloads it in the background. It installs when you restart Ribbon or close it, never on its own.">
               <Row
@@ -349,5 +371,60 @@ export function SettingsPane() {
         <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Ribbon {__APP_VERSION__}. A home for your books, read or heard.</p>
       </div>
     </section>
+  );
+}
+
+/**
+ * The person's own ComicVine key (docs/BOOK-DETAILS.md, section 7, "Where
+ * it runs"): typed in here, kept in Ribbon's settings on this computer.
+ * The field starts empty, so the key is never shown again once it's set.
+ */
+function ComicVineKey({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const c = useController();
+  const [key, setKey] = useState("");
+  useEffect(() => {
+    if (open) setKey("");
+  }, [open]);
+  const save = () => void c.setComicVineKey(key).then(onClose);
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      labelId="comicvine-key-title"
+      title="Your ComicVine key"
+      description="A ComicVine account comes with a key, on ComicVine’s API page, for non-commercial use. Ribbon keeps it on this computer and sends it only to ComicVine."
+      actions={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={!key.trim()} onClick={save}>
+            Save
+          </Button>
+        </>
+      }
+    >
+      <form
+        className="px-5 pt-4 pb-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (key.trim()) save();
+        }}
+      >
+        <label htmlFor="comicvine-key" className="text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">
+          Key
+        </label>
+        <input
+          id="comicvine-key"
+          name="comicvine-key"
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          className="mt-1 w-full rounded-md bg-raised px-2.5 py-1.5 font-mono text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1 sm:text-sm/6"
+        />
+      </form>
+    </Dialog>
   );
 }

@@ -3,7 +3,7 @@ import type { SharedMatch } from "./comicvine";
 import { applyEdits, type SharedEdits } from "./edits";
 import type { ScannedBook } from "./scan/scan";
 import type { SeriesGroup, SeriesRecord } from "./series";
-import type { LoudnessMeasurement, SilenceRange } from "./types";
+import type { Book, LoudnessMeasurement, SilenceRange } from "./types";
 
 /**
  * A book on a Ribbon server, as its library answer lists it
@@ -54,9 +54,17 @@ export interface FoundSentence {
   matches: [number, number][];
 }
 
+/**
+ * A book's details beyond the listing's that a server sends with it in full:
+ * a comic's own (docs/BOOK-DETAILS.md, section 4), which its edit form asks
+ * for, and every book's others. A server from before comics had details of
+ * their own sends none of a comic's.
+ */
+export type ServerBookDetails = Partial<Pick<Book, "rawTitle" | "subtitle" | "year" | "genres" | "rightToLeft" | "credits" | "issue" | "volume" | "collects" | "imprint" | "coverDate" | "onSale" | "storyArcs" | "comicvine">>;
+
 /** A book in full, as the server sends it for a download (packages/server/src/library/books.ts, `StoredBook`). */
 export interface ServerBookDetail {
-  book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string; comic?: string; sizeBytes?: number };
+  book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string; comic?: string; sizeBytes?: number } & ServerBookDetails;
   files: { path: string; sizeBytes: number }[];
   cover: { hash: string; aspect: number; colour: string } | null;
   ebookBytes?: number;

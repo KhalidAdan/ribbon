@@ -191,6 +191,11 @@ export function editColumn(f: EditField): string {
   return COLUMN[f];
 }
 
+/** The field a column of the edits' CSV is, or null for one this version doesn't know. */
+export function editFieldOf(column: string): EditField | null {
+  return FIELD_OF.get(column.trim()) ?? null;
+}
+
 export function editsToBytes(e: BookEdits): Promise<Uint8Array> {
   return rowsToBytes(
     [...EDIT_FIELDS.filter((f) => e.values[f] !== undefined).map((f) => ({ field: COLUMN[f], value: e.values[f]!, updated_at: e.updatedAt })), ...(e.unknownRows ?? [])],

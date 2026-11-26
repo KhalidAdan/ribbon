@@ -2,7 +2,7 @@ import type { Host } from "@ribbon/core/host";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
 import type { Book } from "@ribbon/core/types";
 import { filedBook, filedDetails, localIdOf, opfFor, seriesFromServer, serverCoverPath, SHELF_COVER_WIDTH, type ServerBook, type ServerBookDetail, type ServerSeries } from "@ribbon/core/server-books";
-import type { SharedEdits } from "@ribbon/core/edits";
+import { EDIT_FIELDS, type EditField, type SharedEdits } from "@ribbon/core/edits";
 import { RIBBON_DIR } from "@ribbon/core/scan/walk";
 import type { SeriesGroup, SeriesRecord } from "@ribbon/core/series";
 import { ServerError, type ServerClient } from "./client";
@@ -11,6 +11,14 @@ import { TRANSCRIPT_FIELDS, transcriptFromRows, transcriptRows, withMinutesOf } 
 
 /** The records kept beside a downloaded book here: what it brought from the server, and what was worked out here. */
 const KEPT = ["chapters", "corrections", "heard", "aligned", "pairing", "loudness", "silence", "settings"];
+
+/**
+ * The fields a server takes in a book's edits when it doesn't say which:
+ * 0.51.0's, the last release before servers listed them (`editFields`),
+ * but the cover, which goes as a picture. It refuses an edit with any other
+ * field, so a comic's form on it is the form 0.51.0 had (ui/book-form.ts).
+ */
+export const EDIT_FIELDS_BEFORE: readonly EditField[] = ["title", "subtitle", "author", "narrator", "series", "seriesIndex", "year", "genres", "publisher", "language", "isbn", "asin", "description", "readAlong", "rightToLeft"];
 
 /** A book's id on a server, which names its folder here (packages/server/src/library/importer.ts). */
 const SERVER_ID = /^[0-9a-f]{16}$/;
@@ -55,6 +63,10 @@ export class ServerShelf {
   /** The library's series, the server's own; null until a server that keeps series has answered. */
   private series: ServerSeries[] | null = null;
   private seriesEtag: string | null = null;
+  /** The fields the server's edits take, as it last said; null for a server that doesn't say. */
+  private fields: string[] | null = null;
+  /** The server looks comics up on ComicVine, as it last said. */
+  private lookUps = false;
 
   constructor(
     readonly client: ServerClient,
@@ -66,12 +78,15 @@ export class ServerShelf {
   async loadCached(): Promise<void> {
     const cached = await this.host
       .readFile(this.at(".ribbon", "server-books.json"))
-      .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; books: ServerBook[]; deleted?: string[] })
+      .then((b) => JSON.parse(new TextDecoder().decode(b)) as { etag: string | null; books: ServerBook[]; deleted?: string[]; editFields?: string[] | null; comicVine?: boolean })
       .catch(() => null);
     if (cached) {
       this.list(cached.books);
       this.deleted = new Set(cached.deleted ?? []);
-      this.etag = cached.etag;
+      this.fields = cached.editFields ?? null;
+      this.lookUps = cached.comicVine === true;
+      // Kept by a Ribbon from before it kept what the server takes: asked again whole, so a "not changed" can't hide it.
+      this.etag = cached.editFields === undefined ? null : cached.etag;
     }
     const series = await this.host
       .readFile(this.at(".ribbon", "server-series.json"))
@@ -115,13 +130,35 @@ export class ServerShelf {
   /** Ask the server for its list; true when it changed. */
   async refresh(): Promise<boolean> {
     const answer = await this.client.books(this.etag);
+    // Not changed: what it takes and whether it looks comics up are as it last said, kept with the list.
     if (answer === "unchanged") return false;
     this.list(answer.books);
     this.deleted = new Set(answer.deleted);
     this.etag = answer.etag;
+    this.fields = answer.editFields;
+    this.lookUps = answer.comicVine;
     await this.host.mkdir(this.at(".ribbon"));
-    await this.host.writeFile(this.at(".ribbon", "server-books.json"), new TextEncoder().encode(JSON.stringify({ etag: this.etag, books: this.listed, deleted: answer.deleted })));
+    await this.host.writeFile(
+      this.at(".ribbon", "server-books.json"),
+      new TextEncoder().encode(JSON.stringify({ etag: this.etag, books: this.listed, deleted: answer.deleted, editFields: this.fields, comicVine: this.lookUps })),
+    );
     return true;
+  }
+
+  /** The fields the server's edits take: as it says, or 0.51.0's when it doesn't say (`EDIT_FIELDS_BEFORE`). */
+  get editFields(): ReadonlySet<EditField> {
+    if (this.fields === null) return new Set(EDIT_FIELDS_BEFORE);
+    return new Set(EDIT_FIELDS.filter((f) => this.fields!.includes(f)));
+  }
+
+  /** The server keeps a comic's own details (its issue, its people by role, …): one from before them shows a comic's form as 0.51.0 did. */
+  get keepsComicDetails(): boolean {
+    return this.editFields.has("issue");
+  }
+
+  /** The server looks comics up on ComicVine: its owner set a key there. */
+  get looksUpComics(): boolean {
+    return this.lookUps;
   }
 
   /** Whether the server says its admin deleted this book: the one reason a download here is taken off unasked. */
@@ -145,6 +182,18 @@ export class ServerShelf {
     if (!listed) return null;
     const added = Date.parse(listed.addedAt);
     return { addedAt: Number.isFinite(added) ? added : null, words: listed.words ?? null, ebookBytes: listed.ebookBytes };
+  }
+
+  /**
+   * A comic's name, byline and place as the server lists it: made by the
+   * server from its own details with its edits and its match laid over them
+   * (docs/BOOK-DETAILS.md, section 3), which the edits alone can't make
+   * again here, a comic's title edit being only the story's own name. Null
+   * for any other book, and one the server doesn't list.
+   */
+  comicAsListed(localId: string): Pick<Book, "title" | "author" | "seriesIndex"> | null {
+    const listed = this.byLocalId.get(localId);
+    return listed?.comic ? { title: listed.title, author: listed.author, seriesIndex: listed.seriesIndex } : null;
   }
 
   /** Every listed book by its id here, with the edits the server keeps for it, if any, and the cover it's listed with. */

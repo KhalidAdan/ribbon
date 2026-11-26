@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod comic;
+mod comicvine;
 pub mod comic_rar;
 pub mod comic_small;
 pub mod ebook;
@@ -129,6 +130,9 @@ pub fn run() {
             home_move::home_move_check,
             home_move::home_move,
             online::catalog_search,
+            comicvine::comicvine_ask,
+            comicvine::comicvine_picture,
+            comicvine::comicvine_open,
             comic::comic_entries,
             comic::comic_cover,
             comic_small::comic_small_keep,

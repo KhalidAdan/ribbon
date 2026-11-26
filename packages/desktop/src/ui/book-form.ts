@@ -1,7 +1,9 @@
 import { comicShape, type ComicShape } from "@ribbon/core/comic-name";
-import { shapeEmpties, type FieldGroup, type FieldSpec, type FormField } from "@ribbon/core/edit-form";
+import { comicVineAddress, issuePage, numberToLookUp, runSearchOf } from "@ribbon/core/comicvine";
+import { editForm, shapeEmpties, type FieldGroup, type FieldSpec, type FormField } from "@ribbon/core/edit-form";
 import type { EditValues } from "@ribbon/core/edits";
 import type { BookKind } from "@ribbon/core/kind";
+import type { Book } from "@ribbon/core/types";
 
 /**
  * What the edit form (EditBook.tsx) shows of a book's fields and sends
@@ -85,6 +87,146 @@ export function formToSave(form: FormValues, groups: readonly FieldGroup[], asks
     const value = form[spec.field] ?? "";
     out[spec.field] = spec.whileEdited && !value.trim() ? (files[spec.field] ?? "") : value;
   }
-  if (asks.shape !== null) for (const f of shapeEmpties(asks.shape)) out[f] = form[f] ?? "";
+  // Only a form that asks what the comic is empties the numbers that don't fit it: 0.51.0's form, for an older server, asks no such thing.
+  if (asks.shape !== null && groups.some((g) => g.shape)) for (const f of shapeEmpties(asks.shape)) out[f] = form[f] ?? "";
   return out;
+}
+
+/**
+ * A comic's form as 0.51.0 had it (core/edit-form.ts, before comics had
+ * details of their own), for a comic on a server from before them: such a
+ * server refuses an edit with a field it doesn't know, so its comics are
+ * asked what it takes (docs/BOOK-DETAILS.md, section 4: "a desktop on an
+ * older server shows a comic's form as it is today"). The title is the
+ * comic's whole name there, its people one line.
+ */
+const COMIC_FORM_BEFORE: FieldGroup[] = [
+  {
+    label: "The comic",
+    fields: [
+      { field: "title", label: "Title", hint: "Say which issue or issues it holds: “Saga #14”, or “Saga Vol. 1 (#1–#6)”.", wide: true },
+      { field: "subtitle", label: "Subtitle", hint: "A story’s name, or a collection’s.", wide: true },
+    ],
+  },
+  { label: "People", fields: [{ field: "author", label: "Writers and artists", hint: "Separate several with a semicolon.", wide: true }] },
+  {
+    label: "Series",
+    fields: [
+      { field: "series", label: "Series" },
+      { field: "seriesIndex", label: "Issue or volume number", inputMode: "decimal", hint: "Where it comes in the series. Decimals are fine: 2.5 sits between 2 and 3." },
+    ],
+  },
+  {
+    label: "Reading",
+    fields: [
+      {
+        field: "rightToLeft",
+        label: "Reads right to left",
+        wide: true,
+        switch: {
+          on: "Its pages turn from right to left on every device, as manga’s do.",
+          off: "Its pages turn from left to right. Turn this on for a comic read from the right, as manga is.",
+        },
+      },
+    ],
+  },
+  {
+    label: "More",
+    fields: [
+      { field: "year", label: "Year", inputMode: "numeric" },
+      { field: "language", label: "Language" },
+      { field: "genres", label: "Genres", hint: "Separate with commas.", wide: true },
+      { field: "publisher", label: "Publisher" },
+      { field: "isbn", label: "ISBN" },
+      { field: "description", label: "Description", multiline: true, wide: true },
+    ],
+  },
+];
+
+/**
+ * The form's groups for a book, where its edits are kept: its kind's
+ * (core/edit-form.ts); for a server's book, only the fields that server
+ * takes (`takes`; null for a folder's, which keeps every one), and a
+ * comic's as 0.51.0 asked it on a server that doesn't keep a comic's own
+ * details. A field the form leaves out is never changed by it.
+ */
+export function formFor(kind: BookKind, file: string | undefined, takes: ReadonlySet<string> | null): FieldGroup[] {
+  const groups = kind === "comic" && takes && !takes.has("issue") ? COMIC_FORM_BEFORE : editForm(kind, file);
+  if (!takes) return groups;
+  return groups.map((g) => ({ ...g, fields: g.fields.filter((f) => takes.has(f.field)) })).filter((g) => g.fields.length > 0);
+}
+
+/**
+ * The form once what it shows of the book changed under it (a ComicVine
+ * match kept or forgotten while it is open): what the person typed stays,
+ * and each field they left as it was shows the book as it is now.
+ */
+export function formRebased<F extends FormValues>(form: F, shownBefore: FormValues, shownNow: F): F {
+  const out: FormValues = { ...form };
+  for (const [f, now] of Object.entries(shownNow) as [FormField, string][]) {
+    if ((form[f] ?? "") === (shownBefore[f] ?? "")) out[f] = now;
+  }
+  return out as F;
+}
+
+// ComicVine ---------------------------------------------------------------
+
+/** One field of a comic beside what ComicVine says of it, for the look-up's side-by-side (docs/BOOK-DETAILS.md, section 7). */
+export interface ComparedField {
+  field: FormField;
+  label: string;
+  /** As the comic has it in the form now. */
+  here: string;
+  /** As ComicVine has it; empty where it empties the field (a collection's issue number, say). */
+  there: string;
+  same: boolean;
+}
+
+/**
+ * Each field ComicVine says something of, as the comic has it and as
+ * ComicVine has it, in the form's order (its kind's whole form, whatever
+ * the comic is said to be: a collection's volume shows beside an issue's
+ * number). A field ComicVine empties shows only where the comic has
+ * something in it.
+ */
+export function comparedFields(groups: readonly FieldGroup[], form: FormValues, values: EditValues): ComparedField[] {
+  const specs = groups.flatMap((g) => g.fields).filter((spec) => !spec.switch && !spec.whileEdited);
+  return specs.flatMap((spec) => {
+    const there = values[spec.field];
+    const here = form[spec.field] ?? "";
+    if (there === undefined || (there.trim() === "" && here.trim() === "")) return [];
+    return [{ field: spec.field, label: spec.label, here, there, same: plainText(here) === plainText(there) }];
+  });
+}
+
+/** Text as a comparison sees it: its spaces and line ends one way. */
+function plainText(text: string): string {
+  return text.trim().replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ");
+}
+
+/** What a look-up starts from: the comic's own page on ComicVine if it has one, its series as a search, and the number to ask a run for. */
+export interface LookUpStart {
+  address: string;
+  name: string;
+  year: string;
+  number: string;
+}
+
+/**
+ * Where "Look it up" starts, from the comic as the form has it: the page
+ * it was matched to, else the one its file gives (ComicInfo's `Web`), as
+ * an address; its series as a search, the run's year taken out of the name
+ * and given as the year (core's `runSearchOf`); and its number as the form
+ * says what it is (an issue's issue number, a collection's volume).
+ */
+export function lookUpStart(book: Pick<Book, "comicvine">, matched: { address: string } | null, form: FormValues, shape: ComicShape | null): LookUpStart {
+  const own = book.comicvine ? comicVineAddress(book.comicvine) : null;
+  const address = matched?.address ?? (own?.kind === "issue" ? issuePage({ id: own.id }) : "");
+  const search = runSearchOf(form.series ?? "");
+  return { address, name: search.name, year: search.year === null ? "" : String(search.year), number: numberToLookUp({ issue: form.issue ?? "", volume: form.volume ?? "" }, shape ?? "issue") };
+}
+
+/** Whether a field's form text differs from what it is checked against: spaces at the ends and line endings aside. */
+export function differs(a: string, b: string): boolean {
+  return a.trim().replace(/\r\n/g, "\n") !== b.trim().replace(/\r\n/g, "\n");
 }

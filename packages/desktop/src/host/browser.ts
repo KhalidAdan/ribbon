@@ -53,6 +53,13 @@ export function browserHost(base = "/__ribbon"): Host {
     },
     readTextDir: (dir) => call<TextFile[]>("readTextDir", { dir }),
     catalogSearch: (title, author, region) => call<string>("catalog", { title, author, region }),
+    // The harness asks a stand-in for ComicVine, never the real one (packages/desktop/tools/vite-dev-library.ts).
+    comicVineAsk: (key, request) => call<{ status: number; body: string }>("comicvine", { key, request }),
+    async comicVinePicture(url) {
+      const r = await fetch(`${base}/comicvinePicture?url=${encodeURIComponent(url)}`);
+      return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+    },
+    comicVineOpen: async (url) => void window.open(url, "_blank", "noopener"),
     openEbook: (path) => call<string>("ebook", { path }),
     comicEntries: (path) => call<{ name: string; size?: number; packed?: number }[]>("comicEntries", { path }),
     comicCover: (path, entry, target, width) => call<boolean>("comicCover", { path, entry, target, width }),
