@@ -148,9 +148,10 @@ private struct SaysWhichWayUp: ViewModifier {
 
 /// What the app is showing: who's reading, everyone who can, their library,
 /// the book they're listening to, and the screens open over the library.
-/// One person goes straight to their library; with more, the TV asks who's
-/// reading first, as Jellyfin does. Each person's library and places are
-/// their own, from their own sign-in.
+/// A TV and an iPad are shared, so they open on Who's reading, as Jellyfin
+/// does, even with one person signed in. A phone is one person's: it goes
+/// straight to their library, and asks only when several people use it.
+/// Each person's library and places are their own, from their own sign-in.
 @MainActor
 @Observable
 final class AppModel {
@@ -181,7 +182,9 @@ final class AppModel {
     }
 
     /// Everyone signed in on this TV.
-    private(set) var people = People.load()
+    private(set) var people: [Account]
+    /// Whether a household shares this device (`ThisDevice.shared`).
+    @ObservationIgnored private let shared: Bool
     /// Who's reading: the server as they're signed in to it. Nil while choosing.
     private(set) var server: RibbonServer?
     /// Their books, and how far through each they are.
@@ -225,8 +228,11 @@ final class AppModel {
     @ObservationIgnored private var passagesSince: Date?
     @ObservationIgnored private var passagesKnown: (at: Date, passages: [Passage])?
 
-    init() {
-        if people.count == 1 { choose(people[0]) }
+    /// The app starting: everyone signed in here comes from the Keychain. A test says who, and on what kind of device.
+    init(people: [Account] = People.load(), shared: Bool = ThisDevice.shared) {
+        self.people = people
+        self.shared = shared
+        if people.count == 1, !asksWhoIsReading { choose(people[0]) }
         Task { [weak self] in await self?.watchStillness() }
     }
 
@@ -249,6 +255,9 @@ final class AppModel {
     }
 
     // Who's reading --------------------------------------------------------
+
+    /// Whether this device asks who's reading: the app opens there, and the library's Menu goes back to it.
+    var asksWhoIsReading: Bool { People.asksWhoIsReading(among: people.count, shared: shared) }
 
     func signedIn(_ account: Account) {
         people.removeAll { $0.id == account.id }

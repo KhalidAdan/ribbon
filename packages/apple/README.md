@@ -27,8 +27,9 @@ for listening without a network.
   shows a code to sign in with from a phone (docs/SERVER.md, section 6).
   The sign-in is kept in the Keychain.
 - **Who's reading?** Several people can use one TV, as with Jellyfin: each
-  signs in once, and with more than one the TV asks who's reading, starting
-  on whoever read last. Each person's library and places are their own, from
+  signs in once. A TV and an iPad are shared, so they open on Who's reading
+  every time, even with one person signed in, starting on whoever read last;
+  an iPhone is one person's, and asks only when several people use it. Each person's library and places are their own, from
   their own sign-in. Someone else signs another person in (the server's
   address is filled in); holding Select on a person takes them off this TV,
   and their places stay on the server.
@@ -39,7 +40,7 @@ for listening without a network.
   title as the series lists it. A card is one button, which opens the
   book's page; play is there. A series' card opens its next book's page,
   which lists that series, though the book is in others too. While a book plays, its title at the top opens the
-  player. Menu goes back to Who's reading, when there's more than one person.
+  player. Menu goes back to Who's reading.
 - **The bookcase**, a page of its own on every device: every book standing
   spine-out on shelves of dark walnut under 3000 K lamps, the newest first,
   with a label on the shelf's edge where each month begins. The foot of the

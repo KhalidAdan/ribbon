@@ -56,7 +56,7 @@ struct LibraryView: View {
         }
         .background(Color.canvas.ignoresSafeArea())
         #if os(tvOS)
-        .onExitCommand(perform: model.people.count > 1 ? { model.switchReader() } : nil)
+        .onExitCommand(perform: model.asksWhoIsReading ? { model.switchReader() } : nil)
         #else
         // Scrolled, the shelf goes under the status bar, which stays on the canvas.
         .overlay(alignment: .top) {

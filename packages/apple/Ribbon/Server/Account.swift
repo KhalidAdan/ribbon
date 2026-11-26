@@ -39,6 +39,12 @@ enum People {
         return (try? JSONDecoder().decode([Account].self, from: data)) ?? []
     }
 
+    /// Whether the app asks who's reading before it shows a library. A shared device always does, even with one
+    /// person on it, so nobody lands in someone else's books; a phone asks only when several people use it.
+    static func asksWhoIsReading(among people: Int, shared: Bool) -> Bool {
+        shared ? people > 0 : people > 1
+    }
+
     static func save(_ people: [Account]) {
         SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: item] as CFDictionary)
         guard !people.isEmpty, let data = try? JSONEncoder().encode(people) else { return }
@@ -69,4 +75,7 @@ enum ThisDevice {
     #else
     static let kind = UIDevice.current.userInterfaceIdiom == .phone ? "iPhone" : "iPad"
     #endif
+
+    /// Whether a household shares this device: a TV and an iPad are passed around, a phone is one person's.
+    static let shared = kind != "iPhone"
 }
