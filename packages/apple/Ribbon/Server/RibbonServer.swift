@@ -47,6 +47,9 @@ struct ServerSeries: Decodable {
         let title: String?
         /// False leaves it off the shelf.
         let shelved: Bool
+        /// A comic's label in the series, "#7", "Vol. 1" or the issues a collection holds, where a book's is "Book 2";
+        /// nil for any other book, a comic on its own, and from a server from before comics had details of their own.
+        var label: String? = nil
     }
 
     let id: String
@@ -68,12 +71,46 @@ struct ServerBookDetail: Decodable {
         let title: String
     }
 
+    /// What a book says about itself, edits laid over it. A comic's own details (docs/BOOK-DETAILS.md, section 2)
+    /// are each absent when nothing says them, and from a server from before comics had them.
     struct About: Decodable {
         let description: String?
         let year: Int?
         let publisher: String?
         /// A comic read right to left, as it says of itself.
         var rightToLeft: Bool? = nil
+        var credits: Credits? = nil
+        /// A comic's issue number as printed: "14", "½", "1.MU".
+        var issue: String? = nil
+        /// A collection's volume number: "1".
+        var volume: String? = nil
+        /// The issues a collection holds: "1–6, Annual 1".
+        var collects: String? = nil
+        var imprint: String? = nil
+        /// The month on the cover, "2024-07", or only its year, "2024".
+        var coverDate: String? = nil
+        /// The day it went on sale: "2024-07-10".
+        var onSale: String? = nil
+        var storyArcs: [String]? = nil
+    }
+
+    /// The people who made a book, by what they did (packages/core/src/types.ts, `Credits`): a comic's, each a list of names.
+    struct Credits: Decodable, Equatable {
+        var writers: [String]? = nil
+        var pencils: [String]? = nil
+        var inks: [String]? = nil
+        var colours: [String]? = nil
+        var letters: [String]? = nil
+        var coverArtists: [String]? = nil
+        var editors: [String]? = nil
+        var translators: [String]? = nil
+    }
+
+    /// Where a comic's details came from ComicVine (docs/BOOK-DETAILS.md, section 7): its page there, which the
+    /// book's page links back to, as ComicVine asks wherever its data shows. Nil for a comic nobody matched, and
+    /// from a server that doesn't look comics up.
+    struct Matched: Decodable {
+        var address: String? = nil
     }
 
     /// One page of a comic: its entry in the archive, and its picture's size in pixels.
@@ -100,6 +137,7 @@ struct ServerBookDetail: Decodable {
     var analysis: Analysis? = nil
     /// A comic's pages in reading order; nil for any other book.
     var pages: [Page]? = nil
+    var matched: Matched? = nil
 
     /// The gain that brings the book to the library's loudness (Loudness), in dB: none before it's measured.
     var gainDb: Double {

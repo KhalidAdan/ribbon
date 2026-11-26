@@ -9,6 +9,11 @@ import SwiftUI
 ///
 /// The TV and the iPad set the cover beside the words, or above them when upright. The iPhone has a top of its
 /// own (`phoneTop`): everything down the middle, and the buttons as wide as the screen.
+///
+/// A comic's page says what a comic has of its own (docs/BOOK-DETAILS.md, section 4), as the desktop's does: in its
+/// own series it is "#7 of 19" or "Vol. 1 of 19"; its cover date, the day it went on sale, its imprint beside its
+/// publisher and the issues a collection holds are among the facts; its people by what they did and its story arcs
+/// are under them (ComicDetails); and a comic whose details came from ComicVine says so, linking back.
 struct BookView: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
@@ -190,11 +195,19 @@ struct BookView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// The facts and the description, under the top of the page on every screen.
+    /// The facts and the description, under the top of the page on every screen. A comic's people by what they
+    /// did and its story arcs come between them, and a comic matched on ComicVine says so after them.
     private var about: some View {
         Group {
             Facts(items: facts)
                 .padding(.top, 48.scaled)
+
+            if book.isComic, let about = detail?.book {
+                let lines = ComicDetails.madeBy(about)
+                if !lines.isEmpty {
+                    MadeBy(lines: lines).padding(.top, 30.scaled)
+                }
+            }
 
             if let description = detail?.book.description, !description.isEmpty {
                 // Focusable, so the remote reaches it and can open the rest.
@@ -210,6 +223,10 @@ struct BookView: View {
                 .padding(.horizontal, -18.scaled)
                 .padding(.top, 30.scaled)
                 .modifier(FadesInPlace(fades: arrivedLate && reduceMotion))
+            }
+
+            if book.isComic, let page = ComicDetails.comicVinePage(detail?.matched) {
+                FromComicVine(page: page).padding(.top, 30.scaled)
             }
         }
     }
@@ -270,11 +287,11 @@ struct BookView: View {
         .buttonStyle(RibbonButtonStyle(fit: fit))
     }
 
-    /// "The Expanse · Book 2 of 9", for each series the book is in.
+    /// "The Expanse · Book 2 of 9", or a comic's "Transformers (2023) · #7 of 19", for each series the book is in.
     private func seriesLines(_ inSeries: [Library.Series]) -> [String] {
         inSeries.compactMap { series in
             guard let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
-            return "\(series.name) · Book \(series.number(of: book, at: index)) of \(series.books.count)"
+            return "\(series.name) · \(series.place(of: book, at: index))"
         }
     }
 
@@ -336,8 +353,8 @@ struct BookView: View {
     private var facts: [(term: String, value: String)] {
         var facts: [(String, String)] = book.audio ? [("Length", Format.left(book.durationMs))] : []
         if let detail, !detail.chapters.isEmpty { facts.append(("Chapters", String(detail.chapters.count))) }
-        if let year = detail?.book.year { facts.append(("Year", String(year))) }
-        if let publisher = detail?.book.publisher, !publisher.isEmpty { facts.append(("Publisher", publisher)) }
+        // Its year and publisher; a comic's cover date, day on sale, imprint and the issues it collects.
+        if let about = detail?.book { facts += ComicDetails.published(about).map { ($0.term, $0.value) } }
         if book.ebook { facts.append(("Ebook", "EPUB")) }
         if book.isComic {
             if let pages = book.pages { facts.append(("Pages", String(pages))) }
@@ -423,6 +440,60 @@ private struct Facts: View {
             }
         }
         .frame(maxWidth: 1000.scaled)
+    }
+}
+
+/// A comic's people by what they did, and its story arcs, under the facts: a line each, what they did in the facts'
+/// first column and who across the rest, so the names line up under the facts' second column, as the desktop's page
+/// sets them.
+private struct MadeBy: View {
+    let lines: [ComicDetails.Line]
+    @Environment(\.narrow) private var narrow
+    /// How wide the facts are here, which their columns are made from.
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        // The facts' own columns: four across, two on a phone.
+        let columns: CGFloat = narrow ? 2 : 4
+        let spacing = 32.scaled
+        // Until the width is known, each term is as wide as its words.
+        let firstColumn = width > 0 ? max(0, (width - (columns - 1) * spacing) / columns) : nil
+        VStack(alignment: .leading, spacing: 14.scaled) {
+            ForEach(lines, id: \.term) { line in
+                HStack(alignment: .firstTextBaseline, spacing: spacing) {
+                    Text(line.term).font(.ui(22)).foregroundStyle(Color.ink3)
+                        .frame(width: firstColumn, alignment: .leading)
+                    Text(line.value).font(.ui(24)).foregroundStyle(Color.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .frame(maxWidth: 1000.scaled, alignment: .leading)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+}
+
+/// "Details from ComicVine", for a comic whose details came from there: ComicVine asks for a link back wherever its
+/// data shows (docs/BOOK-DETAILS.md, section 7). The iPad and the iPhone open the comic's page there; the TV can't
+/// open a page, so it says where ComicVine is.
+private struct FromComicVine: View {
+    let page: URL
+
+    var body: some View {
+        #if os(tvOS)
+        Text("Details from ComicVine, \(page.host() ?? "comicvine.gamespot.com")")
+            .font(.ui(22)).foregroundStyle(Color.ink3)
+        #else
+        Link(destination: page) {
+            HStack(spacing: 6.scaled) {
+                Text("Details from ComicVine")
+                Image(systemName: "arrow.up.right").font(.system(size: 16.scaled, weight: .semibold))
+            }
+            .font(.ui(22, weight: 500)).foregroundStyle(Color.ink2)
+            .padding(.vertical, 10.scaled)
+        }
+        .buttonStyle(LiftStyle.row(radius: 10))
+        #endif
     }
 }
 

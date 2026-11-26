@@ -17,6 +17,8 @@ final class Library {
         let books: [ServerBook]
         var numbers: [String: Double] = [:]
         var titles: [String: String] = [:]
+        /// A comic's label in the series, "#7" or "Vol. 1", where the server gives one.
+        var labels: [String: String] = [:]
         /// Grouped here by the books' series tags, from a server from before series were its own.
         var fromTags = false
 
@@ -31,6 +33,21 @@ final class Library {
         /// A book's title in the list, without the series' name: "The Solar War", not "The Solar War: Siege of Terra: …, Book 1".
         func title(of book: ServerBook) -> String {
             titles[book.id] ?? book.title
+        }
+
+        /// Where a book comes in the series, as its page says it after the series' name: "Book 2 of 9". A comic
+        /// goes by its label, "#7 of 19" or "Vol. 1 of 19" (docs/BOOK-DETAILS.md, section 3), but only in its own
+        /// series, as the desktop's page has it: in a reading list made by hand, its issue number says nothing
+        /// about where it comes.
+        func place(of book: ServerBook, at index: Int) -> String {
+            if let label = labels[book.id], !label.isEmpty, Self.sameName(book.series, name) {
+                return "\(label) of \(books.count)"
+            }
+            return "Book \(number(of: book, at: index)) of \(books.count)"
+        }
+
+        private static func sameName(_ a: String, _ b: String) -> Bool {
+            a.trimmingCharacters(in: .whitespaces).lowercased() == b.trimmingCharacters(in: .whitespaces).lowercased()
         }
     }
 
@@ -105,7 +122,8 @@ final class Library {
                     name: series.name,
                     books: members,
                     numbers: Dictionary(shelved.compactMap { b in b.number.map { (b.id, $0) } }, uniquingKeysWith: { first, _ in first }),
-                    titles: Dictionary(shelved.compactMap { b in b.title.map { (b.id, $0) } }, uniquingKeysWith: { first, _ in first })
+                    titles: Dictionary(shelved.compactMap { b in b.title.map { (b.id, $0) } }, uniquingKeysWith: { first, _ in first }),
+                    labels: Dictionary(shelved.compactMap { b in b.label.map { (b.id, $0) } }, uniquingKeysWith: { first, _ in first })
                 )
             }
         } else {
