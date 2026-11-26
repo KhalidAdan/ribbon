@@ -3,7 +3,7 @@
     "id": "0123456789abcdef",
     "path": "",
     "title": "Made Up Saga #1",
-    "rawTitle": "Made Up Saga #1",
+    "rawTitle": "",
     "author": "",
     "narrator": "",
     "series": "Made Up Saga",
@@ -13,6 +13,8 @@
     "comic": "book.cbz",
     "pages": 1000,
     "rightToLeft": true,
+    "issue": "1",
+    "coverDate": "2018",
     "durationMs": 1000,
     "sizeBytes": 1000,
     "fileCount": 1000

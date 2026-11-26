@@ -49,11 +49,32 @@ export interface Part {
   endMs: number;
 }
 
+/**
+ * What a person did in making a book (docs/BOOK-DETAILS.md, section 2): a
+ * comic's writers, its art (pencils), inks, colours, letters, cover,
+ * editors and translators, and a text's translators. Not "cover": that is
+ * the cover picture's edit already, so the cover's artists are
+ * `coverArtists`.
+ */
+export const ROLES = ["writers", "pencils", "inks", "colours", "letters", "coverArtists", "editors", "translators"] as const;
+
+export type Role = (typeof ROLES)[number];
+
+/** People by what they did, each role a list of names in the order given. A role nobody is named for is left out. */
+export type Credits = Partial<Record<Role, string[]>>;
+
 export interface Book {
   id: string;
   /** Library-relative folder path, or the file path for a one-file book. */
   path: string;
   title: string;
+  /**
+   * The title before Ribbon names the book with it. An audiobook's is as
+   * its tags have it, "(Unabridged)" and all. A comic's is the story's own
+   * name ("Chapter Fourteen"), and empty when it has none: its `title` is
+   * the name the shelf makes from this, its series and its number
+   * (comic-name.ts), so a comic's title edit sets this one.
+   */
   rawTitle: string;
   author: string;
   narrator: string;
@@ -87,8 +108,29 @@ export interface Book {
   comic?: string;
   /** A comic's pages, once its archive has been read. */
   pages?: number;
-  /** A comic read right to left, as its ComicInfo.xml says. */
+  /** A comic read right to left, as its ComicInfo.xml says, or as an edit says over it. */
   rightToLeft?: boolean;
+  /** The people who made it, by what they did: a comic's credits, and a text's translators. */
+  credits?: Credits;
+  /**
+   * A comic's own details (docs/BOOK-DETAILS.md, section 2), each left out
+   * when nothing says it. Its issue number as printed ("14", "½", "1.MU");
+   * or, for a collection, its volume number ("1") and the issues it
+   * collects ("1–6, Annual 1"). An issue number makes it an issue, a
+   * volume or the issues it collects make it a collection, and with none
+   * it is a comic on its own (comic-name.ts, `comicShape`).
+   */
+  issue?: string;
+  volume?: string;
+  collects?: string;
+  imprint?: string;
+  /** The month on its cover, "2024-07", or "2024" when only the year is known. A comic's `year` is this one's. */
+  coverDate?: string;
+  /** The day it went on sale, "2024-07-10". */
+  onSale?: string;
+  storyArcs?: string[];
+  /** Its issue on ComicVine, "4000-1234567", from its file or a match. Never an edit (docs/BOOK-DETAILS.md, section 7). */
+  comicvine?: string;
   durationMs: number;
   sizeBytes: number;
   fileCount: number;

@@ -56,9 +56,9 @@ describe("comics in a scan", () => {
     }
   });
 
-  it("believes ComicInfo.xml first, in the fields every book has", () => {
-    const b = byTitle("The Long Way").book;
-    expect(b).toMatchObject({ series: "Made Up Saga", seriesIndex: 2, year: 2019, author: "Ada Quill, Ben Nib", narrator: "", publisher: "Paper Moon", description: "They walk.", genres: ["Fantasy"], language: "en", pages: 5 });
+  it("believes ComicInfo.xml first, and names the comic from its details", () => {
+    const b = byTitle("Made Up Saga #2: The Long Way").book;
+    expect(b).toMatchObject({ rawTitle: "The Long Way", series: "Made Up Saga", issue: "2", seriesIndex: 2, year: 2019, coverDate: "2019", author: "Ada Quill; Ben Nib", credits: { writers: ["Ada Quill", "Ben Nib"] }, narrator: "", publisher: "Paper Moon", description: "They walk.", genres: ["Fantasy"], language: "en", pages: 5 });
     expect(b.rightToLeft).toBeUndefined();
   });
 
@@ -81,21 +81,21 @@ describe("comics in a scan", () => {
   it("keeps what it read in comics.csv and reads no comic twice", async () => {
     const kept = await bytesToComics(await fs.readFile(path.join(root, ".ribbon", "comics.csv")));
     expect(kept.size).toBe(5);
-    expect(kept.get("Made Up Saga/anything at all.cbz")).toMatchObject({ pages: 5, title: "The Long Way", number: 2, writers: ["Ada Quill", "Ben Nib"] });
+    expect(kept.get("Made Up Saga/anything at all.cbz")).toMatchObject({ pages: 5, title: "The Long Way", number: "2", credits: { writers: ["Ada Quill", "Ben Nib"] } });
     const again = await scanLibrary(nodeHost(), root);
     expect(again.probed).toBe(0);
     expect(again.books.map((b) => b.book).sort((a, b) => a.id.localeCompare(b.id))).toEqual(books.map((b) => b.book).sort((a, b) => a.id.localeCompare(b.id)));
   });
 
-  it("comes back from the records as it was scanned", async () => {
+  it("comes back from the records as it was scanned, its details and all", async () => {
     const loaded = await loadLibrary(nodeHost(), root);
-    expect(loaded!.find((b) => b.book.title === "Right To Left")!.book).toEqual(byTitle("Right To Left").book);
+    for (const title of ["Right To Left", "Made Up Saga #2: The Long Way"]) expect(loaded!.find((b) => b.book.title === title)!.book).toEqual(byTitle(title).book);
   });
 
   it("makes a comic's cover from its first page, small", async () => {
     const changed = await extractMissingCovers(nodeHost(), root, books);
     // Every comic with a page, and not the broken one.
-    expect(changed.map((b) => b.book.title).sort()).toEqual(["Made Up Saga #1", "Right To Left", "Second Series #3", "The Long Way"]);
+    expect(changed.map((b) => b.book.title).sort()).toEqual(["Made Up Saga #1", "Made Up Saga #2: The Long Way", "Right To Left", "Second Series #3"]);
     const cover = await fs.readFile(path.join(root, ...byTitle("Right To Left").book.cover.split("/")));
     // A JPEG.
     expect([...cover.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);

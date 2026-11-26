@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { panelsFrom, type Panel } from "@ribbon/core/comic/panels";
-import { formFields, type FormField } from "@ribbon/core/edit-form";
+import type { FormField } from "@ribbon/core/edit-form";
 import { applyEdits, fieldText, sharedEdits, switchText, type EditValues } from "@ribbon/core/edits";
 import type { Book } from "@ribbon/core/types";
 import { nodeHost } from "@ribbon/host-node/node";
@@ -64,8 +64,17 @@ const HOW_PANELS_ARE_MEASURED =
 /** What a detail is called for an assistant, where the edit form's name for it isn't plain: a book's number in its series, and the switch for which way a comic reads. */
 const NAMED: Partial<Record<FormField, string>> = { seriesIndex: "number", rightToLeft: "reads" };
 
-/** A comic's details by the names an assistant gives them: the edit form's fields for a comic. */
-const DETAILS: Record<string, FormField> = Object.fromEntries(formFields("comic").map((f) => [NAMED[f] ?? f, f]));
+/**
+ * The details an assistant gives a comic: the ones the edit form asked a
+ * comic for before comics had details of their own. The form asks for a
+ * comic's own now (docs/BOOK-DETAILS.md, section 5), and these tools take
+ * them when the server lists comics by them (its step 4); until then they
+ * keep the names an assistant already uses.
+ */
+const COMIC_FIELDS: FormField[] = ["title", "subtitle", "author", "series", "seriesIndex", "rightToLeft", "year", "language", "genres", "publisher", "isbn", "description"];
+
+/** A comic's details by the names an assistant gives them. */
+const DETAILS: Record<string, FormField> = Object.fromEntries(COMIC_FIELDS.map((f) => [NAMED[f] ?? f, f]));
 
 /** Which way a comic reads, in the words an assistant reads and gives. */
 const READS = { rightToLeft: "right to left", leftToRight: "left to right" } as const;

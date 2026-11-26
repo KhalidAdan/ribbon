@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { ARCHIVE_LIMITS, archiveProblem, comicInfoEntry, isPage, pageOrder, pageType } from "@ribbon/core/comic/pages";
 import { firstPage, isWide, pagesOf, spreadOf, spreads } from "@ribbon/core/comic/spreads";
-import { parseComicInfo } from "@ribbon/core/comic/comicinfo";
+import { comicVineIssue, parseComicInfo } from "@ribbon/core/comic/comicinfo";
 import { parseComicName } from "@ribbon/core/comic/filename";
+
+/** A ComicInfo.xml from a few fields, as host-node's make-comic.ts writes one. */
+function comicInfoXml(fields: Record<string, string | number>): string {
+  const lines = Object.entries(fields).map(([k, v]) => `  <${k}>${String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;")}</${k}>`);
+  return `<?xml version="1.0" encoding="utf-8"?>\n<ComicInfo>\n${lines.join("\n")}\n</ComicInfo>\n`;
+}
 
 describe("a comic's pages", () => {
   it("are the pictures, in the natural order of their names", () => {
@@ -121,19 +127,74 @@ describe("ComicInfo.xml", () => {
   <Pages><Page Image="0" Type="FrontCover" ImageWidth="1988" ImageHeight="3056" /></Pages>
 </ComicInfo>`;
 
-  it("gives the details Ribbon shows", () => {
+  it("gives what the file says, the number as printed", () => {
     expect(parseComicInfo(xml)).toEqual({
       title: "Chapter Fourteen",
       series: "The Made-Up Saga",
-      number: 14,
-      volume: 2,
+      number: "14",
+      volume: "2",
       year: 2013,
       summary: "They ran & ran.\nThen stopped.",
-      writers: ["Ada Quill", "Ben Nib"],
+      credits: { writers: ["Ada Quill", "Ben Nib"] },
       publisher: "Paper Moon",
       genres: ["Science Fiction", "Fantasy"],
       language: "en",
     });
+  });
+
+  it("reads it in full: every role, the format, the imprint, the cover date, the story arcs and the address", () => {
+    const full = comicInfoXml({
+      Series: "Transformers",
+      Number: "7",
+      Volume: "2023",
+      Format: "Series",
+      Writer: "Daniel Warren Johnson",
+      Penciller: "Jorge Corona",
+      Inker: "Jorge Corona",
+      Colorist: "Mike Spicer",
+      Letterer: "Rus Wooton",
+      CoverArtist: "Daniel Warren Johnson, Mike Spicer",
+      Editor: "Sean Mackiewicz",
+      Translator: "Nobody Here",
+      Publisher: "Image",
+      Imprint: "Skybound",
+      Year: 2024,
+      Month: 7,
+      Day: 10,
+      StoryArc: "Robots in Disguise, Batman/Superman",
+      Web: "https://comicvine.gamespot.com/transformers-7/4000-1234567/ https://example.com/other",
+    });
+    expect(parseComicInfo(full)).toEqual({
+      series: "Transformers",
+      number: "7",
+      volume: "2023",
+      format: "Series",
+      credits: {
+        writers: ["Daniel Warren Johnson"],
+        pencils: ["Jorge Corona"],
+        inks: ["Jorge Corona"],
+        colours: ["Mike Spicer"],
+        letters: ["Rus Wooton"],
+        coverArtists: ["Daniel Warren Johnson", "Mike Spicer"],
+        editors: ["Sean Mackiewicz"],
+        translators: ["Nobody Here"],
+      },
+      publisher: "Image",
+      imprint: "Skybound",
+      year: 2024,
+      month: 7,
+      day: 10,
+      storyArcs: ["Robots in Disguise", "Batman/Superman"],
+      web: "https://comicvine.gamespot.com/transformers-7/4000-1234567/ https://example.com/other",
+    });
+  });
+
+  it("finds a ComicVine issue's address in Web, and only an issue's", () => {
+    expect(comicVineIssue("https://comicvine.gamespot.com/transformers-7/4000-1234567/")).toBe("4000-1234567");
+    expect(comicVineIssue("http://www.comicvine.gamespot.com/4000-99/")).toBe("4000-99");
+    expect(comicVineIssue("https://comicvine.gamespot.com/transformers/4050-123456/")).toBeUndefined();
+    expect(comicVineIssue("https://example.com/4000-1234567/")).toBeUndefined();
+    expect(comicVineIssue(undefined)).toBeUndefined();
   });
 
   it("reads right to left from Manga", () => {
@@ -141,9 +202,17 @@ describe("ComicInfo.xml", () => {
     expect(parseComicInfo("<ComicInfo><Manga>Yes</Manga></ComicInfo>").rightToLeft).toBeUndefined();
   });
 
-  it("keeps a number that is a number and leaves out one that is not", () => {
-    expect(parseComicInfo("<ComicInfo><Number>0.5</Number></ComicInfo>").number).toBe(0.5);
-    expect(parseComicInfo("<ComicInfo><Number>14A</Number></ComicInfo>").number).toBeUndefined();
+  it("keeps a number as printed, whatever it is, without the zeros that pad it", () => {
+    expect(parseComicInfo("<ComicInfo><Number>0.5</Number></ComicInfo>").number).toBe("0.5");
+    expect(parseComicInfo("<ComicInfo><Number>1.MU</Number></ComicInfo>").number).toBe("1.MU");
+    expect(parseComicInfo("<ComicInfo><Number>½</Number></ComicInfo>").number).toBe("½");
+    expect(parseComicInfo("<ComicInfo><Number>014</Number></ComicInfo>").number).toBe("14");
+    expect(parseComicInfo("<ComicInfo><Number>0</Number></ComicInfo>").number).toBe("0");
+  });
+
+  it("leaves out a month or a day that can't be one", () => {
+    expect(parseComicInfo("<ComicInfo><Year>2024</Year><Month>13</Month><Day>0</Day></ComicInfo>")).toEqual({ year: 2024 });
+    expect(parseComicInfo("<ComicInfo><Year>-1</Year><Month>July</Month></ComicInfo>")).toEqual({});
   });
 
   it("is empty for a file that says nothing or is not XML", () => {
@@ -153,43 +222,46 @@ describe("ComicInfo.xml", () => {
 });
 
 describe("a comic's file name", () => {
-  it("gives the series, the number and the year", () => {
-    expect(parseComicName("Saga 014 (2013) (Digital) (Group)")).toEqual({ series: "Saga", number: 14, year: 2013, title: "Saga 014" });
+  it("gives the series, the issue and the year", () => {
+    expect(parseComicName("Saga 014 (2013) (Digital) (Group)")).toEqual({ series: "Saga", issue: "14", volume: null, year: 2013, title: "Saga 014" });
   });
 
   it("reads a number after a hash, and underscores as spaces", () => {
-    expect(parseComicName("The_Made_Up_Saga_#7")).toEqual({ series: "The Made Up Saga", number: 7, year: null, title: "The Made Up Saga #7" });
+    expect(parseComicName("The_Made_Up_Saga_#7")).toEqual({ series: "The Made Up Saga", issue: "7", volume: null, year: null, title: "The Made Up Saga #7" });
   });
 
-  it("reads the issue, not the volume, when a name has both", () => {
-    expect(parseComicName("Saga v2 014 (2014)")).toEqual({ series: "Saga", number: 14, year: 2014, title: "Saga v2 014" });
+  it("keeps a run before an issue as part of the series: the second run is a series of its own", () => {
+    expect(parseComicName("Saga v2 014 (2014)")).toEqual({ series: "Saga v2", issue: "14", volume: null, year: 2014, title: "Saga v2 014" });
+    expect(parseComicName("Batman Vol. 02 #7")).toMatchObject({ series: "Batman v2", issue: "7", volume: null });
   });
 
-  it("reads a collected volume as its number in the series", () => {
-    expect(parseComicName("Saga Vol. 3 (2014)")).toMatchObject({ series: "Saga", number: 3, year: 2014 });
-    expect(parseComicName("Saga v2")).toMatchObject({ series: "Saga", number: 2 });
+  it("reads a volume at the end as a collection's, a manga's book among them", () => {
+    expect(parseComicName("Saga Vol. 3 (2014)")).toEqual({ series: "Saga", issue: null, volume: "3", year: 2014, title: "Saga Vol. 3" });
+    expect(parseComicName("Saga v2")).toMatchObject({ series: "Saga", issue: null, volume: "2" });
+    expect(parseComicName("One Piece v03")).toMatchObject({ series: "One Piece", issue: null, volume: "3" });
   });
 
   it("reads 'of' counts and half issues", () => {
-    expect(parseComicName("Small Run 2 of 6")).toMatchObject({ series: "Small Run", number: 2 });
-    expect(parseComicName("Saga 0.5")).toMatchObject({ series: "Saga", number: 0.5 });
+    expect(parseComicName("Small Run 2 of 6")).toMatchObject({ series: "Small Run", issue: "2" });
+    expect(parseComicName("Saga 0.5")).toMatchObject({ series: "Saga", issue: "0.5" });
+    expect(parseComicName("Saga 000")).toMatchObject({ series: "Saga", issue: "0" });
   });
 
   it("takes a year in a title for part of the title", () => {
-    expect(parseComicName("Spider-Man 2099")).toEqual({ series: "", number: null, year: null, title: "Spider-Man 2099" });
-    expect(parseComicName("Spider-Man 2099 001")).toMatchObject({ series: "Spider-Man 2099", number: 1 });
-    expect(parseComicName("Spider-Man #2099")).toMatchObject({ series: "Spider-Man", number: 2099 });
+    expect(parseComicName("Spider-Man 2099")).toEqual({ series: "", issue: null, volume: null, year: null, title: "Spider-Man 2099" });
+    expect(parseComicName("Spider-Man 2099 001")).toMatchObject({ series: "Spider-Man 2099", issue: "1" });
+    expect(parseComicName("Spider-Man #2099")).toMatchObject({ series: "Spider-Man", issue: "2099" });
   });
 
   it("gives no series for a name that is only a title", () => {
-    expect(parseComicName("Batman - Year One (2007)")).toEqual({ series: "", number: null, year: 2007, title: "Batman - Year One" });
+    expect(parseComicName("Batman - Year One (2007)")).toEqual({ series: "", issue: null, volume: null, year: 2007, title: "Batman - Year One" });
   });
 
   it("gives only a number for a name that is only a number", () => {
-    expect(parseComicName("014")).toEqual({ series: "", number: 14, year: null, title: "014" });
+    expect(parseComicName("014")).toEqual({ series: "", issue: "14", volume: null, year: null, title: "014" });
   });
 
   it("keeps a hyphenated series whole", () => {
-    expect(parseComicName("Spider-Man - 003")).toMatchObject({ series: "Spider-Man", number: 3 });
+    expect(parseComicName("Spider-Man - 003")).toMatchObject({ series: "Spider-Man", issue: "3" });
   });
 });

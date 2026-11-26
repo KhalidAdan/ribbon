@@ -81,16 +81,16 @@ describe("CBRs on the server", () => {
   });
 
   it("lists a CBR as a comic like any other, with its details and its cover", () => {
-    expect(books.map((b) => b.title).sort()).toEqual(["Old Format #3", "Really A Rar #8", "Really A Zip #7", "The Long Way"]);
-    expect(titled("The Long Way")).toMatchObject({ comic: true, pages: 12, author: "Ada Quill", series: "Made Up Saga", seriesIndex: 2, audio: false, ebook: false });
+    expect(books.map((b) => b.title).sort()).toEqual(["Made Up Saga #2: The Long Way", "Old Format #3", "Really A Rar #8", "Really A Zip #7"]);
+    expect(titled("Made Up Saga #2: The Long Way")).toMatchObject({ comic: true, pages: 12, author: "Ada Quill", series: "Made Up Saga", seriesIndex: 2, audio: false, ebook: false });
     expect(titled("Old Format #3")).toMatchObject({ comic: true, pages: 5 });
     expect(titled("Really A Zip #7")).toMatchObject({ comic: true, pages: 4 });
     expect(titled("Really A Rar #8")).toMatchObject({ comic: true, pages: 2 });
-    expect(titled("The Long Way").cover).not.toBeNull();
+    expect(titled("Made Up Saga #2: The Long Way").cover).not.toBeNull();
   });
 
   it("keeps it as a CBZ of the same files, none squeezed, and nothing else", async () => {
-    const comic = titled("The Long Way");
+    const comic = titled("Made Up Saga #2: The Long Way");
     const folder = path.join(dir, "data", "books", comic.id);
     expect(readdirSync(folder).sort()).toEqual(["book.cbz", "book.json", "covers"]);
     const kept = await openComic(path.join(folder, "book.cbz"));
@@ -111,7 +111,7 @@ describe("CBRs on the server", () => {
   });
 
   it("sends its pages and its file as a CBZ's are sent, so no device needs to read a RAR", async () => {
-    const comic = titled("The Long Way");
+    const comic = titled("Made Up Saga #2: The Long Way");
     const page = await get(`/api/books/${comic.id}/pages/10`);
     expect(page.statusCode).toBe(200);
     expect(page.headers["content-type"]).toBe("image/png");

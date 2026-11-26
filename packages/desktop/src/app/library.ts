@@ -13,7 +13,7 @@ import { bytesToProblems, problemsToBytes, type Problem } from "@ribbon/core/pro
 import { bytesToSeries, seriesToBytes, type SeriesRecord } from "@ribbon/core/series";
 import { aboutToBytes, bytesToAbout, type BookAbout } from "@ribbon/core/about";
 import { locate } from "@ribbon/core/timeline";
-import { bytesToEdits, editsToBytes, type BookEdits } from "@ribbon/core/edits";
+import { bytesToEdits, editsToBytes, hasEdits, withUnknownRows, type BookEdits } from "@ribbon/core/edits";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
 import { guardWrites } from "./read-only";
 import type { PairingFix } from "@ribbon/core/reading/align";
@@ -638,15 +638,25 @@ export class LibraryService {
     return out;
   }
 
-  /** Keep a book's edits beside it; no edits removes the file. */
+  /**
+   * Keep a book's edits beside it; no edits removes the file. Rows a newer
+   * Ribbon wrote there, for fields this one doesn't know, are kept as they
+   * were (core/edits.ts, `unknownRows`): read back from the file first, so
+   * no caller can lose them.
+   */
   async writeEdits(edits: BookEdits): Promise<void> {
     const path = this.dir("edits", `${edits.bookId}.csv`);
-    if (Object.keys(edits.values).length === 0) {
+    const before = await this.host
+      .readFile(path)
+      .then((bytes) => bytesToEdits(edits.bookId, bytes))
+      .catch(() => null);
+    const kept = withUnknownRows(edits, before);
+    if (!hasEdits(kept)) {
       await this.host.remove(path).catch(() => undefined);
       return;
     }
     await this.host.mkdir(this.dir("edits"));
-    await this.host.writeFile(path, await editsToBytes(edits));
+    await this.host.writeFile(path, await editsToBytes(kept));
   }
 
   /**

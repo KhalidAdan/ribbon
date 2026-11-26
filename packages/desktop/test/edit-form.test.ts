@@ -13,8 +13,9 @@ describe("the edit form, by the kind of book", () => {
     expect(bookKind({ fileCount: 0, comic: "White Dwarf 503.pdf" })).toBe("comic");
   });
 
-  it("asks an audiobook for everything a book keeps, but which way a comic reads", () => {
-    const every = EDIT_FIELDS.filter((f) => f !== "cover" && f !== "readAlong" && f !== "rightToLeft");
+  it("asks an audiobook for everything a book kept before comics had details of their own, but which way a comic reads", () => {
+    const comics = new Set<string>(["rightToLeft", "issue", "volume", "collects", "writers", "pencils", "inks", "colours", "letters", "coverArtists", "editors", "translators", "imprint", "coverDate", "onSale", "storyArcs"]);
+    const every = EDIT_FIELDS.filter((f) => f !== "cover" && f !== "readAlong" && !comics.has(f));
     expect([...formFields("audiobook")].sort()).toEqual([...every].sort());
     expect(formFields("text")).not.toContain("rightToLeft");
   });
@@ -42,8 +43,10 @@ describe("the edit form, by the kind of book", () => {
     expect(fields).not.toContain("narrator");
     expect(fields).not.toContain("asin");
     const labels = Object.fromEntries(editForm("comic").flatMap((g) => g.fields.map((f) => [f.field, f.label])));
-    expect(labels.author).toBe("Writers and artists");
-    expect(labels.seriesIndex).toBe("Issue or volume number");
+    expect(labels.writers).toBe("Writers");
+    expect(labels.pencils).toBe("Art");
+    expect(labels.issue).toBe("Issue");
+    expect(labels.volume).toBe("Volume");
     expect(editForm("comic")[0]!.label).toBe("The comic");
   });
 
