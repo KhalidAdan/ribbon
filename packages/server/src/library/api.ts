@@ -9,7 +9,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { signedIn, type Auth } from "../auth.ts";
 import { readStored } from "./book-folder.ts";
-import { bookDir, editedStored, type BookIndex, type StoredBook } from "./books.ts";
+import { bookDir, editedStored, KEPT_EDIT_FIELDS, type BookIndex, type StoredBook } from "./books.ts";
 import { bytesToRows } from "@ribbon/core/csv";
 import { servedBook, servedCorrections, servedRecords } from "./chapters.ts";
 import { COVER_WIDTHS } from "./covers.ts";
@@ -37,11 +37,15 @@ const ASK_FIRST = "private, no-cache";
  * - `GET /api/books`: every book, with each cover's shape and colour, and
  *   the ids of the books deleted, which a device that downloaded one takes
  *   off (the admin deletes one in routes.ts). A book a person edited is
- *   listed as edited, with its edits (the admin edits one in routes.ts).
+ *   listed as edited, with its edits (the admin edits one in routes.ts). A
+ *   comic's title and author are its name and byline, made from its details
+ *   (books.ts). And the fields a book's edits may have here (`editFields`).
  * - `GET /api/books/:id`: one book in full: its files, chapters and parts,
- *   the chapters as corrected (chapters.ts), its details as edited.
- * - `GET /api/series`: the library's series, each with its books in order
- *   (series.ts; the admin changes them in routes.ts).
+ *   the chapters as corrected (chapters.ts), its details as edited, a
+ *   comic's own among them.
+ * - `GET /api/series`: the library's series, each with its books in order,
+ *   a comic labelled "#7" or "Vol. 1" (series.ts; the admin changes them in
+ *   routes.ts).
  * - `GET /covers/:hash-:width.jpg`: a cover, at an address that never changes.
  * - `GET /api/books/:id/files/*`: a file of the book, for downloads; an
  *   MP3 with `?ms=` is sent from the frame where that moment falls, for a
@@ -67,7 +71,7 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     if (!(await signedIn(deps.auth, request))) await reply.code(401).send({ error: "Sign in first." });
   };
 
-  app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { books: deps.books.list(), deleted: deps.books.deleted() }));
+  app.get("/api/books", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { books: deps.books.list(), deleted: deps.books.deleted(), editFields: KEPT_EDIT_FIELDS }));
 
   app.get("/api/series", { onRequest: mustSignIn }, async (request, reply) => sendRevalidated(request, reply, { series: deps.series.list() }));
 
@@ -75,7 +79,7 @@ export async function libraryApi(app: FastifyInstance, deps: { auth: Auth; books
     const stored = await storedBook(deps, request.params.id);
     if (!stored) return reply.code(404).send({ error: "No such book on this server." });
     const served = await servedBook(bookDir(deps.dataDir, request.params.id), stored);
-    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(request.params.id), deps.books.chosenCover(request.params.id)));
+    return sendRevalidated(request, reply, editedStored(served, deps.books.edits(request.params.id), deps.books.chosenCover(request.params.id), deps.books.hasDetails(request.params.id)));
   });
 
   app.get<{ Params: { name: string } }>("/covers/:name", { onRequest: mustSignIn }, async (request, reply) => {

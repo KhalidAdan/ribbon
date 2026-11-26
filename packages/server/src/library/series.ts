@@ -2,7 +2,7 @@ import type { DatabaseSync, SQLInputValue, SQLOutputValue } from "node:sqlite";
 import { detectSeries, MIN_SERIES_BOOKS, uniqueKey } from "@ribbon/core/series";
 import { remoteBook } from "@ribbon/core/server-books";
 import type { Book } from "@ribbon/core/types";
-import type { ListedBook } from "./books.ts";
+import { seriesLabel, type ListedBook } from "./books.ts";
 
 /** A series as devices read it (`GET /api/series`): its books in order. */
 export interface ServerSeries {
@@ -20,6 +20,13 @@ export interface SeriesBook {
   title: string | null;
   /** False leaves it off the shelf: a novella nobody listens to. */
   shelved: boolean;
+  /**
+   * What a list of the series calls a comic, where it calls any other book
+   * "Book 2": "#7", "Vol. 1", or the issues a collection holds, from its
+   * details as edited (docs/BOOK-DETAILS.md, section 3). Null for any other
+   * book, and for a comic on its own.
+   */
+  label: string | null;
 }
 
 /** A book as a person puts it in a series. A number or title left out keeps the one it has. */
@@ -133,14 +140,18 @@ export class LibrarySeries {
   // Inside -------------------------------------------------------------------
 
   private read(where: string, ...args: SQLInputValue[]): ServerSeries[] {
+    // Each book with its own series and details, and its edits: what a comic's label is made from (books.ts).
     const rows = this.db
-      .prepare(`SELECT s.id, s.name, b.book_id, b.number, b.title, b.shelved FROM series s JOIN series_book b ON b.series_id = s.id ${where} ORDER BY s.name COLLATE NOCASE, s.id, b.position`)
+      .prepare(
+        `SELECT s.id, s.name, b.book_id, b.number, b.title, b.shelved, book.series, book.details, book_edit.edits FROM series s JOIN series_book b ON b.series_id = s.id
+         LEFT JOIN book ON book.id = b.book_id LEFT JOIN book_edit ON book_edit.book_id = b.book_id ${where} ORDER BY s.name COLLATE NOCASE, s.id, b.position`,
+      )
       .all(...args);
     const out: ServerSeries[] = [];
     for (const row of rows) {
       const id = String(row.id);
       if (out.at(-1)?.id !== id) out.push({ id, name: String(row.name), books: [] });
-      out.at(-1)!.books.push(member(row));
+      out.at(-1)!.books.push({ ...member(row), label: seriesLabel(row) });
     }
     return out;
   }
@@ -195,7 +206,7 @@ export class LibrarySeries {
   }
 }
 
-function member(row: Record<string, SQLOutputValue>): SeriesBook {
+function member(row: Record<string, SQLOutputValue>): Omit<SeriesBook, "label"> {
   return {
     id: String(row.book_id),
     number: row.number === null ? null : Number(row.number),

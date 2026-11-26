@@ -80,8 +80,8 @@ describe("a comic's panels on the server", () => {
   });
 
   it("lists the comics, and one comic's pages with what is left to do", async () => {
-    const listed = JSON.parse(words(await call("list_comics", {}))) as { comics: { id: string; title: string; pages: number; pagesWithPanels: number }[] };
-    expect(listed.comics.map((c) => c.title).sort()).toEqual(["Made Up Saga #1", "Old Tales #1"]);
+    const listed = JSON.parse(words(await call("list_comics", {}))) as { comics: { id: string; name: string; pages: number; pagesWithPanels: number }[] };
+    expect(listed.comics.map((c) => c.name).sort()).toEqual(["Made Up Saga #1", "Old Tales #1"]);
     expect(listed.comics.find((c) => c.id === comic.id)).toMatchObject({ pages: 6, pagesWithPanels: 0 });
     expect((JSON.parse(words(await call("list_comics", { query: "old tales" }))) as { comics: unknown[] }).comics).toHaveLength(1);
     const pages = JSON.parse(words(await call("comic_pages", { book: comic.id }))) as { reads: string; pages: { page: number; width: number; height: number; panels: number }[] };
