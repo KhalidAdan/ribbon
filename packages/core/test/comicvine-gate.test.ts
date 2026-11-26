@@ -51,20 +51,14 @@ describe("ComicVine's door", () => {
   });
 
   it("tells a person past the hour's limit when to try again, rather than keeping them waiting", async () => {
-    const { clock, pass } = testClock();
+    const { clock } = testClock();
+    // No gap: each request goes as the one before it is answered, and nothing waits on the clock.
     const gate = new ComicVineGate(clock, 0);
-    for (let i = 0; i < HOURLY; i++) {
-      const asked = gate.through("volumes", "person", async () => i);
-      await pass(1);
-      await asked;
-    }
-    const refused = expect(gate.through("volumes", "person", async () => "too many")).rejects.toBeInstanceOf(ComicVineBusy);
-    await pass(1);
-    await refused;
+    await Promise.all(Array.from({ length: HOURLY }, (_, i) => gate.through("volumes", "person", async () => i)));
+    expect(gate.sentInTheHour("volumes")).toBe(HOURLY);
+    await expect(gate.through("volumes", "person", async () => "too many")).rejects.toBeInstanceOf(ComicVineBusy);
     // Another resource has an hour of its own.
-    const other = gate.through("issue", "person", async () => "answered");
-    await pass(1);
-    await expect(other).resolves.toBe("answered");
+    await expect(gate.through("issue", "person", async () => "answered")).resolves.toBe("answered");
   });
 
   it("waits out ComicVine saying it was asked too much, three seconds and then six, and says so after the third", async () => {
