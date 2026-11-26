@@ -1,0 +1,27 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "cover_date": "2018-06-01",
+    "deck": "Where the saga starts.",
+    "description": null,
+    "id": 123455,
+    "issue_number": "1",
+    "name": "Setting Out",
+    "person_credits": [
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90001/", "id": 90001, "name": "Ada Quill", "site_detail_url": "https://comicvine.gamespot.com/ada-quill/4040-90001/", "role": "writer" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90002/", "id": 90002, "name": "Ben Nib", "site_detail_url": "https://comicvine.gamespot.com/ben-nib/4040-90002/", "role": "penciler, inker" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90006/", "id": 90006, "name": "Fay Tint", "site_detail_url": "https://comicvine.gamespot.com/fay-tint/4040-90006/", "role": "cover" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90007/", "id": 90007, "name": "Gus Other", "site_detail_url": "https://comicvine.gamespot.com/gus-other/4040-90007/", "role": "other" }
+    ],
+    "site_detail_url": "https://comicvine.gamespot.com/made-up-saga-1-setting-out/4000-123455/",
+    "store_date": "2018-06-06",
+    "story_arc_credits": [],
+    "volume": { "api_detail_url": "https://comicvine.gamespot.com/api/volume/4050-9001/", "id": 9001, "name": "Made Up Saga", "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9001/" }
+  },
+  "version": "1.0"
+}

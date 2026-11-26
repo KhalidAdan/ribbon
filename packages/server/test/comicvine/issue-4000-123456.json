@@ -1,0 +1,30 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "cover_date": "2018-07-01",
+    "deck": null,
+    "description": "<p>Ada and Ben take the <em>long</em> way home &amp; meet the lighthouse keeper.</p><h4>Notes</h4><p>A made-up issue, written by hand for Ribbon&#39;s tests.</p>",
+    "id": 123456,
+    "issue_number": "2",
+    "name": "The Long Way Home",
+    "person_credits": [
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90001/", "id": 90001, "name": "Ada Quill", "site_detail_url": "https://comicvine.gamespot.com/ada-quill/4040-90001/", "role": "writer" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90002/", "id": 90002, "name": "Ben Nib", "site_detail_url": "https://comicvine.gamespot.com/ben-nib/4040-90002/", "role": "artist, cover" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90003/", "id": 90003, "name": "Cy Hue", "site_detail_url": "https://comicvine.gamespot.com/cy-hue/4040-90003/", "role": "colorist" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90004/", "id": 90004, "name": "Di Pen", "site_detail_url": "https://comicvine.gamespot.com/di-pen/4040-90004/", "role": "letterer" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90005/", "id": 90005, "name": "Ed Itor", "site_detail_url": "https://comicvine.gamespot.com/ed-itor/4040-90005/", "role": "editor" }
+    ],
+    "site_detail_url": "https://comicvine.gamespot.com/made-up-saga-2-the-long-way-home/4000-123456/",
+    "store_date": "2018-07-04",
+    "story_arc_credits": [
+      { "api_detail_url": "https://comicvine.gamespot.com/api/story_arc/4045-70001/", "id": 70001, "name": "The Lighthouse", "site_detail_url": "https://comicvine.gamespot.com/the-lighthouse/4045-70001/" }
+    ],
+    "volume": { "api_detail_url": "https://comicvine.gamespot.com/api/volume/4050-9001/", "id": 9001, "name": "Made Up Saga", "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9001/" }
+  },
+  "version": "1.0"
+}

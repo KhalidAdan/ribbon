@@ -5,7 +5,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db.ts";
 import { BookIndex, bookDir, type StoredBook } from "../src/library/books.ts";
-import { authorNames, booksToDescribe, catalogTitles, describeBooks, matchProduct, namesNoOne, summaryText, type Catalog, type CatalogProduct } from "../src/library/describe.ts";
+import { summaryText } from "@ribbon/core/summary-text";
+import { authorNames, booksToDescribe, catalogTitles, describeBooks, matchProduct, namesNoOne, type Catalog, type CatalogProduct } from "../src/library/describe.ts";
 import { changeStored, readStored } from "../src/library/book-folder.ts";
 
 /** Audible's summary of Mortis as its catalog sends it, cut short: HTML, with entities. */

@@ -1,4 +1,5 @@
 import { parseNumbered } from "@ribbon/core/scan/metadata";
+import { summaryText } from "@ribbon/core/summary-text";
 import { changeStored, readStored } from "./book-folder.ts";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
 import { hydrateStamp } from "./hydrate.ts";
@@ -72,25 +73,6 @@ export function audibleCatalog(store = "us", fetchFn: typeof fetch = fetch): Cat
       return summaryText(d.product?.publisher_summary ?? "") || null;
     },
   };
-}
-
-/** The named entities summaries use: markup's own, and typography's. */
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", mdash: "—", ndash: "–", hellip: "…" };
-
-/** A summary as the catalog writes it, in HTML, as plain paragraphs. */
-export function summaryText(html: string): string {
-  return html
-    .replace(/<\/p>\s*/gi, "\n\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, e: string) => {
-      if (e[0] === "#") return String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : Number(e.slice(1)));
-      return ENTITIES[e.toLowerCase()] ?? whole;
-    })
-    .replace(/[ \t]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 /**

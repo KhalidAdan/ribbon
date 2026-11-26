@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { comicShape, type ComicShape } from "@ribbon/core/comic-name";
 import { panelsFrom, type Panel } from "@ribbon/core/comic/panels";
+import { withMatch } from "@ribbon/core/comicvine";
 import { formFields, shapeEmpties, type FormField } from "@ribbon/core/edit-form";
 import { applyEdits, coverDateFrom, editColumn, fieldText, isRoleField, sharedEdits, switchText, type EditValues } from "@ribbon/core/edits";
 import type { Book } from "@ribbon/core/types";
@@ -9,6 +10,9 @@ import { pagePicture } from "@ribbon/host-node/page-picture";
 import { signedIn, type Auth, type Person } from "./auth.ts";
 import type { Events } from "./events.ts";
 import { asEdited, bookDir, type BookIndex, type StoredBook } from "./library/books.ts";
+import { lookUpAsked } from "./library/comic-match.ts";
+import { ComicVineUnreachable, type ComicVine } from "./library/comicvine.ts";
+import { COMICVINE_OFF } from "./comicvine-routes.ts";
 import { coverFrom } from "./library/chosen-cover.ts";
 import type { LibrarySeries } from "./library/series.ts";
 import { pageBytes } from "./library/comic.ts";
@@ -43,6 +47,13 @@ import { comicOn, dividedPages } from "./panels-routes.ts";
  * Which way a comic reads is one of them, the form's switch, said here in
  * words: "right to left" or "left to right"; and a byline kept from before
  * comics had people of their own is `by`, which can only be taken back.
+ *
+ * With ComicVine turned on (RIBBON_COMICVINE_KEY, docs/BOOK-DETAILS.md,
+ * section 7), `set_details` also takes `comicvine`, an issue's address
+ * there: the server looks it up and keeps the match, as the edit form's
+ * "Use these" does, under the corrections. So an assistant that finds the
+ * right page hands over its address instead of copying out every detail.
+ * `comic_details` says which details came from ComicVine.
  */
 
 /** The versions of the protocol this speaks, newest first. Asked for another, it answers with the newest. */
@@ -100,8 +111,11 @@ const HOW_DETAILS_ARE_GIVEN = [
   `The people who made it are given by what they did: writers, pencils (its art; an artist credited alone drew and inked it, so give them as pencils and leave inks empty), inks, colours, letters, cover_artists, editors and translators, several names apart by semicolons ("Daniel Warren Johnson; Jorge Corona").`,
   `A date is written as numbers: cover_date is the month on its cover, 2024-07, or the year alone, 2024; on_sale is the day it went on sale, 2024-07-10. Its year follows its cover date: give year only to say otherwise, or as null to take back one said before.`,
   `story_arcs are apart by semicolons and genres by commas; reads is which way its pages turn, "${READS.rightToLeft}" (as manga reads) or "${READS.leftToRight}". by is a byline kept from before writers and artists had fields of their own: once its names are in writers and pencils, give by as null to take it back.`,
-  `An empty text empties a detail; null takes a correction back, to what the comic's file says.`,
+  `An empty text empties a detail; null takes a correction back, to what the comic's file says (or ComicVine, for a comic matched there).`,
 ].join(" ");
+
+/** What an assistant is told of `comicvine`, on a server that looks comics up there. */
+const HOW_COMICVINE_IS_GIVEN = `comicvine is the comic's page on ComicVine: an issue's (https://comicvine.gamespot.com/…/4000-1234567/), or its run's (…/4050-123456/) when the comic's issue, or a collection's volume, is given or kept. The server looks it up and keeps what ComicVine says under the corrections, which still stand: a detail corrected by hand shows the correction. Give comicvine as null to forget the match.`;
 
 /** A comic's detail as an assistant reads it: the edit form's text, and which way it reads in words. */
 function detailText(book: Book, field: FormField): string {
@@ -174,24 +188,29 @@ function detailValue(name: string, field: FormField, value: unknown): string {
 /** The longest a detail may be, as the edit form's route has it. */
 const DETAIL_LETTERS = 20_000;
 
-export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; panels: ComicPanels; series: LibrarySeries; events: Events; dataDir: string }): void {
+export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookIndex; panels: ComicPanels; series: LibrarySeries; events: Events; comicVine: ComicVine | null; dataDir: string }): void {
   const host = nodeHost();
   const text = (words: string): Content => ({ type: "text", text: words });
 
-  /** A comic as it stands, as every device shows it: its file's details with the corrections laid over them, named from them. */
-  const asCorrected = (comic: { id: string; stored: StoredBook }) => asEdited(comic.stored.book, deps.books.edits(comic.id)?.values ?? {}, deps.books.hasDetails(comic.id));
+  /** A comic as it stands, as every device shows it: its file's details, what ComicVine said and the corrections laid over them, named from them. */
+  const asCorrected = (comic: { id: string; stored: StoredBook }, values = deps.books.edits(comic.id)?.values ?? {}) => asEdited(comic.stored.book, values, deps.books.hasDetails(comic.id), deps.books.match(comic.id));
+
+  /** How setting a comic's details is explained, with ComicVine where it's turned on. */
+  const howDetails = deps.comicVine ? `${HOW_DETAILS_ARE_GIVEN} ${HOW_COMICVINE_IS_GIVEN}` : HOW_DETAILS_ARE_GIVEN;
 
   /** Which way a comic reads, as every device reads it. */
   const readsOf = (comic: { id: string; stored: StoredBook }) => detailText(asCorrected(comic), "rightToLeft");
 
   /**
    * A comic's details as they stand: the name the shelf shows, what it is,
-   * each detail by name, which of them were corrected by hand, and what its
+   * each detail by name, which of them were corrected by hand, which came
+   * from ComicVine (and its page there, linked back to), and what its
    * cover is. A byline kept from before (`by`) is there only while it is,
    * as the form shows it.
    */
   const detailsOf = (comic: { id: string; stored: StoredBook }) => {
     const corrected = deps.books.edits(comic.id)?.values ?? {};
+    const match = deps.books.match(comic.id);
     const book = asCorrected(comic);
     const shown = Object.entries(DETAILS).filter(([, field]) => field !== "author" || corrected.author !== undefined);
     return {
@@ -199,8 +218,10 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
       name: book.title,
       is: IS[comicShape(book)],
       ...Object.fromEntries(shown.map(([name, field]) => [name, detailText(book, field)])),
+      comicvine: book.comicvine ?? "",
       pages: comic.stored.pages?.length ?? 0,
       corrected: shown.flatMap(([name, field]) => (corrected[field] !== undefined ? [name] : [])),
+      ...(match ? { from_comicvine: { page: match.address, details: shown.flatMap(([name, field]) => (match.values[field] && corrected[field] === undefined ? [name] : [])) } } : {}),
       cover: deps.books.chosenCover(comic.id) ? "chosen by hand" : "its first page",
     };
   };
@@ -308,7 +329,7 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
     {
       name: "comic_details",
       description:
-        "One comic's details as every device shows them: the name the shelf shows it by, made from its series, its number and its title; what it is (an issue, a collection, or a comic on its own); its series, issue, volume and the issues it collects; its title, the story's own name; the people who made it, by what they did; its cover date, its year, the day it went on sale; its publisher, imprint, story arcs, language, genres, ISBN and description; which way it reads; a byline kept from before its people had fields of their own (by), while it has one. And which of them were corrected by hand, and whether its cover is its first page or one chosen by hand.",
+        "One comic's details as every device shows them: the name the shelf shows it by, made from its series, its number and its title; what it is (an issue, a collection, or a comic on its own); its series, issue, volume and the issues it collects; its title, the story's own name; the people who made it, by what they did; its cover date, its year, the day it went on sale; its publisher, imprint, story arcs, language, genres, ISBN and description; which way it reads; a byline kept from before its people had fields of their own (by), while it has one; and its issue on ComicVine (comicvine), when its file or a match says. And which of them were corrected by hand, which came from ComicVine (from_comicvine, with its page there, for a comic matched on it), and whether its cover is its first page or one chosen by hand.",
       inputSchema: { type: "object", properties: { book: { type: "string", description: "The comic's id, from list_comics." } }, required: ["book"] },
       async run(args) {
         return [text(JSON.stringify(detailsOf(await comicAsked(args)), null, 1))];
@@ -316,7 +337,7 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
     },
     {
       name: "set_details",
-      description: `Correct a comic's details, for every device. Only the details given change; the rest stay as they are. ${HOW_DETAILS_ARE_GIVEN} The comic's file is never touched. Comics that name the same series are put in it together, in the order of their issues (a collection where the first issue it collects would be), once three of them do. The answer is the comic's details as they then stand.`,
+      description: `Correct a comic's details, for every device. Only the details given change; the rest stay as they are. ${howDetails} The comic's file is never touched. Comics that name the same series are put in it together, in the order of their issues (a collection where the first issue it collects would be), once three of them do. The answer is the comic's details as they then stand.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -324,7 +345,10 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
           details: {
             type: "object",
             description: "The details to change, by name.",
-            properties: Object.fromEntries(Object.entries(DETAILS).map(([name, field]) => [name, detailSchema(field)])),
+            properties: {
+              ...Object.fromEntries(Object.entries(DETAILS).map(([name, field]) => [name, detailSchema(field)])),
+              ...(deps.comicVine ? { comicvine: { type: ["string", "null"], description: "Its page on ComicVine, an issue's or its run's: the server looks it up and keeps what it says under the corrections. null forgets the match." } } : {}),
+            },
           },
         },
         required: ["book", "details"],
@@ -332,13 +356,21 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
       async run(args, me) {
         const comic = await comicAsked(args);
         const given = args.details && typeof args.details === "object" && !Array.isArray(args.details) ? Object.entries(args.details as Record<string, unknown>) : null;
-        if (!given || given.length === 0) throw new Refused(`Give the details to change. ${HOW_DETAILS_ARE_GIVEN}`);
+        if (!given || given.length === 0) throw new Refused(`Give the details to change. ${howDetails}`);
         // Laid over the corrections it has, as the edit form's are: the last one stands.
         const values: EditValues = { ...(deps.books.edits(comic.id)?.values ?? {}) };
         const named = new Set<FormField>();
+        // Its page on ComicVine, to match it to, or null to forget the match: done once its other details are.
+        let comicvine: string | null | undefined;
         for (const [name, value] of given) {
+          if (name === "comicvine") {
+            if (value !== null && typeof value !== "string") throw new Refused(`Give comicvine as the comic's page on ComicVine, or null. ${HOW_COMICVINE_IS_GIVEN}`);
+            if (value !== null && !deps.comicVine) throw new Refused(COMICVINE_OFF);
+            comicvine = value;
+            continue;
+          }
           const field = DETAILS[name];
-          if (!field) throw new Refused(`A comic has no detail called "${name}". ${HOW_DETAILS_ARE_GIVEN}`);
+          if (!field) throw new Refused(`A comic has no detail called "${name}". ${howDetails}`);
           named.add(field);
           if (value === null) delete values[field];
           else values[field] = detailValue(name, field, value);
@@ -347,13 +379,19 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
         // number the comic's file gives doesn't keep it what it was. Never both at once.
         const saidIssue = !!values.issue?.trim() && named.has("issue");
         const saidCollection = (!!values.volume?.trim() && named.has("volume")) || (!!values.collects?.trim() && named.has("collects"));
-        if (saidIssue && saidCollection) throw new Refused(`A comic is an issue or a collection, not both: give an issue, or a volume and collects. ${HOW_DETAILS_ARE_GIVEN}`);
+        if (saidIssue && saidCollection) throw new Refused(`A comic is an issue or a collection, not both: give an issue, or a volume and collects. ${howDetails}`);
         const shape = saidIssue ? "issue" : saidCollection ? "collection" : null;
         if (shape) {
-          const now = applyEdits(comic.stored.book, values);
+          const now = applyEdits(withMatch(comic.stored.book, deps.books.match(comic.id)), values);
           for (const field of shapeEmpties(shape)) if (!named.has(field) && fieldText(now, field)) values[field] = "";
         }
-        deps.books.saveEdits(comic.id, { values: sharedEdits(values), updatedAt: new Date().toISOString() }, me.id);
+        // Looked up on ComicVine as the comic stands with these details, before anything is kept: an address it can't
+        // look up changes nothing.
+        const kept = sharedEdits(values);
+        const found = comicvine ? await lookedUpFor(comic, comicvine, kept) : null;
+        if (named.size > 0) deps.books.saveEdits(comic.id, { values: kept, updatedAt: new Date().toISOString() }, me.id);
+        if (found) deps.books.keepMatch(comic.id, found, me.id, new Date().toISOString());
+        else if (comicvine === null) deps.books.forgetMatch(comic.id, Date.now());
         deps.events.toEveryone({ type: "books", data: { edited: comic.id } });
         // A series it names now is one it belongs to, as a book that arrives naming one does.
         if (deps.series.find(deps.books.list(), Date.now()) > 0) deps.events.toEveryone({ type: "series", data: {} });
@@ -382,6 +420,20 @@ export function mcpRoutes(app: FastifyInstance, deps: { auth: Auth; books: BookI
       },
     },
   ];
+
+  /** What ComicVine says of a comic, looked up by an address an assistant gave, as the comic stands with these corrections. Refused in a sentence when it can't be. */
+  async function lookedUpFor(comic: { id: string; stored: StoredBook }, address: string, values: EditValues) {
+    const what = lookUpAsked(asCorrected(comic, values), { address });
+    if (typeof what === "string") throw new Refused(`${what} ${HOW_COMICVINE_IS_GIVEN}`);
+    try {
+      const found = await deps.comicVine!.lookUp(what, "person");
+      if (!found) throw new Refused(what.address.kind === "run" ? `ComicVine has no issue ${what.number} in that run.` : "ComicVine has no such issue: check its page's address.");
+      return found;
+    } catch (e) {
+      if (e instanceof ComicVineUnreachable) throw new Refused(e.message);
+      throw e;
+    }
+  }
 
   /** One message answered: its result, or the error to send back; undefined for a note that wants no answer. */
   const answer = async (message: { id?: unknown; method?: unknown; params?: unknown }, me: Person): Promise<unknown> => {

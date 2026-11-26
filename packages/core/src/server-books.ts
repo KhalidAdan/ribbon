@@ -1,4 +1,5 @@
 import { bookId } from "./bookid";
+import type { SharedMatch } from "./comicvine";
 import { applyEdits, type SharedEdits } from "./edits";
 import type { ScannedBook } from "./scan/scan";
 import type { SeriesGroup, SeriesRecord } from "./series";
@@ -65,6 +66,8 @@ export interface ServerBookDetail {
   analysis?: { loudness: LoudnessMeasurement | null; silence: { file: number; ranges: SilenceRange[] }[] };
   /** The edits a person made to it, already laid over `book`; absent when nobody edited it. */
   edited?: SharedEdits;
+  /** What ComicVine said of a comic matched there, laid under the edits, with its issue's page to link back to (comicvine.ts); absent when it isn't matched. */
+  matched?: SharedMatch;
 }
 
 /**

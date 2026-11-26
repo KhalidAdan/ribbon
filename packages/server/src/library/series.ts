@@ -140,11 +140,12 @@ export class LibrarySeries {
   // Inside -------------------------------------------------------------------
 
   private read(where: string, ...args: SQLInputValue[]): ServerSeries[] {
-    // Each book with its own series and details, and its edits: what a comic's label is made from (books.ts).
+    // Each book with its own series and details, what ComicVine said of it and its edits: what a comic's label is made from (books.ts).
     const rows = this.db
       .prepare(
-        `SELECT s.id, s.name, b.book_id, b.number, b.title, b.shelved, book.series, book.details, book_edit.edits FROM series s JOIN series_book b ON b.series_id = s.id
-         LEFT JOIN book ON book.id = b.book_id LEFT JOIN book_edit ON book_edit.book_id = b.book_id ${where} ORDER BY s.name COLLATE NOCASE, s.id, b.position`,
+        `SELECT s.id, s.name, b.book_id, b.number, b.title, b.shelved, book.series, book.details, book_edit.edits, book_match.said AS matched_said, book_match.address AS matched_address
+         FROM series s JOIN series_book b ON b.series_id = s.id LEFT JOIN book ON book.id = b.book_id LEFT JOIN book_edit ON book_edit.book_id = b.book_id LEFT JOIN book_match ON book_match.book_id = b.book_id
+         ${where} ORDER BY s.name COLLATE NOCASE, s.id, b.position`,
       )
       .all(...args);
     const out: ServerSeries[] = [];

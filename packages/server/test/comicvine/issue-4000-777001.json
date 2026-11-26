@@ -1,0 +1,25 @@
+{
+  "error": "OK",
+  "limit": 1,
+  "offset": 0,
+  "number_of_page_results": 1,
+  "number_of_total_results": 1,
+  "status_code": 1,
+  "results": {
+    "cover_date": "2019-03-01",
+    "deck": null,
+    "description": "<p>Collects Made Up Saga #1&ndash;6.</p>",
+    "id": 777001,
+    "issue_number": "1",
+    "name": "Compendium One",
+    "person_credits": [
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90001/", "id": 90001, "name": "Ada Quill", "site_detail_url": "https://comicvine.gamespot.com/ada-quill/4040-90001/", "role": "writer" },
+      { "api_detail_url": "https://comicvine.gamespot.com/api/person/4040-90002/", "id": 90002, "name": "Ben Nib", "site_detail_url": "https://comicvine.gamespot.com/ben-nib/4040-90002/", "role": "artist, cover" }
+    ],
+    "site_detail_url": "https://comicvine.gamespot.com/made-up-saga-1-compendium-one/4000-777001/",
+    "store_date": null,
+    "story_arc_credits": [],
+    "volume": { "api_detail_url": "https://comicvine.gamespot.com/api/volume/4050-9004/", "id": 9004, "name": "Made Up Saga", "site_detail_url": "https://comicvine.gamespot.com/made-up-saga/4050-9004/" }
+  },
+  "version": "1.0"
+}

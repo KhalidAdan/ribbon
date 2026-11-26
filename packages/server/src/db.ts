@@ -318,6 +318,39 @@ CREATE TABLE IF NOT EXISTS comic_panels (
   PRIMARY KEY (book_id, page)
 );
 
+-- A comic's ComicVine match (docs/BOOK-DETAILS.md, section 7): what ComicVine said of it, laid between what its files
+-- say and a person's edits wherever it's listed or served (library/books.ts). Kept when a person presses "Use these", or
+-- when the server matched it by itself by the address in its file; forgotten, the row goes.
+CREATE TABLE IF NOT EXISTS book_match (
+  book_id TEXT PRIMARY KEY REFERENCES book (id) ON DELETE CASCADE,
+  -- The issue's page on ComicVine, linked back to wherever its details show.
+  address TEXT NOT NULL,
+  -- How its issue number was read: 'issue', 'collection' (its volume), or 'alone' (neither).
+  matched_as TEXT NOT NULL,
+  -- What it said for each field, as the edits are kept: {"series": "Saga (2012)", "issue": "14"}.
+  said TEXT NOT NULL,
+  -- Its whole answer, the issue and its run, as ComicVine gave them.
+  answer TEXT NOT NULL,
+  -- When it was kept, ISO, and by whom: null when the server matched it by itself.
+  matched_at TEXT NOT NULL,
+  matched_by TEXT
+);
+
+-- The comics the server looked up by itself, by the ComicVine address in their files, found or not; and the ones whose
+-- match a person forgot: neither is looked up by itself again (library/comic-match.ts).
+CREATE TABLE IF NOT EXISTS comicvine_asked (
+  book_id TEXT PRIMARY KEY REFERENCES book (id) ON DELETE CASCADE,
+  address TEXT NOT NULL,
+  asked_at INTEGER NOT NULL
+);
+
+-- ComicVine's answers, kept for a day, as its terms ask (library/comicvine.ts): by the request, without the key.
+CREATE TABLE IF NOT EXISTS comicvine_cache (
+  key TEXT PRIMARY KEY,
+  answer TEXT NOT NULL,
+  asked_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS job (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
