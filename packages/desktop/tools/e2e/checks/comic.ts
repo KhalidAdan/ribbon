@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import type { Check } from "../run";
-import { CHECKS_COMIC, CHECKS_COMIC_INFO, CHECKS_LONG_COMIC, CHECKS_PDF, type Ribbon } from "../app";
+import { CHECKS_COMIC, CHECKS_COMIC_INFO, CHECKS_LONG_COMIC, CHECKS_PDF, closeReader, type Ribbon } from "../app";
 
 const TRACK = "[role=dialog] [data-comic-track]";
 
@@ -244,12 +244,16 @@ export const comicCheck: Check = {
       "the comic is named and credited from its ComicInfo.xml",
       JSON.stringify(details),
     );
+    // Its page, from the library: the checks before may have left a book open to read, which covers it.
+    await closeReader(r);
     await page.evaluate((id) => window.__ribbon.openReader(id), r.comicId);
+    const names = [info.Inker, info.Letterer, info.CoverArtist, info.Editor, info.Imprint];
     const credited = await page
-      .waitForFunction((names) => names.every((n) => document.body.innerText.includes(n)), [info.Inker, info.Letterer, info.CoverArtist, info.Editor, info.Imprint], { timeout: 10_000 })
+      .waitForFunction((all) => all.every((n) => document.body.innerText.includes(n)), names, { timeout: 10_000 })
       .then(() => true)
       .catch(() => false);
-    t.expect(credited, "its page lists who made it, by role, and its imprint");
+    const missing = credited ? [] : await page.evaluate((all) => all.filter((n) => !document.body.innerText.includes(n)), names);
+    t.expect(credited, "its page lists who made it, by role, and its imprint", missing.length > 0 ? `not on the page: ${missing.join(", ")}` : "");
     await page.evaluate(() => window.__ribbon.showLibrary());
 
     await page.evaluate(() => window.__ribbon.setComicSettings({ up: "one", fit: "page" }));
