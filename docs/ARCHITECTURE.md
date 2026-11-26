@@ -422,7 +422,7 @@ Anything in `.ribbon/` is either rebuilt on demand or yours:
 | File | Meaning |
 | --- | --- |
 | `library.csv`, `files.csv` | Scan cache. Rebuilt any time. |
-| `ebooks.csv` | What each EPUB's package says, for pairing. Rebuilt any time. |
+| `ebooks.csv` | What each EPUB's package says, for pairing and for naming a text read alone. Rebuilt any time. |
 | `chapters/<id>.csv` | Effective chapters. |
 | `corrections/<id>.csv` | Your hand edits to chapters. Sync this. |
 | `positions/<device>.ndjson` | Where you are, one log per device. Sync this. See [POSITION-FORMAT.md](POSITION-FORMAT.md). |

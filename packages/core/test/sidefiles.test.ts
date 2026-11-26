@@ -59,6 +59,46 @@ describe("OPF", () => {
     expect(parseOpf("not xml at all")).toEqual({});
     expect(parseOpf("<dc:title>Unclosed")).toEqual({});
   });
+
+  it("reads translators, by EPUB 2's role and EPUB 3's, and never as authors", () => {
+    const m = parseOpf(`<metadata>
+      <dc:creator opf:role="aut">Ann Writer</dc:creator>
+      <dc:creator opf:role="trl">Tom Turner</dc:creator>
+      <dc:contributor id="t2">Lee, Ann</dc:contributor>
+      <meta refines="#t2" property="role" scheme="marc:relators">trl</meta>
+      <dc:creator id="t3">Tom Turner</dc:creator>
+      <meta refines="#t3" property="role">trl</meta>
+    </metadata>`);
+    expect(m.authors).toEqual(["Ann Writer"]);
+    // Each once, in the order given; "Lee, Ann" is one person.
+    expect(m.translators).toEqual(["Tom Turner", "Lee, Ann"]);
+  });
+
+  it("takes the collection that is a series, at its own place, and never a set", () => {
+    const m = parseOpf(`<metadata>
+      <meta property="belongs-to-collection" id="set">Made Up Classics</meta>
+      <meta refines="#set" property="collection-type">set</meta>
+      <meta refines="#set" property="group-position">40</meta>
+      <meta property="belongs-to-collection" id="saga">Made Up Saga</meta>
+      <meta refines="#saga" property="collection-type">series</meta>
+      <meta refines="#saga" property="group-position">3</meta>
+    </metadata>`);
+    expect(m).toMatchObject({ series: "Made Up Saga", seriesIndex: 3 });
+    // A set alone is no series.
+    expect(parseOpf(`<metadata><meta property="belongs-to-collection" id="s">Made Up Classics</meta><meta refines="#s" property="collection-type">set</meta></metadata>`).series).toBeUndefined();
+    // A collection that says nothing of its type is taken; a place left empty is none.
+    expect(parseOpf(`<metadata><meta property="belongs-to-collection" id="s">Made Up Saga</meta><meta refines="#s" property="group-position"> </meta></metadata>`)).toEqual({ series: "Made Up Saga" });
+  });
+
+  it("takes Calibre's series over a collection, with Calibre's number", () => {
+    const m = parseOpf(`<metadata>
+      <meta property="belongs-to-collection" id="c">A Collection</meta>
+      <meta refines="#c" property="group-position">9</meta>
+      <meta name="calibre:series" content="Made Up Saga"/>
+      <meta name="calibre:series_index" content="2.0"/>
+    </metadata>`);
+    expect(m).toMatchObject({ series: "Made Up Saga", seriesIndex: 2 });
+  });
 });
 
 describe("side files together", () => {

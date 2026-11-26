@@ -1107,4 +1107,32 @@ mod tests {
             assert!(n > 20_000);
         }
     }
+
+    /// What a scan reads of each EPUB in RIBBON_SCAN_PATH, timed as
+    /// `scan_library` reads them (side by side, in blocks), and how much it
+    /// hands the web side for them: the tags as JSON, which is what each
+    /// batch event carries. Skipped when the variable isn't set.
+    #[test]
+    fn reads_packages_and_reports_timing() {
+        let Ok(folder) = std::env::var("RIBBON_SCAN_PATH") else {
+            eprintln!("no RIBBON_SCAN_PATH; skipping");
+            return;
+        };
+        let pool = probe_pool();
+        let entries = pool.install(|| walk(Path::new(&folder)));
+        let ebooks: Vec<_> = entries.iter().filter(|e| e.kind == "ebook").collect();
+        let t = std::time::Instant::now();
+        let tags: Vec<String> = pool.install(|| ebooks.par_iter().filter_map(|e| crate::ebook::read_package_at(&e.abs)).map(|p| serde_json::to_string(&p.tags()).unwrap_or_default()).collect());
+        let elapsed = t.elapsed();
+        let bytes: usize = tags.iter().map(String::len).sum();
+        eprintln!(
+            "packages: read {} of {} EPUBs in {:?} ({:.2} ms each); {} KB of tags handed over, {} bytes each",
+            tags.len(),
+            ebooks.len(),
+            elapsed,
+            elapsed.as_secs_f64() * 1000.0 / ebooks.len().max(1) as f64,
+            bytes / 1024,
+            bytes / tags.len().max(1)
+        );
+    }
 }
