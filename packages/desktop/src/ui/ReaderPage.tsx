@@ -1,4 +1,4 @@
-import { BookOpenIcon, BookmarkIcon, PlayIcon } from "@heroicons/react/16/solid";
+import { ArrowTopRightOnSquareIcon, BookOpenIcon, BookmarkIcon, PlayIcon } from "@heroicons/react/16/solid";
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { orderBySeries, hiddenBookIds, seriesNumber, type SeriesGroup, type SeriesRecord } from "@ribbon/core/series";
 import { NEUTRAL_TONE, type Tone } from "@ribbon/core/tint";
@@ -309,6 +309,15 @@ export function ReaderPage() {
               ) : (
                 <p className="max-w-[60ch] text-base/6 text-pretty text-ink-3 sm:text-sm/6">
                   No description yet.{state.lookupEnabled ? " Ribbon is asking Open Library about your books in the background." : " Turn on descriptions in Settings and Ribbon will ask Open Library."}
+                </p>
+              )}
+              {/* ComicVine's terms ask for a link back wherever its details show (docs/BOOK-DETAILS.md, section 7). */}
+              {book.comicVineMatch && (
+                <p className="mt-3 text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">
+                  <button type="button" onClick={() => c.openComicVinePage(book.comicVineMatch!.address)} className="inline-flex items-center gap-1 rounded-sm focus-ring hover:text-ink">
+                    Details from ComicVine
+                    <ArrowTopRightOnSquareIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                  </button>
                 </p>
               )}
             </div>

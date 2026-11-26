@@ -147,6 +147,10 @@ export function tauriHost(): Host {
     extractCover: (src: string, target: string) => invoke<boolean>("extract_cover", { src, target }),
     writeTextFiles: (files) => invoke<void>("write_text_files", { files }),
     catalogSearch: (title, author, region) => invoke<string>("catalog_search", { title, author, region }),
+    // ComicVine for the comics in a folder (comicvine.rs): one request at a time, as core's door lets it through.
+    comicVineAsk: (key, request) => invoke<{ status: number; body: string }>("comicvine_ask", { key, request }),
+    comicVinePicture: (url) => invoke<ArrayBuffer>("comicvine_picture", { url }).then((b) => new Uint8Array(b), () => null),
+    comicVineOpen: (url) => invoke<void>("comicvine_open", { url }),
     openEbook: (path) => invoke<string>("ebook_open", { path }),
     comicEntries: (path) => invoke<{ name: string; size?: number; packed?: number }[]>("comic_entries", { path }),
     comicCover: (path, entry, target, width) => invoke<boolean>("comic_cover", { path, entry, target, width }),

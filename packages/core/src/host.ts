@@ -151,6 +151,20 @@ export interface Host {
    */
   catalogSearch?(title: string, author: string, region: string): Promise<string>;
   /**
+   * Ask ComicVine's API one of the requests core makes (comicvine.ts), with
+   * the person's key, for a comic in a folder (docs/BOOK-DETAILS.md,
+   * section 7): its HTTP status, 0 when ComicVine couldn't be reached, and
+   * its answer as text. Its API sends no CORS headers, so a page cannot ask
+   * it; the host does, building only ComicVine's addresses. How often it is
+   * asked is core's (comicvine-gate.ts). Optional: hosts without network
+   * access leave it out, and comics there aren't looked up.
+   */
+  comicVineAsk?(key: string, request: import("./comicvine").CvRequest): Promise<{ status: number; body: string }>;
+  /** The small picture of a run's first cover, from ComicVine's own hosts only, or null when there's none to fetch. Optional, with `comicVineAsk`. */
+  comicVinePicture?(url: string): Promise<Uint8Array | null>;
+  /** Open a page of ComicVine's in the system's browser: a matched comic's link back. Only ComicVine's pages. Optional. */
+  comicVineOpen?(url: string): Promise<void>;
+  /**
    * Open an EPUB where it sits and give back its book model
    * (docs/READING.md, `ribbon-ebook/1`) as JSON text. Rejects with a
    * message starting "drm:" for a locked book and "unreadable:" for

@@ -35,6 +35,12 @@ export interface ScannedBook {
   original?: Book;
   /** The hand edits in effect; set by the app. */
   edits?: EditValues;
+  /**
+   * What ComicVine said of a comic in a folder, laid between `original` and
+   * the edits (comicvine.ts, `withMatch`), and its issue's page to link back
+   * to; absent when it isn't matched. Set by the app.
+   */
+  comicVineMatch?: import("../comicvine").ComicVineLayer;
   /** A book on a Ribbon server that isn't on this device yet: it downloads before it plays (core/server-books.ts). Set by the app. */
   remote?: RemoteBook;
 }

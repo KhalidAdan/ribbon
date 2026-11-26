@@ -14,6 +14,7 @@ import { bytesToSeries, seriesToBytes, type SeriesRecord } from "@ribbon/core/se
 import { aboutToBytes, bytesToAbout, type BookAbout } from "@ribbon/core/about";
 import { locate } from "@ribbon/core/timeline";
 import { bytesToEdits, editsToBytes, hasEdits, withUnknownRows, type BookEdits } from "@ribbon/core/edits";
+import { bytesToMatch, matchToBytes, type MatchRecord } from "@ribbon/core/matched";
 import { bytesToNameRecords, nameRecordsToBytes, type NameRecord } from "./chapternames";
 import { guardWrites } from "./read-only";
 import type { PairingFix } from "@ribbon/core/reading/align";
@@ -657,6 +658,26 @@ export class LibraryService {
     }
     await this.host.mkdir(this.dir("edits"));
     await this.host.writeFile(path, await editsToBytes(kept));
+  }
+
+  // ComicVine ----------------------------------------------------------
+
+  /** What ComicVine said of each comic matched, or why nothing is kept (core/matched.ts), in one directory read. */
+  async readAllMatches(): Promise<Map<string, MatchRecord>> {
+    const out = new Map<string, MatchRecord>();
+    const encoder = new TextEncoder();
+    for (const f of await this.host.readTextDir(this.dir("matched"))) {
+      if (!f.name.endsWith(".csv")) continue;
+      const record = await bytesToMatch(f.name.slice(0, -4), encoder.encode(f.text)).catch(() => null);
+      if (record) out.set(record.bookId, record);
+    }
+    return out;
+  }
+
+  /** Keep a comic's ComicVine record beside it, in place of the one it had. */
+  async writeMatch(record: MatchRecord): Promise<void> {
+    await this.host.mkdir(this.dir("matched"));
+    await this.host.writeFile(this.dir("matched", `${record.bookId}.csv`), await matchToBytes(record));
   }
 
   /**

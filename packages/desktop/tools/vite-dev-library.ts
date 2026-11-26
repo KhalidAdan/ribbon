@@ -13,6 +13,7 @@ import { openComic } from "@ribbon/host-node/comic";
 import { loadPdfReader } from "@ribbon/host-node/pdf";
 import { isPage, pageType } from "@ribbon/core/comic/pages";
 import { SMALL_PAGE_HEIGHT } from "@ribbon/core/comic/strip";
+import type { CvRequest } from "@ribbon/core/comicvine";
 
 // pdf.js is loaded with this file: Vite closes the loader it read this plugin with, and a PDF met later
 // could no longer ask for it (packages/host-node/src/pdf.ts). The canvas a page is made small on, likewise.
@@ -73,6 +74,38 @@ async function ebookJson(args: string[], builtOnly = false): Promise<{ ok: boole
   return new Promise((resolve) => {
     execFile(cmd, [...cmdArgs], { cwd: tauriDir, maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => resolve(err ? { ok: false, text: String(stderr).trim() } : { ok: true, text: String(stdout) }));
   });
+}
+
+/**
+ * ComicVine, for the harness: a stand-in only, at RIBBON_DEV_COMICVINE (the
+ * address of an API that answers as ComicVine's does, such as the server
+ * tests' packages/server/test/comicvine/stand-in.ts), never the real one, so
+ * trying the look-up out never spends anyone's key. Unset, every request is
+ * answered as ComicVine out of reach (status 0). The app's own requests go
+ * through its Rust (src-tauri/src/comicvine.rs), to ComicVine itself.
+ */
+const STAND_IN = process.env.RIBBON_DEV_COMICVINE?.replace(/\/+$/, "") ?? null;
+
+async function askStandIn(key: string, request: CvRequest): Promise<{ status: number; body: string }> {
+  if (!STAND_IN || !/^(issue\/4000-\d+|volume\/4050-\d+|issues|volumes)\/$/.test(request.path)) return { status: 0, body: "" };
+  const url = new URL(request.path, `${STAND_IN}/`);
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("format", "json");
+  for (const [name, value] of Object.entries(request.params)) url.searchParams.set(name, value);
+  try {
+    const r = await fetch(url);
+    return { status: r.status, body: await r.text() };
+  } catch {
+    return { status: 0, body: "" };
+  }
+}
+
+/** A picture the stand-in serves, at the address its answers give: on the stand-in's own host only. */
+async function standInPicture(address: string): Promise<{ bytes: Buffer; type: string } | null> {
+  if (!STAND_IN || !address.startsWith(`${new URL(STAND_IN).origin}/`)) return null;
+  const r = await fetch(address).catch(() => null);
+  const type = r?.headers.get("content-type") ?? "";
+  return r?.ok && type.startsWith("image/") ? { bytes: Buffer.from(await r.arrayBuffer()), type } : null;
 }
 
 export function devLibrary(root: string | undefined): Plugin {
@@ -174,6 +207,13 @@ export function devLibrary(root: string | undefined): Plugin {
             }
           }
 
+          // A run's small picture, from the stand-in for ComicVine only (askStandIn).
+          if (op === "comicvinePicture") {
+            const picture = await standInPicture(url.searchParams.get("url") ?? "");
+            if (!picture) return json(res, 404, { error: "no such picture at the stand-in" });
+            res.setHeader("content-type", picture.type);
+            return res.end(picture.bytes);
+          }
           if (op === "file") {
             const p = inside(url.searchParams.get("path") ?? "");
             if (req.method === "PUT" && url.searchParams.get("append") === "1") {
@@ -260,6 +300,8 @@ export function devLibrary(root: string | undefined): Plugin {
               return json(res, 200, await host.extractCover!(inside(String(args.src)), inside(String(args.target))));
             case "catalog":
               return json(res, 200, await host.catalogSearch!(String(args.title ?? ""), String(args.author ?? ""), String(args.region ?? "us")));
+            case "comicvine":
+              return json(res, 200, await askStandIn(String(args.key ?? ""), args.request as CvRequest));
             case "readTextDir":
               return json(res, 200, await host.readTextDir(inside(String(args.dir ?? args.path))));
             // A server's books download into Ribbon's own folder, which for the harness is one inside the library's records.

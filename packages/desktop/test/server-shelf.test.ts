@@ -10,7 +10,8 @@ import { AppController, serverUrl, type Platform } from "../src/app/controller";
 import { LibraryService } from "../src/app/library";
 import { memorySettings, memorySources } from "../src/app/platform";
 import { ServerClient, ServerError, takeEvents } from "../src/app/server/client";
-import { NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
+import { EDIT_FIELDS_BEFORE, NotEnoughSpace, ServerShelf } from "../src/app/server/shelf";
+import { EDIT_FIELDS } from "@ribbon/core/edits";
 import { scanLibrary } from "@ribbon/core/scan/scan";
 import { localIdOf, type ServerBook, type ServerBookDetail, type ServerSeries } from "@ribbon/core/server-books";
 import { nodeHost } from "@ribbon/host-node/node";
@@ -47,6 +48,9 @@ describe("a server's shelf on this device", () => {
   let chosenPicture: Buffer | null = null;
   /** Counts changes to the edits, for the list's ETag. */
   let editsVersion = 0;
+  /** What the server says its edits take, and that it looks comics up; null and false answer as a server from before it said either. */
+  let editFields: string[] | null = null;
+  let comicVine = false;
   /** The book as the server lists it: edited, with what its files say for each listed field edited, and the cover chosen for it. */
   const served = (): ServerBook => {
     if (!bookEdits && !chosenPicture) return listed;
@@ -145,7 +149,7 @@ describe("a server's shelf on this device", () => {
         return;
       }
       if (at === "/api/books") {
-        const answer = JSON.stringify({ books: [served()] });
+        const answer = JSON.stringify({ books: [served()], ...(editFields ? { editFields } : {}), ...(comicVine ? { comicVine } : {}) });
         const etag = `W/"${answer.length}-${editsVersion}"`;
         if (req.headers["if-none-match"] === etag) res.writeHead(304).end();
         else res.writeHead(200, { "content-type": "application/json", etag }).end(answer);
@@ -197,6 +201,47 @@ describe("a server's shelf on this device", () => {
     await again.loadCached();
     expect(again.remote([]).map((b) => b.book.title)).toEqual(["The Blue Book"]);
     expect(await again.refresh()).toBe(false);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("keeps what the server's edits take and whether it looks comics up, across a 'not changed' and the next start", async () => {
+    const root = folder();
+    const shelf = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    // A server from before it said: 0.51.0's fields, and no ComicVine.
+    await shelf.refresh();
+    expect([...shelf.editFields]).toEqual(EDIT_FIELDS_BEFORE);
+    expect(shelf.keepsComicDetails).toBe(false);
+    expect(shelf.looksUpComics).toBe(false);
+
+    editFields = [...EDIT_FIELDS.filter((f) => f !== "cover"), "somethingNewer"];
+    comicVine = true;
+    expect(await shelf.refresh()).toBe(true);
+    expect(shelf.editFields.has("issue")).toBe(true);
+    expect(shelf.editFields.has("somethingNewer" as never)).toBe(false);
+    expect(shelf.keepsComicDetails).toBe(true);
+    expect(shelf.looksUpComics).toBe(true);
+    // Not changed: the same as it last said.
+    expect(await shelf.refresh()).toBe(false);
+    expect(shelf.keepsComicDetails && shelf.looksUpComics).toBe(true);
+
+    // The next start: from the list kept in the folder, and still the same after the server says nothing changed.
+    const next = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    await next.loadCached();
+    expect(next.keepsComicDetails && next.looksUpComics).toBe(true);
+    expect(await next.refresh()).toBe(false);
+    expect(next.keepsComicDetails).toBe(true);
+
+    // A list kept by a Ribbon from before it kept these: asked for whole, so a "not changed" can't hide what the server takes.
+    const kept = path.join(root, ".ribbon", "server-books.json");
+    const { editFields: _taken, comicVine: _looks, ...older } = JSON.parse(readFileSync(kept, "utf8")) as Record<string, unknown>;
+    await fsp.writeFile(kept, JSON.stringify(older));
+    const older1 = new ServerShelf(new ServerClient(url, TOKEN), nodeHost(), root);
+    await older1.loadCached();
+    expect(await older1.refresh()).toBe(true);
+    expect(older1.keepsComicDetails && older1.looksUpComics).toBe(true);
+
+    editFields = null;
+    comicVine = false;
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -455,6 +500,14 @@ describe("a server's shelf on this device", () => {
     await next.boot();
     await until(() => bookIn(next)?.book.title === "Blue, Elsewhere");
     expect(bookIn(next)).toMatchObject({ book: { title: "Blue, Elsewhere", narrator: "Nell Narrator" }, original: { title: "The Blue Book" } });
+
+    // A server from before a book's details grew says nothing of what its edits take: only 0.51.0's fields go to it.
+    expect([...next.editFieldsFor(id)!]).toEqual(EDIT_FIELDS_BEFORE);
+    await next.saveEdits(id, { narrator: "A Third Voice", translators: "Ida Word", issue: "7" });
+    expect(changes.at(-1)!.body).toEqual({ values: { title: "Blue, Elsewhere", narrator: "A Third Voice" } });
+    // Set back to what its files say, a field stops being an edit, as in a folder.
+    await next.saveEdits(id, { narrator: "Nell Narrator" });
+    expect(changes.at(-1)!.body).toEqual({ values: { title: "Blue, Elsewhere" } });
 
     // Taken back, one field, leaving the cover as it is, and then all of them, the cover too.
     await next.saveEdits(id, { narrator: "A Third Voice" });

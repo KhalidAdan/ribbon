@@ -2,6 +2,8 @@ import { panelsFrom, type Panel } from "@ribbon/core/comic/panels";
 import type { DailyGoal } from "@ribbon/core/goal";
 import type { DeviceInfo, LogRecord } from "@ribbon/core/poslog";
 import type { EditValues } from "@ribbon/core/edits";
+import type { ComicShape } from "@ribbon/core/comic-name";
+import type { Run, SharedMatch } from "@ribbon/core/comicvine";
 import type { FoundSentence, ServerBook, ServerBookDetail, ServerJob, ServerSeries } from "@ribbon/core/server-books";
 
 export type { ImportProgress, ServerJob } from "@ribbon/core/server-books";
@@ -11,6 +13,39 @@ export interface SeriesBookSent {
   id: string;
   number?: number | null;
   shelved: boolean;
+}
+
+/**
+ * The library a server lists (`GET /api/books`): its books, the ones its
+ * admin deleted, and what it can do with a book's details. `editFields` is
+ * every field its edits take (null from a server from before it said,
+ * which takes only 0.51.0's), and `comicVine` whether it looks comics up
+ * on ComicVine, which its owner turns on.
+ */
+export interface ServerLibrary {
+  books: ServerBook[];
+  deleted: string[];
+  etag: string | null;
+  editFields: string[] | null;
+  comicVine: boolean;
+}
+
+/** A run of a series on ComicVine as a server offers it, with the address of its small picture there, or null. */
+export type ServerRun = Run & { picture: string | null };
+
+/** What a server's ComicVine says of a comic, to be shown beside it before it's kept (`GET /api/books/:id/comicvine`). */
+export interface ServerLookedUp {
+  address: string;
+  as: ComicShape;
+  values: EditValues;
+  run: Run | null;
+}
+
+/** What a comic is looked up by on a server: an address, a run's issue by number, how its number is read; what's left out is the comic's own. */
+export interface ServerLookUp {
+  address?: string;
+  issue?: string;
+  as: ComicShape;
 }
 
 /** How a server signs people in: this app asks for a name and a password, or sends them to the browser. */
@@ -89,11 +124,17 @@ export class ServerClient {
    * when the server says the copy this device has (its ETag) is still right.
    * A server from before books could be deleted lists none.
    */
-  async books(etag: string | null): Promise<{ books: ServerBook[]; deleted: string[]; etag: string | null } | "unchanged"> {
+  async books(etag: string | null): Promise<ServerLibrary | "unchanged"> {
     const r = await this.get("/api/books", etag ? { "if-none-match": etag } : {});
     if (r.status === 304) return "unchanged";
-    const { books, deleted } = (await r.json()) as { books: ServerBook[]; deleted?: string[] };
-    return { books, deleted: deleted ?? [], etag: r.headers.get("etag") };
+    const { books, deleted, editFields, comicVine } = (await r.json()) as { books: ServerBook[]; deleted?: string[]; editFields?: unknown; comicVine?: unknown };
+    return {
+      books,
+      deleted: deleted ?? [],
+      etag: r.headers.get("etag"),
+      editFields: Array.isArray(editFields) ? editFields.filter((f): f is string => typeof f === "string") : null,
+      comicVine: comicVine === true,
+    };
   }
 
   /** The library's series, or `"unchanged"` when this device's copy (its ETag) is still right. A server from before it kept series answers 404. */
@@ -121,6 +162,37 @@ export class ServerClient {
   async saveEdits(serverId: string, values: EditValues, cover?: Uint8Array | null): Promise<void> {
     const sent = { values, ...(cover === undefined ? {} : { cover: cover && { image: toBase64(cover) } }) };
     await this.send(`/api/books/${encodeURIComponent(serverId)}/edits`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(sent) });
+  }
+
+  // ComicVine, the server's (docs/BOOK-DETAILS.md, section 7): the admin's, on a server whose owner set a key.
+
+  /** The runs ComicVine has by a series' name, of the year given, in the order a person is offered them. */
+  async comicVineRuns(name: string, year: number | null): Promise<ServerRun[]> {
+    const query = new URLSearchParams({ name, ...(year !== null ? { year: String(year) } : {}) });
+    return ((await (await this.get(`/api/comicvine/runs?${query.toString()}`)).json()) as { runs: ServerRun[] }).runs;
+  }
+
+  /** A run's small picture, which the server fetched from ComicVine: at the address its offer gave, which is the server's own. */
+  async comicVineRunPicture(address: string): Promise<Blob> {
+    if (!address.startsWith("/api/comicvine/runs/")) throw new ServerError("That isn't a picture of the server's.");
+    return (await this.get(address)).blob();
+  }
+
+  /** What ComicVine says of a comic, looked up as asked; nothing is kept. */
+  async lookUpOnComicVine(serverId: string, asked: ServerLookUp): Promise<ServerLookedUp> {
+    const query = new URLSearchParams({ as: asked.as, ...(asked.address ? { address: asked.address } : {}), ...(asked.issue ? { issue: asked.issue } : {}) });
+    return ((await (await this.get(`/api/books/${encodeURIComponent(serverId)}/comicvine?${query.toString()}`)).json()) as { lookedUp: ServerLookedUp }).lookedUp;
+  }
+
+  /** "Use these": the same look-up, kept as the comic's match for everyone, in place of the one it had. */
+  async keepComicVineMatch(serverId: string, asked: ServerLookUp): Promise<SharedMatch> {
+    const r = await this.send(`/api/books/${encodeURIComponent(serverId)}/comicvine`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(asked) });
+    return ((await r.json()) as { matched: SharedMatch }).matched;
+  }
+
+  /** "Forget the match": what ComicVine said goes, whole, for everyone. */
+  async forgetComicVineMatch(serverId: string): Promise<void> {
+    await this.send(`/api/books/${encodeURIComponent(serverId)}/comicvine`, { method: "DELETE" });
   }
 
   /** A comic's panels, for the pages that have them marked, by the page counted from 0 (docs/COMICS.md, section 14). */
