@@ -4,9 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { nodeHost } from "@ribbon/host-node/node";
 import { comicEntries, comicEntry, openComic } from "@ribbon/host-node/comic";
-import { comicInfoXml, makeComic, madePageName } from "@ribbon/host-node/make-comic";
+import { comicInfoXml, makeComic, makePdf, madePageName } from "@ribbon/host-node/make-comic";
+import type { Host, ScannedFile } from "@ribbon/core/host";
+import { bytesToRows, rowsToBytes } from "@ribbon/core/csv";
 import { extractMissingCovers, loadLibrary, scanLibrary, type ScannedBook } from "@ribbon/core/scan/scan";
-import { bytesToComics } from "@ribbon/core/scan/comics";
+import { bytesToComics, keepsComicDetails } from "@ribbon/core/scan/comics";
 import { groupBooks } from "@ribbon/core/scan/group";
 import { pageOrder } from "@ribbon/core/comic/pages";
 import { bytesToBooks, booksToBytes, LIBRARY_HEADERS } from "@ribbon/core/scan/records";
@@ -148,5 +150,84 @@ describe("library.csv with comics", () => {
     const back = await bytesToBooks(await booksToBytes([book, comic]));
     expect(back[1]).toEqual(comic);
     expect(back[0]).toEqual(book);
+  });
+});
+
+/**
+ * A library scanned before comics kept their details (docs/BOOK-DETAILS.md,
+ * section 4): its comics.csv keeps only some of what each comic's files
+ * say, so every comic is read once more, after the shelf has painted from
+ * the folder walk, and never again after that.
+ */
+describe("a comics.csv from before comics kept their details", () => {
+  let root: string;
+  const SAGA = "Made Up Saga/Made Up Saga 014.cbz";
+  const PDF = "Old Tales 003.pdf";
+
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "ribbon-comics-again-"));
+    await makeComic(path.join(root, ...SAGA.split("/")), {
+      pages: 3,
+      comicInfo: comicInfoXml({ Title: "Chapter Fourteen", Series: "Made Up Saga", Number: "14", Writer: "Ada Quill", Penciller: "Ben Nib", Colorist: "Cy Ink", Year: 2019, Month: 7, StoryArc: "The Long Way" }),
+    });
+    await makeComic(path.join(root, "Made Up Saga", "Made Up Saga Vol. 1.cbz"), { pages: 2 });
+    await makePdf(path.join(root, PDF), { pages: 2 });
+    await scanLibrary(nodeHost(), root);
+    // comics.csv as Ribbon 0.51.0 wrote it: these columns and no others.
+    const file = path.join(root, ".ribbon", "comics.csv");
+    const { rows } = await bytesToRows(await fs.readFile(file));
+    await fs.writeFile(file, await rowsToBytes(rows, ["path", "size_bytes", "mtime_ms", "pages", "title", "series", "number", "year", "writers", "publisher", "summary", "language", "genres", "right_to_left"]));
+  });
+
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("reads each comic again once the shelf has painted, showing it as the old records have it until then, and a PDF not at all", async () => {
+    // The host as it is, but holding back what it reads until the walk's shelf is out, and saying what it was told it knows.
+    const inner = nodeHost();
+    let known: string[] = [];
+    let painted!: () => void;
+    const firstShelf = new Promise<void>((done) => (painted = done));
+    const host: Host = {
+      ...inner,
+      async scan(at, knownFiles, onProgress, onFiles) {
+        known = knownFiles.map((k) => k.path);
+        const held: ScannedFile[][] = [];
+        let walked = false;
+        const out = await inner.scan(at, knownFiles, onProgress, (files) => {
+          if (walked) held.push(files);
+          else onFiles?.(files);
+          walked = true;
+        });
+        await firstShelf;
+        for (const files of held) onFiles?.(files);
+        return out;
+      },
+    };
+    const shelves: ScannedBook[][] = [];
+    const result = await scanLibrary(host, root, {
+      onBooks: (books) => {
+        shelves.push(books);
+        painted();
+      },
+    });
+
+    // The comics weren't counted as known, so the host read them; the PDF, with no ComicInfo.xml to read again, was.
+    expect(known).toEqual([PDF]);
+    expect(result.probed).toBe(2);
+    // The shelf from the walk: the issue as the old records keep it, its writers and its number but not its colourist.
+    const before = shelves[0]!.find((b) => b.book.comic === SAGA)!.book;
+    expect(before).toMatchObject({ title: "Made Up Saga #14: Chapter Fourteen", credits: { writers: ["Ada Quill"] } });
+    expect(before.credits?.colours).toBeUndefined();
+    // Read again: everything its ComicInfo.xml says.
+    const after = result.books.find((b) => b.book.comic === SAGA)!.book;
+    expect(after).toMatchObject({ title: "Made Up Saga #14: Chapter Fourteen", author: "Ada Quill; Ben Nib", coverDate: "2019-07", storyArcs: ["The Long Way"], credits: { writers: ["Ada Quill"], pencils: ["Ben Nib"], colours: ["Cy Ink"] } });
+    expect(result.books.find((b) => b.book.comic === PDF)!.book.pages).toBe(2);
+    // Kept in the new columns, so it is never read again.
+    expect(keepsComicDetails(await fs.readFile(path.join(root, ".ribbon", "comics.csv")))).toBe(true);
+    const again = await scanLibrary(nodeHost(), root);
+    expect(again.probed).toBe(0);
+    expect(again.books.find((b) => b.book.comic === SAGA)!.book).toEqual(after);
   });
 });

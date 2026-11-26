@@ -1,8 +1,9 @@
 import { ArrowUturnLeftIcon, PhotoIcon, RectangleStackIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ComicShape } from "@ribbon/core/comic-name";
 import type { ScannedBook } from "@ribbon/core/scan/scan";
-import { editForm, editFormAbout, formFields, type FieldSpec } from "@ribbon/core/edit-form";
+import { editForm, editFormAbout, type FieldSpec, type ShapeQuestion } from "@ribbon/core/edit-form";
 import { EDIT_FIELDS, fieldText, readAlongOff, READ_ALONG_OFF, SWITCH_ON, switchText, type EditField } from "@ribbon/core/edits";
 import { bookKind } from "@ribbon/core/kind";
 import { useController } from "./store";
@@ -10,7 +11,8 @@ import { Button } from "./Button";
 import { Cover } from "./Cover";
 import { CoverPages, coverFromPage, type PagePictures } from "./CoverPages";
 import { Dialog } from "./Dialog";
-import { Toggle } from "./kit";
+import { Radio, Toggle } from "./kit";
+import { asksOf, formAsShape, formToSave, shapeOf, showsField, type FormAsks } from "./book-form";
 
 type Form = Record<Exclude<EditField, "cover">, string>;
 
@@ -21,11 +23,15 @@ const IMAGE_TYPES = "image/jpeg,image/png,image/webp";
  * field shows what the files say when it differs, with a way back to it.
  * Saved beside the book; its files are never touched.
  *
- * The form is the one its kind of book wants (core/edit-form.ts): a comic
- * is asked for its writers and artists and its issue, never a narrator,
- * and its cover can be any of its own pages (CoverPages.tsx), chosen from
- * the form's second face. And whether it reads right to left, a switch,
- * which every device then reads it by, whatever its file says.
+ * The form is the one its kind of book wants (core/edit-form.ts). A comic
+ * (and a PDF, as "The book") is asked first what it is: an issue, a
+ * collection or a comic on its own, which decides the numbers it is asked
+ * for (book-form.ts). Then the people who made it by role, its cover date
+ * and the rest; never a narrator. Its title is the story's own name: the
+ * shelf names it from that, its series and its number. Its cover can be
+ * any of its own pages (CoverPages.tsx), chosen from the form's second
+ * face. And whether it reads right to left, a switch, which every device
+ * then reads it by, whatever its file says.
  *
  * And, for a book with both its text and its narration, whether it reads
  * along: a switch to turn off for a book where it never will (a different
@@ -35,13 +41,16 @@ const IMAGE_TYPES = "image/jpeg,image/png,image/webp";
 export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook; open: boolean; onClose: () => void; onClosed?: () => void }) {
   const c = useController();
   const original = book.original ?? book.book;
+  const kind = bookKind(book.book);
+  const groups = editForm(kind, book.book.comic);
   const initial = (): Form => Object.fromEntries(EDIT_FIELDS.filter((f) => f !== "cover").map((f) => [f, fieldText(book.book, f)])) as Form;
+  // What the files say for each field: what "Use the files’" goes back to, and what a field is compared with.
+  const files = useMemo(() => Object.fromEntries(EDIT_FIELDS.filter((f) => f !== "cover").map((f) => [f, fieldText(original, f)])) as Form, [original]);
   const [form, setForm] = useState<Form>(initial);
+  const [asks, setAsks] = useState<FormAsks>(() => asksOf(kind, initial(), book.edits));
   const [saving, setSaving] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const kind = bookKind(book.book);
-  const groups = editForm(kind);
   // A comic's cover chosen from its pages: the form's second face, and the page picked there.
   const [choosingPage, setChoosingPage] = useState(false);
   const [page, setPage] = useState<number | null>(null);
@@ -51,6 +60,7 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
   useEffect(() => {
     if (open) {
       setForm(initial());
+      setAsks(asksOf(kind, initial(), book.edits));
       setCoverError(null);
       setChoosingPage(false);
       setPage(null);
@@ -59,13 +69,18 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
   }, [open, book.book.id]);
 
   const set = (f: keyof Form, v: string) => setForm((prev) => ({ ...prev, [f]: v }));
-  const changed = (f: keyof Form) => normalise(form[f]) !== normalise(fieldText(original, f));
-  // Only what this kind of book's form shows is counted: a field it leaves out is never changed by it.
-  const shown: (keyof Form)[] = [...formFields(kind), "readAlong"];
-  const changes = shown.filter(changed).length;
-  const coverEdited = book.edits?.cover !== undefined;
+  const changed = (f: keyof Form) => normalise(form[f]) !== normalise(files[f]);
+  // A comic said to be something else: the numbers that no longer fit are emptied, and the ones that do come back as the book had them.
+  const chooseShape = (shape: ComicShape) => {
+    setAsks((prev) => ({ ...prev, shape }));
+    setForm((prev) => formAsShape(prev, shape, groups, initial()));
+  };
   // Only a book with text and narration has a read-along to turn off.
   const canReadAlong = !!book.book.ebook && book.book.durationMs > 0;
+  // What a save sends: only what this form shows, and a comic's numbers its shape leaves out. A field it leaves out is never changed by it.
+  const toSave = (): Partial<Record<EditField, string>> => ({ ...formToSave(form, groups, asks, files), ...(canReadAlong ? { readAlong: form.readAlong } : {}) });
+  const changes = Object.entries(toSave()).filter(([f, v]) => normalise(v) !== normalise(files[f as keyof Form])).length;
+  const coverEdited = book.edits?.cover !== undefined;
 
   const chooseCover = async (file: File) => {
     setCoverError(null);
@@ -154,7 +169,7 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
             disabled={saving}
             onClick={() => {
               setSaving(true);
-              void c.saveEdits(book.book.id, form).finally(() => {
+              void c.saveEdits(book.book.id, toSave()).finally(() => {
                 setSaving(false);
                 onClose();
               });
@@ -203,13 +218,19 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
               <fieldset key={g.label} className="min-w-0">
                 <legend className="mb-2 px-1 text-sm/5 font-medium text-ink-3 sm:text-[0.8125rem]/5">{g.label}</legend>
                 <div className="grid grid-cols-1 gap-x-3 gap-y-4 rounded-[10px] bg-surface p-3 ring-1 ring-line sm:grid-cols-2">
-                  {g.fields.map((spec) =>
-                    spec.switch ? (
-                      <Switch key={spec.field} spec={spec} about={spec.switch} value={form[spec.field]} files={fieldText(original, spec.field)} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
-                    ) : (
-                      <Field key={spec.field} spec={spec} value={form[spec.field]} files={fieldText(original, spec.field)} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
-                    ),
-                  )}
+                  {g.hint && <p className="text-sm/5 text-pretty text-ink-3 sm:col-span-2 sm:text-[0.8125rem]/5">{g.hint}</p>}
+                  {g.shape && asks.shape && <WhatItIs question={g.shape} shape={asks.shape} said={shapeOf(form) === asks.shape} onChoose={chooseShape} />}
+                  {g.fields
+                    .filter((spec) => showsField(spec, asks))
+                    .map((spec) =>
+                      spec.switch ? (
+                        <Switch key={spec.field} spec={spec} about={spec.switch} value={form[spec.field]} files={files[spec.field]} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
+                      ) : spec.whileEdited ? (
+                        <KeptField key={spec.field} spec={spec} value={form[spec.field]} onChange={(v) => set(spec.field, v)} />
+                      ) : (
+                        <Field key={spec.field} spec={spec} value={form[spec.field]} files={files[spec.field]} changed={changed(spec.field)} onChange={(v) => set(spec.field, v)} />
+                      ),
+                    )}
                 </div>
               </fieldset>
             ))}
@@ -238,9 +259,11 @@ export function EditBook({ book, open, onClose, onClosed }: { book: ScannedBook;
   );
 }
 
+/** A text field's box. */
+const CONTROL = "w-full rounded-md bg-raised px-2.5 py-1.5 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1 sm:text-sm/6";
+
 function Field({ spec, value, files, changed, onChange }: { spec: FieldSpec; value: string; files: string; changed: boolean; onChange: (v: string) => void }) {
   const id = `edit-${spec.field}`;
-  const control = "w-full rounded-md bg-raised px-2.5 py-1.5 text-base/6 text-ink ring-1 ring-line placeholder:text-ink-3 focus:outline-2 focus:-outline-offset-1 focus:outline-place sm:py-1 sm:text-sm/6";
   return (
     <div className={clsx("min-w-0", spec.wide && "sm:col-span-2")}>
       <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -254,15 +277,73 @@ function Field({ spec, value, files, changed, onChange }: { spec: FieldSpec; val
         )}
       </div>
       {spec.multiline ? (
-        <textarea id={id} name={spec.field} rows={6} value={value} onChange={(e) => onChange(e.target.value)} className={clsx(control, "resize-y")} />
+        <textarea id={id} name={spec.field} rows={6} value={value} onChange={(e) => onChange(e.target.value)} className={clsx(CONTROL, "resize-y")} />
       ) : (
-        <input id={id} name={spec.field} type="text" inputMode={spec.inputMode} autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} className={control} />
+        <input id={id} name={spec.field} type="text" inputMode={spec.inputMode} autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} className={CONTROL} />
       )}
       {(changed || spec.hint) && (
         <p className={clsx("mt-1 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5", changed && "truncate")}>
           {changed ? (files ? `The files say “${files.length > 80 ? `${files.slice(0, 80)}…` : files}”.` : "The files say nothing here.") : spec.hint}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * What a comic is (core/edit-form.ts, `ShapeQuestion`): an issue, a
+ * collection or a comic on its own, a radio each. The answer decides which
+ * numbers are asked for. It isn't kept, the numbers say it, so an issue
+ * left with no issue number, or a collection with no volume and no issues,
+ * is said to be kept as a comic on its own.
+ */
+function WhatItIs({ question, shape, said, onChoose }: { question: ShapeQuestion; shape: ComicShape; said: boolean; onChoose: (shape: ComicShape) => void }) {
+  return (
+    <fieldset className="min-w-0 sm:col-span-2">
+      <legend className="text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">{question.label}</legend>
+      <div className="mt-2 flex flex-col gap-x-6 gap-y-2 sm:flex-row sm:flex-wrap">
+        {question.answers.map((a) => (
+          <label key={a.shape} className="flex gap-2.5 text-base/6 text-ink sm:text-sm/6">
+            <span className="flex h-lh items-center">
+              <Radio id={`edit-shape-${a.shape}`} name="edit-shape" value={a.shape} checked={shape === a.shape} onChange={() => onChoose(a.shape)} />
+            </span>
+            {a.label}
+          </label>
+        ))}
+      </div>
+      {!said && (
+        <p className="mt-1.5 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5">
+          {shape === "issue" ? "With no issue number, it is kept as a comic on its own." : "With no volume and no issues, it is kept as a comic on its own."}
+        </p>
+      )}
+    </fieldset>
+  );
+}
+
+/**
+ * A byline kept from before a comic's people had fields of their own
+ * (core/comic-edits.ts, core/edit-form.ts's By): shown as it is, with a
+ * way to take it back. Taken back, it is emptied here, and once the form
+ * is saved the writers and the art make the byline (book-form.ts,
+ * `formToSave`).
+ */
+function KeptField({ spec, value, onChange }: { spec: FieldSpec; value: string; onChange: (v: string) => void }) {
+  const id = `edit-${spec.field}`;
+  const kept = value.trim() !== "";
+  return (
+    <div className={clsx("min-w-0", spec.wide && "sm:col-span-2")}>
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className="text-sm/5 font-medium text-ink sm:text-[0.8125rem]/5">
+          {spec.label}
+        </label>
+        {kept && (
+          <button type="button" onClick={() => onChange("")} className="rounded-sm text-sm/5 text-ink-3 focus-ring hover:text-ink sm:text-[0.8125rem]/5">
+            Take it back
+          </button>
+        )}
+      </div>
+      <input id={id} name={spec.field} type="text" autoComplete="off" value={value} onChange={(e) => onChange(e.target.value)} className={CONTROL} />
+      <p className="mt-1 text-sm/5 text-pretty text-ink-3 sm:text-[0.8125rem]/5">{kept ? spec.hint : "Taken back: once this is saved, the writers and the art make the byline."}</p>
     </div>
   );
 }
