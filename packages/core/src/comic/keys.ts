@@ -46,29 +46,72 @@ export function comicKey(key: string): ComicKey | null {
   }
 }
 
-/** One line of the list: the keys, each as it is printed on the keyboard, and what they do. */
+/**
+ * One line of the list: the keys that do it, each as it is printed on the
+ * keyboard, and what they do. Keys held together are written with a `+`
+ * between them ("Shift+Space"); the `+` key alone is just "+".
+ */
 export interface KeyLine {
   keys: string[];
   does: string;
 }
 
-/** The keys, in the order the list shows them, with the arrows the way the open comic reads. */
-export function keyList(rightToLeft: boolean): KeyLine[] {
+/** A group of the list's lines, under a heading, with a line said of them all where one is needed. */
+export interface KeyGroup {
+  title: string;
+  lines: KeyLine[];
+  note?: string;
+}
+
+/** The keys, grouped as the list shows them, with the arrows the way the open comic reads. */
+export function keyGroups(rightToLeft: boolean): KeyGroup[] {
   const [onward, back] = rightToLeft ? ["←", "→"] : ["→", "←"];
   return [
-    { keys: [onward, "Space", "Page Down"], does: "The next page" },
-    { keys: [back, "Shift Space", "Page Up"], does: "The page before" },
-    { keys: ["Home", "End"], does: "The first page, the last" },
-    { keys: ["G"], does: "Go to a page" },
-    { keys: ["T"], does: "Show or hide the small pages" },
-    { keys: ["D"], does: "One page, or two side by side" },
-    { keys: ["R"], does: "Read left to right, or right to left" },
-    { keys: ["S"], does: "One long scroll, or pages" },
-    { keys: ["P"], does: "Panels, or whole pages, where a comic's panels are marked" },
-    { keys: ["1", "2", "3"], does: "Fit the page, the width, the height" },
-    { keys: ["B"], does: "The next ground behind the page" },
-    { keys: ["+", "-", "0"], does: "Zoom in, out, and back to the whole page; in one long scroll, a wider column, a narrower, and as wide as the window" },
-    { keys: ["?"], does: "This list" },
-    { keys: ["Esc"], does: "Close the comic" },
+    {
+      title: "Turning the pages",
+      lines: [
+        { keys: [onward, "Space", "Page Down"], does: "Next page" },
+        { keys: [back, "Shift+Space", "Page Up"], does: "Previous page" },
+        { keys: ["Home", "End"], does: "First or last page" },
+        { keys: ["G"], does: "Go to a page" },
+      ],
+    },
+    {
+      title: "How the pages show",
+      lines: [
+        { keys: ["D"], does: "One page or two side by side" },
+        { keys: ["S"], does: "One long scroll or pages" },
+        { keys: ["P"], does: "Panels or whole pages, where marked" },
+        { keys: ["1", "2", "3"], does: "Fit the page, width or height" },
+        { keys: ["R"], does: "Left to right or right to left" },
+        { keys: ["B"], does: "Next ground behind the page" },
+      ],
+    },
+    {
+      title: "Zoom",
+      lines: [
+        { keys: ["+", "-"], does: "Closer or further" },
+        { keys: ["0"], does: "The whole page again" },
+      ],
+      note: "In one long scroll, they make the column wider or narrower.",
+    },
+    {
+      title: "The reader",
+      lines: [
+        { keys: ["T"], does: "Show or hide the small pages" },
+        { keys: ["?"], does: "These keys" },
+        { keys: ["Esc"], does: "Close the comic" },
+      ],
+    },
   ];
+}
+
+/** Every line of the list, in its order, without its groups. */
+export function keyList(rightToLeft: boolean): KeyLine[] {
+  return keyGroups(rightToLeft).flatMap((g) => g.lines);
+}
+
+/** A key as its caps are drawn: the keys held together for a chord ("Shift+Space"), else the one key, "+" included. */
+export function keyCaps(key: string): string[] {
+  return key.length > 1 && key.includes("+") ? key.split("+") : [key];
 }
