@@ -1,4 +1,4 @@
-import type { AudioFile, Book, Chapter } from "../types";
+import { ROLES, type AudioFile, type Book, type Chapter, type Credits, type Role } from "../types";
 import { bytesToRows, rowsToBytes, int, num, bool, type Row } from "../csv";
 
 export const LIBRARY_HEADERS = [
@@ -26,11 +26,37 @@ export const LIBRARY_HEADERS = [
 ];
 
 /**
- * What only a comic has. The columns are written only when the library has
- * a comic in it, so a library without one keeps the file it had, byte for
- * byte, and nothing is written to its folder for comics' sake.
+ * What only a comic has: its file, its pages and which way it reads, then
+ * its own details (docs/BOOK-DETAILS.md, section 2), its credits one role
+ * to a column, so the shelf named from them comes back as it was. The
+ * columns are written only when the library has a comic in it, so a
+ * library without one keeps the file it had, byte for byte, and nothing is
+ * written to its folder for comics' sake.
  */
-export const COMIC_HEADERS = ["comic", "pages", "right_to_left"];
+export const COMIC_HEADERS = ["comic", "pages", "right_to_left", "issue", "volume", "collects", ...ROLES.map(roleColumn), "imprint", "cover_date", "on_sale", "story_arcs", "comicvine"];
+
+/** A role's column: `coverArtists` is `cover_artists`. */
+function roleColumn(role: Role): string {
+  return role.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+/** A comic's credits as its columns, names apart by semicolons as genres are. */
+function creditColumns(credits: Credits | undefined): Row {
+  return Object.fromEntries(ROLES.map((role) => [roleColumn(role), (credits?.[role] ?? []).join("; ")]));
+}
+
+function creditsFrom(r: Row): Credits | null {
+  const credits: Credits = {};
+  for (const role of ROLES) {
+    const names = listCell(r[roleColumn(role)]);
+    if (names.length > 0) credits[role] = names;
+  }
+  return Object.keys(credits).length > 0 ? credits : null;
+}
+
+function listCell(cell: string | undefined): string[] {
+  return (cell ?? "").split(/\s*;\s*/).filter(Boolean);
+}
 
 /** A library.csv without these columns was written before the scan read them: read every file's tags once more. */
 export const LIBRARY_DETAIL_COLUMN = "genres";
@@ -66,6 +92,15 @@ export function booksToBytes(books: readonly Book[]): Promise<Uint8Array> {
       comic: b.comic ?? "",
       pages: b.pages === undefined ? "" : String(b.pages),
       right_to_left: b.rightToLeft ? "1" : "",
+      issue: b.issue ?? "",
+      volume: b.volume ?? "",
+      collects: b.collects ?? "",
+      ...creditColumns(b.credits),
+      imprint: b.imprint ?? "",
+      cover_date: b.coverDate ?? "",
+      on_sale: b.onSale ?? "",
+      story_arcs: (b.storyArcs ?? []).join("; "),
+      comicvine: b.comicvine ?? "",
     })),
     books.some((b) => b.comic) ? [...LIBRARY_HEADERS, ...COMIC_HEADERS] : LIBRARY_HEADERS,
   );
@@ -108,6 +143,17 @@ function detailsFrom(r: Row): Partial<Book> {
     out.comic = r.comic;
     if (r.pages) out.pages = int(r.pages);
     if (bool(r.right_to_left)) out.rightToLeft = true;
+    if (r.issue) out.issue = r.issue;
+    if (r.volume) out.volume = r.volume;
+    if (r.collects) out.collects = r.collects;
+    const credits = creditsFrom(r);
+    if (credits) out.credits = credits;
+    if (r.imprint) out.imprint = r.imprint;
+    if (r.cover_date) out.coverDate = r.cover_date;
+    if (r.on_sale) out.onSale = r.on_sale;
+    const arcs = listCell(r.story_arcs);
+    if (arcs.length > 0) out.storyArcs = arcs;
+    if (r.comicvine) out.comicvine = r.comicvine;
   }
   return out;
 }

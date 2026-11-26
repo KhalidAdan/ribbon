@@ -179,7 +179,8 @@ describe("a comic in the app", () => {
     const c = await open(settings);
     expect(c.comicRightToLeft(id)).toBe(true);
     // The form shows it reading left to right, as its file says, and is saved so: that is how it reads, here as everywhere.
-    await c.saveEdits(id, { title: "Made Up Saga #1", rightToLeft: "no" });
+    // Its title is the story's own name, which this one has none of: the shelf names it by its series and number.
+    await c.saveEdits(id, { title: "", rightToLeft: "no" });
     expect(c.getState().comicDirections).toEqual({});
     expect(c.comicRightToLeft(id)).toBe(false);
     expect(comicOf(c, "Made Up Saga #1").edits).toBeUndefined();

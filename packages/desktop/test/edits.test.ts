@@ -143,6 +143,18 @@ describe("edits beside the books", () => {
     expect([...(await lib.readAllEdits()).keys()]).toEqual(["b2"]);
   });
 
+  it("keep the rows a newer Ribbon wrote, for fields this one doesn't know, through every save", async () => {
+    const lib = new LibraryService(nodeHost(), dir);
+    const file = path.join(dir, ".ribbon", "edits", "b3.csv");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, "field,value,updated_at\ntitle,Robots,2026-12-01T00:00:00.000Z\nlooked_up,4000-1,2026-12-02T00:00:00.000Z\n");
+    await lib.writeEdits({ bookId: "b3", values: { title: "Robots in Disguise" }, updatedAt: "2026-12-03T00:00:00.000Z" });
+    expect(await fs.readFile(file, "utf8")).toBe("field,value,updated_at\ntitle,Robots in Disguise,2026-12-03T00:00:00.000Z\nlooked_up,4000-1,2026-12-02T00:00:00.000Z\n");
+    // Every edit taken back here: the newer version's row is still the newer version's.
+    await lib.writeEdits({ bookId: "b3", values: {}, updatedAt: "2026-12-04T00:00:00.000Z" });
+    expect(await fs.readFile(file, "utf8")).toBe("field,value,updated_at\nlooked_up,4000-1,2026-12-02T00:00:00.000Z\n");
+  });
+
   it("a chosen cover gets a new name every time, and so does its copy in the mirror", async () => {
     const lib = new LibraryService(nodeHost(), dir);
     const a = await lib.writeEditedCover("b1", new Uint8Array([1, 2, 3]), "PNG", 1000);

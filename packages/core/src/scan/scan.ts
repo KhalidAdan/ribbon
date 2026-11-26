@@ -17,7 +17,8 @@ import type { EditValues } from "../edits";
 import { coverArgs } from "./cover";
 import { bytesToEbooks, ebooksToBytes, pairByMetadata, packageFromTags, type EbookPackage } from "./ebooks";
 import { readerOnly } from "../ebook";
-import { bytesToComics, comicFromTags, comicsToBytes, nameComic, type ComicRecord } from "./comics";
+import { bytesToComics, comicFromFiles, comicFromTags, comicsToBytes, type ComicRecord } from "./comics";
+import { namedComic } from "../comic-name";
 import { archiveProblem, isPdfFile, pageOrder } from "../comic/pages";
 
 export interface ScannedBook {
@@ -286,7 +287,8 @@ function comicsOf(files: readonly ScannedFile[], records: Records): Map<string, 
  * A comic (docs/COMICS.md, section 4): one CBZ, one book. Unlike an EPUB
  * it is on the shelf before it is read, named by its file, since it will
  * never pair with anything; its details and its page count arrive with
- * its record. Its cover is its first page, made after the shelf is up.
+ * its record, and its name, byline and place are made from those
+ * (comic-name.ts). Its cover is its first page, made after the shelf is up.
  */
 function buildComic(group: BookGroup, byPath: Map<string, ScannedFile>, comics: Map<string, ComicRecord>): ScannedBook | null {
   const path = group.comic!;
@@ -295,26 +297,28 @@ function buildComic(group: BookGroup, byPath: Map<string, ScannedFile>, comics: 
   const record = comics.get(path);
   const id = bookId(group.path, file.sizeBytes);
   const folder = path.split("/").slice(-2, -1)[0] ?? "";
-  const naming = nameComic(record, group.name, folder);
-  const book: Book = {
+  const { title, rawTitle, series, year, genres, publisher, description, language, rightToLeft, ...own } = comicFromFiles(record, group.name, folder);
+  // In the order a comic's fields have always come in, its own details after them, so what the server answers changes only by what is new.
+  const book: Book = namedComic({
     id,
     path: group.path,
-    title: naming.title,
-    rawTitle: naming.title,
-    author: authorsOf(record?.writers ?? []),
+    title,
+    rawTitle,
+    author: "",
     narrator: "",
-    series: naming.series,
-    seriesIndex: naming.seriesIndex,
-    year: naming.year,
-    ...details({ publisher: record?.publisher ?? "", description: record?.summary ?? "", language: record?.language ?? "", genres: record?.genres ?? [] }),
+    series,
+    seriesIndex: null,
+    year,
+    ...details({ publisher: publisher ?? "", description: description ?? "", language: language ?? "", genres: genres ?? [] }),
     cover: record && record.pages > 0 ? `${RIBBON_DIR}/covers/${id}.jpg` : "",
     comic: path,
     ...(record ? { pages: record.pages } : {}),
-    ...(record?.rightToLeft ? { rightToLeft: true } : {}),
+    ...(rightToLeft ? { rightToLeft } : {}),
+    ...own,
     durationMs: 0,
     sizeBytes: file.sizeBytes,
     fileCount: 0,
-  };
+  });
   return { book, files: [], chapters: [], parts: [], ...(!record && file.pending ? { pending: 1 } : {}) };
 }
 

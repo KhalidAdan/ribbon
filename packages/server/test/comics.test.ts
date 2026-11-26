@@ -53,12 +53,12 @@ describe("comics on the server", () => {
   });
 
   it("lists a comic as one, with its pages, beside the other books", () => {
-    expect(books.map((b) => b.title).sort()).toEqual(["Made Up Saga #1", "Red Book", "The Long Way"]);
+    expect(books.map((b) => b.title).sort()).toEqual(["Made Up Saga #1", "Made Up Saga #2: The Long Way", "Red Book"]);
     expect(titled("Made Up Saga #1")).toMatchObject({ comic: true, pages: 12, audio: false, ebook: false, series: "Made Up Saga", seriesIndex: 1, durationMs: 0 });
-    expect(titled("The Long Way")).toMatchObject({ comic: true, pages: 3, author: "Ada Quill", seriesIndex: 2 });
+    expect(titled("Made Up Saga #2: The Long Way")).toMatchObject({ comic: true, pages: 3, author: "Ada Quill", seriesIndex: 2 });
     expect(titled("Red Book")).toMatchObject({ comic: false, pages: null, audio: true });
     // Which way it reads, where its file says it reads right to left; nothing for any other.
-    expect(titled("The Long Way").rightToLeft).toBe(true);
+    expect(titled("Made Up Saga #2: The Long Way").rightToLeft).toBe(true);
     expect("rightToLeft" in titled("Made Up Saga #1")).toBe(false);
     expect("rightToLeft" in titled("Red Book")).toBe(false);
     // Its cover is its first page, made at the sizes the apps draw.
@@ -151,22 +151,22 @@ describe("comics on the server", () => {
   });
 
   it("reads as the admin's edit says, over what its file says, on every device, until it's taken back", async () => {
-    expect((await put(`/api/books/${titled("The Long Way").id}/edits`, { values: { rightToLeft: "no" } })).statusCode).toBe(200);
+    expect((await put(`/api/books/${titled("Made Up Saga #2: The Long Way").id}/edits`, { values: { rightToLeft: "no" } })).statusCode).toBe(200);
     expect((await put(`/api/books/${titled("Made Up Saga #1").id}/edits`, { values: { rightToLeft: "yes" } })).statusCode).toBe(200);
     // Listed so, and served so: what the iPad, the iPhone and the TV read a comic's direction from.
-    expect("rightToLeft" in (await listed("The Long Way"))).toBe(false);
+    expect("rightToLeft" in (await listed("Made Up Saga #2: The Long Way"))).toBe(false);
     expect((await listed("Made Up Saga #1")).rightToLeft).toBe(true);
-    expect((await served("The Long Way")).book.rightToLeft).toBeUndefined();
+    expect((await served("Made Up Saga #2: The Long Way")).book.rightToLeft).toBeUndefined();
     expect((await served("Made Up Saga #1")).book.rightToLeft).toBe(true);
     // With what its file says, so the desktop can show it and take the edit back.
-    const edited = await listed("The Long Way");
+    const edited = await listed("Made Up Saga #2: The Long Way");
     expect(edited.edited?.original.rightToLeft).toBe("yes");
     expect(filedBook(edited).book.rightToLeft).toBe(true);
     expect(remoteBook(await listed("Made Up Saga #1")).book.rightToLeft).toBe(true);
     // An edit that says neither way isn't kept.
-    await put(`/api/books/${titled("The Long Way").id}/edits`, { values: { rightToLeft: "sideways" } });
-    expect(server.books.edits(titled("The Long Way").id)).toBeNull();
-    expect((await listed("The Long Way")).rightToLeft).toBe(true);
+    await put(`/api/books/${titled("Made Up Saga #2: The Long Way").id}/edits`, { values: { rightToLeft: "sideways" } });
+    expect(server.books.edits(titled("Made Up Saga #2: The Long Way").id)).toBeNull();
+    expect((await listed("Made Up Saga #2: The Long Way")).rightToLeft).toBe(true);
     // Taken back, it reads as its file says.
     await put(`/api/books/${titled("Made Up Saga #1").id}/edits`, { values: {} });
     expect("rightToLeft" in (await listed("Made Up Saga #1"))).toBe(false);
@@ -182,7 +182,7 @@ describe("comics on the server", () => {
       const comics = again.books.list().filter((b) => b.comic);
       expect(comics.map((b) => [b.title, b.rightToLeft ?? false]).sort()).toEqual([
         ["Made Up Saga #1", false],
-        ["The Long Way", true],
+        ["Made Up Saga #2: The Long Way", true],
       ]);
     } finally {
       await again.app.close();
