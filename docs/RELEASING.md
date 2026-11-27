@@ -80,6 +80,10 @@ merge past a red check on purpose with `gh pr merge --admin`.
 package) and `packages/desktop/src-tauri/tauri.conf.json`. Commit them as "Release X.Y.Z" on
 `main` and push.
 
+In the same commit, what changed goes at the top of `packages/desktop/src/whats-new.ts`, in a few plain lines:
+Ribbon shows them, once, after it has updated itself to this version, and under Settings. They are the release's
+notes (section 5) cut to what someone would notice; versions older than the last few come off the bottom.
+
 ## 4. The installers
 
 Tag the release commit and push the tag:

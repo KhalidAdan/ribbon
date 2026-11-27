@@ -14,6 +14,8 @@ import { SeriesSetup } from "./SeriesSetup";
 import { NewSeries } from "./NewSeries";
 import { SeriesPage } from "./SeriesPage";
 import { useKeys } from "./useKeys";
+import { AppKeys } from "./AppKeys";
+import { WhatsNew } from "./WhatsNew";
 import { ScanProgress } from "./ScanProgress";
 import { TopBar, Tabs, type Crumb } from "./Shell";
 import { useSearch } from "./useSearch";
@@ -203,6 +205,8 @@ function Ready() {
     <>
       {screen}
       <Notices />
+      <AppKeys />
+      <WhatsNew />
     </>
   );
 }

@@ -227,7 +227,7 @@ const card = "w-full rounded-[10px] bg-surface shadow-lg ring-1 ring-line dark:s
  * the buttons that answer it. With a title, the line beneath is muted; on
  * its own, the line is the thing to read.
  */
-function Note({ title, line, actions, alert = false }: { title?: string; line: string; actions: ReactNode; alert?: boolean }) {
+export function Note({ title, line, actions, alert = false }: { title?: string; line: string; actions: ReactNode; alert?: boolean }) {
   return (
     <div role={alert ? "alert" : undefined} className={clsx(card, "flex flex-col gap-3 p-3 pl-4 sm:flex-row sm:items-center")}>
       <div className="min-w-0 flex-1 py-0.5">
