@@ -47,6 +47,8 @@ export interface ListedFacts {
   addedAt: number | null;
   words: number | null;
   ebookBytes: number | null;
+  /** The colour its cover is bound in, `#rrggbb`: null from a server that doesn't say. */
+  cloth: string | null;
 }
 
 /**
@@ -68,6 +70,7 @@ export function wordsOf(b: ScannedBook, facts: ListedFacts | null): number {
 /** A book as the lamp-lit bookcase knows it. A server's book came when the server says; a folder's, when its newest file was written. */
 export function caseBookOf(b: ScannedBook, progress: Progress, facts: ListedFacts | null, cloth: Cloth | undefined): CaseBook {
   const came = facts?.addedAt ?? (addedAt(b) || null);
+  const bound = listedCloth(facts) ?? cloth;
   return {
     id: b.book.id,
     title: b.book.title,
@@ -76,11 +79,18 @@ export function caseBookOf(b: ScannedBook, progress: Progress, facts: ListedFact
     fraction: progress.started ? progress.fraction : 0,
     finished: progress.finished,
     addedAt: came,
-    ...(cloth ? { cloth } : {}),
+    ...(bound ? { cloth: bound } : {}),
   };
 }
 
-// Each cover's own colour, by its address, worked out once from a small sample of the picture and kept from one
+/** The cloth a server lists for a book's cover, so its picture needn't be read for it. */
+export function listedCloth(facts: ListedFacts | null): Cloth | null {
+  const hex = facts?.cloth;
+  return hex && /^#[0-9a-f]{6}$/i.test(hex) ? nearestCloth(rgb(parseInt(hex.slice(1), 16))) : null;
+}
+
+// For the books no server lists a cloth for (a folder's, and an older server's), whose covers are files on this
+// device. Each cover's own colour, by its address, worked out once from a small sample of the picture and kept from one
 // launch to the next: the bookcase draws every spine in its own cloth from the start. The pictures aren't kept.
 const KEPT = "ribbon.cover-colours";
 const colours = new Map<string, RGB>(readKept());
@@ -141,7 +151,7 @@ function colourFromCover(url: string): Promise<RGB | null> {
 const PATIENCE_MS = 2_500;
 
 /**
- * Each book's cloth, from its cover: null until they are known, so every spine is drawn once, in its own colour.
+ * The cloth of each book whose cover has to be read for it (`coverUrl` gives null for the rest): null until they are known, so every spine is drawn once, in its own colour.
  * Covers not yet sampled are, six at a time; a cover that is slow or can't be read leaves its book a quiet cloth.
  */
 export function useCoverCloths(books: readonly ScannedBook[], coverUrl: (b: ScannedBook) => string | null): ReadonlyMap<string, Cloth> | null {

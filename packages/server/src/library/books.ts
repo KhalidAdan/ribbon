@@ -157,10 +157,10 @@ export class BookIndex {
     const b = stored.book;
     this.db
       .prepare(
-        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, added_at, added_by, has_comic, pages, is_pdf, right_to_left, details)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO book (id, fingerprint, title, author, narrator, series, series_index, duration_ms, size_bytes, has_audio, has_ebook, ebook_bytes, cover_hash, cover_aspect, cover_colour, cover_cloth, added_at, added_by, has_comic, pages, is_pdf, right_to_left, details)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0, b.comic ? (b.rightToLeft ? 1 : 0) : null, detailsText(b));
+      .run(id, fingerprint, b.title, b.author, b.narrator, b.series, b.seriesIndex, b.durationMs, b.sizeBytes, stored.files.length > 0 ? 1 : 0, b.ebook ? 1 : 0, stored.ebookBytes ?? null, stored.cover?.hash ?? null, stored.cover?.aspect ?? null, stored.cover?.colour ?? null, stored.cover?.cloth ?? null, at, addedBy, b.comic ? 1 : 0, b.comic ? (stored.pages?.length ?? 0) : null, b.comic && /\.pdf$/i.test(b.comic) ? 1 : 0, b.comic ? (b.rightToLeft ? 1 : 0) : null, detailsText(b));
     for (const claim of claims) this.db.prepare("INSERT OR IGNORE INTO book_claim (claim, book_id) VALUES (?, ?)").run(claim, id);
     // Deleted once and added again: devices keep it now.
     this.db.prepare("DELETE FROM deleted_book WHERE id = ?").run(id);
@@ -172,6 +172,23 @@ export class BookIndex {
       .prepare("SELECT id FROM book WHERE has_comic = 1 AND right_to_left IS NULL")
       .all()
       .map((row) => String(row.id));
+  }
+
+  /**
+   * The covers with no cloth yet, a book's own and one chosen for it: made before the server worked a cover's cloth
+   * out (covers.ts, `listCloths`).
+   */
+  clothsToList(): { id: string; hash: string }[] {
+    return this.db
+      .prepare("SELECT id, cover_hash AS hash FROM book WHERE cover_hash IS NOT NULL AND cover_cloth IS NULL UNION SELECT book_id, hash FROM book_cover WHERE cloth IS NULL")
+      .all()
+      .map((row) => ({ id: String(row.id), hash: String(row.hash) }));
+  }
+
+  /** List a cover's cloth, wherever the cover is a book's own or one chosen for it. */
+  listCloth(hash: string, cloth: string): void {
+    this.db.prepare("UPDATE book SET cover_cloth = ? WHERE cover_hash = ?").run(cloth, hash);
+    this.db.prepare("UPDATE book_cover SET cloth = ? WHERE hash = ?").run(cloth, hash);
   }
 
   /** List a comic as reading right to left, or not, as its file says. */
@@ -363,8 +380,8 @@ export class BookIndex {
 
   /** The cover a person chose for a book, or null when it has its files'. */
   chosenCover(id: string): Cover | null {
-    const row = this.db.prepare("SELECT hash, aspect, colour FROM book_cover WHERE book_id = ?").get(id);
-    return row ? { hash: String(row.hash), aspect: Number(row.aspect), colour: String(row.colour) } : null;
+    const row = this.db.prepare("SELECT hash, aspect, colour, cloth FROM book_cover WHERE book_id = ?").get(id);
+    return row ? coverOf(row.hash, row.aspect, row.colour, row.cloth) : null;
   }
 
   /** Keep a cover a person chose for a book, made from their picture (covers.ts), in place of the one it had; null goes back to its files'. */
@@ -374,9 +391,17 @@ export class BookIndex {
       return;
     }
     this.db
-      .prepare("INSERT INTO book_cover (book_id, hash, aspect, colour, chosen_at, chosen_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET hash = excluded.hash, aspect = excluded.aspect, colour = excluded.colour, chosen_at = excluded.chosen_at, chosen_by = excluded.chosen_by")
-      .run(id, cover.hash, cover.aspect, cover.colour, at, by);
+      .prepare("INSERT INTO book_cover (book_id, hash, aspect, colour, cloth, chosen_at, chosen_by) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (book_id) DO UPDATE SET hash = excluded.hash, aspect = excluded.aspect, colour = excluded.colour, cloth = excluded.cloth, chosen_at = excluded.chosen_at, chosen_by = excluded.chosen_by")
+      .run(id, cover.hash, cover.aspect, cover.colour, cover.cloth ?? null, at, by);
   }
+}
+
+/** A value read from a row, which the types say may not be there. */
+type Column = SQLOutputValue | undefined;
+
+/** A cover from its columns: its cloth only once the server has worked it out. */
+function coverOf(hash: Column, aspect: Column, colour: Column, cloth: Column): Cover {
+  return { hash: String(hash), aspect: Number(aspect), colour: String(colour), ...(cloth === null || cloth === undefined ? {} : { cloth: String(cloth) }) };
 }
 
 /** A book's edits as the server keeps them: the fields as edited, and when it took them. */
@@ -392,7 +417,7 @@ const LISTED_FIELDS = ["title", "author", "narrator", "series", "seriesIndex", "
  * The book table with each book's edits and the cover chosen for it, if it has them, a comic's ComicVine match, and its
  * words, once its text is indexed (search.ts).
  */
-const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.chosen_at,
+const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edited_at, book_cover.hash AS chosen_hash, book_cover.aspect AS chosen_aspect, book_cover.colour AS chosen_colour, book_cover.cloth AS chosen_cloth, book_cover.chosen_at,
   book_match.address AS matched_address, book_match.said AS matched_said, sentence_index.words
   FROM book LEFT JOIN book_edit ON book_edit.book_id = book.id LEFT JOIN book_cover ON book_cover.book_id = book.id LEFT JOIN book_match ON book_match.book_id = book.id
   LEFT JOIN sentence_index ON sentence_index.book_id = book.id`;
@@ -400,7 +425,7 @@ const WITH_EDITS = `SELECT book.*, book_edit.edits, book_edit.updated_at AS edit
 /** A row of the book table as the library answer gives it, with what ComicVine said and its edits laid over it, and the cover chosen for it. */
 function listed(row: Record<string, SQLOutputValue>): ListedBook {
   const book = filed(row);
-  const chosen = row.chosen_hash === null || row.chosen_hash === undefined ? null : { hash: String(row.chosen_hash), aspect: Number(row.chosen_aspect), colour: String(row.chosen_colour) };
+  const chosen = row.chosen_hash === null || row.chosen_hash === undefined ? null : coverOf(row.chosen_hash, row.chosen_aspect, row.chosen_colour, row.chosen_cloth);
   const hasEdits = row.edits !== null && row.edits !== undefined;
   const match = layerOf(row);
   if (!hasEdits && !chosen && !match) return book;
@@ -499,7 +524,7 @@ function filed(row: Record<string, SQLOutputValue>): ListedBook {
     pdf: row.is_pdf === 1,
     pages: row.pages === null || row.pages === undefined ? null : Number(row.pages),
     ...(row.right_to_left === 1 ? { rightToLeft: true as const } : {}),
-    cover: row.cover_hash === null ? null : { hash: String(row.cover_hash), aspect: Number(row.cover_aspect), colour: String(row.cover_colour) },
+    cover: row.cover_hash === null ? null : coverOf(row.cover_hash, row.cover_aspect, row.cover_colour, row.cover_cloth),
     addedAt: new Date(Number(row.added_at)).toISOString(),
   };
 }

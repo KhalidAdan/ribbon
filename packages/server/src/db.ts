@@ -18,8 +18,19 @@ export function openDatabase(dataDir: string): DatabaseSync {
   db.exec(SCHEMA);
   letBooksIntoManySeries(db);
   countWordsToo(db);
+  clothsToo(db);
   comicsToo(db);
   return db;
+}
+
+/**
+ * A database from before covers had cloths gets the columns for them, empty: each is worked out from its cover, once,
+ * at start (library/covers.ts, `listCloths`).
+ */
+function clothsToo(db: DatabaseSync): void {
+  const has = (table: string, column: string) => db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all().some((c) => c.name === column);
+  if (!has("book", "cover_cloth")) db.exec("ALTER TABLE book ADD COLUMN cover_cloth TEXT");
+  if (!has("book_cover", "cloth")) db.exec("ALTER TABLE book_cover ADD COLUMN cloth TEXT");
 }
 
 /** A database from before comics gets the columns that say a book is one, how many pages it has, and what else it says of itself: no book in it is a comic. */
@@ -181,6 +192,7 @@ CREATE TABLE IF NOT EXISTS book (
   cover_hash TEXT,
   cover_aspect REAL,
   cover_colour TEXT,
+  cover_cloth TEXT,
   added_at INTEGER NOT NULL,
   added_by TEXT
 );
@@ -236,6 +248,7 @@ CREATE TABLE IF NOT EXISTS book_cover (
   hash TEXT NOT NULL,
   aspect REAL NOT NULL,
   colour TEXT NOT NULL,
+  cloth TEXT,
   chosen_at TEXT NOT NULL,
   chosen_by TEXT
 );

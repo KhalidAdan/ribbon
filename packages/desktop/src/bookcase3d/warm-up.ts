@@ -92,7 +92,7 @@ export async function warmBookcaseOnce(width: number, k: number, scale: number, 
     handRenderer.setSize(280, 330, false);
     for (const item of items.slice(0, 3)) {
       if (stopped()) break;
-      hand.show(item, null, k, scale);
+      hand.show(item, k, scale);
       await handRenderer.compileAsync(hand.scene, hand.camera);
       handRenderer.render(hand.scene, hand.camera);
     }

@@ -48,6 +48,8 @@ describe("the library API", () => {
     expect(red).toMatchObject({ author: "Author One", audio: true, ebook: false, ebookBytes: null });
     expect(red.cover).toMatchObject({ aspect: 0.667 });
     expect(red.cover!.colour).toMatch(/^#[0-9a-f]{6}$/);
+    // And the cloth its spine is bound in on the bookcase, so no app fetches the picture to choose it.
+    expect(red.cover!.cloth).toMatch(/^#[0-9a-f]{6}$/);
     // Nothing about anyone's place: those change while people listen and would spoil the 304s.
     expect(Object.keys(red)).not.toContain("position");
 

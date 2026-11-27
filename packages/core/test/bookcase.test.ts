@@ -8,6 +8,7 @@ import {
   layOutCaseSpine,
   spineSize,
   spineTitle,
+  stepOnCase,
   thickness,
   type CaseBook,
   type MeasureRun,
@@ -222,5 +223,41 @@ describe("the order the lamps come on in", () => {
     expect(lampsOnInView(lit(2), view)).toBe(false);
     expect(lampsOnInView(lit(2, 3), view)).toBe(true);
     expect(lampsOnInView([], view)).toBe(true);
+  });
+});
+
+describe("stepping along the case", () => {
+  const many = Array.from({ length: 30 }, (_, i) => book(`Book ${i}`, { addedAt: NOW - i * DAY }));
+  const shelves = layOutCase(many, 600, 1, measure, NOW);
+  const id = (shelf: number, at: number) => shelves[shelf]!.at(at)!.book.id;
+
+  it("goes along the shelf", () => {
+    expect(shelves.length).toBeGreaterThan(1);
+    expect(stepOnCase(shelves, id(0, 0), "right")?.book.id).toBe(id(0, 1));
+    expect(stepOnCase(shelves, id(0, 1), "left")?.book.id).toBe(id(0, 0));
+  });
+
+  it("carries on from a shelf's end to the next shelf's start, and back", () => {
+    expect(stepOnCase(shelves, id(0, -1), "right")?.book.id).toBe(id(1, 0));
+    expect(stepOnCase(shelves, id(1, 0), "left")?.book.id).toBe(id(0, -1));
+  });
+
+  it("stops at the case's first and last books", () => {
+    expect(stepOnCase(shelves, id(0, 0), "left")).toBeNull();
+    expect(stepOnCase(shelves, id(shelves.length - 1, -1), "right")).toBeNull();
+    expect(stepOnCase(shelves, id(0, 0), "up")).toBeNull();
+    expect(stepOnCase(shelves, id(shelves.length - 1, 0), "down")).toBeNull();
+  });
+
+  it("goes up and down to the book standing nearest", () => {
+    const from = shelves[0]!.at(-1)!, below = stepOnCase(shelves, from.book.id, "down")!;
+    const middle = (it: typeof from) => it.x + it.spine.width / 2;
+    expect(shelves[1]).toContain(below);
+    for (const other of shelves[1]!) expect(Math.abs(middle(below) - middle(from))).toBeLessThanOrEqual(Math.abs(middle(other) - middle(from)));
+    expect(stepOnCase(shelves, id(1, 0), "up")?.book.id).toBe(id(0, 0));
+  });
+
+  it("has nowhere to go from a book that isn't on the case", () => {
+    expect(stepOnCase(shelves, "no such book", "right")).toBeNull();
   });
 });

@@ -4711,7 +4711,7 @@ export class AppController {
   }
 
   /** What a server knows of one of its books that the files here don't say: when it came, and how long its text is. Null for a book from a folder. */
-  listedFacts(book: ScannedBook): { addedAt: number | null; words: number | null; ebookBytes: number | null } | null {
+  listedFacts(book: ScannedBook): { addedAt: number | null; words: number | null; ebookBytes: number | null; cloth: string | null } | null {
     return this.openedOf(book)?.server?.listedFacts(book.book.id) ?? null;
   }
 

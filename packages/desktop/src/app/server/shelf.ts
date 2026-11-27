@@ -174,14 +174,15 @@ export class ServerShelf {
 
   /**
    * What the server knows of a book that its files here don't say: when it came to the library, how many words its
-   * EPUB has (null until the server has counted them), and the EPUB's size. The lamp-lit bookcase orders and sizes
-   * its books by these, so a book stands in the same place, as thick, on every device. Null for a book it doesn't list.
+   * EPUB has (null until the server has counted them), the EPUB's size, and the colour its cover is bound in (null
+   * from a server that doesn't say). The lamp-lit bookcase orders, sizes and binds its books by these, so a book
+   * stands in the same place, as thick and in the same cloth, on every device, with no cover fetched. Null for a book it doesn't list.
    */
-  listedFacts(localId: string): { addedAt: number | null; words: number | null; ebookBytes: number | null } | null {
+  listedFacts(localId: string): { addedAt: number | null; words: number | null; ebookBytes: number | null; cloth: string | null } | null {
     const listed = this.byLocalId.get(localId);
     if (!listed) return null;
     const added = Date.parse(listed.addedAt);
-    return { addedAt: Number.isFinite(added) ? added : null, words: listed.words ?? null, ebookBytes: listed.ebookBytes };
+    return { addedAt: Number.isFinite(added) ? added : null, words: listed.words ?? null, ebookBytes: listed.ebookBytes, cloth: listed.cover?.cloth ?? null };
   }
 
   /**

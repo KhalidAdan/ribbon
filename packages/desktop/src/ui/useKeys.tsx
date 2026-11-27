@@ -20,6 +20,8 @@ export function useKeys(c: AppController): void {
       // The reader has its own keys, and so does the comic reader.
       if (s.reading || s.comic) return;
       if (!s.current) return;
+      // On the bookcase the arrows go from book to book (BookcasePage.tsx).
+      if (s.screen.pane === "bookcase" && e.key.startsWith("Arrow")) return;
       switch (e.key) {
         case " ":
         case "k":

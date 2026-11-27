@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Host } from "@ribbon/core/host";
 import { bookDir, type BookIndex, type StoredBook } from "./books.ts";
+import { clothOf, COVER_WIDTHS } from "./covers.ts";
 
 /**
  * A book's folder on the server, written one thing at a time.
@@ -141,6 +143,23 @@ export async function listDirections(dataDir: string, index: BookIndex): Promise
     const stored = await readStored(dataDir, id);
     if (!stored) continue;
     index.listDirection(id, stored.book.rightToLeft === true);
+    listed++;
+  }
+  return listed;
+}
+
+/**
+ * The cloth of each cover made before the server worked cloths out (covers.ts), from the smallest copy of the cover
+ * it keeps, so the library answer gives it as it gives a cover made since. Once, at start: a cover listed is never
+ * read again, and one whose picture can't be read is tried the next time. How many were listed.
+ */
+export async function listCloths(host: Host, dataDir: string, index: BookIndex): Promise<number> {
+  let listed = 0;
+  for (const { id, hash } of index.clothsToList()) {
+    const covers = path.join(bookDir(dataDir, id), "covers");
+    const cloth = await clothOf(host, path.join(covers, `${hash}-${COVER_WIDTHS[0]}.jpg`), path.join(covers, `${hash}-cloth`));
+    if (!cloth) continue;
+    index.listCloth(hash, cloth);
     listed++;
   }
   return listed;
