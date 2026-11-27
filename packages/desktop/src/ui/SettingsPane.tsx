@@ -11,6 +11,8 @@ import { ConnectServer } from "./Servers";
 import { Dialog } from "./Dialog";
 import { settingsLine } from "../app/updates";
 import { sourceProblem } from "../app/controller";
+import { showKeys } from "./AppKeys";
+import { showWhatsNew } from "./WhatsNew";
 
 declare const __APP_VERSION__: string;
 
@@ -367,6 +369,30 @@ export function SettingsPane() {
             </Group>
           </section>
         )}
+
+        <section aria-labelledby="settings-ribbon" className="flex flex-col gap-4">
+          <SectionHeader id="settings-ribbon" title="Ribbon" description="What it does from the keyboard, and what changed lately." />
+          <Group>
+            <Row
+              title="Keys"
+              description="Every key Ribbon answers to. Press ? anywhere to see them."
+              aside={
+                <Button size="sm" onClick={showKeys}>
+                  Show
+                </Button>
+              }
+            />
+            <Row
+              title="What’s new"
+              description={`What changed in Ribbon ${__APP_VERSION__} and the versions before it.`}
+              aside={
+                <Button size="sm" onClick={showWhatsNew}>
+                  Show
+                </Button>
+              }
+            />
+          </Group>
+        </section>
 
         <p className="text-sm/5 text-ink-3 sm:text-[0.8125rem]/5">Ribbon {__APP_VERSION__}. A home for your books, read or heard.</p>
       </div>
