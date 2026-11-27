@@ -4,7 +4,8 @@ import UIKit
 
 /// The comic reader on the iPad and the iPhone (docs/COMICS.md, sections 7 and 14): a page, whole, as large as the
 /// screen allows. A swipe or a touch on either side turns it; two fingers zoom into it and one moves about it; a
-/// touch in the middle shows or hides what is around it.
+/// touch in the middle shows or hides what is around it, zoomed in or not. The iPhone, which stands upright
+/// everywhere else, may be turned on its side here: some pages and panels are wider than they are tall.
 ///
 /// A comic whose panels are marked is read a panel at a time instead: one panel fills the screen, a swipe or a
 /// touch on either side goes to the next panel or the one before, and past a page's last panel is the next page's
@@ -19,6 +20,8 @@ struct ComicView: View {
     let session: ComicSession
     let onClose: () -> Void
     @Environment(\.narrow) private var narrow
+    /// A phone on its side is short: the small pages are drawn smaller there, so the page keeps most of the screen.
+    @Environment(\.verticalSizeClass) private var height
     @AppStorage(ComicGround.key) private var ground = ComicGround.ribbon
     @AppStorage(ComicReading.longScrollKey) private var longScroll = false
     /// The way back and the page number, shown until the page is touched in the middle.
@@ -111,7 +114,7 @@ struct ComicView: View {
                     .padding(.leading, -12)
                     Spacer()
                     // Every page small, the one being read outlined: a touch goes to one. Across the whole screen.
-                    PageStrip(session: session, chosen: shown, tall: narrow ? 80 : 100) { session.turn(to: $0, why: .seek) }
+                    PageStrip(session: session, chosen: shown, tall: height == .compact ? 52 : narrow ? 80 : 100) { session.turn(to: $0, why: .seek) }
                         .padding(.horizontal, narrow ? -16 : -32)
                         .padding(.bottom, 6)
                     HStack {
@@ -334,8 +337,16 @@ private struct ZoomablePage: UIViewRepresentable {
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { image }
 
         @objc func tapped(_ tap: UITapGestureRecognizer) {
-            guard let scroll, scroll.zoomScale <= 1.01, scroll.bounds.width > 0 else { return }
-            touched(tap.location(in: scroll).x / scroll.bounds.width)
+            guard let scroll, scroll.bounds.width > 0 else { return }
+            // Where on the screen, not where on the page: zoomed in, the page is wider than the screen.
+            let x = (tap.location(in: scroll).x - scroll.contentOffset.x) / scroll.bounds.width
+            // Zoomed in, the sides don't turn the page, which would lose your place in it; the middle still shows or
+            // hides what is around the page, so the small pages can always be put away.
+            if scroll.zoomScale > 1.01 {
+                if ComicPaging.turn(at: x, rightToLeft: false) == 0 { touched(x) }
+                return
+            }
+            touched(x)
         }
 
         @objc func tappedTwice(_ tap: UITapGestureRecognizer) {
