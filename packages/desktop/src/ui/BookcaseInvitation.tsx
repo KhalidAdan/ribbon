@@ -81,7 +81,7 @@ function BookcasePicture({ books }: { books: readonly ScannedBook[] }) {
         .map((b) => byId.get(b.id)!),
     [books, byId, asCaseBook],
   );
-  const cloths = useCoverCloths(newest, (b) => c.coverUrl(b));
+  const cloths = useCoverCloths(newest, (b) => (c.listedFacts(b)?.cloth ? null : c.coverUrl(b)));
 
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const box = useCallback((el: HTMLSpanElement | null) => {

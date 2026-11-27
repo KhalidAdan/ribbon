@@ -13,7 +13,7 @@ import { isSecure, sendsPassword, signInRoutes } from "./sign-in-routes.ts";
 import { Events } from "./events.ts";
 import { Jobs } from "./jobs.ts";
 import { nodeHost } from "@ribbon/host-node/node";
-import { listDirections, relistRecords } from "./library/book-folder.ts";
+import { listCloths, listDirections, relistRecords } from "./library/book-folder.ts";
 import { BookIndex } from "./library/books.ts";
 import { readComicsAgain } from "./library/comic-details.ts";
 import { startMatching } from "./library/comic-match.ts";
@@ -72,6 +72,8 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const relisted = await relistRecords(config.dataDir, books);
   // Comics added before the library listed which way they read, listed as their records say.
   const directed = await listDirections(config.dataDir, books);
+  // Covers made before the server chose each one's cloth for the bookcase get theirs, from the copies kept here.
+  const clothed = await listCloths(nodeHost(), config.dataDir, books);
   // Books added before the server measured them are measured once, in the background.
   const unprepared = await booksToPrepare(config.dataDir, books);
   if (unprepared.length > 0) jobs.start<PrepareProgress>("prepare", { books: unprepared.length, done: 0, current: null }, (report) => prepareBooks(nodeHost(), config.dataDir, unprepared, report), null);
@@ -81,6 +83,7 @@ export async function buildServer(config: ServerConfig, opts: { logger?: boolean
   const app = Fastify({ logger: opts.logger ?? false, trustProxy: ["127.0.0.1", "::1"] });
   if (imported > 0) app.log.info(`took ${imported} place records kept in files into the database`);
   if (relisted > 0) app.log.info(`listed again the records of ${relisted} books whose record had lost them`);
+  if (clothed > 0) app.log.info(`chose the bookcase's cloth for ${clothed} covers made before it was sent with the library`);
   if (directed > 0) app.log.info(`listed which way ${directed} comics read, from their records`);
   if (comics.read > 0) app.log.info(`read ${comics.read} comics again for their own details, and moved the edits of ${comics.moved} into them`);
   if (comics.unreadable.length > 0) app.log.warn(`couldn't read ${comics.unreadable.length} comics again for their own details, to try at the next start: ${comics.unreadable.join(", ")}`);

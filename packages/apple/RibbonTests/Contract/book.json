@@ -44,7 +44,8 @@
   "cover": {
     "hash": "0123456789abcdef",
     "aspect": 0.5,
-    "colour": "#808080"
+    "colour": "#808080",
+    "cloth": "#808080"
   },
   "ebookBytes": 1000,
   "analysis": {

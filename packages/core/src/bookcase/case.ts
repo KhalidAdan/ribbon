@@ -288,3 +288,25 @@ function spreadCloths(shelves: CaseItem[][]): void {
     }
   }
 }
+
+/** A step from the book in hand to another, as an arrow key or a remote asks for it. */
+export type CaseStep = "left" | "right" | "up" | "down";
+
+/**
+ * The book one step from another on the case's shelves, or null where the case ends.
+ *
+ * Left and right go along the shelf, and at its end carry on: right from a shelf's last book is the first book of the
+ * shelf below, and left from its first is the last book of the shelf above, as reading a page goes. Up and down go
+ * to the book standing nearest above or below. The Apple app steps the same way (Bookcase/ShelfLayout.swift).
+ */
+export function stepOnCase(shelves: readonly (readonly CaseItem[])[], id: string, step: CaseStep): CaseItem | null {
+  const row = shelves.findIndex((shelf) => shelf.some((it) => it.book.id === id));
+  if (row < 0) return null;
+  const shelf = shelves[row]!, at = shelf.findIndex((it) => it.book.id === id);
+  if (step === "right") return shelf[at + 1] ?? shelves[row + 1]?.[0] ?? null;
+  if (step === "left") return shelf[at - 1] ?? shelves[row - 1]?.at(-1) ?? null;
+  const other = shelves[row + (step === "down" ? 1 : -1)];
+  if (!other || other.length === 0) return null;
+  const middle = (it: CaseItem) => it.x + it.spine.width / 2, here = middle(shelf[at]!);
+  return other.reduce((nearest, it) => (Math.abs(middle(it) - here) < Math.abs(middle(nearest) - here) ? it : nearest));
+}

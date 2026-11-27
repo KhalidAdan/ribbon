@@ -62,6 +62,10 @@ export interface CaseSetting {
  * On a machine with no graphics card nothing is lit: the page's flat shelves are all there is, and there is no book
  * in hand.
  */
+/** How long a book is in hand before its cover is fetched, in milliseconds: you have landed on it, not passed over it. */
+const LANDED_MS = 140;
+const landed = () => new Promise<void>((resolve) => setTimeout(resolve, LANDED_MS));
+
 export class LamplitCase {
   private shelves: Shelf[] = [];
   private width = 0;
@@ -79,8 +83,6 @@ export class LamplitCase {
   private closed = false;
   /** Asks for the book in hand, newest last: an answer to an older ask than the last is thrown away. */
   private asks = 0;
-  /** Covers being fetched for the book in hand: it is about to move. */
-  private fetching = 0;
   /**
    * How long things took, in milliseconds, for the measurement build: opening the case, then, from the moment the
    * shelves were last laid out, lighting the first, and lighting the last.
@@ -109,7 +111,7 @@ export class LamplitCase {
 
   /**
    * Open the case: load the spines' faces and, where there's a graphics card, the cloth and the studio.
-   * `coverOf` fetches a book's cover for its front board.
+   * `coverOf` fetches a book's cover for its front board, when the book has been taken in hand.
    */
   static async open(coverOf: (item: CaseItem) => Promise<CanvasImageSource | null>, develop: Develop = LAMP): Promise<LamplitCase> {
     const began = performance.now();
@@ -174,9 +176,9 @@ export class LamplitCase {
     this.light();
   }
 
-  /** Whether anything is moving, or about to: a book on its way off a shelf, or turning in hand. */
+  /** Whether anything is moving: a book on its way off a shelf, or turning in hand. */
   private get moving(): boolean {
-    return this.frame !== 0 || this.fetching > 0;
+    return this.frame !== 0;
   }
 
   /**
@@ -254,8 +256,12 @@ export class LamplitCase {
 
   /**
    * Bring the book asked for down, unless a shelf in view is still to be lit: `light` calls this again when they
-   * all are. Its cover is fetched and the book in hand built before anything moves, so the building, a long frame's
-   * work, falls before the movement and not in the middle of it.
+   * all are. The book in hand is built before anything moves, so the building, a long frame's work, falls before the
+   * movement and not in the middle of it.
+   *
+   * Its cover is the one picture the bookcase ever fetches, and only once the book has been in hand a moment: a book
+   * passed on the way to another fetches nothing. The book comes down in its cloth meanwhile, and the cover comes
+   * into focus on its front board when it arrives (book-in-hand.ts, `develop`).
    */
   private bring(): void {
     const id = this.selected;
@@ -265,15 +271,17 @@ export class LamplitCase {
     const item = this.shelves.flatMap((shelf) => shelf.items).find((it) => it.book.id === id);
     const hand = this.hand, ask = ++this.asks;
     if (!item || !hand) return this.lift(id);
-    this.fetching++;
-    void this.coverOf(item)
+    hand.show(item, this.k, this.scale);
+    this.lift(id);
+    // A newer ask has taken over, or the case was laid again and will ask again: then this cover isn't wanted.
+    const wanted = () => ask === this.asks && !this.closed;
+    void landed()
+      .then(() => (wanted() ? this.coverOf(item) : null))
       .catch(() => null)
       .then((cover) => {
-        this.fetching--;
-        // A newer ask has taken over, or the case was laid again and will ask again.
-        if (ask !== this.asks || this.closed) return this.light();
-        hand.show(item, cover, this.k, this.scale);
-        this.lift(id);
+        if (!cover || !wanted()) return;
+        hand.develop(id, cover, performance.now());
+        this.run();
       });
   }
 

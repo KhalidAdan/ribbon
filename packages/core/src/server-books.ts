@@ -5,6 +5,17 @@ import type { ScannedBook } from "./scan/scan";
 import type { SeriesGroup, SeriesRecord } from "./series";
 import type { Book, LoudnessMeasurement, SilenceRange } from "./types";
 
+/** A server book's cover, before the picture itself: which picture it is, its shape, and its colours. */
+export interface ServerCover {
+  hash: string;
+  /** Width over height. */
+  aspect: number;
+  /** The picture's average colour, `#rrggbb`. */
+  colour: string;
+  /** The colour its book is bound in on the bookcase, `#rrggbb` (bookcase/cloth.ts, `coverColour`). A server from before 0.53 doesn't send it. */
+  cloth?: string;
+}
+
 /**
  * A book on a Ribbon server, as its library answer lists it
  * (packages/server/src/library/books.ts, `ListedBook`).
@@ -25,7 +36,7 @@ export interface ServerBook {
   ebookBytes: number | null;
   /** How many words its EPUB has, counted by the server from its text; null until it's read, and for a book with no EPUB. A server from before 0.32 doesn't send it. */
   words?: number | null;
-  cover: { hash: string; aspect: number; colour: string } | null;
+  cover: ServerCover | null;
   /** A comic (docs/COMICS.md): its `sizeBytes` is its CBZ's. A server from before comics doesn't send it. */
   comic?: boolean;
   /** Its pages are a PDF's: the file a device keeps is `book.pdf`. A server from before PDFs doesn't send it. */
@@ -66,7 +77,7 @@ export type ServerBookDetails = Partial<Pick<Book, "rawTitle" | "subtitle" | "ye
 export interface ServerBookDetail {
   book: { id: string; title: string; author: string; narrator: string; series: string; seriesIndex: number | null; description?: string; isbn?: string; asin?: string; language?: string; publisher?: string; ebook?: string; comic?: string; sizeBytes?: number } & ServerBookDetails;
   files: { path: string; sizeBytes: number }[];
-  cover: { hash: string; aspect: number; colour: string } | null;
+  cover: ServerCover | null;
   ebookBytes?: number;
   /** The records that came in with it from its folder, by kind (`chapters`, `heard`, `aligned`, …): served as `records/<kind>.csv`. */
   records?: string[];

@@ -1,7 +1,7 @@
 import { BookOpenIcon, ChevronRightIcon, MagnifyingGlassIcon, PauseIcon, PlayIcon, XCircleIcon } from "@heroicons/react/16/solid";
 import { clsx } from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { layOutCase, type CaseItem } from "@ribbon/core/bookcase/case";
+import { layOutCase, stepOnCase, type CaseItem, type CaseStep } from "@ribbon/core/bookcase/case";
 import type { ShelvesInView } from "@ribbon/core/bookcase/lighting";
 import { findOnShelf } from "@ribbon/core/bookcase/search";
 import { readerOnly } from "@ribbon/core/ebook";
@@ -64,7 +64,8 @@ export default function BookcasePage() {
   useCovers();
   const books = useShelvedBooks();
   const progress = useShelfProgress();
-  const cloths = useCoverCloths(books, (b) => c.coverUrl(b));
+  // A server says each cover's cloth with its list; only a folder's books, and an older server's, have their covers read for it.
+  const cloths = useCoverCloths(books, (b) => (c.listedFacts(b)?.cloth ? null : c.coverUrl(b)));
   const [caseBox, width] = useSettledWidth<HTMLDivElement>();
 
   const [facesReady, setFacesReady] = useState(false);
@@ -128,9 +129,12 @@ export default function BookcasePage() {
   // Until the case has opened, whether it will be lit is this machine's graphics card to say.
   const [willLight] = useState(hasGraphicsCard);
   const [taken, setTaken] = useState<string | null>(null);
+  // The book in hand as of this instant, for a key held down: its presses come faster than the page is drawn again.
+  const takenNow = useRef<string | null>(null);
   const takeDown = useCallback(
     (id: string) => {
       lamplit?.takeDown(id);
+      takenNow.current = id;
       setTaken(id);
       lastTaken = id;
     },
@@ -174,6 +178,28 @@ export default function BookcasePage() {
     if (row >= 0) canvases.current[row]?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
   };
 
+  // The arrow keys go from book to book: along the shelf and on to the next one at its end, up and down to the
+  // book standing nearest (core/bookcase/case.ts, `stepOnCase`). The book stepped to is taken down and has the
+  // keyboard, so Enter opens it. Not while typing in the search.
+  const spines = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    const steps: Record<string, CaseStep> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+    const onKey = (e: KeyboardEvent) => {
+      const step = steps[e.key], typing = e.target instanceof HTMLElement && (e.target.tagName === "INPUT" || e.target.isContentEditable);
+      if (!step || !shelves || typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      const from = takenNow.current;
+      const to = from ? stepOnCase(shelves, from, step) : (shelves[0]?.[0] ?? null);
+      if (!to) return;
+      takeDown(to.book.id);
+      const spine = spines.current.get(to.book.id);
+      spine?.focus({ preventScroll: true });
+      spine?.scrollIntoView({ block: "nearest" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [shelves, takeDown]);
+
   const inHand = taken ? (byId.get(taken) ?? null) : null;
   const flat = lamplit ? !lamplit.lit : !willLight;
   return (
@@ -215,6 +241,10 @@ export default function BookcasePage() {
                   return (
                     <button
                       key={id}
+                      ref={(el) => {
+                        if (el) spines.current.set(id, el);
+                        else spines.current.delete(id);
+                      }}
                       type="button"
                       aria-label={`${item.book.title}, ${item.book.author}`}
                       aria-pressed={taken === id}

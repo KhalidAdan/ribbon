@@ -10,7 +10,31 @@ import { canvasOf, type BookTextures } from "./textures";
 /** Turned to show its cover, a little more than square-on so the spine still shows. */
 const COVER_ON = (-58 * Math.PI) / 180;
 
+/** How long a cover takes to come into focus on the front board once its picture has arrived, in milliseconds. */
+const DEVELOP_MS = 520;
+/** How small the cover is drawn, against its full size, when it is at its softest. */
+const SOFTEST = 1 / 28;
+
 const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
+
+/** The front board's picture while its cover comes into focus: the board as it was, and as it will be. */
+interface Developing {
+  start: number;
+  plain: HTMLCanvasElement;
+  finished: HTMLCanvasElement;
+  soft: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
+}
+
+/** The front board of the book in hand: the canvas its picture is drawn on, and what it is drawn at. */
+interface FrontBoard {
+  item: CaseItem;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  texture: CanvasTexture;
+  width: number;
+  height: number;
+  scale: number;
+}
 
 /**
  * The lectern's book: the one you're on, in your hand. It comes spine-on, as it left the shelf, and turns to its
@@ -24,6 +48,9 @@ export class BookInHand {
   /** How far round it is now, and the turn to its cover it is in the middle of. */
   private yaw = 0;
   private turning: { start: number; from: number } | null = null;
+  /** Its front board, and the cover coming into focus on it, if one is. */
+  private front: FrontBoard | null = null;
+  private developing: Developing | null = null;
   /**
    * A hardback and a paperback that are never drawn, kept so the shader programs every book in hand is drawn with stay
    * compiled. Three.js lets a program go once no material uses it, so without them each book put down took its
@@ -59,15 +86,17 @@ export class BookInHand {
   }
 
   /**
-   * Take a book in hand: spine-on at first, turning to its cover a moment later. `cover` is its picture, if it has one.
-   * The turn is timed from when the book has been built, which takes a frame or several.
+   * Take a book in hand: spine-on at first, turning to its front a moment later. It comes bound in its cloth with its
+   * title on the board, as a book with no cover is; its picture is fetched only now that it is in hand, and `develop`
+   * puts it on the board when it arrives. The turn is timed from when the book has been built, which takes a frame
+   * or several.
    */
-  show(item: CaseItem, cover: CanvasImageSource | null, k: number, scale: number): void {
+  show(item: CaseItem, k: number, scale: number): void {
     const fit = (CASE_SHELF_HEIGHT * k) / 0.95;
     this.camera.position.set(0, fit * 0.18, fit / (2 * Math.tan((11 * Math.PI) / 180)));
     this.camera.lookAt(0, 0, 0);
     this.clear();
-    this.book = this.build(item, cover, k, scale);
+    this.book = this.build(item, k, scale);
     this.shown = item.book.id;
     this.scene.add(this.book);
     this.yaw = 0;
@@ -81,6 +110,52 @@ export class BookInHand {
     letGo(this.book);
     this.book = null;
     this.shown = null;
+    this.front = null;
+    this.developing = null;
+  }
+
+  /**
+   * The cover of the book in hand has arrived: bring it into focus on the front board, out of a blur, over the cloth
+   * that stood for it. Nothing happens if another book has been taken up since. With reduced motion it is simply there.
+   */
+  develop(id: string, cover: CanvasImageSource, now: number): void {
+    const f = this.front;
+    if (!f || this.shown !== id) return;
+    const plain = canvasOf(f.canvas.width, f.canvas.height), finished = canvasOf(f.canvas.width, f.canvas.height);
+    plain.ctx.drawImage(f.canvas, 0, 0);
+    finished.ctx.scale(f.scale, f.scale);
+    drawFront(finished.ctx, f.width, f.height, f.item.book.title, f.item.book.author, cover, f.item.cloth);
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.developing = { start: still ? now - DEVELOP_MS : now, plain: plain.canvas, finished: finished.canvas, soft: canvasOf(1, 1) };
+  }
+
+  /**
+   * Draw the front board as it is at this time: the finished cover over the plain board, small and stretched back to
+   * size while it is soft (a blur every browser draws the same, where a canvas filter is Chromium's alone), sharper
+   * and more solid as it comes. True while it is still coming.
+   */
+  private focus(now: number): boolean {
+    const d = this.developing, f = this.front;
+    if (!d || !f) return false;
+    const t = Math.min(1, Math.max(0, (now - d.start) / DEVELOP_MS)), { width, height } = f.canvas;
+    f.ctx.save();
+    f.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    f.ctx.drawImage(d.plain, 0, 0);
+    if (t >= 1) f.ctx.drawImage(d.finished, 0, 0);
+    else {
+      const size = SOFTEST + (1 - SOFTEST) * Math.pow(easeOut(t), 3);
+      d.soft.canvas.width = Math.max(2, Math.round(width * size));
+      d.soft.canvas.height = Math.max(2, Math.round(height * size));
+      d.soft.ctx.imageSmoothingQuality = "high";
+      d.soft.ctx.drawImage(d.finished, 0, 0, d.soft.canvas.width, d.soft.canvas.height);
+      f.ctx.globalAlpha = Math.min(1, t * 2.5);
+      f.ctx.imageSmoothingQuality = "high";
+      f.ctx.drawImage(d.soft.canvas, 0, 0, width, height);
+    }
+    f.ctx.restore();
+    f.texture.needsUpdate = true;
+    if (t >= 1) this.developing = null;
+    return t < 1;
   }
 
   /** Put everything down for good, the stand-ins too. */
@@ -89,14 +164,18 @@ export class BookInHand {
     letGo(this.standIns);
   }
 
-  /** Turn the book to where it should be at this time. True while it is still turning, so it needs drawing again. */
+  /**
+   * Turn the book to where it should be at this time, and bring its cover as far into focus as it should be. True
+   * while either is still under way, so it needs drawing again.
+   */
   step(now: number): boolean {
-    if (!this.book || !this.turning) return false;
+    const focusing = this.focus(now);
+    if (!this.book || !this.turning) return focusing;
     const t = Math.min(1, Math.max(0, (now - this.turning.start) / 560));
     this.yaw = this.turning.from + (COVER_ON - this.turning.from) * easeOut(t);
     this.book.rotation.y = this.yaw;
     if (t >= 1) this.turning = null;
-    return this.turning !== null;
+    return this.turning !== null || focusing;
   }
 
   /** Turned by hand: `dx` is how far the pointer has moved since the last call, in points. */
@@ -107,17 +186,18 @@ export class BookInHand {
     this.book.rotation.y = this.yaw;
   }
 
-  /** The book in hand: its cover on the front board, its spine as on the shelf, its ribbon at your place. */
-  private build(item: CaseItem, cover: CanvasImageSource | null, k: number, scale: number): Group {
+  /** The book in hand: its title on the front board until its cover comes, its spine as on the shelf, its ribbon at your place. */
+  private build(item: CaseItem, k: number, scale: number): Group {
     const b = item.book, W = item.spine.width, H = item.spine.height, D = Math.round(H * 0.68);
     // Drawn finer than the shelf: the book in hand is about twice its size there.
     const s = Math.min(3, scale * 1.25);
     const front = canvasOf(D * s, H * s);
     front.ctx.scale(s, s);
-    drawFront(front.ctx, D, H, b.title, b.author, cover, item.cloth);
+    drawFront(front.ctx, D, H, b.title, b.author, null, item.cloth);
     const art = new CanvasTexture(front.canvas);
     art.colorSpace = SRGBColorSpace;
     art.anisotropy = 8;
+    this.front = { item, canvas: front.canvas, ctx: front.ctx, texture: art, width: D, height: H, scale: s };
     const model = makeBook(W, H, D, spineDress(item, art, k, s, this.textures).look, this.textures, item.paperback);
     // Turned about its own middle.
     model.position.set(-W / 2, -H / 2, (D - roundness(W, item.paperback)) / 2);

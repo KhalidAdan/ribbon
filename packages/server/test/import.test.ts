@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { RibbonServer } from "../src/app.ts";
 import { openDatabase } from "../src/db.ts";
 import { BookIndex, type StoredBook } from "../src/library/books.ts";
+import { listCloths } from "../src/library/book-folder.ts";
 import { importFolder } from "../src/library/importer.ts";
 import { booksToPrepare, prepareBooks } from "../src/library/prepare.ts";
 import { servedBook } from "../src/library/chapters.ts";
@@ -64,12 +65,33 @@ describe("adding a folder", () => {
     expect(g! + b!).toBeLessThan(80);
     expect(readdirSync(path.join(dir, "data", "books", red.book.id, "covers")).sort()).toEqual([`${red.cover!.hash}-200.jpg`, `${red.cover!.hash}-400.jpg`, `${red.cover!.hash}-800.jpg`]);
     expect(long.cover).toBeNull();
+    // And the cloth the red book is bound in on the bookcase: a red, deeper than the picture's.
+    const [clothRed, clothGreen, clothBlue] = [1, 3, 5].map((i) => parseInt(red.cover!.cloth!.slice(i, i + 2), 16));
+    expect(clothRed).toBeGreaterThan(120);
+    expect(clothRed).toBeLessThan(r!);
+    expect(clothGreen! + clothBlue!).toBeLessThan(80);
 
     // Measured once, here, from the copies: a tone has a loudness and no silences.
     for (const b of [red, long]) {
       expect(b.analysis?.loudness?.integratedLufs).toEqual(expect.any(Number));
       expect(b.analysis?.silence).toEqual([]);
     }
+  });
+
+  it("chooses, once, the cloth of a cover made before the server chose cloths", async () => {
+    const red = server.books.list().find((b) => b.title === "Red Book")!;
+    const cloth = red.cover!.cloth!;
+    server.db.prepare("UPDATE book SET cover_cloth = NULL").run();
+    expect(server.books.list().find((b) => b.id === red.id)!.cover).not.toHaveProperty("cloth");
+
+    expect(await listCloths(nodeHost(), path.join(dir, "data"), server.books)).toBe(1);
+    // From the small JPEG kept here, not the picture it was made from: the same colour to within a JPEG's rounding.
+    const again = server.books.list().find((b) => b.id === red.id)!.cover!.cloth!;
+    const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    channels(again).forEach((value, i) => expect(Math.abs(value - channels(cloth)[i]!)).toBeLessThanOrEqual(4));
+    // Nothing is left beside the covers, and there is nothing to do a second time.
+    expect(readdirSync(path.join(dir, "data", "books", red.id, "covers"))).toHaveLength(3);
+    expect(await listCloths(nodeHost(), path.join(dir, "data"), server.books)).toBe(0);
   });
 
   it("measures, once, a book added before the server measured books", async () => {

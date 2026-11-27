@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { coverColour, hexOf } from "@ribbon/core/bookcase/cloth";
 import type { Host } from "@ribbon/core/host";
 
 /**
@@ -18,6 +19,12 @@ export interface Cover {
   aspect: number;
   /** The picture's average colour, `#rrggbb`, to tint its place on the shelf. */
   colour: string;
+  /**
+   * The colour its book is bound in on the bookcase, `#rrggbb`: the picture's most characteristic colour, not its
+   * average (core/bookcase/cloth.ts, `coverColour`). Sent with the library, so a bookcase stands every book in its
+   * own cloth without fetching a single cover. A cover made before 0.53 has none until the server next starts.
+   */
+  cloth?: string;
 }
 
 /**
@@ -57,10 +64,30 @@ export async function makeCovers(host: Host, source: { image?: string; audio?: s
       const made = await host.run("ffmpeg", ["-v", "error", "-y", "-i", original, "-vf", `scale='min(${width},iw)':-2:flags=lanczos`, "-q:v", "3", path.join(dir, `${hash}-${width}.jpg`)]);
       if (made.code !== 0) return null;
     }
-    return { hash, aspect: Math.round((stream.width / stream.height) * 1000) / 1000, colour };
+    const cloth = await clothOf(host, original, pixelFile);
+    return { hash, aspect: Math.round((stream.width / stream.height) * 1000) / 1000, colour, ...(cloth ? { cloth } : {}) };
   } finally {
     await rm(original, { force: true });
     await rm(pixelFile, { force: true });
+  }
+}
+
+/** How many pixels across and down a picture is sampled at for its cloth, as the apps sampled it when they chose the cloth themselves. */
+const CLOTH_SAMPLE = 24;
+
+/**
+ * The colour a picture's book is bound in (`Cover.cloth`), from a small sample of the picture. `scratch` is a file
+ * to write the sample to, since ffmpeg's output comes back as text. Null when the picture can't be read.
+ */
+export async function clothOf(host: Host, picture: string, scratch: string): Promise<string | null> {
+  try {
+    const sampled = await host.run("ffmpeg", ["-v", "error", "-y", "-i", picture, "-frames:v", "1", "-vf", `scale=${CLOTH_SAMPLE}:${CLOTH_SAMPLE}:flags=area`, "-f", "rawvideo", "-pix_fmt", "rgba", scratch]);
+    if (sampled.code !== 0) return null;
+    const pixels = await readFile(scratch).catch(() => null);
+    if (!pixels || pixels.length < CLOTH_SAMPLE * CLOTH_SAMPLE * 4) return null;
+    return hexOf(coverColour(pixels));
+  } finally {
+    await rm(scratch, { force: true });
   }
 }
 
