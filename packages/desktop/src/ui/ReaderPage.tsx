@@ -18,6 +18,7 @@ import { Badge, Menu, ProgressLine, SectionHeader, Short } from "./kit";
 import { formatBytes } from "./Servers";
 import { SeriesBooks } from "./SeriesPage";
 import { pageBook } from "@ribbon/core/screen";
+import { splitPeople } from "@ribbon/core/scan/sidefiles";
 import { onlyRead, pagesKind, pagesLabel } from "@ribbon/core/kind";
 import { issuesText } from "@ribbon/core/comic-name";
 import { comicLabelIn, coverDateText, creditLines, dayText, namesText } from "./comic-details";
@@ -197,9 +198,13 @@ export function ReaderPage() {
             <h1 className="mt-1 font-serif text-[2rem]/[1.15] font-semibold tracking-tight text-balance text-ink sm:text-[2.25rem]/[1.15]">{(index >= 0 && series?.titles?.[book.book.id]) || book.book.title}</h1>
             {book.book.subtitle && <p className="mt-1 font-serif text-xl/7 text-pretty text-ink-2">{book.book.subtitle}</p>}
             <p className="mt-2 text-base/6 text-ink-2">
-              {book.book.author || "Author unknown"}
+              {book.book.author ? <People kind="author" names={splitPeople(book.book.author)} /> : "Author unknown"}
               {translators.length > 0 ? `, translated by ${namesText(translators)}` : ""}
-              {book.book.narrator ? `, read by ${book.book.narrator}` : ""}
+              {book.book.narrator && (
+                <>
+                  , read by <People kind="narrator" names={splitPeople(book.book.narrator)} />
+                </>
+              )}
             </p>
 
             {book.book.genres && book.book.genres.length > 0 && (
@@ -381,4 +386,29 @@ function bookNumberIn(group: SeriesGroup, record: SeriesRecord | undefined, book
   const numbers = ids.map((id, i) => seriesNumber(record, id, i + 1, group.numbers));
   const n = numbers[ids.indexOf(bookId)] ?? "";
   return numbers.every((x, i) => x === String(i + 1)) ? `${n} of ${ids.length}` : n;
+}
+
+/**
+ * The people in a book's byline, each a way to everything of theirs on the shelf: the library filtered to that
+ * author, or that narrator (`showBy`).
+ */
+function People({ kind, names }: { kind: "author" | "narrator"; names: string[] }) {
+  const c = useController();
+  return (
+    <>
+      {names.map((name, i) => (
+        <Fragment key={name}>
+          {i > 0 && (i === names.length - 1 ? " and " : ", ")}
+          <button
+            type="button"
+            onClick={() => c.showBy(kind, name)}
+            title={kind === "author" ? `Everything by ${name}` : `Everything read by ${name}`}
+            className="rounded-sm underline decoration-line decoration-1 underline-offset-4 focus-ring hover:text-ink hover:decoration-ink-3"
+          >
+            {name}
+          </button>
+        </Fragment>
+      ))}
+    </>
+  );
 }
