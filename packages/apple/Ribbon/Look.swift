@@ -16,6 +16,33 @@ enum Look {
     static let scale: CGFloat = phone ? 0.65 : 0.7
     #endif
 
+    /// How much larger or smaller than usual the type is drawn, as the person has asked of their device (Settings,
+    /// Display & Brightness, Text Size; or Accessibility, Larger Text): 1 at the usual size, 0.82 at the smallest,
+    /// 1.35 at the largest of the ordinary sizes. Past that, the accessibility sizes are met part of the way, at
+    /// one and a half times: the screens are laid out in fixed measures (covers, rows, the TV's columns) that
+    /// larger type would break out of. Only the type follows it; lengths (`.scaled`) keep their size. The book's
+    /// own text is set by the reader's Aa, not by this. The TV has no such setting.
+    static var typeScale: CGFloat {
+        #if os(tvOS)
+        1
+        #else
+        min(typeScaleMost, UIFontMetrics.default.scaledValue(for: 100) / 100)
+        #endif
+    }
+
+    /// The most the type grows.
+    static let typeScaleMost: CGFloat = 1.5
+
+    /// How much heavier the type is drawn when the person has asked for bold text (Accessibility, Display & Text
+    /// Size, Bold Text), on the faces' weight axis: a regular 400 becomes 550.
+    static var boldBy: CGFloat {
+        #if os(tvOS)
+        0
+        #else
+        UIAccessibility.isBoldTextEnabled ? 150 : 0
+        #endif
+    }
+
     /// Whether this is an iPhone, rather than the TV or an iPad, even one sharing its screen: a book's page is
     /// laid out for the hand there (BookView).
     #if os(tvOS)
@@ -94,14 +121,16 @@ enum Faces {
 }
 
 extension Font {
-    /// Inter, for SwiftUI, at a TV size.
+    /// Inter, for SwiftUI, at a TV size, as large and as heavy as the person has asked their device's type to be
+    /// (`Look.typeScale`, `Look.boldBy`).
     static func ui(_ size: CGFloat, weight: CGFloat = 400) -> Font {
-        Font(Faces.ui(size: size.scaled, weight: weight) as CTFont)
+        Font(Faces.ui(size: size.scaled * Look.typeScale, weight: weight + Look.boldBy) as CTFont)
     }
 
-    /// Newsreader, for a book's title on its own, where it is the book speaking, at a TV size.
+    /// Newsreader, for a book's title on its own, where it is the book speaking, at a TV size, following the same
+    /// settings.
     static func book(_ size: CGFloat, weight: CGFloat = 400) -> Font {
-        Font(Faces.text(size: size.scaled, weight: weight) as CTFont)
+        Font(Faces.text(size: size.scaled * Look.typeScale, weight: weight + Look.boldBy) as CTFont)
     }
 }
 
@@ -188,3 +217,17 @@ private struct ScreenEdges: ViewModifier {
             .padding(.vertical, narrow ? 16 : vertical.scaled)
     }
 }
+
+#if os(iOS)
+/// The screens are drawn again when the person changes their device's text size or asks for bold text: the faces
+/// read both as they are made (`Font.ui`, `Font.book`), so type already on screen wouldn't change by itself.
+/// Where you were stays: the screens' places are the app's (`AppModel.path`), not the views'.
+struct FollowsTextSize: ViewModifier {
+    @Environment(\.dynamicTypeSize) private var size
+    @Environment(\.legibilityWeight) private var weight
+
+    func body(content: Content) -> some View {
+        content.id("\(size) \(weight == .bold)")
+    }
+}
+#endif

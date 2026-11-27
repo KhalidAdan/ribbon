@@ -50,6 +50,8 @@ struct ProgressLine: View {
             }
         }
         .frame(height: 4.scaled)
+        // A drawing: what it shows is said in words beside it, or by whatever holds it.
+        .accessibilityHidden(true)
     }
 }
 
