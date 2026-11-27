@@ -4302,6 +4302,15 @@ export class AppController {
     this.dropDeletedEverywhere();
   }
 
+  /**
+   * Everything by one author, or read by one narrator: the library, filtered to them and nothing else. The filter
+   * shows as a chip there, which takes it off again.
+   */
+  showBy(kind: "author" | "narrator", name: string): void {
+    this.setView({ ...this.state.view, filter: { [kind]: [name] } });
+    this.showLibrary();
+  }
+
   /** Open the full player over the shelf, optionally straight onto one of its drawers. */
   expandPlayer(drawer: Drawer | null = null): void {
     if (!this.state.current) return;
