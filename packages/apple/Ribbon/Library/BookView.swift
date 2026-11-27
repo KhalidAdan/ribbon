@@ -79,7 +79,7 @@ struct BookView: View {
                                     Text(line).font(.ui(24)).foregroundStyle(Color.ink2)
                                 }
                                 Text(book.title).font(.book(60, weight: 600)).foregroundStyle(Color.ink).lineLimit(3).padding(.top, 6.scaled)
-                                Text(byline).font(.ui(26)).foregroundStyle(Color.ink2).padding(.top, 12.scaled)
+                                bylineText(26).padding(.top, 12.scaled)
 
                                 Text(sentence(progress))
                                     .font(.ui(26)).foregroundStyle(Color.ink).monospacedDigit()
@@ -159,7 +159,7 @@ struct BookView: View {
                     Text(line).font(.ui(24)).foregroundStyle(Color.ink2)
                 }
                 Text(book.title).font(.book(46, weight: 600)).foregroundStyle(Color.ink).lineLimit(3)
-                Text(byline).font(.ui(24)).foregroundStyle(Color.ink2)
+                bylineText(24)
             }
             .padding(.top, 24)
 
@@ -269,6 +269,14 @@ struct BookView: View {
             if book.audio && isUnderway(progress) {
                 Button("Start again from the beginning") { Task { await model.startAgain(book) } }
             }
+            // Everything else by the people on its byline: by touch their names lead there too.
+            let people = splitPeople(book.author).map(BookPerson.author) + splitPeople(book.narrator).map(BookPerson.narrator)
+            if !people.isEmpty {
+                Divider()
+                ForEach(people, id: \.self) { person in
+                    Button("Everything \(person.said)") { model.showBooks(by: person) }
+                }
+            }
             #if os(iOS)
             // For the server's admin, as on the desktop's book page. The TV has no way to delete a book.
             if model.isAdmin {
@@ -293,6 +301,45 @@ struct BookView: View {
             guard let index = series.books.firstIndex(where: { $0.id == book.id }) else { return nil }
             return "\(series.name) · \(series.place(of: book, at: index))"
         }
+    }
+
+    /// The byline as the page draws it. By touch each name is a link to everything of theirs in the library
+    /// (BooksView.swift); on the TV, where text can't take the remote's focus, More has the same ways there.
+    @ViewBuilder private func bylineText(_ size: CGFloat) -> some View {
+        #if os(iOS)
+        Text(linkedByline).font(.ui(size)).foregroundStyle(Color.ink2).tint(Color.ink2)
+            .environment(\.openURL, OpenURLAction { url in
+                guard url.scheme == Self.personScheme, let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value else { return .systemAction }
+                model.showBooks(by: url.host() == "narrator" ? .narrator(name) : .author(name))
+                return .handled
+            })
+        #else
+        Text(byline).font(.ui(size)).foregroundStyle(Color.ink2)
+        #endif
+    }
+
+    private static let personScheme = "ribbon-person"
+
+    /// The byline with each author and each narrator underlined, as a link the page answers itself.
+    private var linkedByline: AttributedString {
+        func names(_ people: [String], as kind: String) -> AttributedString {
+            var out = AttributedString()
+            for (i, name) in people.enumerated() {
+                if i > 0 { out += AttributedString(i == people.count - 1 ? " and " : ", ") }
+                var link = AttributedString(name)
+                var address = URLComponents()
+                address.scheme = Self.personScheme
+                address.host = kind
+                address.queryItems = [URLQueryItem(name: "name", value: name)]
+                link.link = address.url
+                link.underlineStyle = .single
+                out += link
+            }
+            return out
+        }
+        var out = book.author.isEmpty ? AttributedString("Author unknown") : names(splitPeople(book.author), as: "author")
+        if !book.narrator.isEmpty { out += AttributedString(", read by ") + names(splitPeople(book.narrator), as: "narrator") }
+        return out
     }
 
     /// Who wrote it and who reads it: "Frank Herbert, read by Scott Brick".

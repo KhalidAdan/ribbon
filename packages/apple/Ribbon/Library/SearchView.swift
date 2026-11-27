@@ -110,8 +110,9 @@ private struct Label: View {
     }
 }
 
-/// A book found: its cover, its title in the book's face, who wrote and reads it, and how far through it you are.
-private struct BookRow: View {
+/// A book in a list (a search's, or the list of books): its cover, its title in the book's face, who wrote and reads
+/// it, and how far through it you are.
+struct BookRow: View {
     @Environment(AppModel.self) private var model
     let book: ServerBook
 
