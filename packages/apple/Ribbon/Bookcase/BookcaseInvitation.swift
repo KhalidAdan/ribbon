@@ -97,7 +97,7 @@ struct BookcasePicture: View {
         let scale = displayScale
         let key = Vignette.key(newest, size: size, scale: scale)
         if let kept = Vignette.kept(key) { picture = kept; return }
-        let cloths = await CoverCloths.cloths(for: newest.map(\.book), server: library.server)
+        let cloths = CoverCloths.cloths(for: newest.map(\.book))
         // The library comes first: what you were in the middle of is on screen before any of this is drawn.
         try? await Task.sleep(for: .milliseconds(400))
         guard !Task.isCancelled else { return }
@@ -105,8 +105,6 @@ struct BookcasePicture: View {
         guard let drawn, !Task.isCancelled else { return }
         Vignette.keep(drawn, as: key)
         withAnimation(.easeOut(duration: 0.4)) { picture = drawn }
-        // Then every other book's cloth, so the bookcase, if it's chosen, has them all.
-        _ = await CoverCloths.cloths(for: library.shelved, server: library.server)
     }
 
     private func fade(_ axis: Axis, _ edge: CGFloat) -> some View {

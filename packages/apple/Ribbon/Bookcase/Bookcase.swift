@@ -60,7 +60,7 @@ final class Bookcase {
     }
 
     /// Lay the books out for a screen and build the shelves: stacked in a case `width` wide, or, with `long`, one long
-    /// shelf. The cloths come from the covers first, so every spine is drawn once, in its own colour. The laying out and
+    /// shelf. The cloths come with the library's list, so every spine is drawn once, in its own colour, and no cover is fetched. The laying out and
     /// the making are done off the main thread, so the page answers meanwhile; a build for a size the page has since left
     /// (the TV's page changes size once as it opens) stops between shelves, rather than taking the cores from the next.
     func build(width: CGFloat, k: CGFloat, scale: CGFloat, long: Bool) async {
@@ -69,9 +69,7 @@ final class Bookcase {
         guard width > 100, key != builtFor else { return }
         builtFor = key; self.k = k; self.scale = scale
         let books = self.books
-        let cloths = await CoverCloths.cloths(for: books.map(\.book), server: library.server)
-        guard builtFor == key else { return }
-        measured("cloths from the covers")
+        let cloths = CoverCloths.cloths(for: books.map(\.book))
         if long {
             let line = await Task.detached(priority: .userInitiated) { layoutLine(books, k: k, cloths: cloths) }.value
             guard builtFor == key else { return }
@@ -104,7 +102,8 @@ final class Bookcase {
 
     func item(_ id: String) -> ShelfItem? { everything.first { $0.id == id } }
 
-    /// Take a book down: off its shelf and into your hand. The books either side are made ready for your hand too.
+    /// Take a book down: off its shelf and into your hand. The books either side are made ready for your hand too,
+    /// without their covers: the only cover fetched is the one of the book you have landed on (BookInHand.swift).
     func select(_ it: ShelfItem) {
         guard selected?.id != it.id else { return }
         selected = it
@@ -133,67 +132,16 @@ final class Bookcase {
     }
 }
 
-/// Each cover's cloth, worked out once from the server's smallest copy of the cover and kept, on this device, from one
-/// launch to the next: the bookcase draws every spine in its own colour from the start, and the pictures themselves aren't
-/// kept. A cover's hash names its picture, so a new cover is a new hash and is worked out again.
-@MainActor
+/// Each cover's cloth, by the cover's hash, as the server lists it with the library: the bookcase draws every spine in
+/// its own colour from the start without fetching a single cover. A book whose cover the server lists no cloth for (a
+/// server older than 0.53) stands in a quiet cloth of its own (`Cloth.forBook`).
 enum CoverCloths {
-    /// Each cover's own colour, by its hash; its cloth is the swatch nearest that.
-    private static var colours: [String: RGB] = load()
-    private static var known: [String: Cloth] = colours.mapValues(Cloth.nearest)
-    /// Covers being sampled now: a second ask waits for these rather than asking the server again.
-    private static var sampling: Task<Void, Never>?
-
-    /// The cloths of these books' covers, fetching those not yet known, six at a time.
-    static func cloths(for books: [ServerBook], server: RibbonServer) async -> [String: Cloth] {
-        while let running = sampling { await running.value }
-        let wanted = Set(books.compactMap { $0.cover?.hash }).subtracting(known.keys)
-        guard !wanted.isEmpty else { return known }
-        let task = Task { await sample(wanted, server: server) }
-        sampling = task
-        await task.value
-        sampling = nil
-        save()
-        return known
-    }
-
-    private static func sample(_ hashes: Set<String>, server: RibbonServer) async {
-        var wanted = hashes.makeIterator()
-        await withTaskGroup(of: (String, RGB?).self) { group in
-            func next() {
-                guard let hash = wanted.next() else { return }
-                group.addTask { (hash, await colour(hash, server: server)) }
-            }
-            for _ in 0 ..< 6 { next() }
-            for await (hash, colour) in group {
-                if let colour { colours[hash] = colour; known[hash] = Cloth.nearest(colour) }
-                next()
-            }
+    static func cloths(for books: [ServerBook]) -> [String: Cloth] {
+        var cloths: [String: Cloth] = [:]
+        for cover in books.compactMap(\.cover) {
+            guard let listed = cover.cloth, listed.hasPrefix("#"), listed.count == 7, let hex = UInt32(listed.dropFirst(), radix: 16) else { continue }
+            cloths[cover.hash] = Cloth.nearest(RGB(hex))
         }
-    }
-
-    /// A cover's colour, from a 24 by 24 sample of it, as the desktop samples a cover for its colour.
-    private nonisolated static func colour(_ hash: String, server: RibbonServer) async -> RGB? {
-        guard let cover = try? await server.cover(hash, width: 200).cgImage else { return nil }
-        let n = 24
-        var px = [UInt8](repeating: 0, count: n * n * 4)
-        guard let ctx = CGContext(data: &px, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        ctx.draw(cover, in: CGRect(x: 0, y: 0, width: n, height: n))
-        return Cloth.coverColour(pixels: px)
-    }
-
-    /// Kept with the app's caches, which the system may clear: then the covers are sampled again.
-    private static let file = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("cover-colours.json")
-
-    private static func load() -> [String: RGB] {
-        guard let file, let data = try? Data(contentsOf: file), let hex = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
-        return hex.compactMapValues { UInt32($0, radix: 16).map(RGB.init) }
-    }
-
-    private static func save() {
-        guard let file else { return }
-        let hex = colours.mapValues { String(format: "%02x%02x%02x", $0.r, $0.g, $0.b) }
-        try? JSONEncoder().encode(hex).write(to: file, options: .atomic)
+        return cloths
     }
 }

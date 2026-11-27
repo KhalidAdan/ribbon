@@ -98,7 +98,8 @@ private struct StackedBookcase: View {
                     // Lazy: only shelves near the screen are made at all.
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(bookcase.rows) { row in
-                            ShelfRowView(row: row, focus: $focus, press: { tv ? app.open($0.book.book) : choose($0, in: bookcase, app: app) }, scrub: { bookcase.select($0) })
+                            ShelfRowView(row: row, focus: $focus, press: { tv ? app.open($0.book.book) : choose($0, in: bookcase, app: app) }, scrub: { bookcase.select($0) },
+                                         across: { id, right in acrossShelves(bookcase.rows.map(\.items), from: id, right: right)?.id })
                                 .id(row.id)
                         }
                     }
@@ -439,6 +440,8 @@ private struct ShelfRowView: View {
     var focus: FocusState<String?>.Binding
     let press: (ShelfItem) -> Void
     let scrub: (ShelfItem) -> Void
+    /// The book the remote's left or right leads to from this shelf's end: on the next shelf, or the one before.
+    let across: (_ from: String, _ right: Bool) -> String?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -461,6 +464,12 @@ private struct ShelfRowView: View {
                 #if os(tvOS)
                 // The remote's focus takes a book down on the TV; by touch a tap does, and keyboard focus stays out of it.
                 .focused(focus, equals: it.id)
+                // Along the shelf the remote's focus finds the next book by itself; at the shelf's end it has nowhere
+                // to go, so left and right carry on to the shelf above or below.
+                .onMoveCommand { direction in
+                    guard direction == .left || direction == .right, let next = across(it.id, direction == .right) else { return }
+                    focus.wrappedValue = next
+                }
                 #endif
                 .accessibilityLabel("\(it.book.title), \(it.book.author)")
                 .padding(.leading, f.minX)
