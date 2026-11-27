@@ -22,6 +22,8 @@ struct BookLook {
 }
 
 enum BookModel {
+    /// The name of the front board's material.
+    static let frontBoard = "front board"
     /// How far the spine is rounded, as a part of the book's thickness: a hardback's well rounded, a paperback's nearly flat.
     static func roundness(_ T: CGFloat, paperback: Bool = false) -> CGFloat { T * (paperback ? 0.035 : 0.16) }
 
@@ -167,6 +169,8 @@ enum BookModel {
         // A printed cover is paper over the board: the cloth only just shows through it.
         let frontMat = material(look.front, rough: paperback ? 0.6 : 0.7, normal: BookTextures.clothNormal, scale: coverWeave)
         frontMat.normal.intensity = paperback ? 0.1 : 0.25
+        // Named, so the book in hand can put its cover there when the picture arrives (BookInHand.swift).
+        frontMat.name = BookModel.frontBoard
         let edgeMat = material(paperback ? UIColor(white: 0.88, alpha: 1) : look.cloth.darker(0.82), rough: 0.9)
         let liningMat = material(look.endpaper, rough: 0.95)
         let pagesMat = material(BookTextures.pages, rough: 0.92, normal: BookTextures.pageRidges, scale: (Float(T / 26), 1))

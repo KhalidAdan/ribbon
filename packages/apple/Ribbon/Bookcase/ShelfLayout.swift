@@ -110,3 +110,13 @@ private func spreadCloths(_ shelves: inout [[ShelfItem]]) {
         }
     }
 }
+
+/// The book the remote's left or right leads to from the end of a shelf, where the shelf itself has no more books that
+/// way: right from a shelf's last book is the first book of the shelf below, and left from its first is the last book of
+/// the shelf above, as reading a page goes. Nil anywhere else, and at the case's two ends. The desktop's arrow keys step
+/// the same way (packages/core/src/bookcase/case.ts, `stepOnCase`).
+func acrossShelves(_ shelves: [[ShelfItem]], from id: String, right: Bool) -> ShelfItem? {
+    guard let row = shelves.firstIndex(where: { $0.contains { $0.id == id } }) else { return nil }
+    if right { return shelves[row].last?.id == id && row + 1 < shelves.count ? shelves[row + 1].first : nil }
+    return shelves[row].first?.id == id && row > 0 ? shelves[row - 1].last : nil
+}

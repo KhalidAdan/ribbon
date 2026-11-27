@@ -10,6 +10,9 @@ struct ServerBook: Decodable, Identifiable, Hashable {
         /// Width over height.
         let aspect: Double
         let colour: String
+        /// The colour its book is bound in on the bookcase, `#rrggbb`, chosen by the server from the picture
+        /// (packages/server/src/library/covers.ts). Absent from a server older than 0.53.
+        var cloth: String? = nil
     }
 
     let id: String
