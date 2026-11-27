@@ -10,6 +10,16 @@ enum Format {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
+    /// A length of time said aloud, for a screen reader: "1 hour 4 minutes", "12 minutes 30 seconds", "8 seconds".
+    static func spoken(_ ms: Int) -> String {
+        let total = max(0, ms / 1000)
+        let (h, m, s) = (total / 3600, total % 3600 / 60, total % 60)
+        let said = { (n: Int, unit: String) in "\(n) \(unit)\(n == 1 ? "" : "s")" }
+        if h > 0 { return m > 0 ? "\(said(h, "hour")) \(said(m, "minute"))" : said(h, "hour") }
+        if m > 0 { return s > 0 ? "\(said(m, "minute")) \(said(s, "second"))" : said(m, "minute") }
+        return said(s, "second")
+    }
+
     /// How long a comic is: "24 pages", "1 page".
     static func pages(_ count: Int) -> String {
         "\(count) \(count == 1 ? "page" : "pages")"

@@ -122,7 +122,8 @@ struct BookRow: View {
                 CoverView(book: book, size: 72)
                 VStack(alignment: .leading, spacing: 6.scaled) {
                     Text(book.title).font(.book(28, weight: 500)).foregroundStyle(Color.ink).lineLimit(2).multilineTextAlignment(.leading)
-                    Text(byline).font(.ui(20)).foregroundStyle(Color.ink3).lineLimit(1)
+                    // At a large text size a byline takes a second line before it is cut short.
+                    Text(byline).font(.ui(20)).foregroundStyle(Color.ink3).lineLimit(Look.typeScale > 1.15 ? 2 : 1).multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 24.scaled)
                 Text(model.library?.standing(of: book) ?? "").font(.ui(20)).foregroundStyle(Color.ink2).monospacedDigit().lineLimit(1)

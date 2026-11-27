@@ -77,3 +77,20 @@ final class BooksListTests: XCTestCase {
         XCTAssertEqual(books.inOrder(.newest).map(\.title), ["The Hobbit", "Book 2", "Book 10", "A Wizard of Earthsea"])
     }
 }
+
+/// What a screen reader is told, and how far the type grows.
+final class AccessibilityTests: XCTestCase {
+    func testLengthsOfTimeAreSaidInWords() {
+        XCTAssertEqual(Format.spoken(3_843_000), "1 hour 4 minutes")
+        XCTAssertEqual(Format.spoken(3_600_000), "1 hour")
+        XCTAssertEqual(Format.spoken(750_000), "12 minutes 30 seconds")
+        XCTAssertEqual(Format.spoken(60_000), "1 minute")
+        XCTAssertEqual(Format.spoken(8_000), "8 seconds")
+        XCTAssertEqual(Format.spoken(1_000), "1 second")
+    }
+
+    func testTheTypeGrowsWithTheDevicesTextSizeAndNoFurtherThanTheScreensHold() {
+        XCTAssertGreaterThan(Look.typeScale, 0.7)
+        XCTAssertLessThanOrEqual(Look.typeScale, Look.typeScaleMost)
+    }
+}

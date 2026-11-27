@@ -32,6 +32,7 @@ struct RibbonApp: App {
             .preferredColorScheme(.dark)
             #if os(iOS)
             .modifier(SaysWhichWayUp())
+            .modifier(FollowsTextSize())
             #endif
             .onChange(of: phase, initial: true) { _, phase in
                 model.inFront = phase == .active

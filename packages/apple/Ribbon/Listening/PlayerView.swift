@@ -137,19 +137,28 @@ private struct NowPlaying: View {
                 }
                 .font(.ui(20)).foregroundStyle(Color.ink3).monospacedDigit()
             }
+            // Read aloud as one thing: the chapter, and how far through it the narration is.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(chapter?.title ?? "The book")
+            .accessibilityValue("\(Format.spoken(inChapter)) of \(Format.spoken(length))")
             .padding(.top, 56.scaled)
             HStack(spacing: narrow ? 12 : 36.scaled) {
                 Button { listening.chapter(by: -1) } label: { Image(systemName: "backward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
+                    .accessibilityLabel("Previous chapter")
                 Button { listening.skip(by: -Listening.skipMs) } label: { Image(systemName: "gobackward.30") }
                     .buttonStyle(RoundButtonStyle(size: 80))
+                    .accessibilityLabel("Back 30 seconds")
                 Button { listening.playPause() } label: { Image(systemName: listening.playing ? "pause.fill" : "play.fill") }
                     .buttonStyle(RoundButtonStyle(size: 112, primary: true))
                     .focused(playFocused)
+                    .accessibilityLabel(listening.playing ? "Pause" : "Play")
                 Button { listening.skip(by: Listening.skipMs) } label: { Image(systemName: "goforward.30") }
                     .buttonStyle(RoundButtonStyle(size: 80))
+                    .accessibilityLabel("Forward 30 seconds")
                 Button { listening.chapter(by: 1) } label: { Image(systemName: "forward.end.fill") }
                     .buttonStyle(RoundButtonStyle(size: 72))
+                    .accessibilityLabel("Next chapter")
             }
             .padding(.top, 40.scaled)
             if let ms = listening.dozedOffer {
@@ -205,9 +214,11 @@ private struct ListeningGroup: View {
                 HStack(spacing: 18.scaled) {
                     Button { listening.setSpeed(listening.speed - Listening.speedStep) } label: { Image(systemName: "minus") }
                         .buttonStyle(RoundButtonStyle(size: 52))
+                        .accessibilityLabel("Slower")
                     Text(Format.speed(listening.speed)).font(.ui(26, weight: 500)).foregroundStyle(Color.ink).frame(width: 90.scaled)
                     Button { listening.setSpeed(listening.speed + Listening.speedStep) } label: { Image(systemName: "plus") }
                         .buttonStyle(RoundButtonStyle(size: 52))
+                        .accessibilityLabel("Faster")
                 }
             }
             SleepRow(listening: listening)

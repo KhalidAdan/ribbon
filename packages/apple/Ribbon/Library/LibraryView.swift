@@ -298,6 +298,8 @@ struct CoverView: View {
         .frame(width: size.scaled, height: size.scaled)
         .clipShape(RoundedRectangle(cornerRadius: max(4, size * 0.025).scaled))
         .overlay(RoundedRectangle(cornerRadius: max(4, size * 0.025).scaled).stroke(Color.line))
+        // The book is named in words wherever its cover is shown.
+        .accessibilityHidden(true)
         .task(id: book.cover?.hash) {
             guard let hash = book.cover?.hash, let server = model.server else { return }
             let found = try? await server.cover(hash, width: size > 200 ? 800 : 400)
