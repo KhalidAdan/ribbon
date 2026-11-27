@@ -2,7 +2,8 @@
 import UIKit
 
 /// Which ways the iPhone may turn. Ribbon on the iPhone stands upright, but on the bookcase's page it may lie on its
-/// side, which shows the long shelf; anywhere else it turns back upright. The iPad turns every way, always.
+/// side, which shows the long shelf, and so it may in a comic, whose pages and panels are often wider than they are
+/// tall; anywhere else it turns back upright. The iPad turns every way, always.
 final class Turning: NSObject, UIApplicationDelegate {
     private static var sideways = false
 
@@ -11,7 +12,7 @@ final class Turning: NSObject, UIApplicationDelegate {
         return Self.sideways ? .allButUpsideDown : .portrait
     }
 
-    /// Let the phone lie on its side, on the bookcase's page, or stand it upright again, anywhere else.
+    /// Let the phone lie on its side, on the bookcase's page and in a comic, or stand it upright again, anywhere else.
     static func allowSideways(_ allowed: Bool) {
         guard Look.phone, allowed != sideways else { return }
         sideways = allowed

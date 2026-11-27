@@ -88,8 +88,8 @@ private struct Screens: View {
         .task { await SpeedPass.shared.run(model) }
         #endif
         #if os(iOS)
-        // An iPhone may turn on its side only on the bookcase's page, where turning it shows the long shelf.
-        .onChange(of: model.path.last == .bookcase, initial: true) { _, onBookcase in Turning.allowSideways(onBookcase) }
+        // The iPhone may lie on its side on the bookcase's page and in a comic, and nowhere else (Turning.swift).
+        .onChange(of: model.path.last == .bookcase || model.path.last == .comic, initial: true) { _, mayTurn in Turning.allowSideways(mayTurn) }
         .onDisappear { Turning.allowSideways(false) }
         #endif
         .overlay(alignment: .bottom) {
