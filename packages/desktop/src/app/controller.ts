@@ -7,7 +7,7 @@ import { defaultChoices, deletedSeriesRecord, detectSeries, mergeSeries, newSeri
 import type { BookAbout } from "@ribbon/core/about";
 import { sameRoot, serverKey, sourceFrom, sourceId, sourceName, type ServerRef, type Source, type SourceEntry } from "@ribbon/core/sources";
 import { nothingMeasured } from "@ribbon/core/loudness";
-import { ServerClient, ServerError, type ServerJob, type SignInWay } from "./server/client";
+import { ServerClient, ServerError, type ServerJob, type ServerPeople, type SignInWay } from "./server/client";
 import { NotEnoughSpace, ServerShelf, serverIdOf } from "./server/shelf";
 import { ServerLog } from "./server/server-log";
 import { serverCoverPath, type FoundSentence, type ServerBookDetail } from "@ribbon/core/server-books";
@@ -4300,6 +4300,28 @@ export class AppController {
   showLibrary(): void {
     this.toScreen({ type: "show", pane: "library" });
     this.dropDeletedEverywhere();
+  }
+
+  /** The server this Ribbon is the admin of, or null: the first, when it is connected to several. */
+  private get adminOf(): Opened | null {
+    return this.openedInOrder().find((o) => o.server && o.serverAdmin) ?? null;
+  }
+
+  /** As a server's admin: its people and how someone new joins, with the server's name. Null when this isn't the admin of one. */
+  async serverPeople(): Promise<(ServerPeople & { server: string }) | null> {
+    const o = this.adminOf;
+    if (!o?.server) return null;
+    return { ...(await o.server.client.people()), server: o.source.name };
+  }
+
+  /** As the admin of a server that keeps its own accounts: a link for one person to make theirs. */
+  async inviteToServer(): Promise<{ url: string; expiresAt: string } | null> {
+    return (await this.adminOf?.server?.client.invite()) ?? null;
+  }
+
+  /** As a server's admin: sign someone out of every device of theirs. */
+  async signOutEverywhere(personId: string): Promise<void> {
+    await this.adminOf?.server?.client.signOutEverywhere(personId);
   }
 
   /**
