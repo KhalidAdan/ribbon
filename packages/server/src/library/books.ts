@@ -396,8 +396,11 @@ export class BookIndex {
   }
 }
 
+/** A value read from a row, which the types say may not be there. */
+type Column = SQLOutputValue | undefined;
+
 /** A cover from its columns: its cloth only once the server has worked it out. */
-function coverOf(hash: SQLOutputValue, aspect: SQLOutputValue, colour: SQLOutputValue, cloth: SQLOutputValue | undefined): Cover {
+function coverOf(hash: Column, aspect: Column, colour: Column, cloth: Column): Cover {
   return { hash: String(hash), aspect: Number(aspect), colour: String(colour), ...(cloth === null || cloth === undefined ? {} : { cloth: String(cloth) }) };
 }
 
