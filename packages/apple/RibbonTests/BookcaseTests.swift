@@ -38,3 +38,42 @@ final class BookcaseTests: XCTestCase {
         XCTAssertNil(acrossShelves(shelves, from: "no such book", right: true))
     }
 }
+
+/// The list of books: whose name is on what, and the orders it can be in.
+final class BooksListTests: XCTestCase {
+    private func book(_ title: String, author: String = "", narrator: String = "", added: String? = nil) -> ServerBook {
+        ServerBook(id: title, title: title, author: author, narrator: narrator, series: "", seriesIndex: nil, durationMs: 0, audio: true, ebook: false,
+                   ebookBytes: nil, words: nil, cover: nil, addedAt: added)
+    }
+
+    func testPeopleInAFieldAreSplitAsTheDesktopSplitsThem() {
+        XCTAssertEqual(splitPeople("Terry Pratchett & Neil Gaiman"), ["Terry Pratchett", "Neil Gaiman"])
+        XCTAssertEqual(splitPeople("A One; B Two"), ["A One", "B Two"])
+        XCTAssertEqual(splitPeople("Ann Lee and Bo Ray"), ["Ann Lee", "Bo Ray"])
+        XCTAssertEqual(splitPeople("Ann Lee, Bo Ray"), ["Ann Lee", "Bo Ray"])
+        XCTAssertEqual(splitPeople("Ann, Bo, Cy"), ["Ann", "Bo", "Cy"])
+        // A single "Last, First" stays one person, and a name with "and" inside a word isn't cut.
+        XCTAssertEqual(splitPeople("Herbert, Frank"), ["Herbert, Frank"])
+        XCTAssertEqual(splitPeople("Brandon Sanderson"), ["Brandon Sanderson"])
+        XCTAssertEqual(splitPeople("  "), [])
+    }
+
+    func testAPersonsBooksAreTheOnesWithTheirNameOnThem() {
+        let books = [book("Good Omens", author: "Terry Pratchett & Neil Gaiman", narrator: "Martin Jarvis"), book("Mort", author: "Terry Pratchett"), book("Coraline", author: "Neil Gaiman", narrator: "Neil Gaiman")]
+        XCTAssertEqual(books.by(.author("Terry Pratchett")).map(\.title), ["Good Omens", "Mort"])
+        XCTAssertEqual(books.by(.narrator("Neil Gaiman")).map(\.title), ["Coraline"])
+        XCTAssertEqual(books.by(.author("Nobody")).map(\.title), [])
+    }
+
+    func testTheOrdersFileBooksAsAShelfDoes() {
+        let books = [
+            book("The Hobbit", author: "J. R. R. Tolkien", added: "2026-01-03T00:00:00.000Z"),
+            book("Book 10", author: "Ann Able", added: "2026-01-01T00:00:00.000Z"),
+            book("Book 2", author: "Ann Able", added: "2026-01-02T00:00:00.000Z"),
+            book("A Wizard of Earthsea", author: "Ursula K. Le Guin"),
+        ]
+        XCTAssertEqual(books.inOrder(.title).map(\.title), ["Book 2", "Book 10", "The Hobbit", "A Wizard of Earthsea"])
+        XCTAssertEqual(books.inOrder(.author).map(\.title), ["Book 2", "Book 10", "A Wizard of Earthsea", "The Hobbit"])
+        XCTAssertEqual(books.inOrder(.newest).map(\.title), ["The Hobbit", "Book 2", "Book 10", "A Wizard of Earthsea"])
+    }
+}

@@ -66,6 +66,7 @@ private struct Screens: View {
                         case .search: SearchView().wayBack()
                         case .settings: SettingsView().wayBack()
                         case .stats: StatsView().wayBack()
+                        case .books(let by): BooksView(by: by).wayBack()
                         // The bookcase puts its own way back where it wants it: on an iPhone on its side, beside the shelf.
                         case .bookcase: BookcaseView()
                         case .reader:
@@ -168,6 +169,8 @@ final class AppModel {
         case settings
         case stats
         case bookcase
+        /// The list of every book, or of one person's (Library/BooksView.swift).
+        case books(by: BookPerson? = nil)
     }
 
     struct Reading {
@@ -249,6 +252,7 @@ final class AppModel {
         case .settings: return "Settings"
         case .stats: return "Stats"
         case .bookcase: return "Bookcase"
+        case .books(let by): return by?.name ?? "Books"
         case .reader: return "Read along"
         case .comic: return comic?.book.title ?? "Comic"
         }
@@ -484,6 +488,11 @@ final class AppModel {
     /// What you've been listening to.
     func showStats() {
         if path.last != .stats { path.append(.stats) }
+    }
+
+    /// The list of every book, or of everything with one person's name on it.
+    func showBooks(by person: BookPerson? = nil) {
+        if path.last != .books(by: person) { path.append(.books(by: person)) }
     }
 
     /// Search, by voice or by typing: a book by its details, or a line in any book.

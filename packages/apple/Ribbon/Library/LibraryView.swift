@@ -46,7 +46,9 @@ struct LibraryView: View {
                             .scrollClipDisabled()
                         }
                     }
-                    // Then every book, on the bookcase: a page of its own, which the foot of the library invites you to.
+                    // Then every book: in a plain list, to find one in, and on the bookcase, a page of its own, which the
+                    // foot of the library invites you to.
+                    if library.books.count > 1 { AllBooksRow(count: library.books.count) }
                     if !library.shelved.isEmpty { BookcaseInvitation(library: library) }
                 } else {
                     Text(library?.problem ?? "Asking \(model.host) for its books…").font(.ui(28)).foregroundStyle(Color.ink2)
@@ -247,6 +249,31 @@ private struct SeriesCard: View {
         }
         .buttonStyle(LiftStyle(radius: 20))
         .fillsNarrowRow(room: 24)
+    }
+}
+
+/// The way to the list of every book (BooksView.swift): one row, the width of the page.
+private struct AllBooksRow: View {
+    @Environment(AppModel.self) private var model
+    let count: Int
+
+    var body: some View {
+        Button { model.showBooks() } label: {
+            HStack(spacing: 20.scaled) {
+                Image(systemName: "list.bullet").font(.system(size: 26.scaled, weight: .medium)).foregroundStyle(Color.ink2)
+                VStack(alignment: .leading, spacing: 4.scaled) {
+                    Text("All books").font(.ui(26, weight: 500)).foregroundStyle(Color.ink)
+                    Text("\(count) books in a list, by title, author or newest.").font(.ui(22)).foregroundStyle(Color.ink2).monospacedDigit()
+                }
+                Spacer(minLength: 16.scaled)
+                Image(systemName: "chevron.right").font(.system(size: 20.scaled, weight: .semibold)).foregroundStyle(Color.ink3)
+            }
+            .padding(24.scaled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 20.scaled).fill(Color.surface))
+            .overlay(RoundedRectangle(cornerRadius: 20.scaled).stroke(Color.line))
+        }
+        .buttonStyle(LiftStyle(radius: 20))
     }
 }
 
