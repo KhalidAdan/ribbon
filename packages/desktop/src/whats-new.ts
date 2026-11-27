@@ -12,8 +12,10 @@ export const RELEASES: readonly ReleaseNotes[] = [
     version: "0.54.0",
     points: [
       "Press ? for every key Ribbon answers to.",
-      "After Ribbon updates itself, it says what changed. That's this.",
+      "After Ribbon updates itself, it says what changed. That's this, and Settings keeps the last few versions.",
       "An author's or a narrator's name on a book's page leads to everything of theirs you have.",
+      "A server's admin has People under Settings: who is on the server, a link to invite someone, and a way to sign someone out everywhere.",
+      "On the iPhone, the iPad and the TV: a list of every book, type that follows your device's text size, and comics read with the iPhone on its side.",
     ],
   },
   {
