@@ -63,6 +63,26 @@ export class ServerError extends Error {
   }
 }
 
+/** Someone on a server, as it lists its people to its admin. */
+export interface ServerPerson {
+  id: string;
+  /** The name they sign in with. */
+  name: string;
+  /** The name they are shown by. */
+  displayName: string;
+  role: string;
+}
+
+/**
+ * A server's people, and how someone new joins: by a link its admin makes (a server that keeps its own accounts), or
+ * through its sign-in provider, whose own admin lets people in (`address` is where, when the server says). Null from
+ * a server too old to say.
+ */
+export interface ServerPeople {
+  people: ServerPerson[];
+  joining: { by: "invite" } | { by: "provider"; name: string; address?: string } | null;
+}
+
 /**
  * A Ribbon server, as this app talks to it (docs/SERVER.md, section 10):
  * JSON over HTTP, signed in with a token in a header. Downloads of a
@@ -262,6 +282,23 @@ export class ServerClient {
   /** Who's signed in: their name, and whether they're the server's admin. */
   async me(): Promise<{ name: string; role: string }> {
     return ((await (await this.get("/api/me")).json()) as { user: { name: string; role: string } }).user;
+  }
+
+  /** As the admin: everyone on the server, and how someone new joins it. */
+  async people(): Promise<ServerPeople> {
+    const told = (await (await this.get("/api/people")).json()) as { people: ServerPerson[]; joining?: ServerPeople["joining"] };
+    // A server from before 0.54 doesn't say how people join: then nothing is offered.
+    return { people: told.people, joining: told.joining ?? null };
+  }
+
+  /** As the admin of a server that keeps its own accounts: a link that lets one person make theirs, good once. */
+  async invite(): Promise<{ url: string; expiresAt: string }> {
+    return (await (await this.send("/api/invites", { method: "POST" })).json()) as { url: string; expiresAt: string };
+  }
+
+  /** As the admin: sign someone out of every device, so they sign in again. Their books and places are untouched. */
+  async signOutEverywhere(personId: string): Promise<void> {
+    await this.send(`/api/people/${encodeURIComponent(personId)}/sign-out`, { method: "POST" });
   }
 
   /** As the admin: add a folder on the server's machine. The server copies its books in as a job. */

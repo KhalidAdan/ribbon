@@ -79,6 +79,15 @@ describe("signing in with Pocket ID", () => {
     expect((await server.app.inject({ method: "GET", url: "/api/me", headers: { cookie: `${body.cookie.name}=${body.cookie.value}` } })).statusCode).toBe(200);
   });
 
+  it("tells its admin who is here, and that people join through Pocket ID, where", async () => {
+    const { token } = (await (await signInAsApp()).finish()).json() as { token: string };
+    const told = (await server.app.inject({ method: "GET", url: "/api/people", headers: bearer(token) })).json() as { people: { name: string; role: string }[]; joining: unknown };
+    expect(told.people.map((p) => p.name)).toContain("ann");
+    expect(told.joining).toEqual({ by: "provider", name: "Pocket ID", address: issuer.url });
+    // And it makes no invite of its own.
+    expect((await server.app.inject({ method: "POST", url: "/api/invites", headers: bearer(token) })).statusCode).toBe(404);
+  });
+
   it("makes someone new a person here on their first sign-in, as a user, and the same person every time after", async () => {
     issuer.person = YUSUF;
     const first = (await (await signInAsApp()).finish()).json() as { user: { id: string; name: string; displayName: string; role: string; picture: string | null } };

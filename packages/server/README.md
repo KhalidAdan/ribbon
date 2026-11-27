@@ -269,8 +269,16 @@ use, so invite links point there.
 
 ## Inviting people
 
-Signed in as the admin, `POST /api/invites` makes a link that's good once,
-for a week. The admin pages that do this come later; until then:
+In the desktop app, signed in as the admin: Settings, People, "Invite
+someone". It makes a link that's good once, for a week, to send to them
+yourself. The same section lists everyone on the server, and signs someone
+out of every device of theirs.
+
+A server that signs people in with Pocket ID sends no invites: add the
+person in Pocket ID, and they are listed under People once they have signed
+in.
+
+The link, without the app (`POST /api/invites`):
 
 ```bash
 curl -X POST "$RIBBON_URL/api/invites" -H "authorization: Bearer <your token>"

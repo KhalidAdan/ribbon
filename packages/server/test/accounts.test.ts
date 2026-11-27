@@ -78,6 +78,17 @@ describe("accounts", () => {
     expect(refused.statusCode).toBe(403);
   });
 
+  it("tells its admin who is here and that people join by a link, and nobody else", async () => {
+    const told = (await server.app.inject({ method: "GET", url: "/api/people", headers: bearer(adminToken) })).json() as { people: { name: string; role: string }[]; joining: unknown };
+    expect(told.people.map((p) => `${p.name} ${p.role}`)).toEqual(expect.arrayContaining(["yusuf user"]));
+    expect(told.people.filter((p) => p.role === "admin")).toHaveLength(1);
+    expect(told.joining).toEqual({ by: "invite" });
+
+    const signIn = await post("/api/auth/sign-in/username", { username: "yusuf", password: "another long password" });
+    const refused = await server.app.inject({ method: "GET", url: "/api/people", headers: bearer(signIn.headers["set-auth-token"] as string) });
+    expect(refused.statusCode).toBe(403);
+  });
+
   it("gives a code back when the name is taken", async () => {
     const made = (await post("/api/invites", {}, bearer(adminToken))).json() as { code: string };
     const taken = await post(`/api/invites/${made.code}/accept`, { name: "yusuf", password: "a long password" });

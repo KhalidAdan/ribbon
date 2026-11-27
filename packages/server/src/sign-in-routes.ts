@@ -118,7 +118,10 @@ export function signInRoutes(app: FastifyInstance, deps: { auth: Auth; config: S
     const me = await signedIn(auth, request);
     if (!me) return reply.code(401).send({ error: "Sign in first." });
     if (me.role !== "admin") return reply.code(403).send({ error: "Only the admin can list this server's people." });
-    return { people: auth.people.all() };
+    // And how someone new joins, for the admin's page of people: by a link the admin makes here, or through the
+    // provider, whose own admin lets them in (its address is the one every sign-in is sent to).
+    const joining = provider.kind === "password" ? { by: "invite" as const } : { by: "provider" as const, name: provider.name, ...(config.signIn?.with === "pocket-id" ? { address: config.signIn.url } : {}) };
+    return { people: auth.people.all(), joining };
   });
 
   app.get<{ Querystring: { return?: unknown; challenge?: unknown; device?: unknown } }>("/sign-in/start", async (request, reply) => {

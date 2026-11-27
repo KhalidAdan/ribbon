@@ -12,6 +12,7 @@ import { Dialog } from "./Dialog";
 import { settingsLine } from "../app/updates";
 import { sourceProblem } from "../app/controller";
 import { showKeys } from "./AppKeys";
+import { ServerPeople } from "./ServerPeople";
 import { showWhatsNew } from "./WhatsNew";
 
 declare const __APP_VERSION__: string;
@@ -138,6 +139,8 @@ export function SettingsPane() {
             })}
           </Group>
         </section>
+
+        <ServerPeople />
 
         <section aria-labelledby="settings-problems" className="flex flex-col gap-4">
           <SectionHeader
